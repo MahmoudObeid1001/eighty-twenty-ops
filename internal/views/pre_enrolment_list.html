@@ -1,0 +1,102 @@
+{{define "pre_enrolment_list_content"}}
+<!-- Header -->
+<div class="header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+    <h1>Pre-Enrolment</h1>
+</div>
+
+{{if .FlashMessage}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+    {{.FlashMessage}}
+</div>
+{{end}}
+
+<div style="margin-bottom: 20px;">
+    <a href="/pre-enrolment/new" class="btn btn-primary">New Lead</a>
+</div>
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <form method="GET" action="/pre-enrolment" style="display: flex; flex: 1; gap: 15px; align-items: center; flex-wrap: wrap;">
+        <input type="text" name="search" placeholder="Search by name or phone..." id="search" value="{{.SearchFilter}}" style="flex: 1; min-width: 200px;">
+        <select name="status" id="status-filter" onchange="this.form.submit()" style="min-width: 150px;">
+            <option value="" {{if not .StatusFilter}}selected{{end}}>All Statuses</option>
+            <option value="lead_created" {{if eq .StatusFilter "lead_created"}}selected{{end}}>Lead Created</option>
+            <option value="test_booked" {{if eq .StatusFilter "test_booked"}}selected{{end}}>Test Booked</option>
+            <option value="tested" {{if eq .StatusFilter "tested"}}selected{{end}}>Tested</option>
+            <option value="offer_sent" {{if eq .StatusFilter "offer_sent"}}selected{{end}}>Offer Sent</option>
+            <option value="booking_confirmed" {{if eq .StatusFilter "booking_confirmed"}}selected{{end}}>Booking Confirmed</option>
+            <option value="paid_full" {{if eq .StatusFilter "paid_full"}}selected{{end}}>Paid Full</option>
+            <option value="deposit_paid" {{if eq .StatusFilter "deposit_paid"}}selected{{end}}>Deposit Paid</option>
+            <option value="waiting_for_round" {{if eq .StatusFilter "waiting_for_round"}}selected{{end}}>Waiting for Round</option>
+            <option value="schedule_assigned" {{if eq .StatusFilter "schedule_assigned"}}selected{{end}}>Schedule Assigned</option>
+            <option value="ready_to_start" {{if eq .StatusFilter "ready_to_start"}}selected{{end}}>Ready to Start</option>
+        </select>
+        <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
+    </form>
+    <div class="quick-filters">
+        <a href="/pre-enrolment?status=lead_created{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "lead_created"}}active{{end}}">Needs Test</a>
+        <a href="/pre-enrolment?status=tested{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "tested"}}active{{end}}">Tested</a>
+        <a href="/pre-enrolment?status=offer_sent{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "offer_sent"}}active{{end}}">Offer Sent</a>
+        <a href="/pre-enrolment?status=waiting_for_round{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "waiting_for_round"}}active{{end}}">Waiting</a>
+        <a href="/pre-enrolment?status=ready_to_start{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "ready_to_start"}}active{{end}}">Ready to Start</a>
+    </div>
+</div>
+
+<!-- Leads Table -->
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Assigned Level</th>
+                <th>Payment</th>
+                <th>Next Action</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Leads}}
+            <tr>
+                <td>{{.Lead.FullName}}</td>
+                <td>{{.Lead.Phone}}</td>
+                <td><span class="badge {{.Lead.Status}}">{{.Lead.Status}}</span></td>
+                <td>{{if .AssignedLevel.Valid}}Level {{.AssignedLevel.Int32}}{{else}}-{{end}}</td>
+                <td>{{.PaymentStatus}}</td>
+                <td>{{.NextAction}}</td>
+                <td>
+                    <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
+                    <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" style="display: inline-block; margin-left: 5px;">
+                        <input type="hidden" name="action" value="delete">
+                        <button type="submit" class="btn btn-secondary btn-small" style="background-color: #dc3545; border-color: #dc3545;">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {{else}}
+            <tr>
+                <td colspan="7" style="text-align: center; padding: 40px; color: #8C8C8C;">No leads found. <a href="/pre-enrolment/new">Create your first lead</a></td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<script>
+// Submit form when Enter is pressed in search input
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('search');
+    const filterForm = searchInput ? searchInput.closest('form') : null;
+    
+    if (searchInput && filterForm) {
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                filterForm.submit();
+            }
+        });
+    }
+});
+</script>
+{{end}}

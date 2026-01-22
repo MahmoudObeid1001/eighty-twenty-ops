@@ -1,0 +1,77 @@
+{{define "auth_layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/main.css">
+    <style>
+        .auth-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #FFFFFF;
+            padding: 20px;
+        }
+        .auth-card {
+            max-width: 400px;
+            width: 100%;
+            padding: 40px;
+            background: #F9F9F9;
+            border-radius: 8px;
+            border: 1px solid #E6E6E6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .auth-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .auth-header .app-logo {
+            margin: 0 auto 20px;
+            display: block;
+        }
+        .auth-header h1 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .auth-header p {
+            color: #8C8C8C;
+            font-size: 14px;
+        }
+        .auth-form .form-group {
+            margin-bottom: 20px;
+        }
+        .auth-form .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            color: #333;
+        }
+        .auth-form .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #E6E6E6;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .auth-form .btn {
+            width: 100%;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            {{if eq .ContentTemplate "login_content"}}
+                {{template "login_content" .}}
+            {{end}}
+        </div>
+    </div>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,48 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/main.css">
+</head>
+<body>
+{{if ne .HideSidebar true}}
+<div class="container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+        <div class="logo">Eighty Twenty</div>
+        <nav style="flex: 1;">
+            <ul>
+                <li><a href="/pre-enrolment" class="active">Pre-Enrolment</a></li>
+                <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
+                <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
+            </ul>
+        </nav>
+        <div style="padding: 20px; border-top: 1px solid #8C8C8C; margin-top: auto;">
+            <a href="/logout" class="btn btn-secondary" style="width: 100%; display: block; text-align: center; background-color: #6c757d; color: white; text-decoration: none; padding: 12px;">Logout</a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+{{end}}
+        {{if eq .ContentTemplate "login_content"}}
+            {{template "login_content" .}}
+        {{else if eq .ContentTemplate "pre_enrolment_new_content"}}
+            {{template "pre_enrolment_new_content" .}}
+        {{else if eq .ContentTemplate "pre_enrolment_list_content"}}
+            {{template "pre_enrolment_list_content" .}}
+        {{else if eq .ContentTemplate "pre_enrolment_detail_content"}}
+            {{template "pre_enrolment_detail_content" .}}
+        {{else}}
+            <p>Error: Unknown content template: {{.ContentTemplate}}</p>
+        {{end}}
+{{if ne .HideSidebar true}}
+    </main>
+</div>
+{{end}}
+</body>
+</html>
+{{end}}

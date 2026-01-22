@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pre-Enrolment - Eighty Twenty</title>
+    <link rel="stylesheet" href="../styles/main.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">Eighty Twenty</div>
+            <nav>
+                <ul>
+                    <li><a href="pre-enrolment-list.html" class="active">Pre-Enrolment</a></li>
+                    <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
+                    <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <img
+                    src="../../assets/logo/eighty-twenty-logo.png"
+                    alt="Eighty Twenty"
+                    class="app-logo"
+                />
+                <h1>Pre-Enrolment</h1>
+            </div>
+
+            <!-- Filter Bar -->
+            <div class="filter-bar">
+                <input type="text" placeholder="Search by name or phone..." id="search">
+                <select id="status-filter">
+                    <option value="">All Statuses</option>
+                    <option value="lead_created">Lead Created</option>
+                    <option value="test_booked">Test Booked</option>
+                    <option value="tested">Tested</option>
+                    <option value="offer_sent">Offer Sent</option>
+                    <option value="booking_confirmed">Booking Confirmed</option>
+                    <option value="paid_full">Paid Full</option>
+                    <option value="deposit_paid">Deposit Paid</option>
+                    <option value="waiting_for_round">Waiting for Round</option>
+                    <option value="schedule_assigned">Schedule Assigned</option>
+                    <option value="ready_to_start">Ready to Start</option>
+                </select>
+                <div class="quick-filters">
+                    <button class="quick-filter-btn">Needs Test</button>
+                    <button class="quick-filter-btn">Tested</button>
+                    <button class="quick-filter-btn">Offer Sent</button>
+                    <button class="quick-filter-btn">Waiting</button>
+                    <button class="quick-filter-btn">Ready to Start</button>
+                </div>
+            </div>
+
+            <!-- Leads Table -->
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Phone</th>
+                            <th>Status</th>
+                            <th>Assigned Level</th>
+                            <th>Payment</th>
+                            <th>Next Action</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Ahmed Mohamed</td>
+                            <td>+20 100 123 4567</td>
+                            <td><span class="badge lead_created">Lead Created</span></td>
+                            <td>-</td>
+                            <td>Unpaid</td>
+                            <td>Book placement test</td>
+                            <td><a href="pre-enrolment-detail.html?id=1" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Fatima Ali</td>
+                            <td>+20 101 234 5678</td>
+                            <td><span class="badge test_booked">Test Booked</span></td>
+                            <td>-</td>
+                            <td>Unpaid</td>
+                            <td>Run placement test</td>
+                            <td><a href="pre-enrolment-detail.html?id=2" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Omar Hassan</td>
+                            <td>+20 102 345 6789</td>
+                            <td><span class="badge tested">Tested</span></td>
+                            <td>Level 2</td>
+                            <td>Unpaid</td>
+                            <td>Send offer</td>
+                            <td><a href="pre-enrolment-detail.html?id=3" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Sara Ibrahim</td>
+                            <td>+20 103 456 7890</td>
+                            <td><span class="badge offer_sent">Offer Sent</span></td>
+                            <td>Level 3</td>
+                            <td>Unpaid</td>
+                            <td>Wait for booking</td>
+                            <td><a href="pre-enrolment-detail.html?id=4" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Youssef Khaled</td>
+                            <td>+20 104 567 8901</td>
+                            <td><span class="badge booking_confirmed">Booking Confirmed</span></td>
+                            <td>Level 1</td>
+                            <td>Deposit</td>
+                            <td>Collect payment</td>
+                            <td><a href="pre-enrolment-detail.html?id=5" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Layla Mahmoud</td>
+                            <td>+20 105 678 9012</td>
+                            <td><span class="badge paid_full">Paid Full</span></td>
+                            <td>Level 4</td>
+                            <td>Paid full</td>
+                            <td>Assign schedule</td>
+                            <td><a href="pre-enrolment-detail.html?id=6" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Mohamed Tarek</td>
+                            <td>+20 106 789 0123</td>
+                            <td><span class="badge deposit_paid">Deposit Paid</span></td>
+                            <td>Level 2</td>
+                            <td>Deposit</td>
+                            <td>Collect remaining</td>
+                            <td><a href="pre-enrolment-detail.html?id=7" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Nour Ashraf</td>
+                            <td>+20 107 890 1234</td>
+                            <td><span class="badge waiting_for_round">Waiting for Round</span></td>
+                            <td>Level 3</td>
+                            <td>Paid full</td>
+                            <td>Assign to round</td>
+                            <td><a href="pre-enrolment-detail.html?id=8" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Karim Samir</td>
+                            <td>+20 108 901 2345</td>
+                            <td><span class="badge schedule_assigned">Schedule Assigned</span></td>
+                            <td>Level 1</td>
+                            <td>Paid full</td>
+                            <td>Mark ready to start</td>
+                            <td><a href="pre-enrolment-detail.html?id=9" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                        <tr>
+                            <td>Mariam Fadi</td>
+                            <td>+20 109 012 3456</td>
+                            <td><span class="badge ready_to_start">Ready to Start</span></td>
+                            <td>Level 2</td>
+                            <td>Paid full</td>
+                            <td>Ready for activation</td>
+                            <td><a href="pre-enrolment-detail.html?id=10" class="btn btn-primary btn-small">Open</a></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{{define "login_content"}}
+<div class="auth-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+    <h1>Login</h1>
+    <p>Eighty Twenty Operations</p>
+</div>
+
+{{if .Error}}
+<div style="background: #FFE6E6; border: 1px solid #FF9999; color: #CC0000; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+    {{.Error}}
+</div>
+{{end}}
+
+<form method="POST" action="/login" class="auth-form">
+    <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autofocus>
+    </div>
+
+    <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Login</button>
+</form>
+{{end}}

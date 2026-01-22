@@ -1,0 +1,52 @@
+{{define "pre_enrolment_new_content"}}
+<!-- Header -->
+<div class="header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+    <h1>New Lead</h1>
+</div>
+
+{{if .Error}}
+<div class="warning-box" style="background-color: #FFE6E6; border-color: #FF9999;">
+    <strong>Error:</strong> {{.Error}}
+</div>
+{{end}}
+
+<form method="POST" action="/pre-enrolment/new">
+    <div class="form-section">
+        <h2>Lead Info</h2>
+        
+        <div class="form-group">
+            <label for="full_name">Full Name *</label>
+            <input type="text" id="full_name" name="full_name" required>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label for="phone">Phone Number *</label>
+                <input type="tel" id="phone" name="phone" required>
+            </div>
+            <div class="form-group">
+                <label for="source">Source</label>
+                <select id="source" name="source" required>
+                    <option value="Facebook" selected>Facebook</option>
+                    <option value="WhatsApp">WhatsApp</option>
+                    <option value="Instagram">Instagram</option>
+                    <option value="Referral">Referral</option>
+                    <option value="Walk-in">Walk-in</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="notes">Notes</label>
+            <textarea id="notes" name="notes" placeholder="Internal notes about this lead..."></textarea>
+        </div>
+    </div>
+
+    <div class="action-buttons">
+        <button type="submit" class="btn btn-primary">Create Lead</button>
+        <a href="/pre-enrolment" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+{{end}}

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pre-Enrolment Detail - Eighty Twenty</title>
+    <link rel="stylesheet" href="../styles/main.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">Eighty Twenty</div>
+            <nav>
+                <ul>
+                    <li><a href="pre-enrolment-list.html" class="active">Pre-Enrolment</a></li>
+                    <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
+                    <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <img
+                    src="../../assets/logo/eighty-twenty-logo.png"
+                    alt="Eighty Twenty"
+                    class="app-logo"
+                />
+                <h1>Pre-Enrolment Detail</h1>
+            </div>
+
+            <form id="pre-enrolment-form">
+                <!-- 1. Lead Info -->
+                <div class="form-section">
+                    <h2>Lead Info</h2>
+                    <div class="section-note">Moderator: Fills this section when creating the lead</div>
+                    
+                    <div class="form-group">
+                        <label for="full-name">Full Name *</label>
+                        <input type="text" id="full-name" name="full-name" value="Ahmed Mohamed" required>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="phone">Phone Number *</label>
+                            <input type="tel" id="phone" name="phone" value="+20 100 123 4567" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="source">Source</label>
+                            <input type="text" id="source" name="source" value="Facebook" readonly>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="notes">Notes</label>
+                        <textarea id="notes" name="notes" placeholder="Internal notes about this lead...">Interested in Level 2. Available evenings.</textarea>
+                    </div>
+                </div>
+
+                <!-- 2. Placement Test -->
+                <div class="form-section">
+                    <h2>Placement Test</h2>
+                    <div class="section-note">Admin: Books test | Community Officer: Assigns level and test notes</div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="test-date">Test Date</label>
+                            <input type="date" id="test-date" name="test-date" value="2026-01-20">
+                        </div>
+                        <div class="form-group">
+                            <label for="test-time">Test Time</label>
+                            <input type="time" id="test-time" name="test-time" value="14:00">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="test-type">Test Type</label>
+                            <select id="test-type" name="test-type">
+                                <option value="online">Online</option>
+                                <option value="live" selected>Live</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="assigned-level">Assigned Level</label>
+                            <select id="assigned-level" name="assigned-level">
+                                <option value="">Not tested yet</option>
+                                <option value="1">Level 1</option>
+                                <option value="2" selected>Level 2</option>
+                                <option value="3">Level 3</option>
+                                <option value="4">Level 4</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="test-notes">Test Notes</label>
+                        <textarea id="test-notes" name="test-notes" placeholder="Community Officer: Add test results and observations...">Good performance. Recommended for Level 2.</textarea>
+                    </div>
+                </div>
+
+                <!-- 3. Offer & Pricing -->
+                <div class="form-section">
+                    <h2>Offer & Pricing</h2>
+                    <div class="section-note">Admin: Sets pricing and sends offer</div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="bundle">Bundle Selected</label>
+                            <select id="bundle" name="bundle">
+                                <option value="1">Bundle 1</option>
+                                <option value="2" selected>Bundle 2</option>
+                                <option value="3">Bundle 3</option>
+                                <option value="4">Bundle 4</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="base-price">Base Price</label>
+                            <input type="number" id="base-price" name="base-price" value="5000" step="0.01">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="discount">Discount (Amount or %)</label>
+                            <input type="text" id="discount" name="discount" value="500" placeholder="e.g., 500 or 10%">
+                        </div>
+                        <div class="form-group">
+                            <label for="final-price">Final Price *</label>
+                            <input type="number" id="final-price" name="final-price" value="4500" step="0.01" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Status</label>
+                        <span class="status-indicator offer_sent">Offer Sent</span>
+                    </div>
+                </div>
+
+                <!-- 4. Booking & Materials -->
+                <div class="form-section">
+                    <h2>Booking & Materials</h2>
+                    <div class="section-note">Admin: Handles booking format and delivery</div>
+                    
+                    <div class="form-group">
+                        <label for="book-format">Book Format</label>
+                        <select id="book-format" name="book-format" onchange="togglePrintedFields()">
+                            <option value="pdf">PDF</option>
+                            <option value="printed" selected>Printed</option>
+                        </select>
+                    </div>
+                    
+                    <div id="printed-fields">
+                        <div class="form-group">
+                            <label for="address">Address</label>
+                            <input type="text" id="address" name="address" value="123 Main Street, Apt 5">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="city">City</label>
+                            <input type="text" id="city" name="city" value="Cairo">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="delivery-notes">Delivery Notes</label>
+                            <textarea id="delivery-notes" name="delivery-notes" placeholder="Special delivery instructions...">Please deliver before 6 PM.</textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. Payment -->
+                <div class="form-section">
+                    <h2>Payment</h2>
+                    <div class="section-note">Admin: Records payment information</div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="payment-type">Payment Type</label>
+                            <select id="payment-type" name="payment-type">
+                                <option value="">Not paid</option>
+                                <option value="full">Full Payment</option>
+                                <option value="deposit" selected>Deposit</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="payment-date">Payment Date</label>
+                            <input type="date" id="payment-date" name="payment-date" value="2026-01-18">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="amount-paid">Amount Paid</label>
+                            <input type="number" id="amount-paid" name="amount-paid" value="2250" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label for="remaining-balance">Remaining Balance</label>
+                            <input type="number" id="remaining-balance" name="remaining-balance" value="2250" step="0.01" readonly>
+                        </div>
+                    </div>
+                    
+                    <div class="warning-box" id="payment-warning" style="display: block;">
+                        <strong>⚠️ Financial Block:</strong> Student is financially blocked from starting. Remaining balance: 2,250 EGP
+                    </div>
+                </div>
+
+                <!-- 6. Round / Schedule -->
+                <div class="form-section">
+                    <h2>Round / Schedule</h2>
+                    <div class="section-note">Admin: Assigns schedule when student is ready</div>
+                    
+                    <div class="form-group">
+                        <label for="expected-round">Expected Round</label>
+                        <input type="text" id="expected-round" name="expected-round" value="Round 3 - February 2026">
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="class-days">Class Days</label>
+                            <input type="text" id="class-days" name="class-days" value="Monday, Wednesday" placeholder="e.g., Monday, Wednesday">
+                        </div>
+                        <div class="form-group">
+                            <label for="class-time">Class Time</label>
+                            <input type="time" id="class-time" name="class-time" value="18:00">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="start-date">Start Date</label>
+                            <input type="date" id="start-date" name="start-date" value="2026-02-01">
+                        </div>
+                        <div class="form-group">
+                            <label for="start-time">Start Time</label>
+                            <input type="time" id="start-time" name="start-time" value="18:00">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Status</label>
+                        <span class="badge waiting_for_round">Waiting for Round</span>
+                    </div>
+                </div>
+
+                <!-- 7. Shipping (Printed only) -->
+                <div class="form-section" id="shipping-section">
+                    <h2>Shipping</h2>
+                    <div class="section-note">Admin: Tracks shipment for printed books</div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="shipment-status">Shipment Status</label>
+                            <select id="shipment-status" name="shipment-status">
+                                <option value="pending" selected>Pending</option>
+                                <option value="sent">Sent</option>
+                                <option value="delivered">Delivered</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="shipment-date">Shipment Date</label>
+                            <input type="date" id="shipment-date" name="shipment-date">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button type="button" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary">Mark Test Booked</button>
+                    <button type="button" class="btn btn-secondary">Mark Tested</button>
+                    <button type="button" class="btn btn-secondary">Mark Offer Sent</button>
+                    <button type="button" class="btn btn-secondary">Move to Waiting List</button>
+                    <button type="button" class="btn btn-secondary">Mark Ready to Start</button>
+                </div>
+            </form>
+        </main>
+    </div>
+
+    <script>
+        // Simple function to show/hide printed fields
+        function togglePrintedFields() {
+            const bookFormat = document.getElementById('book-format').value;
+            const printedFields = document.getElementById('printed-fields');
+            const shippingSection = document.getElementById('shipping-section');
+            
+            if (bookFormat === 'printed') {
+                printedFields.style.display = 'block';
+                shippingSection.style.display = 'block';
+            } else {
+                printedFields.style.display = 'none';
+                shippingSection.style.display = 'none';
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            togglePrintedFields();
+        });
+    </script>
+</body>
+</html>
