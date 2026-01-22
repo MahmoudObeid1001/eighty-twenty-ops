@@ -24,53 +24,83 @@ func NewPreEnrolmentHandler(cfg *config.Config) *PreEnrolmentHandler {
 	return &PreEnrolmentHandler{cfg: cfg}
 }
 
+func isValidAssignedLevel(level int) bool {
+	return level >= 1 && level <= 8
+}
+
 func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Read filter parameters from query string
 	statusFilter := r.URL.Query().Get("status")
 	searchFilter := r.URL.Query().Get("search")
-	
+	paymentFilter := r.URL.Query().Get("payment")
+	hotFilter := r.URL.Query().Get("hot") // Changed from "filter" to "hot"
+
 	// Check for flash messages in query params (separate from filter status)
 	flashMessage := ""
 	savedParam := r.URL.Query().Get("saved")
 	deletedParam := r.URL.Query().Get("deleted")
 	statusFlashParam := r.URL.Query().Get("status_flash")
-	
-	if deletedParam == "1" {
+	sentToClassesParam := r.URL.Query().Get("sentToClasses")
+
+	if sentToClassesParam == "1" {
+		flashMessage = "Lead sent to classes board successfully!"
+	} else if deletedParam == "1" {
 		flashMessage = "Lead deleted successfully!"
 	} else if savedParam == "1" {
 		flashMessage = "Lead saved successfully!"
 	} else if statusFlashParam != "" {
 		statusMessages := map[string]string{
-			"test_booked":  "Placement test booked successfully!",
-			"tested":       "Lead marked as tested!",
-			"offer_sent":   "Offer sent successfully!",
-			"waiting":      "Lead moved to waiting list!",
-			"ready":        "Lead marked as ready to start!",
+			"test_booked": "Placement test booked successfully!",
+			"tested":      "Lead marked as tested!",
+			"offer_sent":  "Offer sent successfully!",
+			"waiting":     "Lead moved to waiting list!",
+			"ready":       "Lead marked as ready to start!",
 		}
 		if msg, ok := statusMessages[statusFlashParam]; ok {
 			flashMessage = msg
 		}
 	}
-	
-	h.cfg.Debugf("List: statusFilter=%q, searchFilter=%q", statusFilter, searchFilter)
-	
+
+	h.cfg.Debugf("List: statusFilter=%q, searchFilter=%q, paymentFilter=%q, hotFilter=%q", statusFilter, searchFilter, paymentFilter, hotFilter)
+
 	// Get filtered leads
-	leads, err := models.GetAllLeads(statusFilter, searchFilter)
+	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter)
 	if err != nil {
 		log.Printf("ERROR: Failed to load leads: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to load leads: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
 	h.cfg.Debugf("List: returned %d leads", len(leads))
 
+	// Count follow-ups due for banner
+	// Get total count of hot leads (need to fetch all leads without hot filter)
+	var followUpCount int
+	if hotFilter == "1" || hotFilter == "hot" {
+		// All leads in filtered list are hot leads
+		followUpCount = len(leads)
+	} else {
+		// Get all leads to count hot leads accurately
+		allLeads, err := models.GetAllLeads("", "", "", "")
+		if err == nil {
+			for _, lead := range allLeads {
+				if lead.FollowUpDue {
+					followUpCount++
+				}
+			}
+		}
+	}
+
 	data := map[string]interface{}{
-		"Title":        "Pre-Enrolment - Eighty Twenty",
-		"Leads":        leads,
-		"UserRole":     middleware.GetUserRole(r),
-		"FlashMessage": flashMessage,
-		"StatusFilter": statusFilter,
-		"SearchFilter": searchFilter,
+		"Title":         "Pre-Enrolment - Eighty Twenty",
+		"Leads":         leads,
+		"UserRole":      middleware.GetUserRole(r),
+		"FlashMessage":  flashMessage,
+		"StatusFilter":  statusFilter,
+		"SearchFilter":  searchFilter,
+		"PaymentFilter": paymentFilter,
+		"HotFilter":     hotFilter,
+		"FollowUpCount": followUpCount,
 	}
 	renderTemplate(w, "pre_enrolment_list.html", data)
 }
@@ -108,11 +138,11 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Validate source is one of allowed options
 	allowedSources := map[string]bool{
-		"Facebook":  true,
-		"WhatsApp":  true,
-		"Admin":     true,
-		"Referral":  true,
-		"Other":     true,
+		"Facebook": true,
+		"WhatsApp": true,
+		"Admin":    true,
+		"Referral": true,
+		"Other":    true,
 	}
 	if source == "" || !allowedSources[source] {
 		source = "Other" // Default to Other if invalid
@@ -149,7 +179,7 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 
 	userRole := middleware.GetUserRole(r)
 	isModerator := userRole == "moderator"
-	
+
 	// Calculate placement test remaining fee
 	var placementTestRemaining int32 = 0
 	if detail.PlacementTest != nil {
@@ -166,13 +196,95 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	} else {
 		placementTestRemaining = 100 // default
 	}
-	
+
+	// Compute hot lead flags for detail page
+	// Create a temporary LeadListItem to compute flags
+	var amountPaid, finalPrice sql.NullInt32
+	if detail.Payment != nil {
+		amountPaid = detail.Payment.AmountPaid
+	}
+	if detail.Offer != nil {
+		finalPrice = detail.Offer.FinalPrice
+	}
+	var testDate sql.NullTime
+	if detail.PlacementTest != nil {
+		testDate = detail.PlacementTest.TestDate
+	}
+
+	tempItem := &models.LeadListItem{
+		Lead:       detail.Lead,
+		TestDate:   testDate,
+		AmountPaid: amountPaid,
+		FinalPrice: finalPrice,
+	}
+	models.ComputeLeadFlags(tempItem)
+
 	data := map[string]interface{}{
 		"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
 		"Detail":                 detail,
 		"UserRole":               userRole,
 		"IsModerator":            isModerator,
 		"PlacementTestRemaining": placementTestRemaining,
+		"FollowUpDue":            tempItem.FollowUpDue,
+		"HotLevel":               tempItem.HotLevel,
+		"DaysSinceLastProgress":  tempItem.DaysSinceLastProgress,
+	}
+	renderTemplate(w, "pre_enrolment_detail.html", data)
+}
+
+// renderDetailWithError fetches the lead, builds detail page data with Error set, and renders.
+// Used when validation fails (e.g. schedule required for mark_ready).
+func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *http.Request, leadID uuid.UUID, errMsg string) {
+	detail, err := models.GetLeadByID(leadID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+		return
+	}
+	userRole := middleware.GetUserRole(r)
+	isModerator := userRole == "moderator"
+	var placementTestRemaining int32 = 0
+	if detail.PlacementTest != nil {
+		if detail.PlacementTest.PlacementTestFee.Valid && detail.PlacementTest.PlacementTestFeePaid.Valid {
+			placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32 - detail.PlacementTest.PlacementTestFeePaid.Int32
+			if placementTestRemaining < 0 {
+				placementTestRemaining = 0
+			}
+		} else if detail.PlacementTest.PlacementTestFee.Valid {
+			placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32
+		} else {
+			placementTestRemaining = 100
+		}
+	} else {
+		placementTestRemaining = 100
+	}
+	var amountPaid, finalPrice sql.NullInt32
+	if detail.Payment != nil {
+		amountPaid = detail.Payment.AmountPaid
+	}
+	if detail.Offer != nil {
+		finalPrice = detail.Offer.FinalPrice
+	}
+	var testDate sql.NullTime
+	if detail.PlacementTest != nil {
+		testDate = detail.PlacementTest.TestDate
+	}
+	tempItem := &models.LeadListItem{
+		Lead:       detail.Lead,
+		TestDate:   testDate,
+		AmountPaid: amountPaid,
+		FinalPrice: finalPrice,
+	}
+	models.ComputeLeadFlags(tempItem)
+	data := map[string]interface{}{
+		"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
+		"Detail":                 detail,
+		"UserRole":               userRole,
+		"IsModerator":            isModerator,
+		"PlacementTestRemaining": placementTestRemaining,
+		"FollowUpDue":            tempItem.FollowUpDue,
+		"HotLevel":               tempItem.HotLevel,
+		"DaysSinceLastProgress":  tempItem.DaysSinceLastProgress,
+		"Error":                  errMsg,
 	}
 	renderTemplate(w, "pre_enrolment_detail.html", data)
 }
@@ -264,9 +376,12 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if assignedLevel := r.FormValue("assigned_level"); assignedLevel != "" {
-				if level, err := strconv.Atoi(assignedLevel); err == nil {
-					detail.PlacementTest.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
+				level, err := strconv.Atoi(assignedLevel)
+				if err != nil || !isValidAssignedLevel(level) {
+					h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–8.")
+					return
 				}
+				detail.PlacementTest.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
 			}
 			if testNotes := r.FormValue("test_notes"); testNotes != "" {
 				detail.PlacementTest.TestNotes = sql.NullString{String: testNotes, Valid: true}
@@ -385,6 +500,29 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Schedule required: both Class Days and Class Time must be present
+		classDaysMR := r.FormValue("class_days")
+		classTimeMR := r.FormValue("class_time")
+		if classDaysMR == "" || classTimeMR == "" {
+			h.renderDetailWithError(w, r, leadID, "Both Class Days and Class Time are required to mark as ready to start.")
+			return
+		}
+		allowedClassDaysMR := map[string]bool{"Sun/Wed": true, "Sat/Tues": true, "Mon/Thu": true}
+		allowedClassTimesMR := map[string]bool{"07:30": true, "10:00": true}
+		if !allowedClassDaysMR[classDaysMR] {
+			h.renderDetailWithError(w, r, leadID, "Invalid class days. Allowed: Sun/Wed, Sat/Tues, Mon/Thu.")
+			return
+		}
+		if !allowedClassTimesMR[classTimeMR] {
+			h.renderDetailWithError(w, r, leadID, "Invalid class time. Allowed: 07:30, 10:00.")
+			return
+		}
+
+		if err := models.UpsertSchedulingClassDaysTime(leadID, classDaysMR, classTimeMR); err != nil {
+			log.Printf("ERROR: Failed to save schedule: %v", err)
+			http.Error(w, fmt.Sprintf("Failed to save schedule: %v", err), http.StatusInternalServerError)
+			return
+		}
 		err = models.UpdateLeadStatus(leadID, "ready_to_start")
 		if err != nil {
 			log.Printf("ERROR: Failed to update status: %v", err)
@@ -394,6 +532,61 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		h.cfg.Debugf("  ✅ Status updated to ready_to_start, redirecting to list")
 		http.Redirect(w, r, "/pre-enrolment?status_flash=ready", http.StatusFound)
+		return
+
+	case "send_to_classes":
+		h.cfg.Debugf("  → Action: send_to_classes")
+		// Server-side check: moderators cannot send to classes
+		if userRole == "moderator" {
+			http.Error(w, "Forbidden: Moderators cannot send leads to classes", http.StatusForbidden)
+			return
+		}
+
+		// Verify lead is ready (has level, days, time)
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Check eligibility: status must be ready_to_start, and must have assigned_level, class_days, class_time
+		if detail.Lead.Status != "ready_to_start" {
+			h.renderDetailWithError(w, r, leadID, "Lead must be READY_TO_START to send to classes.")
+			return
+		}
+		if detail.PlacementTest == nil || !detail.PlacementTest.AssignedLevel.Valid {
+			h.renderDetailWithError(w, r, leadID, "Lead must have an assigned level to send to classes.")
+			return
+		}
+		if detail.Scheduling == nil || !detail.Scheduling.ClassDays.Valid || !detail.Scheduling.ClassTime.Valid {
+			h.renderDetailWithError(w, r, leadID, "Lead must have class days and class time set to send to classes.")
+			return
+		}
+
+		// Send to classes
+		err = models.SendLeadToClasses(leadID)
+		if err != nil {
+			log.Printf("ERROR: Failed to send lead to classes: %v", err)
+			// Check if AJAX request
+			if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(`{"success": false, "error": "Failed to send lead to classes"}`))
+				return
+			}
+			http.Error(w, fmt.Sprintf("Failed to send lead to classes: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		h.cfg.Debugf("  ✅ Lead sent to classes, redirecting to list")
+		// Check if AJAX request - return JSON instead of redirect
+		if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"success": true, "message": "Lead sent to classes board successfully"}`))
+			return
+		}
+		http.Redirect(w, r, "/pre-enrolment?sentToClasses=1", http.StatusFound)
 		return
 
 	case "delete":
@@ -415,11 +608,11 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			}
 
 			data := map[string]interface{}{
-				"Title":                  fmt.Sprintf("Delete Lead - %s", detail.Lead.FullName),
-				"Detail":                 detail,
-				"UserRole":               userRole,
-				"IsModerator":            false,
-				"ShowDeleteConfirm":      true,
+				"Title":             fmt.Sprintf("Delete Lead - %s", detail.Lead.FullName),
+				"Detail":            detail,
+				"UserRole":          userRole,
+				"IsModerator":       false,
+				"ShowDeleteConfirm": true,
 			}
 			renderTemplate(w, "pre_enrolment_detail.html", data)
 			return
@@ -493,11 +686,11 @@ func (h *PreEnrolmentHandler) UpdateStatus(w http.ResponseWriter, r *http.Reques
 }
 
 // SaveFull performs a full save of all form fields and redirects to list.
-// IMPORTANT: When action="save", this function preserves the existing status
-// and does NOT change the workflow state. Only the workflow action buttons
-// (mark_test_booked, mark_tested, etc.) change status.
-// Action-based validation: only validates basic lead fields (name, phone)
-// Does NOT require offer/pricing fields
+// IMPORTANT: This function now auto-classifies stage based on form completion.
+// Stage is computed from the furthest completed block and automatically upgraded.
+// Never downgrades stage - only upgrades based on what's filled.
+// Validation: only validates basic lead fields (name, phone) + final_price if stage reaches OFFER_SENT
+// Does NOT require offer/pricing fields for test booking - can save test info without offer
 func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -600,16 +793,18 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	if notes := r.FormValue("notes"); notes != "" {
 		detail.Lead.Notes = sql.NullString{String: notes, Valid: true}
 	}
-	
-	// Preserve existing status - Save button does NOT change workflow state
-	// Only workflow action buttons (mark_test_booked, etc.) change status
+
+	// Load existing detail to get current status and preserve other fields
 	existingDetail, err := models.GetLeadByID(leadID)
-	if err == nil {
-		detail.Lead.Status = existingDetail.Lead.Status
-	} else {
-		// Fallback if we can't load existing (shouldn't happen)
-		detail.Lead.Status = "lead_created"
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+		return
 	}
+
+	currentStatus := existingDetail.Lead.Status
+
+	// Auto-compute stage from form completion (before parsing all sections)
+	// This will be used after all sections are parsed
 
 	// Placement test
 	if r.FormValue("test_date") != "" || r.FormValue("assigned_level") != "" || r.FormValue("placement_test_fee") != "" {
@@ -626,9 +821,12 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			pt.TestType = sql.NullString{String: testType, Valid: true}
 		}
 		if assignedLevel := r.FormValue("assigned_level"); assignedLevel != "" {
-			if level, err := strconv.Atoi(assignedLevel); err == nil {
-				pt.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
+			level, err := strconv.Atoi(assignedLevel)
+			if err != nil || !isValidAssignedLevel(level) {
+				h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–8.")
+				return
 			}
+			pt.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
 		}
 		if testNotes := r.FormValue("test_notes"); testNotes != "" {
 			pt.TestNotes = sql.NullString{String: testNotes, Valid: true}
@@ -731,14 +929,14 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		currentStatus := detail.Lead.Status
 		// Statuses that come before waiting_for_round in the workflow
 		statusesBeforeWaiting := map[string]bool{
-			"lead_created":     true,
-			"test_booked":      true,
-			"tested":           true,
-			"offer_sent":       true,
+			"lead_created":      true,
+			"test_booked":       true,
+			"tested":            true,
+			"offer_sent":        true,
 			"booking_confirmed": true,
-			"deposit_paid":     true,
+			"deposit_paid":      true,
 		}
-		
+
 		if statusesBeforeWaiting[currentStatus] {
 			oldStatus := currentStatus
 			detail.Lead.Status = "waiting_for_round"
@@ -748,25 +946,123 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Scheduling
-	if r.FormValue("expected_round") != "" || r.FormValue("start_date") != "" {
-		scheduling := &models.Scheduling{LeadID: leadID}
-		if expectedRound := r.FormValue("expected_round"); expectedRound != "" {
-			scheduling.ExpectedRound = sql.NullString{String: expectedRound, Valid: true}
+	// Scheduling - validate and process class days and time
+	classDays := r.FormValue("class_days")
+	classTime := r.FormValue("class_time")
+
+	// If user is setting schedule (either field provided), both must be present
+	if classDays != "" || classTime != "" {
+		if classDays == "" || classTime == "" {
+			h.renderDetailWithError(w, r, leadID, "Both Class Days and Class Time are required when setting schedule.")
+			return
 		}
-		if classDays := r.FormValue("class_days"); classDays != "" {
+	}
+
+	// Validate class days (if provided)
+	if classDays != "" {
+		allowedClassDays := map[string]bool{
+			"Sun/Wed":  true,
+			"Sat/Tues": true,
+			"Mon/Thu":  true,
+		}
+		if !allowedClassDays[classDays] {
+			log.Printf("ERROR: Invalid class_days value: %q", classDays)
+			// Re-render detail page with error message
+			detail, err := models.GetLeadByID(leadID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+				return
+			}
+			userRole := middleware.GetUserRole(r)
+			isModerator := userRole == "moderator"
+			var placementTestRemaining int32 = 0
+			if detail.PlacementTest != nil {
+				if detail.PlacementTest.PlacementTestFee.Valid && detail.PlacementTest.PlacementTestFeePaid.Valid {
+					placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32 - detail.PlacementTest.PlacementTestFeePaid.Int32
+					if placementTestRemaining < 0 {
+						placementTestRemaining = 0
+					}
+				} else if detail.PlacementTest.PlacementTestFee.Valid {
+					placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32
+				} else {
+					placementTestRemaining = 100
+				}
+			} else {
+				placementTestRemaining = 100
+			}
+			data := map[string]interface{}{
+				"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
+				"Detail":                 detail,
+				"UserRole":               userRole,
+				"IsModerator":            isModerator,
+				"PlacementTestRemaining": placementTestRemaining,
+				"Error":                  "Invalid class days value. Allowed values: Sun/Wed, Sat/Tues, Mon/Thu",
+			}
+			renderTemplate(w, "pre_enrolment_detail.html", data)
+			return
+		}
+	}
+
+	// Validate class time (if provided)
+	if classTime != "" {
+		allowedClassTimes := map[string]bool{
+			"07:30": true,
+			"10:00": true,
+		}
+		if !allowedClassTimes[classTime] {
+			log.Printf("ERROR: Invalid class_time value: %q", classTime)
+			// Re-render detail page with error message
+			detail, err := models.GetLeadByID(leadID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+				return
+			}
+			userRole := middleware.GetUserRole(r)
+			isModerator := userRole == "moderator"
+			var placementTestRemaining int32 = 0
+			if detail.PlacementTest != nil {
+				if detail.PlacementTest.PlacementTestFee.Valid && detail.PlacementTest.PlacementTestFeePaid.Valid {
+					placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32 - detail.PlacementTest.PlacementTestFeePaid.Int32
+					if placementTestRemaining < 0 {
+						placementTestRemaining = 0
+					}
+				} else if detail.PlacementTest.PlacementTestFee.Valid {
+					placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32
+				} else {
+					placementTestRemaining = 100
+				}
+			} else {
+				placementTestRemaining = 100
+			}
+			data := map[string]interface{}{
+				"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
+				"Detail":                 detail,
+				"UserRole":               userRole,
+				"IsModerator":            isModerator,
+				"PlacementTestRemaining": placementTestRemaining,
+				"Error":                  "Invalid class time value. Allowed values: 07:30, 10:00",
+			}
+			renderTemplate(w, "pre_enrolment_detail.html", data)
+			return
+		}
+	}
+
+	// Create/update scheduling if class days or time is provided
+	// Note: Auto-stage classification (below) will handle status upgrade to READY_TO_START when schedule is filled
+	if classDays != "" || classTime != "" {
+		scheduling := &models.Scheduling{LeadID: leadID}
+		if classDays != "" {
 			scheduling.ClassDays = sql.NullString{String: classDays, Valid: true}
 		}
-		if classTime := r.FormValue("class_time"); classTime != "" {
+		if classTime != "" {
 			scheduling.ClassTime = sql.NullString{String: classTime, Valid: true}
 		}
-		if startDate := r.FormValue("start_date"); startDate != "" {
-			if t, err := time.Parse("2006-01-02", startDate); err == nil {
-				scheduling.StartDate = sql.NullTime{Time: t, Valid: true}
-			}
-		}
-		if startTime := r.FormValue("start_time"); startTime != "" {
-			scheduling.StartTime = sql.NullString{String: startTime, Valid: true}
+		// Preserve existing expected_round, start_date, start_time if they exist (data compatibility)
+		existingDetail, err := models.GetLeadByID(leadID)
+		if err == nil && existingDetail.Scheduling != nil {
+			scheduling.ExpectedRound = existingDetail.Scheduling.ExpectedRound
+			scheduling.StartDate = existingDetail.Scheduling.StartDate
+			scheduling.StartTime = existingDetail.Scheduling.StartTime
 		}
 		detail.Scheduling = scheduling
 	}
@@ -784,6 +1080,65 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		}
 		detail.Shipping = shipping
 	}
+
+	// Ensure we have existing offer data if form didn't modify it (for stage computation)
+	if detail.Offer == nil && existingDetail.Offer != nil {
+		detail.Offer = existingDetail.Offer
+	}
+	// Ensure we have existing payment data if form didn't modify it (for stage computation)
+	if detail.Payment == nil && existingDetail.Payment != nil {
+		detail.Payment = existingDetail.Payment
+	}
+	// Ensure we have existing scheduling data if form didn't modify it (for stage computation)
+	if detail.Scheduling == nil && existingDetail.Scheduling != nil {
+		detail.Scheduling = existingDetail.Scheduling
+	}
+
+	// Auto-compute stage from form completion and update status
+	// This happens after all form sections are parsed
+	newStage, dbStatus := models.ComputeStageFromFormCompletion(detail, currentStatus)
+
+	// Validation: If stage reaches OFFER_SENT or later, final_price must be valid
+	if newStage == models.StageOfferSent || newStage == models.StageBookingConfirmedPaidFull || newStage == models.StageBookingConfirmedDeposit {
+		if detail.Offer == nil || !detail.Offer.FinalPrice.Valid || detail.Offer.FinalPrice.Int32 <= 0 {
+			// Re-render detail page with error
+			existingDetail, err := models.GetLeadByID(leadID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+				return
+			}
+			userRole := middleware.GetUserRole(r)
+			isModerator := userRole == "moderator"
+			var placementTestRemaining int32 = 0
+			if existingDetail.PlacementTest != nil {
+				if existingDetail.PlacementTest.PlacementTestFee.Valid && existingDetail.PlacementTest.PlacementTestFeePaid.Valid {
+					placementTestRemaining = existingDetail.PlacementTest.PlacementTestFee.Int32 - existingDetail.PlacementTest.PlacementTestFeePaid.Int32
+					if placementTestRemaining < 0 {
+						placementTestRemaining = 0
+					}
+				} else if existingDetail.PlacementTest.PlacementTestFee.Valid {
+					placementTestRemaining = existingDetail.PlacementTest.PlacementTestFee.Int32
+				} else {
+					placementTestRemaining = 100
+				}
+			} else {
+				placementTestRemaining = 100
+			}
+			data := map[string]interface{}{
+				"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", existingDetail.Lead.FullName),
+				"Detail":                 existingDetail,
+				"UserRole":               userRole,
+				"IsModerator":            isModerator,
+				"PlacementTestRemaining": placementTestRemaining,
+				"Error":                  "Final price is required when sending an offer. Please fill in the Offer & Pricing section.",
+			}
+			renderTemplate(w, "pre_enrolment_detail.html", data)
+			return
+		}
+	}
+
+	detail.Lead.Status = dbStatus
+	h.cfg.Debugf("  📊 Auto-stage: computed stage=%s, dbStatus=%s (was %s)", newStage, dbStatus, currentStatus)
 
 	err = models.UpdateLeadDetail(detail)
 	if err != nil {
@@ -833,9 +1188,12 @@ func (h *PreEnrolmentHandler) MarkTested(w http.ResponseWriter, r *http.Request)
 		}
 
 		if assignedLevel := r.FormValue("assigned_level"); assignedLevel != "" {
-			if level, err := strconv.Atoi(assignedLevel); err == nil {
-				detail.PlacementTest.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
+			level, parseErr := strconv.Atoi(assignedLevel)
+			if parseErr != nil || !isValidAssignedLevel(level) {
+				h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–8.")
+				return
 			}
+			detail.PlacementTest.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
 		}
 		if testNotes := r.FormValue("test_notes"); testNotes != "" {
 			detail.PlacementTest.TestNotes = sql.NullString{String: testNotes, Valid: true}
@@ -1064,7 +1422,7 @@ func (h *PreEnrolmentHandler) BookTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.cfg.Debugf("📅 BookTest: leadID=%s, testDate=%v, testTime=%v, testType=%v", leadID, testDate, testTime, testType)
-	
+
 	// Book the placement test (updates test fields and sets status to test_booked)
 	err = models.BookPlacementTest(leadID, testDate, testTime, testType, testNotes)
 	if err != nil {

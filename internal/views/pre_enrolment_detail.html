@@ -11,6 +11,29 @@
 </div>
 {{end}}
 
+{{if .Error}}
+<div style="background-color: #FFE6E6; border: 1px solid #FF9999; color: #CC0000; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+    <strong>Error:</strong> {{.Error}}
+</div>
+{{end}}
+
+{{if .FollowUpDue}}
+<div style="background-color: {{if eq .HotLevel "HOT"}}#FFE6E6{{else if eq .HotLevel "WARM"}}#FFF4E6{{else}}#F0F0F0{{end}}; border: 2px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; border-left: 6px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
+    <h3 style="margin-top: 0; color: {{if eq .HotLevel "HOT"}}#CC0000{{else if eq .HotLevel "WARM"}}#CC6600{{else}}#333{{end}};">🔥 Follow-up Required</h3>
+    <p style="margin-bottom: 10px;"><strong>Lead is unpaid after test/offer.</strong> Days since last progress: <strong>{{.DaysSinceLastProgress}}</strong></p>
+    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}};">
+        <strong>Suggested next action:</strong>
+        {{if eq .HotLevel "HOT"}}
+        <p style="margin: 5px 0;">Call today + remind about offer</p>
+        {{else if eq .HotLevel "WARM"}}
+        <p style="margin: 5px 0;">Offer small discount (expires 48h)</p>
+        {{else}}
+        <p style="margin: 5px 0;">Final follow-up then archive/waiting</p>
+        {{end}}
+    </div>
+</div>
+{{end}}
+
 <!-- Main form for full edit - uses single endpoint with action parameter -->
 <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="pre-enrolment-form">
     <input type="hidden" name="status" value="{{.Detail.Lead.Status}}">
@@ -111,6 +134,10 @@
                     <option value="2" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 2}}selected{{end}}{{end}}>Level 2</option>
                     <option value="3" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 3}}selected{{end}}{{end}}>Level 3</option>
                     <option value="4" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 4}}selected{{end}}{{end}}>Level 4</option>
+                    <option value="5" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 5}}selected{{end}}{{end}}>Level 5</option>
+                    <option value="6" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 6}}selected{{end}}{{end}}>Level 6</option>
+                    <option value="7" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 7}}selected{{end}}{{end}}>Level 7</option>
+                    <option value="8" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 8}}selected{{end}}{{end}}>Level 8</option>
                 </select>
             </div>
         </div>
@@ -231,32 +258,25 @@
     <!-- 6. Round / Schedule -->
     <div class="form-section">
         <h2>Round / Schedule</h2>
-        <div class="section-note">Admin: Assigns schedule when student is ready</div>
-        
-        <div class="form-group">
-            <label for="expected_round">Expected Round</label>
-            <input type="text" id="expected_round" name="expected_round" value="{{if and .Detail.Scheduling .Detail.Scheduling.ExpectedRound.Valid}}{{.Detail.Scheduling.ExpectedRound.String}}{{end}}" placeholder="e.g., Round 3 - February 2026">
-        </div>
+        <div class="section-note">Admin: Assigns schedule when student is ready. Both fields required to mark as ready.</div>
         
         <div class="form-row">
             <div class="form-group">
-                <label for="class_days">Class Days</label>
-                <input type="text" id="class_days" name="class_days" value="{{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{.Detail.Scheduling.ClassDays.String}}{{end}}" placeholder="e.g., Monday, Wednesday">
+                <label for="class_days">Class Days *</label>
+                <select id="class_days" name="class_days">
+                    <option value="">Select class days</option>
+                    <option value="Sun/Wed" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Sun/Wed"}}selected{{end}}{{end}}>Sun/Wed</option>
+                    <option value="Sat/Tues" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Sat/Tues"}}selected{{end}}{{end}}>Sat/Tues</option>
+                    <option value="Mon/Thu" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Mon/Thu"}}selected{{end}}{{end}}>Mon/Thu</option>
+                </select>
             </div>
             <div class="form-group">
-                <label for="class_time">Class Time</label>
-                <input type="time" id="class_time" name="class_time" value="{{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{.Detail.Scheduling.ClassTime.String}}{{end}}">
-            </div>
-        </div>
-        
-        <div class="form-row">
-            <div class="form-group">
-                <label for="start_date">Start Date</label>
-                <input type="date" id="start_date" name="start_date" value="{{if and .Detail.Scheduling .Detail.Scheduling.StartDate.Valid}}{{.Detail.Scheduling.StartDate.Time.Format "2006-01-02"}}{{end}}">
-            </div>
-            <div class="form-group">
-                <label for="start_time">Start Time</label>
-                <input type="time" id="start_time" name="start_time" value="{{if and .Detail.Scheduling .Detail.Scheduling.StartTime.Valid}}{{.Detail.Scheduling.StartTime.String}}{{end}}">
+                <label for="class_time">Class Time *</label>
+                <select id="class_time" name="class_time">
+                    <option value="">Select class time</option>
+                    <option value="07:30" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq .Detail.Scheduling.ClassTime.String "07:30"}}selected{{end}}{{end}}>07:30</option>
+                    <option value="10:00" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq .Detail.Scheduling.ClassTime.String "10:00"}}selected{{end}}{{end}}>10:00</option>
+                </select>
             </div>
         </div>
         
@@ -299,6 +319,19 @@
         <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting" class="btn btn-secondary">Move to Waiting List</button>
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_ready" class="btn btn-secondary">Mark Ready to Start</button>
     </div>
+
+    <!-- Send to Classes Button - Only show if READY_TO_START and not already sent -->
+    {{if and (eq .Detail.Lead.Status "ready_to_start") (not .Detail.Lead.SentToClasses)}}
+    {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid .Detail.Scheduling.ClassTime.Valid}}
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
+            <input type="hidden" name="action" value="send_to_classes">
+            <button type="submit" class="btn" style="background-color: #28a745; border-color: #28a745; color: white;">Send to Classes</button>
+        </form>
+        <p style="margin-top: 8px; font-size: 12px; color: #666;">This will move the lead to the Classes board. The lead must have assigned level, class days, and class time set.</p>
+    </div>
+    {{end}}
+    {{end}}
     
     <!-- Delete Button -->
     {{if .ShowDeleteConfirm}}

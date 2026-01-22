@@ -1,0 +1,153 @@
+{{define "classes_content"}}
+<!-- Header -->
+<div class="header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+    <h1>Classes Board</h1>
+</div>
+
+{{if .FlashMessage}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+    {{.FlashMessage}}
+</div>
+{{end}}
+
+<div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <strong>Current Round: {{.CurrentRound}}</strong>
+    </div>
+    <form method="POST" action="/classes/start-round" style="display: inline-block;" onsubmit="return confirm('Start Round? This will move READY and LOCKED classes to IN_CLASSES status. NOT READY classes will remain for the next round.');">
+        <button type="submit" class="btn btn-primary" style="background-color: #28a745; border-color: #28a745;">Start Round</button>
+    </form>
+</div>
+
+{{if not .Groups}}
+<div style="padding: 40px; text-align: center; color: #666;">
+    <p>No eligible students found. Students must have:</p>
+    <ul style="text-align: left; display: inline-block;">
+        <li>Status: READY_TO_START</li>
+        <li>Assigned Level set</li>
+        <li>Class Days set</li>
+        <li>Class Time set</li>
+    </ul>
+</div>
+{{else}}
+{{$currentLevel := 0}}
+{{range .Groups}}
+{{if ne $currentLevel .Level}}
+{{if ne $currentLevel 0}}
+    </div> <!-- Close class-cards-grid -->
+</div> <!-- Close previous level section -->
+{{end}}
+{{$currentLevel = .Level}}
+<!-- Level Section -->
+<div class="level-section" style="margin-bottom: 40px; padding: 20px; border-radius: 8px; background-color: {{if eq .Level 1}}#E3F2FD{{else if eq .Level 2}}#F3E5F5{{else if eq .Level 3}}#E8F5E9{{else if eq .Level 4}}#FFF3E0{{else if eq .Level 5}}#FCE4EC{{else if eq .Level 6}}#E0F2F1{{else if eq .Level 7}}#F1F8E9{{else}}#FFF9C4{{end}}; border: 2px solid {{if eq .Level 1}}#1976D2{{else if eq .Level 2}}#7B1FA2{{else if eq .Level 3}}#388E3C{{else if eq .Level 4}}#F57C00{{else if eq .Level 5}}#C2185B{{else if eq .Level 6}}#00796B{{else if eq .Level 7}}#689F38{{else}}#F9A825{{end}};">
+    <h2 style="margin-top: 0; color: {{if eq .Level 1}}#1565C0{{else if eq .Level 2}}#6A1B9A{{else if eq .Level 3}}#2E7D32{{else if eq .Level 4}}#E65100{{else if eq .Level 5}}#AD1457{{else if eq .Level 6}}#00695C{{else if eq .Level 7}}#558B2F{{else}}#F57F17{{end}};">Level {{.Level}}</h2>
+    <div class="class-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
+{{end}}
+        <!-- Class Card -->
+        <div class="class-card {{if .SentToMentor}}sent{{end}}" style="background: white; border: 2px solid {{if eq .Readiness "LOCKED"}}#dc3545{{else if eq .Readiness "READY"}}#28a745{{else}}#ffc107{{end}}; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div>
+                    <h3 style="margin: 0; font-size: 18px;">{{.ClassDays}} @ {{.ClassTime}}</h3>
+                    <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Class #{{.GroupIndex}}</p>
+                    {{if .SentToMentor}}
+                    <p style="margin: 5px 0 0 0; color: #666; font-size: 12px; font-style: italic;">Sent to Mentor Head</p>
+                    {{end}}
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 24px; font-weight: bold; color: {{if eq .Readiness "LOCKED"}}#dc3545{{else if eq .Readiness "READY"}}#28a745{{else}}#ffc107{{end}};">
+                        {{.StudentCount}}/6
+                    </div>
+                    <span class="badge" style="background-color: {{if eq .Readiness "LOCKED"}}#dc3545{{else if eq .Readiness "READY"}}#28a745{{else}}#ffc107{{end}}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                        {{.Readiness}}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Send to Mentor Head Button -->
+            {{if .SentToMentor}}
+            <div style="margin-bottom: 15px; padding: 10px; background-color: #f0f0f0; border-radius: 4px; text-align: center;">
+                <span style="color: #666; font-size: 14px;">Sent to Mentor Head</span>
+                <form method="POST" action="/classes/{{.ClassKey}}/return" style="display: inline-block; margin-left: 10px;">
+                    <button type="submit" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;">Return</button>
+                </form>
+            </div>
+            {{else if or (eq .Readiness "READY") (eq .Readiness "LOCKED")}}
+            <div style="margin-bottom: 15px;">
+                <form method="POST" action="/classes/send" style="display: block;">
+                    <input type="hidden" name="class_key" value="{{.ClassKey}}">
+                    <input type="hidden" name="level" value="{{.Level}}">
+                    <input type="hidden" name="class_days" value="{{.ClassDays}}">
+                    <input type="hidden" name="class_time" value="{{.ClassTime}}">
+                    <input type="hidden" name="class_number" value="{{.GroupIndex}}">
+                    <button type="submit" class="btn btn-primary" style="width: 100%; padding: 8px; background-color: #007bff; border-color: #007bff; color: white;">Send to Mentor Head</button>
+                </form>
+            </div>
+            {{end}}
+
+            <!-- Students List -->
+            <div class="{{if .SentToMentor}}controls-disabled{{end}}" style="margin-top: 15px; border-top: 1px solid #E6E6E6; padding-top: 15px;">
+                <strong style="font-size: 14px; color: #333;">Students:</strong>
+                <ul style="list-style: none; padding: 0; margin: 10px 0 0 0;">
+                    {{$parentGroup := .}}
+                    {{range .Students}}
+                    <li style="padding: 8px 0; border-bottom: 1px solid #F0F0F0; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: 500;">{{.FullName}}</div>
+                            <div style="font-size: 12px; color: #666;">{{.Phone}}</div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <a href="/pre-enrolment/{{.LeadID}}" class="btn btn-primary btn-small" style="padding: 4px 12px; font-size: 12px;">Open</a>
+                            {{if not $parentGroup.SentToMentor}}
+                            <form method="POST" action="/classes/move" style="display: inline-block;">
+                                <input type="hidden" name="lead_id" value="{{.LeadID}}">
+                                <select name="target_group" onchange="this.form.submit()" style="padding: 4px 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px;">
+                                    <option value="">Move to...</option>
+                                    {{$currentGroup := 0}}
+                                    {{if .GroupIndex.Valid}}{{$currentGroup = .GroupIndex.Int32}}{{end}}
+                                    {{range .AvailableGroups}}
+                                    {{if ne . $currentGroup}}
+                                    <option value="{{.}}">Class #{{.}}</option>
+                                    {{end}}
+                                    {{end}}
+                                    <option value="0">Create New Class</option>
+                                </select>
+                            </form>
+                            {{else}}
+                            <select disabled style="padding: 4px 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; background-color: #f0f0f0; color: #999;">
+                                <option>Move disabled</option>
+                            </select>
+                            {{end}}
+                        </div>
+                    </li>
+                    {{end}}
+                </ul>
+            </div>
+        </div>
+{{end}}
+{{if ne $currentLevel 0}}
+    </div> <!-- Close class-cards-grid -->
+</div> <!-- Close last level section -->
+{{end}}
+{{end}}
+
+<style>
+.level-section {
+    page-break-inside: avoid;
+}
+.class-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.class-card:hover:not(.sent) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+.class-card.sent {
+    opacity: 0.55;
+}
+.class-card.sent .controls-disabled {
+    pointer-events: none;
+    opacity: 0.6;
+}
+</style>
+{{end}}

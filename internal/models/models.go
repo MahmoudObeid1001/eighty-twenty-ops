@@ -22,6 +22,7 @@ type Lead struct {
 	Source          sql.NullString
 	Notes           sql.NullString
 	Status          string
+	SentToClasses   bool // Whether student has been manually sent to classes board
 	CreatedByUserID sql.NullString
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -73,14 +74,15 @@ type Payment struct {
 }
 
 type Scheduling struct {
-	ID            uuid.UUID
-	LeadID        uuid.UUID
-	ExpectedRound sql.NullString
-	ClassDays     sql.NullString
-	ClassTime     sql.NullString
-	StartDate     sql.NullTime
-	StartTime     sql.NullString
-	UpdatedAt     time.Time
+	ID              uuid.UUID
+	LeadID          uuid.UUID
+	ExpectedRound   sql.NullString
+	ClassDays       sql.NullString
+	ClassTime       sql.NullString
+	StartDate       sql.NullTime
+	StartTime       sql.NullString
+	ClassGroupIndex sql.NullInt32 // Which class group (1, 2, 3...) for same level+days+time
+	UpdatedAt       time.Time
 }
 
 type Shipping struct {
@@ -102,8 +104,53 @@ type LeadDetail struct {
 }
 
 type LeadListItem struct {
-	Lead          *Lead
-	AssignedLevel sql.NullInt32
-	PaymentStatus string
-	NextAction    string
+	Lead                *Lead
+	AssignedLevel       sql.NullInt32
+	PaymentStatus       string
+	PaymentState        string // UNPAID, DEPOSIT, PAID_FULL
+	NextAction          string
+	DaysSinceLastProgress int
+	HotLevel            string // "HOT", "WARM", "COOL", or ""
+	FollowUpDue         bool
+	TestDate            sql.NullTime // For computing days since progress
+	AmountPaid          sql.NullInt32 // For checking if paid
+	FinalPrice          sql.NullInt32 // For computing payment state
+	RemainingBalance    sql.NullInt32 // For computing payment state
+}
+
+// ClassGroup represents a group of students with same level+days+time
+type ClassGroup struct {
+	Level         int32
+	ClassDays     string
+	ClassTime     string
+	GroupIndex    int32 // 1, 2, 3...
+	StudentCount  int
+	Readiness     string // "LOCKED", "READY", "NOT READY"
+	Students      []*ClassStudent
+	ClassKey      string // Stable identifier: "L{level}|{days}|{time}|{index}"
+	SentToMentor  bool   // Whether this class has been sent to mentor head
+	SentAt         sql.NullTime
+	ReturnedAt     sql.NullTime
+}
+
+// ClassGroupWorkflow tracks workflow state for a class group
+type ClassGroupWorkflow struct {
+	ClassKey     string
+	Level        int32
+	ClassDays    string
+	ClassTime    string
+	ClassNumber  int32
+	SentToMentor bool
+	SentAt       sql.NullTime
+	ReturnedAt   sql.NullTime
+	UpdatedAt    time.Time
+}
+
+// ClassStudent represents a student in a class group
+type ClassStudent struct {
+	LeadID         uuid.UUID
+	FullName       string
+	Phone          string
+	GroupIndex     sql.NullInt32
+	AvailableGroups []int32 // Available group indices for move (computed in handler)
 }

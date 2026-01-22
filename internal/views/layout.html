@@ -15,7 +15,8 @@
         <div class="logo">Eighty Twenty</div>
         <nav style="flex: 1;">
             <ul>
-                <li><a href="/pre-enrolment" class="active">Pre-Enrolment</a></li>
+                <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
+                <li><a href="/classes">Classes</a></li>
                 <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
                 <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
             </ul>
@@ -36,6 +37,8 @@
             {{template "pre_enrolment_list_content" .}}
         {{else if eq .ContentTemplate "pre_enrolment_detail_content"}}
             {{template "pre_enrolment_detail_content" .}}
+        {{else if eq .ContentTemplate "classes_content"}}
+            {{template "classes_content" .}}
         {{else}}
             <p>Error: Unknown content template: {{.ContentTemplate}}</p>
         {{end}}

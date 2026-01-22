@@ -5,9 +5,18 @@
     <h1>Pre-Enrolment</h1>
 </div>
 
+<!-- Toast notification (fixed position, doesn't push content) -->
+<div id="toast" class="toast" style="display: none;"></div>
+
 {{if .FlashMessage}}
-<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+<div class="flash-message" style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;">
     {{.FlashMessage}}
+</div>
+{{end}}
+
+{{if gt .FollowUpCount 0}}
+<div style="background-color: #FFF4E6; border: 2px solid #FFA500; color: #CC6600; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
+    🔥 {{.FollowUpCount}} hot lead{{if ne .FollowUpCount 1}}s{{end}} need follow-up today
 </div>
 {{end}}
 
@@ -17,29 +26,35 @@
 
 <!-- Filter Bar -->
 <div class="filter-bar">
-    <form method="GET" action="/pre-enrolment" style="display: flex; flex: 1; gap: 15px; align-items: center; flex-wrap: wrap;">
-        <input type="text" name="search" placeholder="Search by name or phone..." id="search" value="{{.SearchFilter}}" style="flex: 1; min-width: 200px;">
-        <select name="status" id="status-filter" onchange="this.form.submit()" style="min-width: 150px;">
+    <form method="GET" action="/pre-enrolment" class="filter-form">
+        {{if eq .HotFilter "1"}}<input type="hidden" name="hot" value="1">{{end}}
+        <input type="text" name="search" placeholder="Search by name or phone..." id="search" value="{{.SearchFilter}}" class="filter-search">
+        <select name="status" id="status-filter" onchange="this.form.submit()" class="filter-select">
             <option value="" {{if not .StatusFilter}}selected{{end}}>All Statuses</option>
-            <option value="lead_created" {{if eq .StatusFilter "lead_created"}}selected{{end}}>Lead Created</option>
-            <option value="test_booked" {{if eq .StatusFilter "test_booked"}}selected{{end}}>Test Booked</option>
-            <option value="tested" {{if eq .StatusFilter "tested"}}selected{{end}}>Tested</option>
-            <option value="offer_sent" {{if eq .StatusFilter "offer_sent"}}selected{{end}}>Offer Sent</option>
-            <option value="booking_confirmed" {{if eq .StatusFilter "booking_confirmed"}}selected{{end}}>Booking Confirmed</option>
-            <option value="paid_full" {{if eq .StatusFilter "paid_full"}}selected{{end}}>Paid Full</option>
-            <option value="deposit_paid" {{if eq .StatusFilter "deposit_paid"}}selected{{end}}>Deposit Paid</option>
-            <option value="waiting_for_round" {{if eq .StatusFilter "waiting_for_round"}}selected{{end}}>Waiting for Round</option>
-            <option value="schedule_assigned" {{if eq .StatusFilter "schedule_assigned"}}selected{{end}}>Schedule Assigned</option>
-            <option value="ready_to_start" {{if eq .StatusFilter "ready_to_start"}}selected{{end}}>Ready to Start</option>
+            <option value="NEW_LEAD" {{if eq .StatusFilter "NEW_LEAD"}}selected{{end}}>New Lead</option>
+            <option value="TEST_BOOKED" {{if eq .StatusFilter "TEST_BOOKED"}}selected{{end}}>Test Booked</option>
+            <option value="TESTED" {{if eq .StatusFilter "TESTED"}}selected{{end}}>Tested</option>
+            <option value="OFFER_SENT" {{if eq .StatusFilter "OFFER_SENT"}}selected{{end}}>Offer Sent</option>
+            <option value="BOOKING_CONFIRMED_PAID_FULL" {{if eq .StatusFilter "BOOKING_CONFIRMED_PAID_FULL"}}selected{{end}}>Booking Confirmed (Paid Full)</option>
+            <option value="BOOKING_CONFIRMED_DEPOSIT" {{if eq .StatusFilter "BOOKING_CONFIRMED_DEPOSIT"}}selected{{end}}>Booking Confirmed (Deposit)</option>
+            <option value="SCHEDULE_SET" {{if eq .StatusFilter "SCHEDULE_SET"}}selected{{end}}>Schedule Set</option>
+            <option value="READY_TO_START" {{if eq .StatusFilter "READY_TO_START"}}selected{{end}}>Ready to Start</option>
+        </select>
+        <select name="payment" id="payment-filter" onchange="this.form.submit()" class="filter-select">
+            <option value="" {{if not .PaymentFilter}}selected{{end}}>All Payments</option>
+            <option value="UNPAID" {{if eq .PaymentFilter "UNPAID"}}selected{{end}}>Unpaid</option>
+            <option value="DEPOSIT" {{if eq .PaymentFilter "DEPOSIT"}}selected{{end}}>Deposit</option>
+            <option value="PAID_FULL" {{if eq .PaymentFilter "PAID_FULL"}}selected{{end}}>Paid Full</option>
         </select>
         <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
     </form>
     <div class="quick-filters">
-        <a href="/pre-enrolment?status=lead_created{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "lead_created"}}active{{end}}">Needs Test</a>
-        <a href="/pre-enrolment?status=tested{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "tested"}}active{{end}}">Tested</a>
-        <a href="/pre-enrolment?status=offer_sent{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "offer_sent"}}active{{end}}">Offer Sent</a>
-        <a href="/pre-enrolment?status=waiting_for_round{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "waiting_for_round"}}active{{end}}">Waiting</a>
-        <a href="/pre-enrolment?status=ready_to_start{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "ready_to_start"}}active{{end}}">Ready to Start</a>
+        <a href="/pre-enrolment?hot=1{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .HotFilter "1"}}active{{end}}" style="{{if eq .HotFilter "1"}}background-color: #FF6B6B; color: white; border-color: #FF6B6B;{{end}}">🔥 Hot Leads</a>
+        <a href="/pre-enrolment?status=NEW_LEAD{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "NEW_LEAD"}}active{{end}}">Needs Test</a>
+        <a href="/pre-enrolment?status=TESTED{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "TESTED"}}active{{end}}">Tested</a>
+        <a href="/pre-enrolment?status=OFFER_SENT{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "OFFER_SENT"}}active{{end}}">Offer Sent</a>
+        <a href="/pre-enrolment?status=SCHEDULE_SET{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "SCHEDULE_SET"}}active{{end}}">Waiting</a>
+        <a href="/pre-enrolment?status=READY_TO_START{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "READY_TO_START"}}active{{end}}">Ready to Start</a>
     </div>
 </div>
 
@@ -59,19 +74,36 @@
         </thead>
         <tbody>
             {{range .Leads}}
-            <tr>
+            <tr data-lead-id="{{.Lead.ID}}">
                 <td>{{.Lead.FullName}}</td>
                 <td>{{.Lead.Phone}}</td>
-                <td><span class="badge {{.Lead.Status}}">{{.Lead.Status}}</span></td>
-                <td>{{if .AssignedLevel.Valid}}Level {{.AssignedLevel.Int32}}{{else}}-{{end}}</td>
-                <td>{{.PaymentStatus}}</td>
-                <td>{{.NextAction}}</td>
                 <td>
-                    <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
-                    <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" style="display: inline-block; margin-left: 5px;">
-                        <input type="hidden" name="action" value="delete">
-                        <button type="submit" class="btn btn-secondary btn-small" style="background-color: #dc3545; border-color: #dc3545;">Delete</button>
-                    </form>
+                    {{$stage := ""}}
+                    {{if eq .Lead.Status "lead_created"}}{{$stage = "NEW_LEAD"}}{{else if eq .Lead.Status "test_booked"}}{{$stage = "TEST_BOOKED"}}{{else if eq .Lead.Status "tested"}}{{$stage = "TESTED"}}{{else if eq .Lead.Status "offer_sent"}}{{$stage = "OFFER_SENT"}}{{else if eq .Lead.Status "paid_full"}}{{$stage = "BOOKING_CONFIRMED_PAID_FULL"}}{{else if eq .Lead.Status "deposit_paid"}}{{$stage = "BOOKING_CONFIRMED_DEPOSIT"}}{{else if eq .Lead.Status "schedule_assigned"}}{{$stage = "SCHEDULE_SET"}}{{else if eq .Lead.Status "waiting_for_round"}}{{$stage = "SCHEDULE_SET"}}{{else if eq .Lead.Status "ready_to_start"}}{{$stage = "READY_TO_START"}}{{else}}{{$stage = .Lead.Status}}{{end}}
+                    <span class="badge {{.Lead.Status}}">{{$stage}}</span>
+                    {{if .FollowUpDue}}
+                    <span class="badge" style="background-color: {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; color: white; margin-left: 5px;">
+                        {{.HotLevel}} – No Payment
+                    </span>
+                    {{end}}
+                </td>
+                <td>{{if .AssignedLevel.Valid}}Level {{.AssignedLevel.Int32}}{{else}}-{{end}}</td>
+                <td>{{.PaymentState}}</td>
+                <td>{{.NextAction}}</td>
+                <td class="action-column">
+                    <div class="action-buttons-row">
+                        <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
+                        {{if and (eq .Lead.Status "ready_to_start") (not .Lead.SentToClasses) .AssignedLevel.Valid}}
+                        <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form" data-lead-id="{{.Lead.ID}}">
+                            <input type="hidden" name="action" value="send_to_classes">
+                            <button type="submit" class="btn btn-success btn-small">Send to Classes</button>
+                        </form>
+                        {{end}}
+                        <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="delete-form">
+                            <input type="hidden" name="action" value="delete">
+                            <button type="submit" class="btn btn-danger btn-small">Delete</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {{else}}
@@ -84,8 +116,8 @@
 </div>
 
 <script>
-// Submit form when Enter is pressed in search input
 document.addEventListener('DOMContentLoaded', function() {
+    // Submit form when Enter is pressed in search input
     const searchInput = document.getElementById('search');
     const filterForm = searchInput ? searchInput.closest('form') : null;
     
@@ -97,6 +129,121 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Intercept Send to Classes form submissions
+    const sendToClassesForms = document.querySelectorAll('.send-to-classes-form');
+    sendToClassesForms.forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const button = form.querySelector('button[type="submit"]');
+            if (!button) return;
+            
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Sending...';
+            
+            // Get URL as string - ensure it's a string, not an element
+            let url = form.getAttribute('action');
+            if (!url) {
+                // Fallback to form.action property, but ensure it's a string
+                url = String(form.action || '');
+            }
+            // Validate URL is a non-empty string
+            if (!url || typeof url !== 'string' || url.trim() === '' || url.includes('[object')) {
+                console.error('Invalid send-to-classes URL', url, 'form:', form, 'action attr:', form.getAttribute('action'), 'action prop:', form.action);
+                button.disabled = false;
+                button.textContent = originalText;
+                showToast('Invalid form configuration. Please refresh the page.', 'error');
+                return;
+            }
+            
+            const formData = new FormData(form);
+            const leadID = form.dataset.leadId;
+            
+            // Construct URL explicitly from leadID to avoid any form.action issues
+            if (!leadID || typeof leadID !== 'string') {
+                console.error('Invalid leadID', leadID);
+                button.disabled = false;
+                button.textContent = originalText;
+                showToast('Invalid lead ID. Please refresh the page.', 'error');
+                return;
+            }
+            
+            // Use explicitly constructed URL
+            const explicitUrl = '/pre-enrolment/' + leadID;
+            
+            fetch(explicitUrl, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(function(response) {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    throw new Error('Request failed');
+                }
+            })
+            .then(function(data) {
+                if (data.success) {
+                    // Find the row and fade it out
+                    const row = form.closest('tr[data-lead-id="' + leadID + '"]');
+                    if (row) {
+                        row.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+                        row.style.opacity = '0';
+                        row.style.transform = 'translateX(-20px)';
+                        
+                        setTimeout(function() {
+                            row.remove();
+                            
+                            // Check if table is now empty
+                            const tbody = document.querySelector('tbody');
+                            if (tbody && tbody.children.length === 0) {
+                                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #8C8C8C;">No leads found. <a href="/pre-enrolment/new">Create your first lead</a></td></tr>';
+                            }
+                        }, 300);
+                    }
+                    
+                    // Show toast notification
+                    showToast(data.message || 'Lead sent to classes board successfully');
+                } else {
+                    throw new Error(data.error || 'Failed to send lead');
+                }
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                button.disabled = false;
+                button.textContent = originalText;
+                showToast('An error occurred. Please try again.', 'error');
+            });
+        });
+    });
 });
+
+function showToast(message, type) {
+    type = type || 'success';
+    const toast = document.getElementById('toast');
+    if (!toast) return;
+    
+    toast.textContent = message;
+    toast.className = 'toast toast-' + type;
+    toast.style.display = 'block';
+    
+    // Trigger animation
+    setTimeout(function() {
+        toast.classList.add('toast-show');
+    }, 10);
+    
+    // Hide after 3 seconds
+    setTimeout(function() {
+        toast.classList.remove('toast-show');
+        setTimeout(function() {
+            toast.style.display = 'none';
+        }, 300);
+    }, 3000);
+}
 </script>
 {{end}}

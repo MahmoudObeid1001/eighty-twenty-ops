@@ -80,6 +80,7 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 		"pre_enrolment_new.html":    "pre_enrolment_new_content",
 		"pre_enrolment_list.html":   "pre_enrolment_list_content",
 		"pre_enrolment_detail.html": "pre_enrolment_detail_content",
+		"classes.html":              "classes_content",
 	}
 	
 	// Templates that use auth_layout instead of main layout

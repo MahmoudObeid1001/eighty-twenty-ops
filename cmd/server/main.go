@@ -45,6 +45,7 @@ func main() {
 	handlers.SetConfig(cfg) // Set config for template debug logging
 	authHandler := handlers.NewAuthHandler(cfg)
 	preEnrolmentHandler := handlers.NewPreEnrolmentHandler(cfg)
+	classesHandler := handlers.NewClassesHandler(cfg)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -157,6 +158,97 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /pre-enrolment -> preEnrolmentHandler.List [admin+moderator]")
+
+	// Classes routes - admin only
+	mux.HandleFunc("/classes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /classes handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/classes" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			cfg.Debugf("  → Calling classesHandler.List")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(classesHandler.List)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /classes -> classesHandler.List [admin only]")
+
+	mux.HandleFunc("/classes/move", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /classes/move handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/classes/move" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			cfg.Debugf("  → Calling classesHandler.Move")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(classesHandler.Move)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /classes/move -> classesHandler.Move [admin only]")
+
+	mux.HandleFunc("/classes/start-round", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /classes/start-round handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/classes/start-round" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			cfg.Debugf("  → Calling classesHandler.StartRound")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(classesHandler.StartRound)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /classes/start-round -> classesHandler.StartRound [admin only]")
+
+	mux.HandleFunc("/classes/send", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /classes/send handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/classes/send" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			cfg.Debugf("  → Calling classesHandler.SendToMentor")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(classesHandler.SendToMentor)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /classes/send -> classesHandler.SendToMentor [admin only]")
+
+	// /classes/{classKey}/return - dynamic route
+	mux.HandleFunc("/classes/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /classes/ (dynamic) handler for %s %s", r.Method, r.URL.Path)
+		// Only handle /classes/{classKey}/return
+		if !strings.HasPrefix(r.URL.Path, "/classes/") {
+			cfg.Debugf("  → Path doesn't start with /classes/, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		// Skip exact /classes and /classes/send, /classes/move, /classes/start-round (already handled)
+		if r.URL.Path == "/classes" || r.URL.Path == "/classes/" ||
+			r.URL.Path == "/classes/send" || r.URL.Path == "/classes/move" || r.URL.Path == "/classes/start-round" {
+			cfg.Debugf("  → Path is exact match for another route, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		// Check if it's a return endpoint: /classes/{classKey}/return
+		if strings.HasSuffix(r.URL.Path, "/return") && r.Method == http.MethodPost {
+			cfg.Debugf("  → Calling classesHandler.ReturnFromMentor")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(classesHandler.ReturnFromMentor)(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /classes/{classKey}/return -> classesHandler.ReturnFromMentor [admin only]")
 
 	// Root redirect - protected route (register last)
 	mux.HandleFunc("/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
