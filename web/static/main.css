@@ -82,6 +82,7 @@ body {
 .header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     margin-bottom: 30px;
     padding-bottom: 20px;
     border-bottom: 2px solid #E6E6E6;
@@ -345,6 +346,23 @@ table tbody tr:hover {
     color: #006600;
 }
 
+.badge.cancelled,
+.badge.badge-cancelled {
+    background-color: #E8E8E8;
+    color: #666;
+}
+
+/* Cancelled leads: muted row when shown via "Show cancelled" */
+table tbody tr.row-cancelled {
+    background-color: #F5F5F5;
+}
+table tbody tr.row-cancelled:nth-child(even) {
+    background-color: #ECECEC;
+}
+table tbody tr.row-cancelled:hover {
+    background-color: #E5E5E5;
+}
+
 /* Buttons */
 .btn {
     padding: 10px 20px;
@@ -464,6 +482,23 @@ table tbody tr:hover {
     resize: vertical;
 }
 
+/* Error field styling */
+.form-group input.error-field,
+.form-group select.error-field,
+.form-group textarea.error-field {
+    border-color: #dc3545;
+    border-width: 2px;
+    background-color: #FFF5F5;
+}
+
+.form-group input.error-field:focus,
+.form-group select.error-field:focus,
+.form-group textarea.error-field:focus {
+    outline: none;
+    border-color: #dc3545;
+    box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1);
+}
+
 .form-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -527,4 +562,25 @@ table tbody tr:hover {
     .form-row {
         grid-template-columns: 1fr;
     }
+}
+
+/* Ledger Day Group Styling */
+details summary {
+    list-style: none;
+}
+
+details summary::-webkit-details-marker {
+    display: none;
+}
+
+details summary::marker {
+    display: none;
+}
+
+details summary:hover {
+    background-color: #F0F0F0;
+}
+
+details[open] summary {
+    border-bottom: 1px solid #E6E6E6;
 }

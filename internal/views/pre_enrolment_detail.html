@@ -1,8 +1,14 @@
 {{define "pre_enrolment_detail_content"}}
 <!-- Header -->
-<div class="header">
-    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
-    <h1>Pre-Enrolment Detail</h1>
+<div class="header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div style="display: flex; align-items: center;">
+        <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+        <h1 style="margin: 0;">Pre-Enrolment Detail</h1>
+    </div>
+    <!-- Unified Status Banner (top-right) -->
+    <div style="background-color: {{.StatusBgColor}}; color: {{.StatusTextColor}}; border: 2px solid {{.StatusBorderColor}}; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px;">
+        {{.StatusDisplayName}}
+    </div>
 </div>
 
 {{if .IsModerator}}
@@ -12,12 +18,18 @@
 {{end}}
 
 {{if .Error}}
-<div style="background-color: #FFE6E6; border: 1px solid #FF9999; color: #CC0000; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+<div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #721C24;">
     <strong>Error:</strong> {{.Error}}
 </div>
 {{end}}
 
-{{if .FollowUpDue}}
+{{if .SuccessMessage}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; border-left: 4px solid #28a745; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #155724;">
+    <strong>✓ Success:</strong> {{.SuccessMessage}}
+</div>
+{{end}}
+
+{{if .ShowFollowUpBanner}}
 <div style="background-color: {{if eq .HotLevel "HOT"}}#FFE6E6{{else if eq .HotLevel "WARM"}}#FFF4E6{{else}}#F0F0F0{{end}}; border: 2px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; border-left: 6px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
     <h3 style="margin-top: 0; color: {{if eq .HotLevel "HOT"}}#CC0000{{else if eq .HotLevel "WARM"}}#CC6600{{else}}#333{{end}};">🔥 Follow-up Required</h3>
     <p style="margin-bottom: 10px;"><strong>Lead is unpaid after test/offer.</strong> Days since last progress: <strong>{{.DaysSinceLastProgress}}</strong></p>
@@ -31,6 +43,11 @@
         <p style="margin: 5px 0;">Final follow-up then archive/waiting</p>
         {{end}}
     </div>
+</div>
+{{else if .IsFullyPaid}}
+<div style="background-color: #E6F7FF; border: 2px solid #4EC6E0; border-left: 6px solid #4EC6E0; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
+    <h3 style="margin-top: 0; color: #0052A3;">✓ Paid in Full</h3>
+    <p style="margin-bottom: 0; color: #0052A3;"><strong>Next step:</strong> Set schedule (class days and time) in the "Round / Schedule" section below.</p>
 </div>
 {{end}}
 
@@ -51,7 +68,15 @@
         <div class="form-row">
             <div class="form-group">
                 <label for="phone">Phone Number *</label>
-                <input type="tel" id="phone" name="phone" value="{{.Detail.Lead.Phone}}" {{if .IsModerator}}readonly{{else}}required{{end}}>
+                <input type="tel" id="phone" name="phone" value="{{.Detail.Lead.Phone}}" {{if .IsModerator}}readonly{{else}}required{{end}} class="{{if .PhoneError}}error-field{{end}}">
+                {{if .PhoneError}}
+                <div style="color: #dc3545; font-size: 13px; margin-top: 5px;">
+                    {{.PhoneError}}
+                    {{if .ExistingLeadID}}
+                    <a href="/pre-enrolment/{{.ExistingLeadID.String}}" style="margin-left: 10px; color: #4EC6E0; text-decoration: underline;">Open existing lead →</a>
+                    {{end}}
+                </div>
+                {{end}}
             </div>
             <div class="form-group">
                 <label for="source">Source</label>
@@ -93,6 +118,22 @@
                 <div class="form-group">
                     <label>Remaining (EGP)</label>
                     <input type="text" id="placement_test_remaining" readonly style="background: #F0F0F0;" value="">
+                </div>
+            </div>
+            <div class="form-row" style="margin-top: 12px;">
+                <div class="form-group">
+                    <label for="placement_test_payment_date">Payment Date</label>
+                    <input type="date" id="placement_test_payment_date" name="placement_test_payment_date" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentDate.Valid}}{{.Detail.PlacementTest.PlacementTestPaymentDate.Time.Format "2006-01-02"}}{{else}}{{.Today}}{{end}}" max="{{.Today}}" form="pre-enrolment-form">
+                </div>
+                <div class="form-group">
+                    <label for="placement_test_payment_method">Payment Method</label>
+                    <select id="placement_test_payment_method" name="placement_test_payment_method" form="pre-enrolment-form">
+                        <option value="">Select method</option>
+                        <option value="vodafone_cash" {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq .Detail.PlacementTest.PlacementTestPaymentMethod.String "vodafone_cash"}}selected{{end}}{{end}}>Vodafone Cash</option>
+                        <option value="bank_transfer" {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq .Detail.PlacementTest.PlacementTestPaymentMethod.String "bank_transfer"}}selected{{end}}{{end}}>Bank Transfer</option>
+                        <option value="paypal" {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq .Detail.PlacementTest.PlacementTestPaymentMethod.String "paypal"}}selected{{end}}{{end}}>PayPal</option>
+                        <option value="other" {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq .Detail.PlacementTest.PlacementTestPaymentMethod.String "other"}}selected{{end}}{{end}}>Other</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -156,33 +197,37 @@
         <div class="form-row">
             <div class="form-group">
                 <label for="bundle">Bundle Selected</label>
-                <select id="bundle" name="bundle">
-                    <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 1}}selected{{end}}{{end}}>Bundle 1</option>
-                    <option value="2" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 2}}selected{{end}}{{else}}selected{{end}}>Bundle 2</option>
-                    <option value="3" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 3}}selected{{end}}{{end}}>Bundle 3</option>
-                    <option value="4" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 4}}selected{{end}}{{end}}>Bundle 4</option>
+                <select id="bundle" name="bundle" onchange="updateBundlePricing()">
+                    <option value="" {{if or (not .Detail.Offer) (not .Detail.Offer.BundleLevels.Valid)}}selected{{end}}>-- Select bundle --</option>
+                    <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 1}}selected{{end}}{{end}}>Bundle 1 (1 level = 1300 EGP)</option>
+                    <option value="2" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 2}}selected{{end}}{{end}}>Bundle 2 (2 levels = 2400 EGP)</option>
+                    <option value="3" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 3}}selected{{end}}{{end}}>Bundle 3 (3 levels = 3300 EGP)</option>
+                    <option value="4" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 4}}selected{{end}}{{end}}>Bundle 4 (4 levels = 4000 EGP)</option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="base_price">Base Price</label>
-                <input type="number" id="base_price" name="base_price" value="{{if and .Detail.Offer .Detail.Offer.BasePrice.Valid}}{{.Detail.Offer.BasePrice.Int32}}{{end}}" step="1">
+                <input type="number" id="base_price" name="base_price" value="{{if and .Detail.Offer .Detail.Offer.BasePrice.Valid}}{{.Detail.Offer.BasePrice.Int32}}{{end}}" step="1" readonly style="background-color: #F5F5F5;">
+                <small style="color: #666; display: block; margin-top: 5px;">Auto-calculated from bundle</small>
             </div>
         </div>
         
         <div class="form-row">
             <div class="form-group">
                 <label for="discount">Discount (Amount or %)</label>
-                <input type="text" id="discount" name="discount" value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{if and .Detail.Offer .Detail.Offer.DiscountType.Valid}}{{if eq .Detail.Offer.DiscountType.String "percent"}}%{{end}}{{end}}{{end}}" placeholder="e.g., 500 or 10%">
+                <input type="text" id="discount" name="discount" value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{if and .Detail.Offer .Detail.Offer.DiscountType.Valid}}{{if eq .Detail.Offer.DiscountType.String "percent"}}%{{end}}{{end}}{{end}}" placeholder="e.g., 500 or 10%" onchange="updateFinalPrice()">
             </div>
             <div class="form-group">
                 <label for="final_price">Final Price</label>
-                <input type="number" id="final_price" name="final_price" value="{{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}{{.Detail.Offer.FinalPrice.Int32}}{{end}}" step="1">
+                <input type="number" id="final_price" name="final_price" value="{{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}{{.Detail.Offer.FinalPrice.Int32}}{{end}}" step="1" onchange="updateFinalPrice()">
+                <small style="color: #666; display: block; margin-top: 5px;">Auto-calculated: Base - Discount (editable)</small>
             </div>
         </div>
         
         <div class="form-group">
             <label>Status</label>
-            <span class="status-indicator {{.Detail.Lead.Status}}">{{.Detail.Lead.Status}}</span>
+            <span class="status-indicator {{.Detail.Lead.Status}}" style="opacity: 0.7; font-size: 12px;">{{.StatusDisplayName}}</span>
+            <small style="color: #666; display: block; margin-top: 5px;">Status is displayed in the header banner above</small>
         </div>
     </div>
 
@@ -217,53 +262,147 @@
         </div>
     </div>
 
-    <!-- 5. Payment -->
+    <!-- 5. Course Payment -->
     <div class="form-section">
-        <h2>Payment</h2>
-        <div class="section-note">Admin: Records payment information</div>
+        <h2>Course Payment</h2>
+        <div class="section-note">Admin: Add new course payment (supports multiple payments: deposit + top-ups)</div>
+        
+        <!-- Payment Summary (Read-only) -->
+        <div style="margin-bottom: 20px; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
+            <h3 style="margin-top: 0; font-size: 16px;">Payment Summary</h3>
+            <table style="width: 100%; font-size: 14px;">
+                <tr>
+                    <td style="padding: 8px;"><strong>Offer Final Price:</strong></td>
+                    <td style="padding: 8px; text-align: right;">
+                        {{if gt .FinalPrice 0}}
+                            <span style="font-weight: 600; color: #1976D2;">{{.FinalPrice}} EGP</span>
+                        {{else}}
+                            <span style="color: #dc3545;">Not set</span>
+                        {{end}}
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px;"><strong>Total Course Paid:</strong></td>
+                    <td style="padding: 8px; text-align: right; font-weight: 600;">{{.TotalCoursePaid}} EGP</td>
+                </tr>
+                {{if gt .FinalPrice 0}}
+                <tr>
+                    <td style="padding: 8px;"><strong>Remaining Balance:</strong></td>
+                    <td style="padding: 8px; text-align: right; font-weight: 600; color: {{if eq .RemainingBalance 0}}#28a745{{else}}#dc3545{{end}};">
+                        {{.RemainingBalance}} EGP
+                        {{if eq .RemainingBalance 0}}
+                            <span style="color: #28a745; margin-left: 5px;">✓ Paid in full</span>
+                        {{end}}
+                    </td>
+                </tr>
+                {{end}}
+            </table>
+        </div>
+        
+        {{if eq .FinalPrice 0}}
+        <div style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
+            <strong>⚠️ Set offer first:</strong> You must set the offer final price in the "Offer & Pricing" section above and click <strong>Save</strong> before adding course payments.
+            {{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}
+            <br><small style="color: #666;">Note: Final price is set in the form but not saved yet. Please click Save to persist it.</small>
+            {{end}}
+        </div>
+        {{else if eq .RemainingBalance 0}}
+        <div style="padding: 15px; background-color: #E8F5E9; border: 1px solid #28a745; border-radius: 4px; margin-bottom: 15px;">
+            <strong>✓ Paid in full:</strong> This lead has paid the full offer amount. No additional payments needed.
+        </div>
+        {{end}}
         
         <div class="form-row">
             <div class="form-group">
-                <label for="payment_type">Payment Type</label>
-                <select id="payment_type" name="payment_type">
-                    <option value="">Not paid</option>
-                    <option value="full" {{if and .Detail.Payment .Detail.Payment.PaymentType.Valid}}{{if eq .Detail.Payment.PaymentType.String "full"}}selected{{end}}{{end}}>Full Payment</option>
-                    <option value="deposit" {{if and .Detail.Payment .Detail.Payment.PaymentType.Valid}}{{if eq .Detail.Payment.PaymentType.String "deposit"}}selected{{end}}{{end}}>Deposit</option>
+                <label for="course_payment_type">Payment Type *</label>
+                <select id="course_payment_type" name="course_payment_type" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                    <option value="">Select type</option>
+                    <option value="deposit">Deposit</option>
+                    <option value="full_payment">Full Payment</option>
+                    <option value="top_up">Top-up</option>
                 </select>
             </div>
             <div class="form-group">
-                <label for="payment_date">Payment Date</label>
-                <input type="date" id="payment_date" name="payment_date" value="{{if and .Detail.Payment .Detail.Payment.PaymentDate.Valid}}{{.Detail.Payment.PaymentDate.Time.Format "2006-01-02"}}{{end}}">
+                <label for="course_payment_amount">Amount (EGP) *</label>
+                <input type="number" id="course_payment_amount" name="course_payment_amount" min="1" max="{{.RemainingBalance}}" step="1" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                {{if gt .RemainingBalance 0}}
+                <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.RemainingBalance}} EGP (remaining balance)</small>
+                {{end}}
             </div>
         </div>
         
         <div class="form-row">
             <div class="form-group">
-                <label for="amount_paid">Amount Paid</label>
-                <input type="number" id="amount_paid" name="amount_paid" value="{{if and .Detail.Payment .Detail.Payment.AmountPaid.Valid}}{{.Detail.Payment.AmountPaid.Int32}}{{end}}" step="1">
+                <label for="course_payment_method">Payment Method *</label>
+                <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                    <option value="">Select method</option>
+                    <option value="vodafone_cash">Vodafone Cash</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="paypal">PayPal</option>
+                    <option value="other">Other</option>
+                </select>
             </div>
             <div class="form-group">
-                <label for="remaining_balance">Remaining Balance</label>
-                <input type="number" id="remaining_balance" name="remaining_balance" value="{{if and .Detail.Payment .Detail.Payment.RemainingBalance.Valid}}{{.Detail.Payment.RemainingBalance.Int32}}{{end}}" step="1" readonly>
+                <label for="course_payment_date">Payment Date *</label>
+                <input type="date" id="course_payment_date" name="course_payment_date" value="{{.Today}}" max="{{.Today}}" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
             </div>
         </div>
         
-        {{if and .Detail.Payment .Detail.Payment.RemainingBalance.Valid}}{{if gt .Detail.Payment.RemainingBalance.Int32 0}}
-        <div class="warning-box" id="payment-warning">
-            <strong>⚠️ Financial Block:</strong> Student is financially blocked from starting. Remaining balance: {{.Detail.Payment.RemainingBalance.Int32}} EGP
+        <div class="form-row">
+            <div class="form-group">
+                <label for="course_payment_notes">Notes</label>
+                <input type="text" id="course_payment_notes" name="course_payment_notes" placeholder="Optional notes..." form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+            </div>
         </div>
-        {{end}}{{end}}
+        
+        <p style="font-size: 12px; color: #666; margin-top: 8px;">Note: Leave fields empty if not adding a new payment. Multiple payments are supported (deposit now, rest later).</p>
+        
+        {{if .LeadPayments}}
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+            <h3 style="margin-top: 0; font-size: 16px;">Payment History</h3>
+            <table style="width: 100%; font-size: 14px;">
+                <thead>
+                    <tr style="background: #F5F5F5;">
+                        <th style="padding: 8px; text-align: left;">Type</th>
+                        <th style="padding: 8px; text-align: left;">Date</th>
+                        <th style="padding: 8px; text-align: left;">Amount</th>
+                        <th style="padding: 8px; text-align: left;">Method</th>
+                        <th style="padding: 8px; text-align: left;">Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .LeadPayments}}
+                    <tr>
+                        <td style="padding: 8px;">
+                            {{if eq .Kind "deposit"}}<span style="background: #E3F2FD; color: #1976D2; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Deposit</span>{{else if eq .Kind "full_payment"}}<span style="background: #E8F5E9; color: #388E3C; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Full</span>{{else if eq .Kind "top_up"}}<span style="background: #FFF3E0; color: #F57C00; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Top-up</span>{{else}}{{.Kind}}{{end}}
+                        </td>
+                        <td style="padding: 8px;">{{.PaymentDate.Format "2006-01-02"}}</td>
+                        <td style="padding: 8px; font-weight: 600;">{{.Amount}} EGP</td>
+                        <td style="padding: 8px;">{{.PaymentMethod}}</td>
+                        <td style="padding: 8px;">{{if .Notes.Valid}}{{.Notes.String}}{{else}}-{{end}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
     </div>
 
     <!-- 6. Round / Schedule -->
-    <div class="form-section">
+    <div class="form-section" {{if not .IsFullyPaid}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"{{end}}>
         <h2>Round / Schedule</h2>
         <div class="section-note">Admin: Assigns schedule when student is ready. Both fields required to mark as ready.</div>
+        
+        {{if not .IsFullyPaid}}
+        <div style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
+            <strong>🔒 Locked until course is fully paid.</strong> Course must be fully paid before setting schedule.
+        </div>
+        {{end}}
         
         <div class="form-row">
             <div class="form-group">
                 <label for="class_days">Class Days *</label>
-                <select id="class_days" name="class_days">
+                <select id="class_days" name="class_days" {{if not .IsFullyPaid}}disabled{{end}}>
                     <option value="">Select class days</option>
                     <option value="Sun/Wed" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Sun/Wed"}}selected{{end}}{{end}}>Sun/Wed</option>
                     <option value="Sat/Tues" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Sat/Tues"}}selected{{end}}{{end}}>Sat/Tues</option>
@@ -272,7 +411,7 @@
             </div>
             <div class="form-group">
                 <label for="class_time">Class Time *</label>
-                <select id="class_time" name="class_time">
+                <select id="class_time" name="class_time" {{if not .IsFullyPaid}}disabled{{end}}>
                     <option value="">Select class time</option>
                     <option value="07:30" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq .Detail.Scheduling.ClassTime.String "07:30"}}selected{{end}}{{end}}>07:30</option>
                     <option value="10:00" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq .Detail.Scheduling.ClassTime.String "10:00"}}selected{{end}}{{end}}>10:00</option>
@@ -282,7 +421,8 @@
         
         <div class="form-group">
             <label>Status</label>
-            <span class="badge {{.Detail.Lead.Status}}">{{.Detail.Lead.Status}}</span>
+            <span class="badge {{.Detail.Lead.Status}}" style="opacity: 0.7; font-size: 12px;">{{.StatusDisplayName}}</span>
+            <small style="color: #666; display: block; margin-top: 5px;">Status is displayed in the header banner above</small>
         </div>
     </div>
 
@@ -332,27 +472,149 @@
     </div>
     {{end}}
     {{end}}
-    
-    <!-- Delete Button -->
-    {{if .ShowDeleteConfirm}}
-    <div style="margin-top: 30px; padding: 20px; background-color: #FFF4E6; border: 2px solid #FFA500; border-radius: 4px;">
-        <h3 style="margin-top: 0; color: #CC6600;">⚠️ Confirm Deletion</h3>
-        <p>Are you sure you want to delete <strong>{{.Detail.Lead.FullName}}</strong>? This action cannot be undone.</p>
-        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
-            <input type="hidden" name="action" value="delete">
-            <input type="hidden" name="confirm_delete" value="yes">
-            <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white;">Yes, Delete Lead</button>
-            <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary" style="margin-left: 10px;">Cancel</a>
-        </form>
-    </div>
-    {{else}}
+
+    <!-- Refund Button - Show if lead has payments -->
+    {{if and .Detail.Payment .Detail.Payment.AmountPaid.Valid (gt .Detail.Payment.AmountPaid.Int32 0)}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
-        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
-            <input type="hidden" name="action" value="delete">
-            <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white;">Delete Lead</button>
+        <h3 style="margin-top: 0; color: #CC0000;">Refund</h3>
+        <form method="POST" action="/finance/refund/{{.Detail.Lead.ID}}" style="display: grid; gap: 12px; max-width: 500px;">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="refund_amount">Amount (EGP) *</label>
+                    <input type="number" id="refund_amount" name="amount" min="1" step="1" required>
+                </div>
+                <div class="form-group">
+                    <label for="refund_payment_method">Payment Method *</label>
+                    <select id="refund_payment_method" name="payment_method" required>
+                        <option value="">Select method</option>
+                        <option value="vodafone_cash">Vodafone Cash</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="paypal">PayPal</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="refund_date">Date</label>
+                    <input type="date" id="refund_date" name="transaction_date" value="{{.Today}}" max="{{.Today}}">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="refund_notes">Notes</label>
+                <textarea id="refund_notes" name="notes" rows="2" placeholder="Optional notes about this refund..."></textarea>
+            </div>
+            <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white;">Create Refund</button>
         </form>
     </div>
     {{end}}
+    
+    <!-- Cancel Lead Button / Reopen Lead Button -->
+    {{if eq .Detail.Lead.Status "cancelled"}}
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <div style="background-color: #FFF4E6; border: 1px solid #FFA500; padding: 15px; margin-bottom: 15px; border-radius: 4px;">
+            <strong>⚠️ This lead is cancelled.</strong> You can reopen it to reactivate.
+        </div>
+        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
+            <input type="hidden" name="action" value="reopen">
+            <button type="submit" class="btn" style="background-color: #28a745; border-color: #28a745; color: white;">Reopen Lead</button>
+        </form>
+    </div>
+    {{else if not .IsModerator}}
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <form method="GET" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
+            <input type="hidden" name="action" value="cancel">
+            <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white;">Cancel Lead</button>
+        </form>
+    </div>
+    {{end}}
+    
+    <!-- Cancel Lead Modal -->
+    {{if .ShowCancelModal}}
+    <div id="cancelModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+            <h2 style="margin-top: 0; color: #dc3545;">⚠️ Cancel Lead: {{.Detail.Lead.FullName}}</h2>
+            <p style="color: #666;">Cancelling this lead will mark it as cancelled. If the lead has course payments, a refund must be created.</p>
+            
+            {{if .Error}}
+            <div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin: 20px 0; border-radius: 4px; color: #721C24;">
+                <strong>Error:</strong> {{.Error}}
+            </div>
+            {{end}}
+            
+            <div style="margin: 20px 0; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
+                <h3 style="margin-top: 0; font-size: 16px;">Payment Summary</h3>
+                <table style="width: 100%; font-size: 14px;">
+                    <tr>
+                        <td style="padding: 8px;"><strong>Placement Test Paid:</strong></td>
+                        <td style="padding: 8px; text-align: right;">{{.PlacementTestPaid}} EGP</td>
+                        <td style="padding: 8px; color: #666; font-size: 12px;">(Not refundable)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px;"><strong>Course Paid Total:</strong></td>
+                        <td style="padding: 8px; text-align: right; font-weight: 600;">{{.TotalCoursePaid}} EGP</td>
+                        <td style="padding: 8px;"></td>
+                    </tr>
+                    {{if gt .RemainingBalance 0}}
+                    <tr>
+                        <td style="padding: 8px;"><strong>Remaining Balance:</strong></td>
+                        <td style="padding: 8px; text-align: right;">{{.RemainingBalance}} EGP</td>
+                        <td style="padding: 8px;"></td>
+                    </tr>
+                    {{end}}
+                </table>
+            </div>
+            
+            {{if gt .TotalCoursePaid 0}}
+            <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+                <input type="hidden" name="action" value="cancel">
+                
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="refund_amount">Refund Amount (EGP) *</label>
+                    <input type="number" id="refund_amount" name="refund_amount" min="1" max="{{.TotalCoursePaid}}" value="{{.TotalCoursePaid}}" step="1" required>
+                    <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalCoursePaid}} EGP (total course paid)</small>
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="refund_method">Refund Payment Method *</label>
+                    <select id="refund_method" name="refund_method" required>
+                        <option value="">Select method</option>
+                        <option value="vodafone_cash">Vodafone Cash</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="paypal">PayPal</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="refund_date">Refund Date *</label>
+                    <input type="date" id="refund_date" name="refund_date" value="{{.Today}}" max="{{.Today}}" required>
+                    <small style="color: #666; display: block; margin-top: 5px;">Date cannot be in the future</small>
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="refund_notes">Notes</label>
+                    <textarea id="refund_notes" name="refund_notes" rows="3" placeholder="Optional notes about this cancellation and refund..."></textarea>
+                    <small style="color: #666; display: block; margin-top: 5px;">Recommended: Add notes about why the lead was cancelled</small>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm Cancel & Refund</button>
+                    <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary" style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
+                </div>
+            </form>
+            {{else}}
+            <p style="color: #666; margin: 20px 0;">This lead has no course payments, so no refund is needed.</p>
+            <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+                <input type="hidden" name="action" value="cancel">
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm Cancel</button>
+                    <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary" style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
+                </div>
+            </form>
+            {{end}}
+        </div>
+    </div>
     {{end}}
 </form>
 
@@ -384,6 +646,63 @@
         }
     }
 
+    // Hardcoded bundle prices
+    const bundlePrices = {
+        1: 1300,
+        2: 2400,
+        3: 3300,
+        4: 4000
+    };
+    
+    function updateBundlePricing() {
+        const bundleSelect = document.getElementById('bundle');
+        const basePriceInput = document.getElementById('base_price');
+        const discountInput = document.getElementById('discount');
+        const finalPriceInput = document.getElementById('final_price');
+        
+        if (!bundleSelect || !basePriceInput || !finalPriceInput) return;
+        
+        const bundleValue = bundleSelect.value;
+        if (bundleValue && bundlePrices[bundleValue]) {
+            const basePrice = bundlePrices[bundleValue];
+            basePriceInput.value = basePrice;
+            // Recalculate final price with new base price
+            updateFinalPrice();
+        } else {
+            basePriceInput.value = '';
+            finalPriceInput.value = '';
+        }
+    }
+    
+    function updateFinalPrice() {
+        const basePriceInput = document.getElementById('base_price');
+        const discountInput = document.getElementById('discount');
+        const finalPriceInput = document.getElementById('final_price');
+        
+        if (!basePriceInput || !discountInput || !finalPriceInput) return;
+        
+        const basePrice = parseFloat(basePriceInput.value) || 0;
+        const discountStr = discountInput.value.trim();
+        
+        if (basePrice === 0) {
+            // If no base price, don't auto-calculate
+            return;
+        }
+        
+        let discountAmount = 0;
+        if (discountStr) {
+            if (discountStr.endsWith('%')) {
+                const percent = parseFloat(discountStr.slice(0, -1)) || 0;
+                discountAmount = Math.round((basePrice * percent) / 100);
+            } else {
+                discountAmount = parseFloat(discountStr) || 0;
+            }
+        }
+        
+        const finalPrice = Math.max(0, basePrice - discountAmount);
+        finalPriceInput.value = finalPrice;
+    }
+    
     document.addEventListener('DOMContentLoaded', function() {
         togglePrintedFields();
         
@@ -394,6 +713,12 @@
             calculatePlacementTestRemaining();
             feeInput.addEventListener('input', calculatePlacementTestRemaining);
             paidInput.addEventListener('input', calculatePlacementTestRemaining);
+        }
+        
+        // Initialize bundle pricing if bundle is already selected
+        const bundleSelect = document.getElementById('bundle');
+        if (bundleSelect && bundleSelect.value) {
+            updateBundlePricing();
         }
         
         // Disable all form inputs for moderators (read-only mode)
@@ -408,4 +733,5 @@
         {{end}}
     });
 </script>
+{{end}}
 {{end}}

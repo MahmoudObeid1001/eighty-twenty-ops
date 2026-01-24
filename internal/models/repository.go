@@ -3,11 +3,13 @@ package models
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"time"
 
 	"eighty-twenty-ops/internal/db"
+	"eighty-twenty-ops/internal/util"
 
 	"github.com/google/uuid"
 )
@@ -298,7 +300,7 @@ func GetPaymentStatus(remainingBalance, amountPaid sql.NullInt32) string {
 	return "Unpaid"
 }
 
-func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string) ([]*LeadListItem, error) {
+func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool) ([]*LeadListItem, error) {
 	query := `
 		SELECT 
 			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.sent_to_classes,
@@ -317,6 +319,12 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string) ([
 	
 	args := []interface{}{}
 	argIndex := 1
+	
+	// Exclude cancelled by default. Include if includeCancelled=true OR explicitly filtering by status=cancelled.
+	excludeCancelled := !includeCancelled && statusFilter != "cancelled"
+	if excludeCancelled {
+		query += " AND l.status != 'cancelled'"
+	}
 	
 	// Apply status filter - map new stage names to old status values for DB query
 	if statusFilter != "" {
@@ -491,11 +499,11 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get placement test
 	pt := &PlacementTest{}
 	err = db.DB.QueryRow(`
-		SELECT id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, placement_test_fee, placement_test_fee_paid, updated_at
+		SELECT id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
 		FROM placement_tests WHERE lead_id = $1
 	`, id).Scan(
 		&pt.ID, &pt.LeadID, &pt.TestDate, &pt.TestTime, &pt.TestType, &pt.AssignedLevel,
-		&pt.TestNotes, &pt.RunByUserID, &pt.PlacementTestFee, &pt.PlacementTestFeePaid, &pt.UpdatedAt,
+		&pt.TestNotes, &pt.RunByUserID, &pt.PlacementTestFee, &pt.PlacementTestFeePaid, &pt.PlacementTestPaymentDate, &pt.PlacementTestPaymentMethod, &pt.UpdatedAt,
 	)
 	if err == nil {
 		detail.PlacementTest = pt
@@ -647,8 +655,8 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 	// Upsert placement test
 	if detail.PlacementTest != nil {
 		_, err = tx.Exec(`
-			INSERT INTO placement_tests (id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, placement_test_fee, placement_test_fee_paid, updated_at)
-			VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			INSERT INTO placement_tests (id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at)
+			VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			ON CONFLICT (lead_id) DO UPDATE SET
 				test_date = EXCLUDED.test_date,
 				test_time = EXCLUDED.test_time,
@@ -658,11 +666,15 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 				run_by_user_id = EXCLUDED.run_by_user_id,
 				placement_test_fee = EXCLUDED.placement_test_fee,
 				placement_test_fee_paid = EXCLUDED.placement_test_fee_paid,
+				placement_test_payment_date = EXCLUDED.placement_test_payment_date,
+				placement_test_payment_method = EXCLUDED.placement_test_payment_method,
 				updated_at = EXCLUDED.updated_at
 		`, detail.Lead.ID, detail.PlacementTest.TestDate, detail.PlacementTest.TestTime,
 			detail.PlacementTest.TestType, detail.PlacementTest.AssignedLevel,
 			detail.PlacementTest.TestNotes, detail.PlacementTest.RunByUserID,
-			detail.PlacementTest.PlacementTestFee, detail.PlacementTest.PlacementTestFeePaid, now)
+			detail.PlacementTest.PlacementTestFee, detail.PlacementTest.PlacementTestFeePaid,
+			detail.PlacementTest.PlacementTestPaymentDate, detail.PlacementTest.PlacementTestPaymentMethod,
+			now)
 		if err != nil {
 			return fmt.Errorf("failed to upsert placement test: %w", err)
 		}
@@ -1475,4 +1487,768 @@ func GetClassGroupWorkflowsBatch(classKeys []string) (map[string]*ClassGroupWork
 		result[wf.ClassKey] = wf
 	}
 	return result, rows.Err()
+}
+
+// UpdateLeadStatusFromPayment updates lead status based on payment state.
+// When total_course_paid >= offer_final_price: set status to paid_full.
+// When paid_full but total now < final: revert to offer_sent.
+// Does nothing if lead is cancelled.
+func UpdateLeadStatusFromPayment(leadID uuid.UUID) error {
+	var currentStatus string
+	err := db.DB.QueryRow(`SELECT status FROM leads WHERE id = $1`, leadID).Scan(&currentStatus)
+	if err != nil {
+		return fmt.Errorf("failed to get lead status: %w", err)
+	}
+	if currentStatus == "cancelled" {
+		return nil
+	}
+	var finalPrice sql.NullInt32
+	err = db.DB.QueryRow(`SELECT final_price FROM offers WHERE lead_id = $1`, leadID).Scan(&finalPrice)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to get offer: %w", err)
+	}
+	if err == sql.ErrNoRows || !finalPrice.Valid || finalPrice.Int32 <= 0 {
+		return nil
+	}
+	totalCoursePaid, err := GetTotalCoursePaid(leadID)
+	if err != nil {
+		return fmt.Errorf("failed to get total course paid: %w", err)
+	}
+	var newStatus string
+	if totalCoursePaid >= finalPrice.Int32 {
+		newStatus = "paid_full"
+	} else if currentStatus == "paid_full" {
+		newStatus = "offer_sent"
+	} else {
+		return nil
+	}
+	if newStatus != currentStatus {
+		_, err = db.DB.Exec(`UPDATE leads SET status = $1, updated_at = $2 WHERE id = $3`, newStatus, time.Now(), leadID)
+		if err != nil {
+			return fmt.Errorf("failed to update lead status: %w", err)
+		}
+	}
+	return nil
+}
+
+// GetTotalCoursePaid returns the net course payments for a lead (sum of payments - sum of refunds)
+func GetTotalCoursePaid(leadID uuid.UUID) (int32, error) {
+	// Sum all course payments from lead_payments table
+	var totalPayments sql.NullInt32
+	err := db.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM lead_payments
+		WHERE lead_id = $1
+	`, leadID).Scan(&totalPayments)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get total course payments: %w", err)
+	}
+	
+	paymentsTotal := int32(0)
+	if totalPayments.Valid {
+		paymentsTotal = totalPayments.Int32
+	}
+	
+	// Sum all refunds for this lead (OUT transactions with category='refund')
+	var totalRefunds sql.NullInt32
+	err = db.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE lead_id = $1
+		AND transaction_type = 'OUT'
+		AND category = 'refund'
+	`, leadID).Scan(&totalRefunds)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get total refunds: %w", err)
+	}
+	
+	refundsTotal := int32(0)
+	if totalRefunds.Valid {
+		refundsTotal = totalRefunds.Int32
+	}
+	
+	// Net = payments - refunds
+	netTotal := paymentsTotal - refundsTotal
+	if netTotal < 0 {
+		netTotal = 0 // Don't return negative (shouldn't happen, but safety check)
+	}
+	
+	return netTotal, nil
+}
+
+// GetLeadPayments returns all course payments for a lead
+func GetLeadPayments(leadID uuid.UUID) ([]*LeadPayment, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, lead_id, kind, amount, payment_method, payment_date, notes, created_at, updated_at
+		FROM lead_payments
+		WHERE lead_id = $1
+		ORDER BY payment_date DESC, created_at DESC
+	`, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query lead payments: %w", err)
+	}
+	defer rows.Close()
+	
+	var payments []*LeadPayment
+	for rows.Next() {
+		p := &LeadPayment{}
+		var notes sql.NullString
+		err := rows.Scan(
+			&p.ID, &p.LeadID, &p.Kind, &p.Amount, &p.PaymentMethod,
+			&p.PaymentDate, &notes, &p.CreatedAt, &p.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan lead payment: %w", err)
+		}
+		p.Notes = notes
+		payments = append(payments, p)
+	}
+	
+	return payments, rows.Err()
+}
+
+// CreateLeadPayment creates a course payment record and corresponding finance transaction
+func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMethod string, paymentDate time.Time, notes string) (*LeadPayment, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("amount must be positive")
+	}
+	
+	// Validate payment date is not in the future
+	if err := util.ValidateNotFutureDate(paymentDate); err != nil {
+		return nil, err
+	}
+	
+	// Validate kind is one of allowed values
+	allowedKinds := map[string]bool{
+		"course":       true,
+		"deposit":      true,
+		"full_payment": true,
+		"top_up":       true,
+	}
+	if !allowedKinds[kind] {
+		return nil, fmt.Errorf("invalid payment kind: %s", kind)
+	}
+	
+	// Validate payment method
+	allowedMethods := map[string]bool{
+		"vodafone_cash": true,
+		"bank_transfer": true,
+		"paypal":        true,
+		"other":         true,
+	}
+	if !allowedMethods[paymentMethod] {
+		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	}
+	
+	payment := &LeadPayment{
+		ID:            uuid.New(),
+		LeadID:        leadID,
+		Kind:          kind,
+		Amount:        amount,
+		PaymentMethod: paymentMethod,
+		PaymentDate:   paymentDate,
+		Notes:         sql.NullString{String: notes, Valid: notes != ""},
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	}
+	
+	// Insert payment record
+	_, err := db.DB.Exec(`
+		INSERT INTO lead_payments (id, lead_id, kind, amount, payment_method, payment_date, notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+	`, payment.ID, payment.LeadID, payment.Kind, payment.Amount, payment.PaymentMethod, payment.PaymentDate, payment.Notes, payment.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create lead payment: %w", err)
+	}
+	
+	// Create corresponding finance transaction (IN)
+	refKey := fmt.Sprintf("lead:%s:course_payment:%s", leadID.String(), payment.ID.String())
+	refIDStr := leadID.String()
+	paymentDateValue := paymentDate.Format("2006-01-02")
+	now := payment.CreatedAt
+	
+	_, err = db.DB.Exec(`
+		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, lead_id, ref_type, ref_id, ref_sub_type, ref_key, notes, created_at, updated_at)
+		VALUES ($1, $2::date, $3::text, $4::text, $5::integer, $6::text, $7::uuid, $8::text, $9::text, $10::text, $11::text, $12, $13::timestamp with time zone, $13::timestamp with time zone)
+	`, uuid.New(), paymentDateValue, "IN", "course_payment", amount, paymentMethod, leadID, "lead", refIDStr, "course_payment", refKey, payment.Notes, now)
+	if err != nil {
+		// Rollback payment if transaction creation fails
+		db.DB.Exec(`DELETE FROM lead_payments WHERE id = $1`, payment.ID)
+		return nil, fmt.Errorf("failed to create finance transaction: %w", err)
+	}
+	
+	if err := UpdateLeadStatusFromPayment(leadID); err != nil {
+		// Log but don't fail
+		log.Printf("WARNING: failed to auto-update lead status after payment: %v", err)
+	}
+	
+	return payment, nil
+}
+
+// CreateRefund creates a refund transaction (OUT) for a lead
+func CreateRefund(leadID uuid.UUID, amount int32, paymentMethod string, transactionDate time.Time, notes string) (*Transaction, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("amount must be positive")
+	}
+	
+	// Validate transaction date is not in the future
+	if err := util.ValidateNotFutureDate(transactionDate); err != nil {
+		return nil, err
+	}
+	
+	// Validate payment method
+	allowedMethods := map[string]bool{
+		"vodafone_cash": true,
+		"bank_transfer": true,
+		"paypal":        true,
+		"other":         true,
+	}
+	if !allowedMethods[paymentMethod] {
+		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	}
+	
+	// Validate refund doesn't exceed total course paid
+	totalCoursePaid, err := GetTotalCoursePaid(leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate refund amount: %w", err)
+	}
+	if amount > totalCoursePaid {
+		return nil, fmt.Errorf("refund amount (%d) cannot exceed total course paid (%d)", amount, totalCoursePaid)
+	}
+	
+	// Create ref_key for traceability
+	refKey := fmt.Sprintf("lead:%s:refund:%s", leadID.String(), uuid.New().String())
+	refIDStr := leadID.String()
+	now := time.Now()
+	transactionDateValue := transactionDate.Format("2006-01-02")
+	
+	tx := &Transaction{
+		ID:              uuid.New(),
+		TransactionDate: transactionDate,
+		TransactionType: "OUT",
+		Category:        "refund",
+		Amount:          amount,
+		PaymentMethod:   sql.NullString{String: paymentMethod, Valid: true},
+		LeadID:          sql.NullString{String: leadID.String(), Valid: true},
+		RefType:         sql.NullString{String: "lead", Valid: true},
+		RefID:           sql.NullString{String: refIDStr, Valid: true},
+		RefSubType:      sql.NullString{String: "refund", Valid: true},
+		RefKey:          sql.NullString{String: refKey, Valid: true},
+		Notes:           sql.NullString{String: notes, Valid: notes != ""},
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	
+	_, err = db.DB.Exec(`
+		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, lead_id, ref_type, ref_id, ref_sub_type, ref_key, notes, created_at, updated_at)
+		VALUES ($1, $2::date, $3::text, $4::text, $5::integer, $6::text, $7::uuid, $8::text, $9::text, $10::text, $11::text, $12, $13::timestamp with time zone, $13::timestamp with time zone)
+	`, tx.ID, transactionDateValue, tx.TransactionType, tx.Category, tx.Amount, tx.PaymentMethod, leadID, "lead", refIDStr, "refund", refKey, tx.Notes, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create refund transaction: %w", err)
+	}
+	
+	if err := UpdateLeadStatusFromPayment(leadID); err != nil {
+		log.Printf("WARNING: failed to auto-update lead status after refund: %v", err)
+	}
+	
+	return tx, nil
+}
+
+// CancelLead soft-cancels a lead (sets status to cancelled, does not delete)
+func CancelLead(leadID uuid.UUID) error {
+	now := time.Now()
+	_, err := db.DB.Exec(`
+		UPDATE leads 
+		SET status = 'cancelled', cancelled_at = $1, updated_at = $1
+		WHERE id = $2
+	`, now, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to cancel lead: %w", err)
+	}
+	return nil
+}
+
+// ReopenLead reopens a cancelled lead (sets status back to a valid active status)
+func ReopenLead(leadID uuid.UUID) error {
+	// Set status to lead_created as default, admin can update later
+	_, err := db.DB.Exec(`
+		UPDATE leads 
+		SET status = 'lead_created', cancelled_at = NULL, updated_at = $1
+		WHERE id = $2 AND status = 'cancelled'
+	`, time.Now(), leadID)
+	if err != nil {
+		return fmt.Errorf("failed to reopen lead: %w", err)
+	}
+	return nil
+}
+
+// CreateExpense creates an OUT transaction for an expense
+func CreateExpense(category string, amount int32, paymentMethod string, transactionDate time.Time, notes string) (*Transaction, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("amount must be positive")
+	}
+	
+	// Validate transaction date is not in the future
+	if err := util.ValidateNotFutureDate(transactionDate); err != nil {
+		return nil, err
+	}
+	
+	// Validate payment method
+	allowedMethods := map[string]bool{
+		"vodafone_cash": true,
+		"bank_transfer": true,
+		"paypal":        true,
+		"other":         true,
+	}
+	if !allowedMethods[paymentMethod] {
+		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	}
+	
+	tx := &Transaction{
+		ID:              uuid.New(),
+		TransactionDate: transactionDate,
+		TransactionType: "OUT",
+		Category:        category,
+		Amount:          amount,
+		PaymentMethod:   sql.NullString{String: paymentMethod, Valid: true},
+		Notes:           sql.NullString{String: notes, Valid: notes != ""},
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	
+	transactionDateValue := transactionDate.Format("2006-01-02")
+	_, err := db.DB.Exec(`
+		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, notes, created_at, updated_at)
+		VALUES ($1, $2::date, $3::text, $4::text, $5::integer, $6::text, $7, $8::timestamp with time zone, $8::timestamp with time zone)
+	`, tx.ID, transactionDateValue, tx.TransactionType, tx.Category, tx.Amount, tx.PaymentMethod, tx.Notes, tx.CreatedAt)
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to create expense: %w", err)
+	}
+	
+	return tx, nil
+}
+
+// UpsertPlacementTestIncome creates or updates a finance transaction for placement test payment
+func UpsertPlacementTestIncome(leadID uuid.UUID, amountPaid int32, paymentDate sql.NullTime, paymentMethod sql.NullString) error {
+	if amountPaid <= 0 {
+		// No payment, nothing to sync
+		return nil
+	}
+	
+	if !paymentDate.Valid {
+		return fmt.Errorf("payment date is required")
+	}
+	
+	// Validate payment date is not in the future
+	if err := util.ValidateNotFutureDate(paymentDate.Time); err != nil {
+		return err
+	}
+	
+	if !paymentMethod.Valid {
+		return fmt.Errorf("payment method is required")
+	}
+	
+	// Create unique ref_key for idempotency
+	refKey := fmt.Sprintf("lead:%s:placement_test", leadID.String())
+	refIDStr := leadID.String()
+	paymentDateValue := paymentDate.Time.Format("2006-01-02")
+	now := time.Now()
+	
+	// Use ON CONFLICT to update if exists, insert if not
+	_, err := db.DB.Exec(`
+		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, lead_id, ref_type, ref_id, ref_sub_type, ref_key, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1::date, $2::text, $3::text, $4::integer, $5::text, $6::uuid, $7::text, $8::text, $9::text, $10::text, $11::timestamp with time zone, $11::timestamp with time zone)
+		ON CONFLICT (ref_key) DO UPDATE SET
+			transaction_date = EXCLUDED.transaction_date,
+			amount = EXCLUDED.amount,
+			payment_method = EXCLUDED.payment_method,
+			updated_at = EXCLUDED.updated_at
+	`, paymentDateValue, "IN", "placement_test", amountPaid, paymentMethod.String, leadID, "lead", refIDStr, "placement_test", refKey, now)
+	
+	if err != nil {
+		return fmt.Errorf("failed to upsert placement test income: %w", err)
+	}
+	
+	return nil
+}
+
+// CalculateLevelsPurchased calculates levels purchased and bundle type from total paid amount
+// Bundle prices: 1 level = 1300, 2 levels = 2400, 3 levels = 3300, 4 levels = 4000
+func CalculateLevelsPurchased(bundleLevels sql.NullInt32, totalPaid int32) (levelsPurchased sql.NullInt32, bundleType sql.NullString) {
+	if !bundleLevels.Valid || bundleLevels.Int32 <= 0 {
+		return sql.NullInt32{Valid: false}, sql.NullString{String: "none", Valid: true}
+	}
+	
+	// If bundle levels is specified, use it
+	levelsPurchased = bundleLevels
+	bundleType = sql.NullString{String: fmt.Sprintf("bundle%d", bundleLevels.Int32), Valid: true}
+	if bundleLevels.Int32 == 1 {
+		bundleType = sql.NullString{String: "single", Valid: true}
+	}
+	
+	return levelsPurchased, bundleType
+}
+
+// UpdateLeadCreditsFromPayments updates lead's levels_purchased_total and bundle_type based on payments
+func UpdateLeadCreditsFromPayments(leadID uuid.UUID, bundleLevels sql.NullInt32) error {
+	payments, err := GetLeadPayments(leadID)
+	if err != nil {
+		return err
+	}
+	
+	var totalPaid int32 = 0
+	for _, p := range payments {
+		totalPaid += p.Amount
+	}
+	
+	levelsPurchased, bundleType := CalculateLevelsPurchased(bundleLevels, totalPaid)
+	
+	_, err = db.DB.Exec(`
+		UPDATE leads SET 
+			levels_purchased_total = $1,
+			bundle_type = $2,
+			updated_at = $3
+		WHERE id = $4
+	`, levelsPurchased, bundleType, time.Now(), leadID)
+	
+	return err
+}
+
+// GetFinanceSummary returns aggregated finance data for today and date range
+func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
+	today := time.Now().Format("2006-01-02")
+	
+	summary := &FinanceSummary{
+		INByCategory: make(map[string]int32),
+		OUTByCategory: make(map[string]int32),
+		CreditsBreakdown: make(map[string]int),
+	}
+	
+	// Today's totals
+	var todayIN, todayOUT sql.NullInt32
+	err := db.DB.QueryRow(`
+		SELECT 
+			COALESCE(SUM(CASE WHEN transaction_type = 'IN' THEN amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN transaction_type = 'OUT' THEN amount ELSE 0 END), 0)
+		FROM transactions
+		WHERE transaction_date = $1::date
+	`, today).Scan(&todayIN, &todayOUT)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get today's totals: %w", err)
+	}
+	if todayIN.Valid {
+		summary.TodayIN = todayIN.Int32
+	}
+	if todayOUT.Valid {
+		summary.TodayOUT = todayOUT.Int32
+	}
+	summary.TodayNet = summary.TodayIN - summary.TodayOUT
+	
+	// Date range totals
+	rangeQuery := "SELECT COALESCE(SUM(CASE WHEN transaction_type = 'IN' THEN amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN transaction_type = 'OUT' THEN amount ELSE 0 END), 0) FROM transactions WHERE 1=1"
+	rangeArgs := []interface{}{}
+	argIndex := 1
+	
+	if dateFrom.Valid {
+		rangeQuery += fmt.Sprintf(" AND transaction_date >= $%d::date", argIndex)
+		rangeArgs = append(rangeArgs, dateFrom.Time.Format("2006-01-02"))
+		argIndex++
+	}
+	if dateTo.Valid {
+		rangeQuery += fmt.Sprintf(" AND transaction_date <= $%d::date", argIndex)
+		rangeArgs = append(rangeArgs, dateTo.Time.Format("2006-01-02"))
+		argIndex++
+	}
+	
+	var rangeIN, rangeOUT sql.NullInt32
+	if len(rangeArgs) > 0 {
+		err = db.DB.QueryRow(rangeQuery, rangeArgs...).Scan(&rangeIN, &rangeOUT)
+	} else {
+		err = db.DB.QueryRow(rangeQuery).Scan(&rangeIN, &rangeOUT)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get range totals: %w", err)
+	}
+	if rangeIN.Valid {
+		summary.RangeIN = rangeIN.Int32
+	}
+	if rangeOUT.Valid {
+		summary.RangeOUT = rangeOUT.Int32
+	}
+	summary.RangeNet = summary.RangeIN - summary.RangeOUT
+	
+	// Category breakdowns for date range
+	categoryQuery := "SELECT category, transaction_type, COALESCE(SUM(amount), 0) FROM transactions WHERE 1=1"
+	if dateFrom.Valid {
+		categoryQuery += fmt.Sprintf(" AND transaction_date >= $%d::date", len(rangeArgs)-1)
+	}
+	if dateTo.Valid {
+		categoryQuery += fmt.Sprintf(" AND transaction_date <= $%d::date", len(rangeArgs))
+	}
+	categoryQuery += " GROUP BY category, transaction_type"
+	
+	var categoryRows *sql.Rows
+	if len(rangeArgs) > 0 {
+		categoryRows, err = db.DB.Query(categoryQuery, rangeArgs...)
+	} else {
+		categoryRows, err = db.DB.Query(categoryQuery)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get category breakdown: %w", err)
+	}
+	defer categoryRows.Close()
+	
+	for categoryRows.Next() {
+		var category, txType string
+		var amount int32
+		err := categoryRows.Scan(&category, &txType, &amount)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan category: %w", err)
+		}
+		if txType == "IN" {
+			summary.INByCategory[category] = amount
+		} else {
+			summary.OUTByCategory[category] = amount
+		}
+	}
+	
+	// Credits breakdown (levels remaining)
+	var totalRemaining sql.NullInt32
+	err = db.DB.QueryRow(`
+		SELECT COALESCE(SUM(levels_purchased_total - COALESCE(levels_consumed, 0)), 0)
+		FROM leads
+		WHERE levels_purchased_total > 0
+	`).Scan(&totalRemaining)
+	if err == nil && totalRemaining.Valid {
+		summary.TotalRemainingLevels = totalRemaining.Int32
+	}
+	
+	// Credits breakdown by count
+	creditsRows, err := db.DB.Query(`
+		SELECT 
+			CASE 
+				WHEN (levels_purchased_total - COALESCE(levels_consumed, 0)) = 0 THEN '0'
+				WHEN (levels_purchased_total - COALESCE(levels_consumed, 0)) = 1 THEN '1'
+				WHEN (levels_purchased_total - COALESCE(levels_consumed, 0)) = 2 THEN '2'
+				ELSE '3+'
+			END as bucket,
+			COUNT(*)
+		FROM leads
+		WHERE levels_purchased_total > 0
+		GROUP BY bucket
+	`)
+	if err == nil {
+		defer creditsRows.Close()
+		for creditsRows.Next() {
+			var bucket string
+			var count int
+			if err := creditsRows.Scan(&bucket, &count); err == nil {
+				summary.CreditsBreakdown[bucket] = count
+			}
+		}
+	}
+	
+	return summary, nil
+}
+
+// GetTransactions returns paginated transactions with optional filters
+func GetTransactions(dateFrom, dateTo sql.NullTime, transactionTypeFilter, categoryFilter, paymentMethodFilter string, limit, offset int) ([]*Transaction, error) {
+	query := `
+		SELECT id, transaction_date, transaction_type, category, amount, payment_method, lead_id, notes, 
+		       ref_type, ref_id, ref_sub_type, ref_key, created_at, updated_at
+		FROM transactions
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	argIndex := 1
+	
+	if dateFrom.Valid {
+		query += fmt.Sprintf(" AND transaction_date >= $%d::date", argIndex)
+		args = append(args, dateFrom.Time.Format("2006-01-02"))
+		argIndex++
+	}
+	if dateTo.Valid {
+		query += fmt.Sprintf(" AND transaction_date <= $%d::date", argIndex)
+		args = append(args, dateTo.Time.Format("2006-01-02"))
+		argIndex++
+	}
+	if transactionTypeFilter != "" {
+		query += fmt.Sprintf(" AND transaction_type = $%d", argIndex)
+		args = append(args, transactionTypeFilter)
+		argIndex++
+	}
+	if categoryFilter != "" {
+		query += fmt.Sprintf(" AND category = $%d", argIndex)
+		args = append(args, categoryFilter)
+		argIndex++
+	}
+	if paymentMethodFilter != "" {
+		query += fmt.Sprintf(" AND payment_method = $%d", argIndex)
+		args = append(args, paymentMethodFilter)
+		argIndex++
+	}
+	
+	query += " ORDER BY transaction_date DESC, created_at DESC"
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+	args = append(args, limit, offset)
+	
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query transactions: %w", err)
+	}
+	defer rows.Close()
+	
+	var transactions []*Transaction
+	for rows.Next() {
+		tx := &Transaction{}
+		var paymentMethod, leadID, notes, refType, refID, refSubType, refKey sql.NullString
+		var transactionDate time.Time
+		
+		err := rows.Scan(
+			&tx.ID, &transactionDate, &tx.TransactionType, &tx.Category, &tx.Amount,
+			&paymentMethod, &leadID, &notes, &refType, &refID, &refSubType, &refKey,
+			&tx.CreatedAt, &tx.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan transaction: %w", err)
+		}
+		
+		tx.TransactionDate = transactionDate
+		tx.PaymentMethod = paymentMethod
+		tx.LeadID = leadID
+		tx.Notes = notes
+		tx.RefType = refType
+		tx.RefID = refID
+		tx.RefSubType = refSubType
+		tx.RefKey = refKey
+		
+		transactions = append(transactions, tx)
+	}
+	
+	return transactions, rows.Err()
+}
+
+// GroupTransactionsByDay groups transactions by date and calculates daily totals
+// Transactions should be ordered by date DESC (newest first)
+func GroupTransactionsByDay(transactions []*Transaction) []*LedgerDayGroup {
+	if len(transactions) == 0 {
+		return []*LedgerDayGroup{}
+	}
+
+	// Map to store groups by date string (YYYY-MM-DD)
+	groupsMap := make(map[string]*LedgerDayGroup)
+	// Slice to preserve order (newest first)
+	orderedDates := []string{}
+
+	for _, tx := range transactions {
+		// Get date key (YYYY-MM-DD)
+		dateKey := tx.TransactionDate.Format("2006-01-02")
+		
+		// Get or create group for this date
+		group, exists := groupsMap[dateKey]
+		if !exists {
+			// Create new group
+			// Normalize date to start of day for consistent Date field
+			date := time.Date(tx.TransactionDate.Year(), tx.TransactionDate.Month(), tx.TransactionDate.Day(), 0, 0, 0, 0, tx.TransactionDate.Location())
+			group = &LedgerDayGroup{
+				Date:         date,
+				DateLabel:    dateKey,
+				InTotal:      0,
+				OutTotal:     0,
+				NetTotal:     0,
+				Transactions: []*Transaction{},
+			}
+			groupsMap[dateKey] = group
+			orderedDates = append(orderedDates, dateKey)
+		}
+		
+		// Add transaction to group
+		group.Transactions = append(group.Transactions, tx)
+		
+		// Update totals based on transaction type
+		if tx.TransactionType == "IN" {
+			group.InTotal += tx.Amount
+		} else if tx.TransactionType == "OUT" {
+			// OUT transactions are already positive amounts in the DB, but we display them as negative
+			// For totals, we sum the absolute value
+			group.OutTotal += tx.Amount
+		}
+	}
+	
+	// Calculate net totals and build ordered result
+	result := make([]*LedgerDayGroup, 0, len(orderedDates))
+	for _, dateKey := range orderedDates {
+		group := groupsMap[dateKey]
+		group.NetTotal = group.InTotal - group.OutTotal
+		result = append(result, group)
+	}
+	
+	return result
+}
+
+// GetCancelledLeadsSummary returns financial summary for all cancelled leads
+func GetCancelledLeadsSummary() ([]*CancelledLeadSummary, error) {
+	query := `
+		SELECT 
+			l.id,
+			l.full_name,
+			l.phone,
+			l.cancelled_at,
+			COALESCE(pt.placement_test_fee_paid, 0) as placement_test_paid,
+			COALESCE((SELECT SUM(amount) FROM lead_payments WHERE lead_id = l.id), 0) as course_paid,
+			COALESCE((SELECT SUM(amount) FROM transactions WHERE lead_id = l.id AND category = 'refund' AND transaction_type = 'OUT'), 0) as refunded
+		FROM leads l
+		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
+		WHERE l.status = 'cancelled'
+		ORDER BY l.cancelled_at DESC NULLS LAST, l.updated_at DESC
+	`
+	
+	rows, err := db.DB.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query cancelled leads: %w", err)
+	}
+	defer rows.Close()
+	
+	var summaries []*CancelledLeadSummary
+	for rows.Next() {
+		s := &CancelledLeadSummary{}
+		var cancelledAt sql.NullTime
+		
+		err := rows.Scan(
+			&s.LeadID, &s.FullName, &s.Phone, &cancelledAt,
+			&s.PlacementTestPaid, &s.CoursePaid, &s.Refunded,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan cancelled lead: %w", err)
+		}
+		
+		s.CancelledAt = cancelledAt
+		s.NetMoney = s.CoursePaid - s.Refunded
+		
+		summaries = append(summaries, s)
+	}
+	
+	return summaries, rows.Err()
+}
+
+// GetCancelledLeadsTotals returns aggregate totals for all cancelled leads
+func GetCancelledLeadsTotals() (totalPlacementTest, totalCoursePaid, totalRefunded, netOutstanding int32, err error) {
+	query := `
+		SELECT 
+			COALESCE(SUM(DISTINCT pt.placement_test_fee_paid), 0) as total_placement_test,
+			COALESCE((SELECT SUM(amount) FROM lead_payments WHERE lead_id IN (SELECT id FROM leads WHERE status = 'cancelled')), 0) as total_course_paid,
+			COALESCE((SELECT SUM(amount) FROM transactions WHERE lead_id IN (SELECT id FROM leads WHERE status = 'cancelled') AND category = 'refund' AND transaction_type = 'OUT'), 0) as total_refunded
+		FROM leads l
+		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
+		WHERE l.status = 'cancelled'
+	`
+	
+	err = db.DB.QueryRow(query).Scan(&totalPlacementTest, &totalCoursePaid, &totalRefunded)
+	if err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("failed to get cancelled leads totals: %w", err)
+	}
+	
+	netOutstanding = totalCoursePaid - totalRefunded
+	return totalPlacementTest, totalCoursePaid, totalRefunded, netOutstanding, nil
 }

@@ -1,0 +1,364 @@
+{{define "finance_content"}}
+<!-- Header -->
+<div class="header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+    <h1>Finance</h1>
+</div>
+
+{{if .FlashMessage}}
+<div class="flash-message" style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;">
+    {{.FlashMessage}}
+</div>
+{{end}}
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <form method="GET" action="/finance" class="filter-form">
+        <label style="font-size: 13px; font-weight: 500;">From:</label>
+        <input type="date" name="from" class="filter-select" value="{{if .DateFrom.Valid}}{{.DateFrom.Time.Format "2006-01-02"}}{{end}}" style="height: 38px;">
+        <label style="font-size: 13px; font-weight: 500;">To:</label>
+        <input type="date" name="to" class="filter-select" value="{{if .DateTo.Valid}}{{.DateTo.Time.Format "2006-01-02"}}{{end}}" style="height: 38px;">
+        <select name="type" class="filter-select" onchange="this.form.submit()">
+            <option value="">All Types</option>
+            <option value="IN" {{if eq .TransactionTypeFilter "IN"}}selected{{end}}>Income (IN)</option>
+            <option value="OUT" {{if eq .TransactionTypeFilter "OUT"}}selected{{end}}>Expenses (OUT)</option>
+        </select>
+        <select name="category" class="filter-select" onchange="this.form.submit()">
+            <option value="">All Categories</option>
+            <option value="placement_test" {{if eq .CategoryFilter "placement_test"}}selected{{end}}>Placement Test</option>
+            <option value="course_payment" {{if eq .CategoryFilter "course_payment"}}selected{{end}}>Course Payment</option>
+            <option value="teacher_salary" {{if eq .CategoryFilter "teacher_salary"}}selected{{end}}>Teacher Salary</option>
+            <option value="refund" {{if eq .CategoryFilter "refund"}}selected{{end}}>Refund</option>
+            <option value="ads" {{if eq .CategoryFilter "ads"}}selected{{end}}>Ads</option>
+            <option value="rent" {{if eq .CategoryFilter "rent"}}selected{{end}}>Rent</option>
+            <option value="software" {{if eq .CategoryFilter "software"}}selected{{end}}>Software</option>
+            <option value="moderator" {{if eq .CategoryFilter "moderator"}}selected{{end}}>Moderator</option>
+            <option value="content_creator" {{if eq .CategoryFilter "content_creator"}}selected{{end}}>Content Creator</option>
+            <option value="other" {{if eq .CategoryFilter "other"}}selected{{end}}>Other</option>
+        </select>
+        <select name="payment_method" class="filter-select" onchange="this.form.submit()">
+            <option value="">All Payment Methods</option>
+            <option value="vodafone_cash" {{if eq .PaymentMethodFilter "vodafone_cash"}}selected{{end}}>Vodafone Cash</option>
+            <option value="bank_transfer" {{if eq .PaymentMethodFilter "bank_transfer"}}selected{{end}}>Bank Transfer</option>
+            <option value="paypal" {{if eq .PaymentMethodFilter "paypal"}}selected{{end}}>PayPal</option>
+            <option value="other" {{if eq .PaymentMethodFilter "other"}}selected{{end}}>Other</option>
+        </select>
+        <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
+    </form>
+    <div style="margin-left: auto;">
+        <a href="/finance/new-expense" class="btn btn-primary">New Expense</a>
+    </div>
+</div>
+
+<!-- CASH Section -->
+<div style="background: white; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #4EC6E0; padding-bottom: 12px;">💰 CASH (Money)</h2>
+    
+    <!-- Today Summary -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 20px 0;">
+        <div style="background: #E6F7FF; padding: 16px; border-radius: 6px; border-left: 4px solid #4EC6E0;">
+            <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Today IN</div>
+            <div style="font-size: 24px; font-weight: bold; color: #0066CC;">{{.Summary.TodayIN}} EGP</div>
+        </div>
+        <div style="background: #FFE6E6; padding: 16px; border-radius: 6px; border-left: 4px solid #dc3545;">
+            <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Today OUT</div>
+            <div style="font-size: 24px; font-weight: bold; color: #CC0000;">{{.Summary.TodayOUT}} EGP</div>
+        </div>
+        <div style="background: {{if ge .Summary.TodayNet 0}}#E6FFE6{{else}}#FFE6E6{{end}}; padding: 16px; border-radius: 6px; border-left: 4px solid {{if ge .Summary.TodayNet 0}}#28a745{{else}}#dc3545{{end}};">
+            <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Today Net</div>
+            <div style="font-size: 24px; font-weight: bold; color: {{if ge .Summary.TodayNet 0}}#006600{{else}}#CC0000{{end}};">{{.Summary.TodayNet}} EGP</div>
+        </div>
+    </div>
+
+    <!-- Date Range Summary -->
+    {{if or .DateFrom.Valid .DateTo.Valid}}
+    <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <h3 style="margin-top: 0; color: #666; font-size: 16px;">Date Range Summary</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <div>
+                <div style="font-size: 12px; color: #666;">Range IN</div>
+                <div style="font-size: 20px; font-weight: bold; color: #0066CC;">{{.Summary.RangeIN}} EGP</div>
+            </div>
+            <div>
+                <div style="font-size: 12px; color: #666;">Range OUT</div>
+                <div style="font-size: 20px; font-weight: bold; color: #CC0000;">{{.Summary.RangeOUT}} EGP</div>
+            </div>
+            <div>
+                <div style="font-size: 12px; color: #666;">Range Net</div>
+                <div style="font-size: 20px; font-weight: bold; color: {{if ge .Summary.RangeNet 0}}#006600{{else}}#CC0000{{end}};">{{.Summary.RangeNet}} EGP</div>
+            </div>
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Breakdown by Category -->
+    <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <h3 style="margin-top: 0; color: #666; font-size: 16px;">Breakdown by Category</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+                <h4 style="color: #0066CC; margin-bottom: 12px;">Income (IN)</h4>
+                <table style="width: 100%; font-size: 14px;">
+                    <thead>
+                        <tr style="background: #F5F5F5;">
+                            <th style="padding: 8px; text-align: left;">Category</th>
+                            <th style="padding: 8px; text-align: right;">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $cat, $amt := .Summary.INByCategory}}
+                        <tr>
+                            <td style="padding: 8px;">{{$cat}}</td>
+                            <td style="padding: 8px; text-align: right; font-weight: 600;">{{$amt}} EGP</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="2" style="padding: 8px; color: #999; text-align: center;">No income in range</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            <div>
+                <h4 style="color: #CC0000; margin-bottom: 12px;">Expenses (OUT)</h4>
+                <table style="width: 100%; font-size: 14px;">
+                    <thead>
+                        <tr style="background: #F5F5F5;">
+                            <th style="padding: 8px; text-align: left;">Category</th>
+                            <th style="padding: 8px; text-align: right;">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $cat, $amt := .Summary.OUTByCategory}}
+                        <tr>
+                            <td style="padding: 8px;">{{$cat}}</td>
+                            <td style="padding: 8px; text-align: right; font-weight: 600;">{{$amt}} EGP</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="2" style="padding: 8px; color: #999; text-align: center;">No expenses in range</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CREDITS Section -->
+<div style="background: white; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #FFA500; padding-bottom: 12px;">🎫 CREDITS (Remaining Levels)</h2>
+    
+    <div style="margin: 20px 0;">
+        <div style="background: #FFF4E6; padding: 16px; border-radius: 6px; border-left: 4px solid #FFA500;">
+            <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Total Remaining Levels</div>
+            <div style="font-size: 32px; font-weight: bold; color: #CC6600;">{{.Summary.TotalRemainingLevels}}</div>
+        </div>
+    </div>
+
+    <div style="margin-top: 24px;">
+        <h3 style="margin-top: 0; color: #666; font-size: 16px;">Breakdown by Remaining Levels</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px;">
+            {{range $group, $count := .Summary.CreditsBreakdown}}
+            <div style="background: #F5F5F5; padding: 12px; border-radius: 6px; text-align: center;">
+                <div style="font-size: 12px; color: #666;">{{$group}} levels</div>
+                <div style="font-size: 20px; font-weight: bold; color: #333;">{{$count}} students</div>
+            </div>
+            {{else}}
+            <div style="color: #999; text-align: center;">No credits data</div>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<!-- Cancelled Leads Section -->
+{{if gt .CancelledCount 0}}
+<details style="background: white; border-radius: 8px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+    <summary style="padding: 20px 24px; cursor: pointer; font-weight: 600; font-size: 16px; display: flex; justify-content: space-between; align-items: center; list-style: none; user-select: none; border-bottom: 2px solid #FF6B6B; background-color: #F8F9FA;">
+        <span style="color: #333;">
+            <span style="font-size: 18px; margin-right: 10px;">🚫</span>
+            Cancelled Leads - Money Status
+        </span>
+        <span style="display: flex; gap: 20px; font-size: 14px; font-weight: 500; color: #666;">
+            <span>{{.CancelledCount}} cancelled lead{{if ne .CancelledCount 1}}s{{end}}</span>
+            {{if gt .CancelledBalancedCount 0}}
+            <span style="color: #28a745;">Balanced: {{.CancelledBalancedCount}}</span>
+            {{end}}
+            {{if gt .CancelledErrorCount 0}}
+            <span style="color: #FF6B6B;">Errors: {{.CancelledErrorCount}}</span>
+            {{end}}
+            <span style="color: #999; font-size: 12px; font-weight: normal;">(Click to expand)</span>
+        </span>
+    </summary>
+    <div style="padding: 24px;">
+        <p style="color: #666; font-size: 14px; margin-bottom: 16px;">
+            This section shows what happened to money for cancelled students. Placement test payments are <strong>not refundable</strong>. Course payments are refunded when the lead is cancelled.
+        </p>
+        
+        <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Phone</th>
+                    <th>Cancelled Date</th>
+                    <th>Placement Test Paid</th>
+                    <th>Course Paid</th>
+                    <th>Refunded</th>
+                    <th>Net Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .CancelledLeads}}
+                <tr>
+                    <td style="font-weight: 600;">{{.FullName}}</td>
+                    <td>{{.Phone}}</td>
+                    <td>
+                        {{if .CancelledAt.Valid}}
+                            {{.CancelledAt.Time.Format "2006-01-02"}}
+                        {{else}}-{{end}}
+                    </td>
+                    <td style="color: #666;">
+                        {{if gt .PlacementTestPaid 0}}
+                            {{.PlacementTestPaid}} EGP <small style="color: #999;">(not refundable)</small>
+                        {{else}}-{{end}}
+                    </td>
+                    <td style="color: #0066CC; font-weight: 600;">
+                        {{if gt .CoursePaid 0}}{{.CoursePaid}} EGP{{else}}-{{end}}
+                    </td>
+                    <td style="color: #CC0000; font-weight: 600;">
+                        {{if gt .Refunded 0}}{{.Refunded}} EGP{{else}}-{{end}}
+                    </td>
+                    <td style="font-weight: 600;">
+                        {{if gt .NetMoney 0}}
+                            <span style="color: #FF6B6B;">⚠️ Owe {{.NetMoney}} EGP</span>
+                            <small style="color: #999; display: block; font-size: 11px;">(Paid but not refunded)</small>
+                        {{else if lt .NetMoney 0}}
+                            <span style="color: #FF6B6B;">⚠️ Error: {{.NetMoney}} EGP</span>
+                            <small style="color: #999; display: block; font-size: 11px;">(Refunded more than paid - check data)</small>
+                        {{else}}
+                            <span style="color: #28a745;">✓ Balanced</span>
+                            <small style="color: #999; display: block; font-size: 11px;">(Fully refunded or no payments)</small>
+                        {{end}}
+                    </td>
+                    <td>
+                        <a href="/pre-enrolment/{{.LeadID.String}}" style="color: #4EC6E0; text-decoration: none; font-size: 13px;">View Details →</a>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Summary totals -->
+    {{if .CancelledTotals}}
+    <div style="margin-top: 20px; padding-top: 16px; border-top: 2px solid #E6E6E6;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <div style="background: #F5F5F5; padding: 12px; border-radius: 6px;">
+                <div style="font-size: 12px; color: #666;">Total Placement Test (Kept)</div>
+                <div style="font-size: 18px; font-weight: bold; color: #333;">{{.CancelledTotals.TotalPlacementTest}} EGP</div>
+                <small style="color: #999; font-size: 11px;">Not refundable</small>
+            </div>
+            <div style="background: #E6F7FF; padding: 12px; border-radius: 6px;">
+                <div style="font-size: 12px; color: #666;">Total Course Paid</div>
+                <div style="font-size: 18px; font-weight: bold; color: #0066CC;">{{.CancelledTotals.TotalCoursePaid}} EGP</div>
+            </div>
+            <div style="background: #FFE6E6; padding: 12px; border-radius: 6px;">
+                <div style="font-size: 12px; color: #666;">Total Refunded</div>
+                <div style="font-size: 18px; font-weight: bold; color: #CC0000;">{{.CancelledTotals.TotalRefunded}} EGP</div>
+            </div>
+            <div style="background: {{if ge .CancelledTotals.NetOutstanding 0}}#FFF4E6{{else}}#E6FFE6{{end}}; padding: 12px; border-radius: 6px;">
+                <div style="font-size: 12px; color: #666;">Net Outstanding</div>
+                <div style="font-size: 18px; font-weight: bold; color: {{if ge .CancelledTotals.NetOutstanding 0}}#FF6B6B{{else}}#28a745{{end}};">
+                    {{.CancelledTotals.NetOutstanding}} EGP
+                </div>
+                <small style="color: #999; font-size: 11px;">
+                    {{if ge .CancelledTotals.NetOutstanding 0}}Money we owe{{else}}All refunded{{end}}
+                </small>
+            </div>
+        </div>
+    {{end}}
+    </div>
+</details>
+{{else}}
+<div style="background: white; border-radius: 8px; padding: 20px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; color: #8C8C8C;">
+    No cancelled leads yet.
+</div>
+{{end}}
+
+<!-- Transactions Ledger (Grouped by Day) -->
+<div style="background: white; border-radius: 8px; padding: 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #E6E6E6; padding-bottom: 12px;">📋 Transactions Ledger</h2>
+    
+    {{if .LedgerGroups}}
+        {{range $index, $group := .LedgerGroups}}
+        <details {{if eq $index 0}}open{{end}} style="margin-bottom: 16px; border: 1px solid #E6E6E6; border-radius: 6px; overflow: hidden;">
+            <summary style="background-color: #F8F9FA; padding: 16px 20px; cursor: pointer; font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; list-style: none; user-select: none;">
+                <span style="color: #333;">
+                    <span style="font-size: 16px; margin-right: 12px;">📅</span>
+                    {{$group.DateLabel}}
+                </span>
+                <span style="display: flex; gap: 24px; font-size: 14px;">
+                    <span style="color: #006600;">
+                        <strong>IN:</strong> {{$group.InTotal}} EGP
+                    </span>
+                    <span style="color: #CC0000;">
+                        <strong>OUT:</strong> {{$group.OutTotal}} EGP
+                    </span>
+                    <span style="color: {{if gt $group.NetTotal 0}}#006600{{else if lt $group.NetTotal 0}}#CC0000{{else}}#666{{end}}; font-weight: 700;">
+                        <strong>NET:</strong> {{$group.NetTotal}} EGP
+                    </span>
+                </span>
+            </summary>
+            <div style="padding: 0;">
+                <div class="table-container" style="margin: 0;">
+                    <table style="margin: 0;">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Type</th>
+                                <th>Category</th>
+                                <th>Amount</th>
+                                <th>Payment Method</th>
+                                <th>Lead</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range $group.Transactions}}
+                            <tr>
+                                <td>{{.TransactionDate.Format "15:04"}}</td>
+                                <td>
+                                    <span class="badge" style="background-color: {{if eq .TransactionType "IN"}}#28a745{{else}}#dc3545{{end}}; color: white;">
+                                        {{.TransactionType}}
+                                    </span>
+                                </td>
+                                <td>{{.Category}}</td>
+                                <td style="font-weight: 600; color: {{if eq .TransactionType "IN"}}#006600{{else}}#CC0000{{end}};">
+                                    {{if eq .TransactionType "IN"}}+{{else}}-{{end}}{{.Amount}} EGP
+                                </td>
+                                <td>{{if .PaymentMethod.Valid}}{{.PaymentMethod.String}}{{else}}-{{end}}</td>
+                                <td>
+                                    {{if .LeadID.Valid}}
+                                    <a href="/pre-enrolment/{{.LeadID.String}}" style="color: #4EC6E0; text-decoration: none;">
+                                        View Lead
+                                    </a>
+                                    {{else}}-{{end}}
+                                </td>
+                                <td>{{if .Notes.Valid}}{{.Notes.String}}{{else}}-{{end}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+        {{end}}
+    {{else}}
+        <div style="text-align: center; padding: 40px; color: #8C8C8C;">
+            No transactions found
+        </div>
+    {{end}}
+</div>
+{{end}}

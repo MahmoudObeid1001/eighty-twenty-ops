@@ -43,9 +43,15 @@ func main() {
 
 	// Initialize handlers
 	handlers.SetConfig(cfg) // Set config for template debug logging
+	
+	// Initialize templates early to catch any errors at startup
+	// This will panic if templates can't be loaded, which is better than failing at runtime
+	handlers.InitTemplates()
+	
 	authHandler := handlers.NewAuthHandler(cfg)
 	preEnrolmentHandler := handlers.NewPreEnrolmentHandler(cfg)
 	classesHandler := handlers.NewClassesHandler(cfg)
+	financeHandler := handlers.NewFinanceHandler(cfg)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -249,6 +255,59 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /classes/{classKey}/return -> classesHandler.ReturnFromMentor [admin only]")
+
+	// Finance routes - admin only
+	mux.HandleFunc("/finance", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /finance handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/finance" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			cfg.Debugf("  → Calling financeHandler.Dashboard")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.Dashboard)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /finance -> financeHandler.Dashboard [admin only]")
+
+	mux.HandleFunc("/finance/new-expense", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /finance/new-expense handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/finance/new-expense" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			cfg.Debugf("  → Calling financeHandler.NewExpenseForm")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.NewExpenseForm)(w, r)
+		} else if r.Method == http.MethodPost {
+			cfg.Debugf("  → Calling financeHandler.CreateExpense")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.CreateExpense)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /finance/new-expense -> financeHandler (NewExpenseForm/CreateExpense) [admin only]")
+
+	// /finance/refund/{leadID} - dynamic route
+	mux.HandleFunc("/finance/refund/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /finance/refund/ (dynamic) handler for %s %s", r.Method, r.URL.Path)
+		if !strings.HasPrefix(r.URL.Path, "/finance/refund/") {
+			cfg.Debugf("  → Path doesn't start with /finance/refund/, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			cfg.Debugf("  → Calling financeHandler.CreateRefund")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.CreateRefund)(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /finance/refund/{leadID} -> financeHandler.CreateRefund [admin only]")
 
 	// Root redirect - protected route (register last)
 	mux.HandleFunc("/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {

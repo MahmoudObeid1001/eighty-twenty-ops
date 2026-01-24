@@ -39,6 +39,7 @@
             <option value="BOOKING_CONFIRMED_DEPOSIT" {{if eq .StatusFilter "BOOKING_CONFIRMED_DEPOSIT"}}selected{{end}}>Booking Confirmed (Deposit)</option>
             <option value="SCHEDULE_SET" {{if eq .StatusFilter "SCHEDULE_SET"}}selected{{end}}>Schedule Set</option>
             <option value="READY_TO_START" {{if eq .StatusFilter "READY_TO_START"}}selected{{end}}>Ready to Start</option>
+            <option value="cancelled" {{if eq .StatusFilter "cancelled"}}selected{{end}}>Cancelled</option>
         </select>
         <select name="payment" id="payment-filter" onchange="this.form.submit()" class="filter-select">
             <option value="" {{if not .PaymentFilter}}selected{{end}}>All Payments</option>
@@ -46,15 +47,19 @@
             <option value="DEPOSIT" {{if eq .PaymentFilter "DEPOSIT"}}selected{{end}}>Deposit</option>
             <option value="PAID_FULL" {{if eq .PaymentFilter "PAID_FULL"}}selected{{end}}>Paid Full</option>
         </select>
+        <label class="filter-checkbox" style="display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 500;">
+            <input type="checkbox" name="include_cancelled" value="1" {{if .IncludeCancelled}}checked{{end}} onchange="this.form.submit()">
+            Show cancelled leads
+        </label>
         <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
     </form>
     <div class="quick-filters">
-        <a href="/pre-enrolment?hot=1{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .HotFilter "1"}}active{{end}}" style="{{if eq .HotFilter "1"}}background-color: #FF6B6B; color: white; border-color: #FF6B6B;{{end}}">🔥 Hot Leads</a>
-        <a href="/pre-enrolment?status=NEW_LEAD{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "NEW_LEAD"}}active{{end}}">Needs Test</a>
-        <a href="/pre-enrolment?status=TESTED{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "TESTED"}}active{{end}}">Tested</a>
-        <a href="/pre-enrolment?status=OFFER_SENT{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "OFFER_SENT"}}active{{end}}">Offer Sent</a>
-        <a href="/pre-enrolment?status=SCHEDULE_SET{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "SCHEDULE_SET"}}active{{end}}">Waiting</a>
-        <a href="/pre-enrolment?status=READY_TO_START{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}" class="quick-filter-btn {{if eq .StatusFilter "READY_TO_START"}}active{{end}}">Ready to Start</a>
+        <a href="/pre-enrolment?hot=1{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .HotFilter "1"}}active{{end}}" style="{{if eq .HotFilter "1"}}background-color: #FF6B6B; color: white; border-color: #FF6B6B;{{end}}">🔥 Hot Leads</a>
+        <a href="/pre-enrolment?status=NEW_LEAD{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "NEW_LEAD"}}active{{end}}">Needs Test</a>
+        <a href="/pre-enrolment?status=TESTED{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "TESTED"}}active{{end}}">Tested</a>
+        <a href="/pre-enrolment?status=OFFER_SENT{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "OFFER_SENT"}}active{{end}}">Offer Sent</a>
+        <a href="/pre-enrolment?status=SCHEDULE_SET{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "SCHEDULE_SET"}}active{{end}}">Waiting</a>
+        <a href="/pre-enrolment?status=READY_TO_START{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "READY_TO_START"}}active{{end}}">Ready to Start</a>
     </div>
 </div>
 
@@ -74,14 +79,14 @@
         </thead>
         <tbody>
             {{range .Leads}}
-            <tr data-lead-id="{{.Lead.ID}}">
+            <tr data-lead-id="{{.Lead.ID}}"{{if eq .Lead.Status "cancelled"}} class="row-cancelled"{{end}}>
                 <td>{{.Lead.FullName}}</td>
                 <td>{{.Lead.Phone}}</td>
                 <td>
                     {{$stage := ""}}
                     {{if eq .Lead.Status "lead_created"}}{{$stage = "NEW_LEAD"}}{{else if eq .Lead.Status "test_booked"}}{{$stage = "TEST_BOOKED"}}{{else if eq .Lead.Status "tested"}}{{$stage = "TESTED"}}{{else if eq .Lead.Status "offer_sent"}}{{$stage = "OFFER_SENT"}}{{else if eq .Lead.Status "paid_full"}}{{$stage = "BOOKING_CONFIRMED_PAID_FULL"}}{{else if eq .Lead.Status "deposit_paid"}}{{$stage = "BOOKING_CONFIRMED_DEPOSIT"}}{{else if eq .Lead.Status "schedule_assigned"}}{{$stage = "SCHEDULE_SET"}}{{else if eq .Lead.Status "waiting_for_round"}}{{$stage = "SCHEDULE_SET"}}{{else if eq .Lead.Status "ready_to_start"}}{{$stage = "READY_TO_START"}}{{else}}{{$stage = .Lead.Status}}{{end}}
-                    <span class="badge {{.Lead.Status}}">{{$stage}}</span>
-                    {{if .FollowUpDue}}
+                    <span class="badge {{.Lead.Status}}{{if eq .Lead.Status "cancelled"}} badge-cancelled{{end}}">{{$stage}}</span>
+                    {{if and .FollowUpDue (ne .Lead.Status "cancelled")}}
                     <span class="badge" style="background-color: {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; color: white; margin-left: 5px;">
                         {{.HotLevel}} – No Payment
                     </span>
@@ -99,10 +104,12 @@
                             <button type="submit" class="btn btn-success btn-small">Send to Classes</button>
                         </form>
                         {{end}}
+                        {{if ne .Lead.Status "cancelled"}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="delete-form">
                             <input type="hidden" name="action" value="delete">
                             <button type="submit" class="btn btn-danger btn-small">Delete</button>
                         </form>
+                        {{end}}
                     </div>
                 </td>
             </tr>

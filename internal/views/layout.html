@@ -17,6 +17,7 @@
             <ul>
                 <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
                 <li><a href="/classes">Classes</a></li>
+                <li><a href="/finance">Finance</a></li>
                 <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
                 <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
             </ul>
@@ -39,6 +40,10 @@
             {{template "pre_enrolment_detail_content" .}}
         {{else if eq .ContentTemplate "classes_content"}}
             {{template "classes_content" .}}
+        {{else if eq .ContentTemplate "finance_content"}}
+            {{template "finance_content" .}}
+        {{else if eq .ContentTemplate "finance_new_expense_content"}}
+            {{template "finance_new_expense_content" .}}
         {{else}}
             <p>Error: Unknown content template: {{.ContentTemplate}}</p>
         {{end}}

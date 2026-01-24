@@ -17,30 +17,38 @@
         
         <div class="form-group">
             <label for="full_name">Full Name *</label>
-            <input type="text" id="full_name" name="full_name" required>
+            <input type="text" id="full_name" name="full_name" value="{{if .PreservedFullName}}{{.PreservedFullName}}{{end}}" required>
         </div>
         
         <div class="form-row">
             <div class="form-group">
                 <label for="phone">Phone Number *</label>
-                <input type="tel" id="phone" name="phone" required>
+                <input type="tel" id="phone" name="phone" value="{{if .PreservedPhone}}{{.PreservedPhone}}{{end}}" required class="{{if .PhoneError}}error-field{{end}}">
+                {{if .PhoneError}}
+                <div style="color: #dc3545; font-size: 13px; margin-top: 5px;">
+                    {{.PhoneError}}
+                    {{if .ExistingLeadID}}
+                    <a href="/pre-enrolment/{{.ExistingLeadID.String}}" style="margin-left: 10px; color: #4EC6E0; text-decoration: underline;">Open existing lead →</a>
+                    {{end}}
+                </div>
+                {{end}}
             </div>
             <div class="form-group">
                 <label for="source">Source</label>
                 <select id="source" name="source" required>
-                    <option value="Facebook" selected>Facebook</option>
-                    <option value="WhatsApp">WhatsApp</option>
-                    <option value="Instagram">Instagram</option>
-                    <option value="Referral">Referral</option>
-                    <option value="Walk-in">Walk-in</option>
-                    <option value="Other">Other</option>
+                    <option value="Facebook" {{if eq .PreservedSource "Facebook"}}selected{{else if not .PreservedSource}}selected{{end}}>Facebook</option>
+                    <option value="WhatsApp" {{if eq .PreservedSource "WhatsApp"}}selected{{end}}>WhatsApp</option>
+                    <option value="Instagram" {{if eq .PreservedSource "Instagram"}}selected{{end}}>Instagram</option>
+                    <option value="Referral" {{if eq .PreservedSource "Referral"}}selected{{end}}>Referral</option>
+                    <option value="Walk-in" {{if eq .PreservedSource "Walk-in"}}selected{{end}}>Walk-in</option>
+                    <option value="Other" {{if eq .PreservedSource "Other"}}selected{{end}}>Other</option>
                 </select>
             </div>
         </div>
         
         <div class="form-group">
             <label for="notes">Notes</label>
-            <textarea id="notes" name="notes" placeholder="Internal notes about this lead..."></textarea>
+            <textarea id="notes" name="notes" placeholder="Internal notes about this lead...">{{if .PreservedNotes}}{{.PreservedNotes}}{{end}}</textarea>
         </div>
     </div>
 

@@ -24,6 +24,12 @@ func SetConfig(c *config.Config) {
 	cfg = c
 }
 
+// InitTemplates initializes templates at startup (can be called explicitly)
+// This is the same as initTemplates() but exported for early initialization
+func InitTemplates() {
+	initTemplates()
+}
+
 func initTemplates() {
 	templatesOnce.Do(func() {
 		if cfg != nil {
@@ -35,6 +41,7 @@ func initTemplates() {
 		// List all template files in the embedded FS
 		entries, err := fs.ReadDir(views.TemplatesFS, ".")
 		if err != nil {
+			log.Printf("ERROR: Failed to read template directory: %v", err)
 			panic(fmt.Sprintf("Failed to read template directory: %v", err))
 		}
 
@@ -51,10 +58,22 @@ func initTemplates() {
 			}
 		}
 
+		if len(templateFiles) == 0 {
+			log.Printf("ERROR: No template files found in embedded filesystem")
+			panic("No template files found in embedded filesystem")
+		}
+
 		var err2 error
 		templates, err2 = template.ParseFS(views.TemplatesFS, "*.html")
 		if err2 != nil {
+			log.Printf("ERROR: Failed to parse templates: %v", err2)
 			panic(fmt.Sprintf("Failed to parse templates: %v", err2))
+		}
+
+		// Verify templates were actually parsed
+		if templates == nil {
+			log.Printf("ERROR: Template parsing returned nil")
+			panic("Template parsing returned nil")
 		}
 
 		// List all defined templates after parsing
@@ -72,7 +91,17 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 	if cfg != nil {
 		cfg.Debugf("🎨 renderTemplate() called with template name: %s", name)
 	}
+	
+	// Initialize templates (will only run once due to sync.Once)
 	initTemplates()
+
+	// Verify templates are initialized - if still nil, there was an initialization error
+	if templates == nil {
+		log.Printf("ERROR: Templates not initialized after initTemplates() call")
+		log.Printf("ERROR: This should not happen - templates should be initialized or panic should have occurred")
+		http.Error(w, "Templates not initialized. Please check server logs for template initialization errors.", http.StatusInternalServerError)
+		return
+	}
 
 	// Map template filenames to their content template names and layout
 	contentTemplateMap := map[string]string{
@@ -81,6 +110,8 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 		"pre_enrolment_list.html":   "pre_enrolment_list_content",
 		"pre_enrolment_detail.html": "pre_enrolment_detail_content",
 		"classes.html":              "classes_content",
+		"finance.html":              "finance_content",
+		"finance_new_expense.html":  "finance_new_expense_content",
 	}
 	
 	// Templates that use auth_layout instead of main layout
@@ -95,13 +126,6 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 			cfg.Debugf("⚠️  No content template mapping for %s, using 'content'", name)
 		}
 		contentTemplateName = "content"
-	}
-
-	// Verify templates are initialized
-	if templates == nil {
-		log.Printf("ERROR: Templates not initialized")
-		http.Error(w, "Templates not initialized", http.StatusInternalServerError)
-		return
 	}
 
 	// Verify layout template exists
