@@ -58,6 +58,14 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	paymentMethodFilter := r.URL.Query().Get("payment_method")
 	transactionTypeFilter := r.URL.Query().Get("type")
 
+	// Current cash balance (full history, ignores date filters)
+	currentBalance, err := models.GetCurrentCashBalance()
+	if err != nil {
+		log.Printf("ERROR: Failed to get current cash balance: %v", err)
+		currentBalance = 0
+	}
+	balanceByMethod, _ := models.GetCurrentCashBalanceByPaymentMethod()
+
 	// Get summary
 	summary, err := models.GetFinanceSummary(dateFrom, dateTo)
 	if err != nil {
@@ -126,22 +134,24 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]interface{}{
-		"Title":              "Finance - Eighty Twenty",
-		"Summary":             summary,
-		"Transactions":        transactions, // Keep for backward compatibility if needed
-		"LedgerGroups":        ledgerGroups, // New grouped data
-		"CancelledLeads":      cancelledLeads,
-		"CancelledCount":      cancelledCount,
+		"Title":                  "Finance - Eighty Twenty",
+		"CurrentCashBalance":     currentBalance,
+		"BalanceByPaymentMethod": balanceByMethod,
+		"Summary":                summary,
+		"Transactions":           transactions, // Keep for backward compatibility if needed
+		"LedgerGroups":           ledgerGroups, // New grouped data
+		"CancelledLeads":         cancelledLeads,
+		"CancelledCount":         cancelledCount,
 		"CancelledBalancedCount": cancelledBalancedCount,
-		"CancelledErrorCount": cancelledErrorCount,
-		"CancelledTotals":     cancelledTotals,
-		"DateFrom":            dateFrom,
-		"DateTo":              dateTo,
-		"CategoryFilter":      categoryFilter,
-		"PaymentMethodFilter": paymentMethodFilter,
-		"TransactionTypeFilter": transactionTypeFilter,
-		"UserRole":            userRole,
-		"FlashMessage":        flashMessage,
+		"CancelledErrorCount":    cancelledErrorCount,
+		"CancelledTotals":        cancelledTotals,
+		"DateFrom":               dateFrom,
+		"DateTo":                 dateTo,
+		"CategoryFilter":         categoryFilter,
+		"PaymentMethodFilter":    paymentMethodFilter,
+		"TransactionTypeFilter":  transactionTypeFilter,
+		"UserRole":               userRole,
+		"FlashMessage":           flashMessage,
 	}
 	renderTemplate(w, "finance.html", data)
 }

@@ -558,14 +558,23 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 
 	// Get scheduling
 	scheduling := &Scheduling{}
+	var classTimeRaw sql.NullString
+	var startTimeRaw sql.NullString
 	err = db.DB.QueryRow(`
-		SELECT id, lead_id, expected_round, class_days, class_time, start_date, start_time, class_group_index, updated_at
+		SELECT id, lead_id, expected_round, class_days, 
+		       TO_CHAR(class_time, 'HH24:MI') as class_time,
+		       start_date, 
+		       TO_CHAR(start_time, 'HH24:MI') as start_time,
+		       class_group_index, updated_at
 		FROM scheduling WHERE lead_id = $1
 	`, id).Scan(
 		&scheduling.ID, &scheduling.LeadID, &scheduling.ExpectedRound, &scheduling.ClassDays,
-		&scheduling.ClassTime, &scheduling.StartDate, &scheduling.StartTime, &scheduling.ClassGroupIndex, &scheduling.UpdatedAt,
+		&classTimeRaw, &scheduling.StartDate, &startTimeRaw, &scheduling.ClassGroupIndex, &scheduling.UpdatedAt,
 	)
 	if err == nil {
+		// Normalize time format (ensure HH:MM format, not HH:MM:SS)
+		scheduling.ClassTime = classTimeRaw
+		scheduling.StartTime = startTimeRaw
 		detail.Scheduling = scheduling
 	} else if err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to get scheduling: %w", err)
@@ -737,9 +746,24 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 
 	// Upsert scheduling
 	if detail.Scheduling != nil {
+		// Cast class_time and start_time strings to TIME type for PostgreSQL
+		var classTimeVal interface{}
+		if detail.Scheduling.ClassTime.Valid {
+			classTimeVal = detail.Scheduling.ClassTime.String
+		} else {
+			classTimeVal = nil
+		}
+		
+		var startTimeVal interface{}
+		if detail.Scheduling.StartTime.Valid {
+			startTimeVal = detail.Scheduling.StartTime.String
+		} else {
+			startTimeVal = nil
+		}
+		
 		_, err = tx.Exec(`
 			INSERT INTO scheduling (id, lead_id, expected_round, class_days, class_time, start_date, start_time, class_group_index, updated_at)
-			VALUES (COALESCE((SELECT id FROM scheduling WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8)
+			VALUES (COALESCE((SELECT id FROM scheduling WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4::TIME, $5, $6::TIME, $7, $8)
 			ON CONFLICT (lead_id) DO UPDATE SET
 				expected_round = EXCLUDED.expected_round,
 				class_days = EXCLUDED.class_days,
@@ -749,7 +773,7 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 				class_group_index = EXCLUDED.class_group_index,
 				updated_at = EXCLUDED.updated_at
 		`, detail.Lead.ID, detail.Scheduling.ExpectedRound, detail.Scheduling.ClassDays,
-			detail.Scheduling.ClassTime, detail.Scheduling.StartDate, detail.Scheduling.StartTime, detail.Scheduling.ClassGroupIndex, now)
+			classTimeVal, detail.Scheduling.StartDate, startTimeVal, detail.Scheduling.ClassGroupIndex, now)
 		if err != nil {
 			return fmt.Errorf("failed to upsert scheduling: %w", err)
 		}
@@ -2050,6 +2074,63 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 	}
 	
 	return summary, nil
+}
+
+// GetCurrentCashBalance returns SUM(IN) - SUM(OUT) over full history (no date filter).
+func GetCurrentCashBalance() (int32, error) {
+	var totalIN, totalOUT sql.NullInt32
+	err := db.DB.QueryRow(`
+		SELECT
+			COALESCE(SUM(CASE WHEN transaction_type = 'IN' THEN amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN transaction_type = 'OUT' THEN amount ELSE 0 END), 0)
+		FROM transactions
+	`).Scan(&totalIN, &totalOUT)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get current cash balance: %w", err)
+	}
+	in := int32(0)
+	if totalIN.Valid {
+		in = totalIN.Int32
+	}
+	out := int32(0)
+	if totalOUT.Valid {
+		out = totalOUT.Int32
+	}
+	return in - out, nil
+}
+
+// GetCurrentCashBalanceByPaymentMethod returns IN/OUT/Net grouped as Cash (vodafone_cash, other) vs Bank (bank_transfer, paypal).
+func GetCurrentCashBalanceByPaymentMethod() ([]PaymentMethodBalance, error) {
+	rows, err := db.DB.Query(`
+		SELECT bucket,
+			COALESCE(SUM(in_amt), 0)::integer AS in_total,
+			COALESCE(SUM(out_amt), 0)::integer AS out_total
+		FROM (
+			SELECT
+				CASE WHEN payment_method IN ('vodafone_cash', 'other') OR payment_method IS NULL THEN 'Cash' ELSE 'Bank' END AS bucket,
+				CASE WHEN transaction_type = 'IN' THEN amount ELSE 0 END AS in_amt,
+				CASE WHEN transaction_type = 'OUT' THEN amount ELSE 0 END AS out_amt
+			FROM transactions
+		) t
+		GROUP BY bucket
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get balance by payment method: %w", err)
+	}
+	defer rows.Close()
+	var result []PaymentMethodBalance
+	for rows.Next() {
+		var b PaymentMethodBalance
+		var inT, outT int32
+		if err := rows.Scan(&b.Label, &inT, &outT); err != nil {
+			return nil, fmt.Errorf("scan balance by method: %w", err)
+		}
+		b.In = inT
+		b.Out = outT
+		b.Net = inT - outT
+		result = append(result, b)
+	}
+	return result, nil
 }
 
 // GetTransactions returns paginated transactions with optional filters

@@ -408,6 +408,9 @@
                     <option value="Sat/Tues" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Sat/Tues"}}selected{{end}}{{end}}>Sat/Tues</option>
                     <option value="Mon/Thu" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Mon/Thu"}}selected{{end}}{{end}}>Mon/Thu</option>
                 </select>
+                {{if and (not .IsFullyPaid) .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}
+                <input type="hidden" name="class_days" value="{{.Detail.Scheduling.ClassDays.String}}">
+                {{end}}
             </div>
             <div class="form-group">
                 <label for="class_time">Class Time *</label>
@@ -416,6 +419,9 @@
                     <option value="07:30" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq .Detail.Scheduling.ClassTime.String "07:30"}}selected{{end}}{{end}}>07:30</option>
                     <option value="10:00" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq .Detail.Scheduling.ClassTime.String "10:00"}}selected{{end}}{{end}}>10:00</option>
                 </select>
+                {{if and (not .IsFullyPaid) .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}
+                <input type="hidden" name="class_time" value="{{.Detail.Scheduling.ClassTime.String}}">
+                {{end}}
             </div>
         </div>
         

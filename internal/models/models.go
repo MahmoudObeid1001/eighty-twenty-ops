@@ -194,6 +194,14 @@ type LeadPayment struct {
 	UpdatedAt     time.Time
 }
 
+// PaymentMethodBalance holds IN/OUT/Net for a payment-method bucket (e.g. Cash vs Bank)
+type PaymentMethodBalance struct {
+	Label string
+	In    int32
+	Out   int32
+	Net   int32
+}
+
 // FinanceSummary represents aggregated finance data
 type FinanceSummary struct {
 	TodayIN      int32

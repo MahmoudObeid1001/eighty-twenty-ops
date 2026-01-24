@@ -692,25 +692,12 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	case "move_waiting":
 		h.cfg.Debugf("  → Action: move_waiting")
-		// Server-side check: moderators cannot update status
 		if userRole == "moderator" {
 			http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
 			return
 		}
 
-		// Check if lead has course payments
-		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
-		if err != nil {
-			log.Printf("ERROR: Failed to get total course paid: %v", err)
-			totalCoursePaid = 0
-		}
-
-		// If lead has course payments, require cancel/refund first
-		if totalCoursePaid > 0 {
-			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Cannot move to waiting list: Lead has course payments (%d EGP). Please cancel the lead and process refund first.", totalCoursePaid))
-			return
-		}
-
+		// WAITING allowed regardless of course payments. No refund; payments stay.
 		err = models.UpdateLeadStatus(leadID, "waiting_for_round")
 		if err != nil {
 			log.Printf("ERROR: Failed to update status: %v", err)
@@ -1541,8 +1528,12 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		
-		// Both fields must be present
-		if classDays == "" || classTime == "" {
+		// Both fields must be present when setting NEW schedule
+		// But if one is already set, allow updating just the other one
+		existingScheduling := existingDetail.Scheduling
+		hasExistingSchedule := existingScheduling != nil && existingScheduling.ClassDays.Valid && existingScheduling.ClassTime.Valid
+		
+		if !hasExistingSchedule && (classDays == "" || classTime == "") {
 			h.renderDetailWithError(w, r, leadID, "Both Class Days and Class Time are required when setting schedule.")
 			return
 		}
@@ -1577,21 +1568,40 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 
 	// Create/update scheduling if class days or time is provided
 	// Note: Auto-stage classification (below) will handle status upgrade to READY_TO_START when schedule is filled
+	// IMPORTANT: Always preserve existing scheduling values if form fields are not provided (e.g., when disabled)
 	if classDays != "" || classTime != "" {
+		// Load existing scheduling to preserve values not in form
+		// Note: existingDetail was already loaded earlier, but we need fresh data for scheduling
+		existingSchedulingDetail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			log.Printf("ERROR: Failed to load existing detail for scheduling preservation: %v", err)
+			existingSchedulingDetail = nil
+		}
+		
 		scheduling := &models.Scheduling{LeadID: leadID}
+		
+		// Set class_days if provided, otherwise preserve existing
 		if classDays != "" {
 			scheduling.ClassDays = sql.NullString{String: classDays, Valid: true}
+		} else if existingSchedulingDetail != nil && existingSchedulingDetail.Scheduling != nil {
+			scheduling.ClassDays = existingSchedulingDetail.Scheduling.ClassDays
 		}
+		
+		// Set class_time if provided, otherwise preserve existing
 		if classTime != "" {
 			scheduling.ClassTime = sql.NullString{String: classTime, Valid: true}
+		} else if existingSchedulingDetail != nil && existingSchedulingDetail.Scheduling != nil {
+			scheduling.ClassTime = existingSchedulingDetail.Scheduling.ClassTime
 		}
-		// Preserve existing expected_round, start_date, start_time if they exist (data compatibility)
-		existingDetail, err := models.GetLeadByID(leadID)
-		if err == nil && existingDetail.Scheduling != nil {
-			scheduling.ExpectedRound = existingDetail.Scheduling.ExpectedRound
-			scheduling.StartDate = existingDetail.Scheduling.StartDate
-			scheduling.StartTime = existingDetail.Scheduling.StartTime
+		
+		// Preserve existing expected_round, start_date, start_time, class_group_index if they exist
+		if existingSchedulingDetail != nil && existingSchedulingDetail.Scheduling != nil {
+			scheduling.ExpectedRound = existingSchedulingDetail.Scheduling.ExpectedRound
+			scheduling.StartDate = existingSchedulingDetail.Scheduling.StartDate
+			scheduling.StartTime = existingSchedulingDetail.Scheduling.StartTime
+			scheduling.ClassGroupIndex = existingSchedulingDetail.Scheduling.ClassGroupIndex
 		}
+		
 		detail.Scheduling = scheduling
 	}
 

@@ -11,6 +11,20 @@
 </div>
 {{end}}
 
+<!-- Current Cash Balance (full history, ignores date filters) -->
+<div class="cash-balance-card" style="background: linear-gradient(135deg, #1a5f7a 0%, #159895 100%); border-radius: 12px; padding: 24px 28px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); color: white;">
+    <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Current Cash Balance</div>
+    <div style="font-size: 36px; font-weight: 700; margin: 8px 0 4px 0;">{{.CurrentCashBalance}} EGP</div>
+    <div style="font-size: 13px; opacity: 0.85;">As of now</div>
+    {{if .BalanceByPaymentMethod}}
+    <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; flex-wrap: wrap; gap: 20px;">
+        {{range .BalanceByPaymentMethod}}
+        <div style="font-size: 13px;"><strong>{{.Label}}:</strong> {{.Net}} EGP <span style="opacity: 0.8;">(IN {{.In}} / OUT {{.Out}})</span></div>
+        {{end}}
+    </div>
+    {{end}}
+</div>
+
 <!-- Filter Bar -->
 <div class="filter-bar">
     <form method="GET" action="/finance" class="filter-form">

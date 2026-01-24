@@ -2,6 +2,7 @@
 .env
 
 # Go
+server
 *.exe
 *.exe~
 *.dll
