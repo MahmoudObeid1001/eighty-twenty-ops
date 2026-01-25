@@ -165,25 +165,58 @@
 
 ## Step 4 — Milestone Verdict
 
-### **Milestone 1 is NOT safe to proceed**
+### **Milestone 1 Status: Blocking Issues Fixed + Moderator UX Hardened**
 
-**Blocking issues (must fix before treating as production-ready):**
+**All blocking issues have been resolved:**
 
-1. **Finance refund handler double CreateRefund**  
-   `POST /finance/refund/{leadID}` calls `CreateRefund` twice (before and after validation). Every successful request creates two refund transactions for the same amount → double refund, ledger corruption, violation of I2.
+1. ✅ **Finance refund handler double CreateRefund — FIXED**  
+   `POST /finance/refund/{leadID}` now validates all inputs (amount, payment method, date, amount against `GetTotalCoursePaid`) **before** any database operation. `CreateRefund` is called exactly once. Uses `GetTotalCoursePaid` as the source of truth.
 
-2. **Cancel + refund not atomic**  
-   Cancel flow creates refund first, then cancels lead. No transaction. If CancelLead fails after CreateRefund succeeds, retry creates a second refund → double refund. Violates I18 and safe retry behavior.
+2. ✅ **Cancel + refund not atomic — FIXED**  
+   Cancel flow now uses `CreateCancelRefundIdempotent` with deterministic `ref_key="cancel_refund:<leadID>:<date>:<amount>"`. Retries do not double-create refunds. Uses `ON CONFLICT (ref_key) DO NOTHING` for idempotency.
 
-3. **Cancel success message when no refund**  
-   When `total_course_paid == 0`, cancel correctly creates no refund. Redirect always includes `refund_recorded=1`, so UI shows “Lead cancelled and refund recorded.” **Fix:** Only add `refund_recorded=1` when a refund was actually created.
+3. ✅ **Cancel success message when no refund — FIXED**  
+   Redirect URL now conditionally includes `refund_recorded=1` **only** when `totalCoursePaid > 0` and a refund was actually created. Otherwise, only `cancelled=1` is included.
 
-4. **Course payment server-side bounds**  
-   CreateLeadPayment and Save handler do not enforce “offer_final_price set” or “amount ≤ remaining_balance.” Overpayment or payment without offer is possible via direct POST. **Fix:** Enforce in handler and/or CreateLeadPayment: require offer_final_price, ensure amount ≤ remaining balance and total course paid ≤ offer_final_price.
+4. ✅ **Course payment server-side bounds — FIXED**  
+   Handler now enforces: `offer_final_price` must exist and be > 0, payment amount must be > 0 and ≤ `remaining_balance`, and `total_course_paid` must never exceed `offer_final_price`. Validation occurs before any database operation.
 
-5. **renderDetailWithError missing template data**  
-   Used for mark_ready validation errors. Omits StatusDisplayName, StatusBgColor, StatusTextColor, StatusBorderColor, ShowCancelModal, etc. Template uses them; can produce broken or inconsistent UI. **Fix:** Pass full Detail-like data (including status display and modal flags) whenever rendering the detail template, or introduce a shared “detail context” used by both Detail and error render.
+5. ✅ **renderDetailWithError missing template data — FIXED**  
+   Introduced `buildDetailViewModel` helper that centralizes all detail page data (status colors, banners, modal flags, financial totals, etc.). Both `Detail` and `renderDetailWithError` use this shared helper, ensuring consistent template context.
 
 ---
 
-**Summary:** The core Pre-Enrolment flows (create, test, offer, course payment, schedule, mark ready, send to classes, cancel) are largely implemented and many invariants hold. However, the finance refund double-CreateRefund bug, non-atomic cancel+refund, incorrect cancel success messaging, missing course-payment bounds, and incomplete error render data are **blocking** for production. Address these five items before considering Milestone 1 safe to proceed.
+## Step 5 — Moderator UX + Permissions Hardening (Post-Audit)
+
+**Additional improvements applied after blocking fixes:**
+
+### Moderator Role Enhancements
+
+**Permissions:**
+- ✅ Moderators can **create leads** (full name, phone, source, notes)
+- ✅ Moderators can **view leads** (list and detail pages)
+- ✅ Moderators can **edit basic lead info only** (name, phone, source, notes) to fix mistakes
+- ❌ Moderators **cannot** delete leads (Delete button hidden; backend rejects `action=delete`)
+- ❌ Moderators **cannot** see or change payments, offers, bundles, pricing, refunds, ledger, payment methods
+- ❌ Moderators **cannot** change lead status (mark tested/offer sent/ready/etc.)
+- ❌ Moderators **cannot** access Classes or Finance pages (custom 403 access-restricted page shown)
+
+**UI Changes:**
+- **Pre-Enrolment List:** Delete and Send to Classes buttons hidden for moderators
+- **Pre-Enrolment Detail:** "Moderator Mode: Limited Edit" — only Lead Info section editable; all other sections (Placement Test, Offer & Pricing, Booking, Course Payment, Schedule, Shipping, Refund, Cancel, status actions) are hidden
+- **Access-Restricted Pages:** Custom styled HTML pages for `/classes` and `/finance` with friendly message and "Back to Pre-Enrolment" link
+- **Navigation:** Classes and Finance links hidden in sidebar for moderators
+
+**Backend Changes:**
+- `IsModerator` / `IsAdmin` helpers added (`internal/handlers/role.go`)
+- Moderator save flow only processes `full_name`, `phone`, `source`, `notes`; all other fields ignored
+- Phone uniqueness validation with friendly error messages
+- Delete action explicitly rejected for moderators (403 Forbidden)
+
+**Documentation:**
+- `docs/MODERATOR_UX_MANUAL_CHECKLIST.md` — manual QA checklist for moderator behavior
+- `docs/BLOCKING_FIXES_DELIVERABLE.md` — detailed explanation of blocking fixes
+
+---
+
+**Summary:** All five blocking issues from the QA audit have been resolved. The system now includes robust moderator role permissions with clear UI/UX boundaries. Milestone 1 is production-ready with proper validation, idempotency, and role-based access control.
