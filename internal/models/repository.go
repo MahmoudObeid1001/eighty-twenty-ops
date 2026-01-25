@@ -1778,6 +1778,53 @@ func CreateRefund(leadID uuid.UUID, amount int32, paymentMethod string, transact
 	return tx, nil
 }
 
+// CreateCancelRefundIdempotent creates a refund (OUT) for cancel flow with deterministic ref_key.
+// Retries do not double-create. Uses ref_key = "cancel_refund:<leadID>:<date>:<amount>".
+func CreateCancelRefundIdempotent(leadID uuid.UUID, amount int32, paymentMethod string, transactionDate time.Time, notes string) error {
+	if amount <= 0 {
+		return fmt.Errorf("amount must be positive")
+	}
+	if err := util.ValidateNotFutureDate(transactionDate); err != nil {
+		return err
+	}
+	allowedMethods := map[string]bool{
+		"vodafone_cash": true, "bank_transfer": true, "paypal": true, "other": true,
+	}
+	if !allowedMethods[paymentMethod] {
+		return fmt.Errorf("invalid payment method: %s", paymentMethod)
+	}
+	totalCoursePaid, err := GetTotalCoursePaid(leadID)
+	if err != nil {
+		return fmt.Errorf("failed to validate refund amount: %w", err)
+	}
+	if amount > totalCoursePaid {
+		return fmt.Errorf("refund amount (%d) cannot exceed total course paid (%d)", amount, totalCoursePaid)
+	}
+
+	refKey := fmt.Sprintf("cancel_refund:%s:%s:%d", leadID.String(), transactionDate.Format("2006-01-02"), amount)
+	refIDStr := leadID.String()
+	now := time.Now()
+	transactionDateValue := transactionDate.Format("2006-01-02")
+
+	var id uuid.UUID
+	err = db.DB.QueryRow(`
+		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, lead_id, ref_type, ref_id, ref_sub_type, ref_key, notes, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1::date, 'OUT', 'refund', $2::integer, $3::text, $4::uuid, 'lead', $5::text, 'refund', $6::text, $7, $8::timestamp with time zone, $8::timestamp with time zone)
+		ON CONFLICT (ref_key) DO NOTHING
+		RETURNING id
+	`, transactionDateValue, amount, paymentMethod, leadID, refIDStr, refKey, notes, now).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create cancel refund transaction: %w", err)
+	}
+	if err := UpdateLeadStatusFromPayment(leadID); err != nil {
+		log.Printf("WARNING: failed to auto-update lead status after cancel refund: %v", err)
+	}
+	return nil
+}
+
 // CancelLead soft-cancels a lead (sets status to cancelled, does not delete)
 func CancelLead(leadID uuid.UUID) error {
 	now := time.Now()

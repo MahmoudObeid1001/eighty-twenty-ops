@@ -1,0 +1,19 @@
+{{define "access_restricted_content"}}
+<div class="header content-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+    <h1>Access Restricted</h1>
+</div>
+
+<div class="access-restricted-card" style="max-width: 560px; padding: 32px; background: #F9F9F9; border-radius: 8px; border: 1px solid #E6E6E6; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+    <p style="font-size: 16px; color: #333; margin-bottom: 16px; line-height: 1.5;">
+        <strong>Access Restricted:</strong> This section ({{.SectionName}}) is available to administrators only.
+    </p>
+    <p style="font-size: 15px; color: #555; margin-bottom: 16px; line-height: 1.5;">
+        As a moderator, you can use <strong>Pre-Enrolment</strong> to view and manage leads, add new leads, and update basic lead information.
+    </p>
+    <p style="font-size: 15px; color: #555; margin-bottom: 24px; line-height: 1.5;">
+        If you need access to {{.SectionName}}, contact your administrator or the system admin.
+    </p>
+    <a href="/pre-enrolment" class="btn btn-primary" style="display: inline-block; padding: 10px 20px; background-color: #2FA4C7; color: white; text-decoration: none; border-radius: 4px; font-weight: 600;">Back to Pre-Enrolment</a>
+</div>
+{{end}}

@@ -100,10 +100,13 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	userRole := middleware.GetUserRole(r)
 	data := map[string]interface{}{
 		"Title":            "Pre-Enrolment - Eighty Twenty",
 		"Leads":            leads,
-		"UserRole":         middleware.GetUserRole(r),
+		"UserRole":         userRole,
+		"IsModerator":      IsModerator(r),
+		"IsAdmin":          IsAdmin(r),
 		"FlashMessage":     flashMessage,
 		"StatusFilter":     statusFilter,
 		"SearchFilter":     searchFilter,
@@ -118,8 +121,9 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *PreEnrolmentHandler) NewForm(w http.ResponseWriter, r *http.Request) {
 	h.cfg.Debugf("📝 NewForm() called - rendering pre_enrolment_new.html template")
 	data := map[string]interface{}{
-		"Title":    "New Lead - Eighty Twenty",
-		"UserRole": middleware.GetUserRole(r),
+		"Title":       "New Lead - Eighty Twenty",
+		"UserRole":    middleware.GetUserRole(r),
+		"IsModerator": IsModerator(r),
 	}
 	renderTemplate(w, "pre_enrolment_new.html", data)
 	h.cfg.Debugf("  → Template render complete")
@@ -138,9 +142,10 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	if fullName == "" || phone == "" {
 		data := map[string]interface{}{
-			"Title":    "New Lead - Eighty Twenty",
-			"Error":    "Full name and phone are required",
-			"UserRole": middleware.GetUserRole(r),
+			"Title":       "New Lead - Eighty Twenty",
+			"Error":       "Full name and phone are required",
+			"UserRole":    middleware.GetUserRole(r),
+			"IsModerator": IsModerator(r),
 		}
 		renderTemplate(w, "pre_enrolment_new.html", data)
 		return
@@ -182,17 +187,17 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		if phoneErr != nil {
-			// Show form again with error and preserved values
 			data := map[string]interface{}{
-				"Title":            "New Lead - Eighty Twenty",
-				"Error":            phoneErr.Message,
-				"PhoneError":       phoneErr.Message,
-				"ExistingLeadID":   phoneErr.ExistingLeadID,
+				"Title":             "New Lead - Eighty Twenty",
+				"Error":             phoneErr.Message,
+				"PhoneError":        phoneErr.Message,
+				"ExistingLeadID":    phoneErr.ExistingLeadID,
 				"PreservedFullName": fullName,
 				"PreservedPhone":    phone,
 				"PreservedSource":   source,
 				"PreservedNotes":    notes,
-				"UserRole":         middleware.GetUserRole(r),
+				"UserRole":          middleware.GetUserRole(r),
+				"IsModerator":       IsModerator(r),
 			}
 			renderTemplate(w, "pre_enrolment_new.html", data)
 			return
@@ -225,61 +230,13 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	isModerator := userRole == "moderator"
 
-	// Calculate placement test remaining fee
-	var placementTestRemaining int32 = 0
-	if detail.PlacementTest != nil {
-		if detail.PlacementTest.PlacementTestFee.Valid && detail.PlacementTest.PlacementTestFeePaid.Valid {
-			placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32 - detail.PlacementTest.PlacementTestFeePaid.Int32
-			if placementTestRemaining < 0 {
-				placementTestRemaining = 0
-			}
-		} else if detail.PlacementTest.PlacementTestFee.Valid {
-			placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32
-		} else {
-			placementTestRemaining = 100 // default
-		}
-	} else {
-		placementTestRemaining = 100 // default
-	}
+	data, _ := h.buildDetailViewModel(detail, leadID, userRole)
 
-	// Compute hot lead flags for detail page
-	// Create a temporary LeadListItem to compute flags
-	var amountPaid, finalPrice sql.NullInt32
-	if detail.Payment != nil {
-		amountPaid = detail.Payment.AmountPaid
-	}
-	if detail.Offer != nil {
-		finalPrice = detail.Offer.FinalPrice
-	}
-	var testDate sql.NullTime
-	if detail.PlacementTest != nil {
-		testDate = detail.PlacementTest.TestDate
-	}
-
-	tempItem := &models.LeadListItem{
-		Lead:       detail.Lead,
-		TestDate:   testDate,
-		AmountPaid: amountPaid,
-		FinalPrice: finalPrice,
-	}
-	models.ComputeLeadFlags(tempItem)
-
-	today := time.Now().Format("2006-01-02")
-	// Get lead payments for display
-	leadPayments, err := models.GetLeadPayments(leadID)
-	if err != nil {
-		log.Printf("ERROR: Failed to get lead payments: %v", err)
-		leadPayments = []*models.LeadPayment{} // Empty slice on error
-	}
-	
-	// Check for error messages
 	errorMsg := ""
 	phoneError := ""
 	var existingLeadID *uuid.UUID
-	errorType := r.URL.Query().Get("error")
-	switch errorType {
+	switch r.URL.Query().Get("error") {
 	case "future_date":
 		errorMsg = "Refund date cannot be in the future"
 	case "refund_required":
@@ -287,8 +244,7 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	case "invalid_amount":
 		errorMsg = "Invalid refund amount. Amount must be greater than 0"
 	case "amount_exceeds":
-		maxStr := r.URL.Query().Get("max")
-		if maxStr != "" {
+		if maxStr := r.URL.Query().Get("max"); maxStr != "" {
 			errorMsg = fmt.Sprintf("Refund amount cannot exceed total course paid (%s EGP)", maxStr)
 		} else {
 			errorMsg = "Refund amount cannot exceed total course paid"
@@ -306,99 +262,35 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	case "phone_exists":
 		errorMsg = "Phone number already exists"
 		phoneError = "Phone number already exists"
-		// Try to parse existing lead ID
 		if existingIDStr := r.URL.Query().Get("existing_lead_id"); existingIDStr != "" {
 			if parsedID, err := uuid.Parse(existingIDStr); err == nil {
 				existingLeadID = &parsedID
 			}
 		}
 	}
-	
-	// Check for success messages
+	data["Error"] = errorMsg
+	data["PhoneError"] = phoneError
+	data["ExistingLeadID"] = existingLeadID
+
 	successMsg := ""
 	if r.URL.Query().Get("cancelled") == "1" && r.URL.Query().Get("refund_recorded") == "1" {
 		successMsg = "Lead cancelled and refund recorded."
 	} else if r.URL.Query().Get("cancelled") == "1" {
 		successMsg = "Lead cancelled successfully."
+	} else if r.URL.Query().Get("saved") == "1" {
+		successMsg = "Lead saved successfully!"
 	}
-	
-	// Check if we should show cancel modal
+	data["SuccessMessage"] = successMsg
+
 	showCancelModal := r.URL.Query().Get("action") == "cancel"
-	
-	// Calculate payment totals for UI
-	var finalPriceValue int32 = 0
-	if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
-		finalPriceValue = detail.Offer.FinalPrice.Int32
+	data["ShowCancelModal"] = showCancelModal
+
+	isFullyPaid := data["IsFullyPaid"].(bool)
+	if isFullyPaid && detail.Lead.Status != "paid_full" && detail.Lead.Status != "cancelled" {
+		_ = models.UpdateLeadStatusFromPayment(leadID)
 	}
-	
-	totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
-	if err != nil {
-		log.Printf("ERROR: Failed to get total course paid: %v", err)
-		totalCoursePaid = 0
-	}
-	
-	var remainingBalance int32 = 0
-	if finalPriceValue > 0 {
-		remainingBalance = finalPriceValue - totalCoursePaid
-		if remainingBalance < 0 {
-			remainingBalance = 0
-		}
-	}
-	
-	// Check if fully paid: offer final price exists and total course paid equals final price
-	isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
-	
-	// Compute follow-up banner logic: only show if NOT fully paid AND in pipeline statuses
-	// Pipeline statuses that require chasing: lead_created, test_booked, tested, offer_sent
-	pipelineStatuses := map[string]bool{
-		"lead_created": true,
-		"test_booked":  true,
-		"tested":       true,
-		"offer_sent":   true,
-	}
-	showFollowUpBanner := !isFullyPaid && tempItem.FollowUpDue && pipelineStatuses[detail.Lead.Status]
-	
-	// Get status display info for unified status banner.
-	// When paid in full, always show "Paid in Full" (override DB status which may still be offer_sent).
-	statusInfo := models.GetStatusDisplayInfo(detail.Lead.Status)
-	if isFullyPaid {
-		statusInfo = models.GetStatusDisplayInfo("paid_full")
-		// Sync DB: set status to paid_full if still offer_sent (or other pipeline status)
-		if detail.Lead.Status != "paid_full" && detail.Lead.Status != "cancelled" {
-			_ = models.UpdateLeadStatusFromPayment(leadID)
-		}
-	}
-	
-	data := map[string]interface{}{
-		"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
-		"Detail":                 detail,
-		"UserRole":               userRole,
-		"IsModerator":            isModerator,
-		"PlacementTestRemaining": placementTestRemaining,
-		"FollowUpDue":            tempItem.FollowUpDue,
-		"ShowFollowUpBanner":     showFollowUpBanner,
-		"HotLevel":               tempItem.HotLevel,
-		"DaysSinceLastProgress":  tempItem.DaysSinceLastProgress,
-		"Today":                  today,
-		"LeadPayments":           leadPayments,
-		"FinalPrice":             finalPriceValue,
-		"TotalCoursePaid":        totalCoursePaid,
-		"RemainingBalance":       remainingBalance,
-		"IsFullyPaid":            isFullyPaid,
-		"StatusDisplayName":      statusInfo.DisplayName,
-		"StatusBgColor":          statusInfo.BgColor,
-		"StatusTextColor":        statusInfo.TextColor,
-		"StatusBorderColor":      statusInfo.BorderColor,
-		"Error":                  errorMsg,
-		"PhoneError":             phoneError,
-		"ExistingLeadID":         existingLeadID,
-		"SuccessMessage":         successMsg,
-		"ShowCancelModal":        showCancelModal,
-	}
-	
-	// If showing cancel modal, calculate additional fields needed for modal
+
 	if showCancelModal {
-		// Calculate placement test paid (read-only, not refundable)
 		var placementTestPaid int32 = 0
 		if detail.PlacementTest != nil && detail.PlacementTest.PlacementTestFeePaid.Valid {
 			placementTestPaid = detail.PlacementTest.PlacementTestFeePaid.Int32
@@ -408,17 +300,9 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "pre_enrolment_detail.html", data)
 }
 
-// renderDetailWithError fetches the lead, builds detail page data with Error set, and renders.
-// Used when validation fails (e.g. schedule required for mark_ready).
-// It includes all the same data as Detail() to ensure template variables are available.
-func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *http.Request, leadID uuid.UUID, errMsg string) {
-	detail, err := models.GetLeadByID(leadID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
-		return
-	}
-	userRole := middleware.GetUserRole(r)
-	isModerator := userRole == "moderator"
+// buildDetailViewModel returns the shared detail page data map used by both Detail() and renderDetailWithError.
+// Callers merge overrides (Error, SuccessMessage, ShowCancelModal, PhoneError, ExistingLeadID, PlacementTestPaid).
+func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, leadID uuid.UUID, userRole string) (map[string]interface{}, error) {
 	var placementTestRemaining int32 = 0
 	if detail.PlacementTest != nil {
 		if detail.PlacementTest.PlacementTestFee.Valid && detail.PlacementTest.PlacementTestFeePaid.Valid {
@@ -452,28 +336,23 @@ func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *ht
 		FinalPrice: finalPrice,
 	}
 	models.ComputeLeadFlags(tempItem)
-	
+
 	today := time.Now().Format("2006-01-02")
-	
-	// Get lead payments for display
 	leadPayments, err := models.GetLeadPayments(leadID)
 	if err != nil {
 		log.Printf("ERROR: Failed to get lead payments: %v", err)
-		leadPayments = []*models.LeadPayment{} // Empty slice on error
+		leadPayments = []*models.LeadPayment{}
 	}
-	
-	// Calculate payment totals for UI
+
 	var finalPriceValue int32 = 0
 	if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
 		finalPriceValue = detail.Offer.FinalPrice.Int32
 	}
-	
 	totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
 	if err != nil {
 		log.Printf("ERROR: Failed to get total course paid: %v", err)
 		totalCoursePaid = 0
 	}
-	
 	var remainingBalance int32 = 0
 	if finalPriceValue > 0 {
 		remainingBalance = finalPriceValue - totalCoursePaid
@@ -481,17 +360,27 @@ func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *ht
 			remainingBalance = 0
 		}
 	}
-
-	// Check if fully paid: offer final price exists and total course paid equals final price
 	isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
+
+	pipelineStatuses := map[string]bool{
+		"lead_created": true, "test_booked": true, "tested": true, "offer_sent": true,
+	}
+	showFollowUpBanner := !isFullyPaid && tempItem.FollowUpDue && pipelineStatuses[detail.Lead.Status]
+
+	statusInfo := models.GetStatusDisplayInfo(detail.Lead.Status)
+	if isFullyPaid {
+		statusInfo = models.GetStatusDisplayInfo("paid_full")
+	}
 
 	data := map[string]interface{}{
 		"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
 		"Detail":                 detail,
 		"UserRole":               userRole,
-		"IsModerator":            isModerator,
+		"IsModerator":            userRole == "moderator",
+		"IsAdmin":                userRole == "admin",
 		"PlacementTestRemaining": placementTestRemaining,
 		"FollowUpDue":            tempItem.FollowUpDue,
+		"ShowFollowUpBanner":     showFollowUpBanner,
 		"HotLevel":               tempItem.HotLevel,
 		"DaysSinceLastProgress":  tempItem.DaysSinceLastProgress,
 		"Today":                  today,
@@ -500,9 +389,31 @@ func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *ht
 		"TotalCoursePaid":        totalCoursePaid,
 		"RemainingBalance":       remainingBalance,
 		"IsFullyPaid":            isFullyPaid,
-		"Error":                  errMsg,
-		"SuccessMessage":         "", // No success message in error rendering
+		"StatusDisplayName":      statusInfo.DisplayName,
+		"StatusBgColor":          statusInfo.BgColor,
+		"StatusTextColor":        statusInfo.TextColor,
+		"StatusBorderColor":      statusInfo.BorderColor,
+		"Error":                  "",
+		"PhoneError":             "",
+		"ExistingLeadID":         nil,
+		"SuccessMessage":         "",
+		"ShowCancelModal":        false,
 	}
+	return data, nil
+}
+
+// renderDetailWithError fetches the lead, builds detail page data with Error set, and renders.
+// Uses buildDetailViewModel so template context matches Detail() (status, banners, modal flags, etc.).
+func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *http.Request, leadID uuid.UUID, errMsg string) {
+	detail, err := models.GetLeadByID(leadID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+		return
+	}
+	userRole := middleware.GetUserRole(r)
+	data, _ := h.buildDetailViewModel(detail, leadID, userRole)
+	data["Error"] = errMsg
+	data["SuccessMessage"] = ""
 	renderTemplate(w, "pre_enrolment_detail.html", data)
 }
 
@@ -921,41 +832,39 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 				
-				// Build notes: combine default message with user notes
 				refundNotesText := "Refund for cancelled lead"
 				if refundNotes != "" {
 					refundNotesText = refundNotesText + ". " + refundNotes
 				}
-				
-				// Create refund transaction
-				_, err = models.CreateRefund(leadID, int32(refundAmount), refundMethod, refundDate, refundNotesText)
+				err = models.CreateCancelRefundIdempotent(leadID, int32(refundAmount), refundMethod, refundDate, refundNotesText)
 				if err != nil {
-					log.Printf("ERROR: Failed to create refund: %v", err)
-				// Check if it's a validation error
-				if err.Error() == "payment date cannot be in the future" {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=future_date", leadID.String()), http.StatusFound)
+					log.Printf("ERROR: Failed to create cancel refund: %v", err)
+					if err.Error() == "payment date cannot be in the future" {
+						http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=future_date", leadID.String()), http.StatusFound)
+						return
+					}
+					if strings.Contains(err.Error(), "cannot exceed total course paid") {
+						http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds", leadID.String()), http.StatusFound)
+						return
+					}
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=refund_failed", leadID.String()), http.StatusFound)
 					return
-				}
-				if strings.Contains(err.Error(), "cannot exceed total course paid") {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds", leadID.String()), http.StatusFound)
-					return
-				}
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=refund_failed", leadID.String()), http.StatusFound)
-				return
 				}
 			}
-			
-			// Cancel the lead (soft cancel)
+
 			err = models.CancelLead(leadID)
 			if err != nil {
 				log.Printf("ERROR: Failed to cancel lead: %v", err)
 				http.Error(w, fmt.Sprintf("Failed to cancel lead: %v", err), http.StatusInternalServerError)
 				return
 			}
-			
+
 			h.cfg.Debugf("  ✅ Lead cancelled successfully, redirecting to list")
-			// Redirect with success message
-			http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?cancelled=1&refund_recorded=1", leadID.String()), http.StatusFound)
+			if totalCoursePaid > 0 {
+				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?cancelled=1&refund_recorded=1", leadID.String()), http.StatusFound)
+			} else {
+				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?cancelled=1", leadID.String()), http.StatusFound)
+			}
 			return
 		}
 		
@@ -1030,6 +939,21 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		
 		h.cfg.Debugf("  ✅ Lead reopened successfully, redirecting to detail")
 		http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?reopened=1", leadID.String()), http.StatusFound)
+		return
+
+	case "delete":
+		h.cfg.Debugf("  → Action: delete")
+		if userRole == "moderator" {
+			http.Error(w, "Forbidden: Moderators cannot delete leads", http.StatusForbidden)
+			return
+		}
+		if err := models.DeleteLead(leadID); err != nil {
+			log.Printf("ERROR: Failed to delete lead: %v", err)
+			http.Error(w, fmt.Sprintf("Failed to delete lead: %v", err), http.StatusInternalServerError)
+			return
+		}
+		h.cfg.Debugf("  ✅ Lead deleted, redirecting to list")
+		http.Redirect(w, r, "/pre-enrolment?deleted=1", http.StatusFound)
 		return
 
 	case "save", "":
@@ -1150,40 +1074,43 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	// Moderator restrictions: only allow editing Lead Info section
+	// Moderator restrictions: only allow editing Lead Info (name, phone, source, notes)
 	if userRole == "moderator" {
 		h.cfg.Debugf("  🔒 Moderator save: only updating Lead Info section")
-		// Only update lead info fields, ignore all other sections
-		if source := r.FormValue("source"); source != "" {
-			allowedSources := map[string]bool{
-				"Facebook":  true,
-				"WhatsApp":  true,
-				"Instagram": true,
-				"Referral":  true,
-				"Walk-in":   true,
-				"Other":     true,
-			}
-			if !allowedSources[source] {
-				source = "Other"
-			}
+		source := r.FormValue("source")
+		allowedSources := map[string]bool{
+			"Facebook": true, "WhatsApp": true, "Instagram": true, "Referral": true, "Walk-in": true, "Other": true,
+		}
+		if source != "" && allowedSources[source] {
 			detail.Lead.Source = sql.NullString{String: source, Valid: true}
+		} else if source != "" {
+			detail.Lead.Source = sql.NullString{String: "Other", Valid: true}
+		} else {
+			detail.Lead.Source = sql.NullString{Valid: false}
 		}
-		if notes := r.FormValue("notes"); notes != "" {
+		notes := r.FormValue("notes")
+		if notes != "" {
 			detail.Lead.Notes = sql.NullString{String: notes, Valid: true}
+		} else {
+			detail.Lead.Notes = sql.NullString{Valid: false}
 		}
-		// Keep existing status (existingDetail already loaded above)
-		detail.Lead.Status = existingDetail.Lead.Status
 
-		// Update only lead info
 		err = models.UpdateLeadBasicInfo(detail.Lead)
 		if err != nil {
-			log.Printf("ERROR: Failed to update lead: %v", err)
+			if models.IsPhoneConstraintError(err) != nil {
+				redir := fmt.Sprintf("/pre-enrolment/%s?error=phone_exists", leadID.String())
+				if existingLead, findErr := models.GetLeadByPhone(phone); findErr == nil {
+					redir = fmt.Sprintf("%s&existing_lead_id=%s", redir, existingLead.ID.String())
+				}
+				http.Redirect(w, r, redir, http.StatusFound)
+				return
+			}
+			log.Printf("ERROR: Failed to update lead (moderator): %v", err)
 			http.Error(w, fmt.Sprintf("Failed to update lead: %v", err), http.StatusInternalServerError)
 			return
 		}
-
 		h.cfg.Debugf("  ✅ Moderator save successful")
-		http.Redirect(w, r, "/pre-enrolment?saved=1", http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?saved=1", leadID.String()), http.StatusFound)
 		return
 	}
 
@@ -1780,6 +1707,34 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		amount, err := strconv.Atoi(coursePaymentAmountStr)
 		if err != nil || amount <= 0 {
 			h.renderDetailWithError(w, r, leadID, "Invalid course payment amount.")
+			return
+		}
+
+		var finalPriceValue int32 = 0
+		if existingDetail.Offer != nil && existingDetail.Offer.FinalPrice.Valid {
+			finalPriceValue = existingDetail.Offer.FinalPrice.Int32
+		}
+		if finalPriceValue <= 0 {
+			h.renderDetailWithError(w, r, leadID, "Offer final price must be set before adding course payments. Set offer in Offer & Pricing and save.")
+			return
+		}
+
+		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
+		if err != nil {
+			log.Printf("ERROR: Failed to get total course paid: %v", err)
+			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Failed to validate course payment: %v", err))
+			return
+		}
+		remainingBalance := finalPriceValue - totalCoursePaid
+		if remainingBalance < 0 {
+			remainingBalance = 0
+		}
+		if int32(amount) > remainingBalance {
+			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Course payment amount (%d) exceeds remaining balance (%d). Total course paid cannot exceed offer final price.", amount, remainingBalance))
+			return
+		}
+		if totalCoursePaid+int32(amount) > finalPriceValue {
+			h.renderDetailWithError(w, r, leadID, "Total course paid cannot exceed offer final price.")
 			return
 		}
 		

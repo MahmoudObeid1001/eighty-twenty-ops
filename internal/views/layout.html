@@ -12,12 +12,17 @@
 <div class="container">
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
-        <div class="logo">Eighty Twenty</div>
+        <div class="brand-block">
+            <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo-sidebar" />
+            <span class="brand-name">Eighty Twenty</span>
+        </div>
         <nav style="flex: 1;">
             <ul>
                 <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
+                {{if not .IsModerator}}
                 <li><a href="/classes">Classes</a></li>
                 <li><a href="/finance">Finance</a></li>
+                {{end}}
                 <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
                 <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
             </ul>
@@ -44,6 +49,8 @@
             {{template "finance_content" .}}
         {{else if eq .ContentTemplate "finance_new_expense_content"}}
             {{template "finance_new_expense_content" .}}
+        {{else if eq .ContentTemplate "access_restricted_content"}}
+            {{template "access_restricted_content" .}}
         {{else}}
             <p>Error: Unknown content template: {{.ContentTemplate}}</p>
         {{end}}

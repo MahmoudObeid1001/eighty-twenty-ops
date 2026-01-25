@@ -22,17 +22,22 @@ func NewClassesHandler(cfg *config.Config) *ClassesHandler {
 	return &ClassesHandler{cfg: cfg}
 }
 
-// List renders the classes board page
+// List renders the classes board page, or a custom access-restricted page for moderators (403).
 func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		w.WriteHeader(http.StatusForbidden)
+		data := map[string]interface{}{
+			"Title":       "Access Restricted – Eighty Twenty",
+			"SectionName": "Classes Board",
+			"IsModerator": IsModerator(r),
+		}
+		renderTemplate(w, "access_restricted.html", data)
 		return
 	}
 
@@ -105,6 +110,7 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		"Groups":       groups,
 		"CurrentRound": currentRound,
 		"UserRole":     userRole,
+		"IsModerator":  IsModerator(r),
 		"FlashMessage": flashMessage,
 	}
 	renderTemplate(w, "classes.html", data)

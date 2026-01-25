@@ -112,6 +112,7 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 		"classes.html":              "classes_content",
 		"finance.html":              "finance_content",
 		"finance_new_expense.html":  "finance_new_expense_content",
+		"access_restricted.html":    "access_restricted_content",
 	}
 	
 	// Templates that use auth_layout instead of main layout

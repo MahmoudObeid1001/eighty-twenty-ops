@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"eighty-twenty-ops/internal/config"
-	"eighty-twenty-ops/internal/db"
 	"eighty-twenty-ops/internal/middleware"
 	"eighty-twenty-ops/internal/models"
 	"eighty-twenty-ops/internal/util"
@@ -26,17 +25,22 @@ func NewFinanceHandler(cfg *config.Config) *FinanceHandler {
 	return &FinanceHandler{cfg: cfg}
 }
 
-// Dashboard renders the finance dashboard
+// Dashboard renders the finance dashboard, or a custom access-restricted page for moderators (403).
 func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		w.WriteHeader(http.StatusForbidden)
+		data := map[string]interface{}{
+			"Title":       "Access Restricted – Eighty Twenty",
+			"SectionName": "Finance",
+			"IsModerator": IsModerator(r),
+		}
+		renderTemplate(w, "access_restricted.html", data)
 		return
 	}
 
@@ -138,8 +142,8 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		"CurrentCashBalance":     currentBalance,
 		"BalanceByPaymentMethod": balanceByMethod,
 		"Summary":                summary,
-		"Transactions":           transactions, // Keep for backward compatibility if needed
-		"LedgerGroups":           ledgerGroups, // New grouped data
+		"Transactions":           transactions,
+		"LedgerGroups":           ledgerGroups,
 		"CancelledLeads":         cancelledLeads,
 		"CancelledCount":         cancelledCount,
 		"CancelledBalancedCount": cancelledBalancedCount,
@@ -151,6 +155,7 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		"PaymentMethodFilter":    paymentMethodFilter,
 		"TransactionTypeFilter":  transactionTypeFilter,
 		"UserRole":               userRole,
+		"IsModerator":            IsModerator(r),
 		"FlashMessage":           flashMessage,
 	}
 	renderTemplate(w, "finance.html", data)
@@ -241,21 +246,21 @@ func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/finance?expense_created=1", http.StatusFound)
 }
 
-// CreateRefund handles POST to create a refund for a lead
+// CreateRefund handles POST to create a refund for a lead.
+// Validation (amount, method, date, ≤ total course paid) runs before any DB insert.
+// Uses GetTotalCoursePaid as source of truth, same as pre-enrolment.
 func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
 		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
 		return
 	}
 
-	// Parse lead ID from path: /finance/refund/{leadID}
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 || pathParts[2] != "refund" {
 		http.Error(w, "Invalid URL format", http.StatusBadRequest)
@@ -268,7 +273,6 @@ func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse form
 	amountStr := r.FormValue("amount")
 	paymentMethod := r.FormValue("payment_method")
 	dateStr := r.FormValue("transaction_date")
@@ -291,53 +295,33 @@ func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 			transactionDate = t
 		}
 	}
-
-	_, err = models.CreateRefund(leadID, int32(amount), paymentMethod, transactionDate, notes)
-	if err != nil {
-		log.Printf("ERROR: Failed to create refund: %v", err)
-		// Check if it's a validation error (future date)
-		if err.Error() == "payment date cannot be in the future" {
-			http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?error=future_date", leadID.String()), http.StatusFound)
-			return
-		}
-		http.Error(w, fmt.Sprintf("Failed to create refund: %v", err), http.StatusInternalServerError)
+	if err := util.ValidateNotFutureDate(transactionDate); err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?error=future_date", leadID.String()), http.StatusFound)
 		return
 	}
 
-	// Validate refund doesn't exceed total paid
-	detail, err := models.GetLeadByID(leadID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+	allowedMethods := map[string]bool{
+		"vodafone_cash": true, "bank_transfer": true, "paypal": true, "other": true,
+	}
+	if !allowedMethods[paymentMethod] {
+		http.Error(w, "Invalid payment method", http.StatusBadRequest)
 		return
 	}
-	
-	var totalPaid int32 = 0
-	if detail.Payment != nil && detail.Payment.AmountPaid.Valid {
-		totalPaid = detail.Payment.AmountPaid.Int32
-	}
-	
-	// Get total refunded so far
-	var totalRefunded int32 = 0
-	err = db.DB.QueryRow(`
-		SELECT COALESCE(SUM(amount), 0)
-		FROM transactions
-		WHERE lead_id = $1 AND category = 'refund' AND transaction_type = 'OUT'
-	`, leadID).Scan(&totalRefunded)
-	if err != nil && err != sql.ErrNoRows {
-		log.Printf("ERROR: Failed to get total refunded: %v", err)
+
+	totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get total course paid: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to validate refund: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
-	if int32(amount) > (totalPaid - totalRefunded) {
-		http.Error(w, fmt.Sprintf("Refund amount (%d) exceeds available balance (%d - %d = %d)", amount, totalPaid, totalRefunded, totalPaid-totalRefunded), http.StatusBadRequest)
+	if int32(amount) > totalCoursePaid {
+		http.Error(w, fmt.Sprintf("Refund amount (%d) exceeds total course paid (%d)", amount, totalCoursePaid), http.StatusBadRequest)
 		return
 	}
 
 	_, err = models.CreateRefund(leadID, int32(amount), paymentMethod, transactionDate, notes)
 	if err != nil {
 		log.Printf("ERROR: Failed to create refund: %v", err)
-		// Check if it's a validation error (future date)
 		if err.Error() == "payment date cannot be in the future" {
 			http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?error=future_date", leadID.String()), http.StatusFound)
 			return

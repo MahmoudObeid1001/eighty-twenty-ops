@@ -175,12 +175,12 @@ func main() {
 		}
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling classesHandler.List")
-			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(classesHandler.List)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(classesHandler.List)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /classes -> classesHandler.List [admin only]")
+	cfg.Debugf("ROUTE REGISTERED: /classes -> classesHandler.List [GET: admin+moderator; moderator gets 403 access-restricted page]")
 
 	mux.HandleFunc("/classes/move", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /classes/move handler for %s %s", r.Method, r.URL.Path)
@@ -266,12 +266,12 @@ func main() {
 		}
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling financeHandler.Dashboard")
-			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.Dashboard)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(financeHandler.Dashboard)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /finance -> financeHandler.Dashboard [admin only]")
+	cfg.Debugf("ROUTE REGISTERED: /finance -> financeHandler.Dashboard [GET: admin+moderator; moderator gets 403 access-restricted page]")
 
 	mux.HandleFunc("/finance/new-expense", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /finance/new-expense handler for %s %s", r.Method, r.URL.Path)

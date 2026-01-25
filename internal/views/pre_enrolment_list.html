@@ -1,6 +1,6 @@
 {{define "pre_enrolment_list_content"}}
 <!-- Header -->
-<div class="header">
+<div class="header content-header">
     <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
     <h1>Pre-Enrolment</h1>
 </div>
@@ -98,13 +98,13 @@
                 <td class="action-column">
                     <div class="action-buttons-row">
                         <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
-                        {{if and (eq .Lead.Status "ready_to_start") (not .Lead.SentToClasses) .AssignedLevel.Valid}}
+                        {{if and (not $.IsModerator) (eq .Lead.Status "ready_to_start") (not .Lead.SentToClasses) .AssignedLevel.Valid}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form" data-lead-id="{{.Lead.ID}}">
                             <input type="hidden" name="action" value="send_to_classes">
                             <button type="submit" class="btn btn-success btn-small">Send to Classes</button>
                         </form>
                         {{end}}
-                        {{if ne .Lead.Status "cancelled"}}
+                        {{if and (not $.IsModerator) (ne .Lead.Status "cancelled")}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="delete-form">
                             <input type="hidden" name="action" value="delete">
                             <button type="submit" class="btn btn-danger btn-small">Delete</button>

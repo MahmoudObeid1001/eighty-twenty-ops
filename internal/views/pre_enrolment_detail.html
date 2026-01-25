@@ -1,6 +1,6 @@
 {{define "pre_enrolment_detail_content"}}
 <!-- Header -->
-<div class="header" style="display: flex; justify-content: space-between; align-items: center;">
+<div class="header content-header" style="display: flex; justify-content: space-between; align-items: center;">
     <div style="display: flex; align-items: center;">
         <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
         <h1 style="margin: 0;">Pre-Enrolment Detail</h1>
@@ -13,7 +13,7 @@
 
 {{if .IsModerator}}
 <div style="background-color: #FFF4E6; border: 1px solid #FFD700; border-left: 4px solid #FFA500; padding: 15px; margin-bottom: 20px; border-radius: 4px;">
-    <strong>Read-Only Mode:</strong> As a moderator, you can view lead details but cannot make changes.
+    <strong>Moderator Mode: Limited Edit.</strong> You can edit only <strong>name</strong>, <strong>phone</strong>, <strong>source</strong>, and <strong>notes</strong> to fix mistakes. All other sections are hidden.
 </div>
 {{end}}
 
@@ -29,7 +29,7 @@
 </div>
 {{end}}
 
-{{if .ShowFollowUpBanner}}
+{{if and (not .IsModerator) .ShowFollowUpBanner}}
 <div style="background-color: {{if eq .HotLevel "HOT"}}#FFE6E6{{else if eq .HotLevel "WARM"}}#FFF4E6{{else}}#F0F0F0{{end}}; border: 2px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; border-left: 6px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
     <h3 style="margin-top: 0; color: {{if eq .HotLevel "HOT"}}#CC0000{{else if eq .HotLevel "WARM"}}#CC6600{{else}}#333{{end}};">🔥 Follow-up Required</h3>
     <p style="margin-bottom: 10px;"><strong>Lead is unpaid after test/offer.</strong> Days since last progress: <strong>{{.DaysSinceLastProgress}}</strong></p>
@@ -44,7 +44,7 @@
         {{end}}
     </div>
 </div>
-{{else if .IsFullyPaid}}
+{{else if and (not .IsModerator) .IsFullyPaid}}
 <div style="background-color: #E6F7FF; border: 2px solid #4EC6E0; border-left: 6px solid #4EC6E0; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
     <h3 style="margin-top: 0; color: #0052A3;">✓ Paid in Full</h3>
     <p style="margin-bottom: 0; color: #0052A3;"><strong>Next step:</strong> Set schedule (class days and time) in the "Round / Schedule" section below.</p>
@@ -62,13 +62,13 @@
         
         <div class="form-group">
             <label for="full_name">Full Name *</label>
-            <input type="text" id="full_name" name="full_name" value="{{.Detail.Lead.FullName}}" {{if .IsModerator}}readonly{{else}}required{{end}}>
+            <input type="text" id="full_name" name="full_name" value="{{.Detail.Lead.FullName}}" required>
         </div>
         
         <div class="form-row">
             <div class="form-group">
                 <label for="phone">Phone Number *</label>
-                <input type="tel" id="phone" name="phone" value="{{.Detail.Lead.Phone}}" {{if .IsModerator}}readonly{{else}}required{{end}} class="{{if .PhoneError}}error-field{{end}}">
+                <input type="tel" id="phone" name="phone" value="{{.Detail.Lead.Phone}}" required class="{{if .PhoneError}}error-field{{end}}">
                 {{if .PhoneError}}
                 <div style="color: #dc3545; font-size: 13px; margin-top: 5px;">
                     {{.PhoneError}}
@@ -80,7 +80,7 @@
             </div>
             <div class="form-group">
                 <label for="source">Source</label>
-                <select id="source" name="source" {{if .IsModerator}}disabled{{end}}>
+                <select id="source" name="source">
                     <option value="Facebook" {{if or (not .Detail.Lead.Source.Valid) (eq .Detail.Lead.Source.String "Facebook")}}selected{{end}}>Facebook</option>
                     <option value="WhatsApp" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "WhatsApp")}}selected{{end}}>WhatsApp</option>
                     <option value="Instagram" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "Instagram")}}selected{{end}}>Instagram</option>
@@ -93,17 +93,17 @@
         
         <div class="form-group">
             <label for="notes">Notes</label>
-            <textarea id="notes" name="notes" placeholder="Internal notes about this lead..." {{if .IsModerator}}readonly{{end}}>{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
+            <textarea id="notes" name="notes" placeholder="Internal notes about this lead...">{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
         </div>
     </div>
 
+    {{if not .IsModerator}}
     <!-- 2. Placement Test -->
     <div class="form-section">
         <h2>Placement Test</h2>
         <div class="section-note">Admin: Books test | Community Officer: Assigns level and test notes</div>
         
         <!-- Placement Test Fee (admin can edit) -->
-        {{if not .IsModerator}}
         <div style="background: #FFF4E6; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #FFD700;">
             <h3 style="margin-top: 0; font-size: 16px;">Placement Test Fee</h3>
             <div class="form-row">
@@ -137,39 +137,30 @@
                 </div>
             </div>
         </div>
-        {{else}}
-        <!-- Read-only fee display for moderators -->
-        <div style="background: #F9F9F9; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #E6E6E6;">
-            <h3 style="margin-top: 0; font-size: 16px;">Placement Test Fee</h3>
-            <p><strong>Fee:</strong> {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFee.Valid}}{{.Detail.PlacementTest.PlacementTestFee.Int32}}{{else}}100{{end}} EGP</p>
-            <p><strong>Paid:</strong> {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFeePaid.Valid}}{{.Detail.PlacementTest.PlacementTestFeePaid.Int32}}{{else}}0{{end}} EGP</p>
-            <p><strong>Remaining:</strong> <span id="moderator_placement_test_remaining">{{.PlacementTestRemaining}}</span> EGP</p>
-        </div>
-        {{end}}
         
         <!-- Full placement test form (for main form) -->
         <div class="form-row">
             <div class="form-group">
                 <label for="test_date">Test Date</label>
-                <input type="date" id="test_date" name="test_date" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestDate.Valid}}{{.Detail.PlacementTest.TestDate.Time.Format "2006-01-02"}}{{end}}" {{if .IsModerator}}readonly{{end}}>
+                <input type="date" id="test_date" name="test_date" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestDate.Valid}}{{.Detail.PlacementTest.TestDate.Time.Format "2006-01-02"}}{{end}}">
             </div>
             <div class="form-group">
                 <label for="test_time">Test Time</label>
-                <input type="time" id="test_time" name="test_time" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestTime.Valid}}{{.Detail.PlacementTest.TestTime.String}}{{end}}" {{if .IsModerator}}readonly{{end}}>
+                <input type="time" id="test_time" name="test_time" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestTime.Valid}}{{.Detail.PlacementTest.TestTime.String}}{{end}}">
             </div>
         </div>
         
         <div class="form-row">
             <div class="form-group">
                 <label for="test_type">Test Type</label>
-                <select id="test_type" name="test_type" {{if .IsModerator}}disabled{{end}}>
+                <select id="test_type" name="test_type">
                     <option value="online" {{if and .Detail.PlacementTest .Detail.PlacementTest.TestType.Valid}}{{if eq .Detail.PlacementTest.TestType.String "online"}}selected{{end}}{{end}}>Online</option>
                     <option value="live" {{if and .Detail.PlacementTest .Detail.PlacementTest.TestType.Valid}}{{if eq .Detail.PlacementTest.TestType.String "live"}}selected{{end}}{{else}}selected{{end}}>Live</option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="assigned_level">Assigned Level</label>
-                <select id="assigned_level" name="assigned_level" {{if .IsModerator}}disabled{{end}}>
+                <select id="assigned_level" name="assigned_level">
                     <option value="">Not tested yet</option>
                     <option value="1" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 1}}selected{{end}}{{end}}>Level 1</option>
                     <option value="2" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 2}}selected{{end}}{{end}}>Level 2</option>
@@ -185,7 +176,7 @@
         
         <div class="form-group">
             <label for="test_notes">Test Notes</label>
-            <textarea id="test_notes" name="test_notes" placeholder="Community Officer: Add test results and observations..." {{if .IsModerator}}readonly{{end}}>{{if and .Detail.PlacementTest .Detail.PlacementTest.TestNotes.Valid}}{{.Detail.PlacementTest.TestNotes.String}}{{end}}</textarea>
+            <textarea id="test_notes" name="test_notes" placeholder="Community Officer: Add test results and observations...">{{if and .Detail.PlacementTest .Detail.PlacementTest.TestNotes.Valid}}{{.Detail.PlacementTest.TestNotes.String}}{{end}}</textarea>
         </div>
     </div>
 
@@ -454,9 +445,14 @@
         </div>
     </div>
     {{end}}{{end}}
+    {{end}}
 
     <!-- Action Buttons - All use single form with action parameter -->
-    {{if not .IsModerator}}
+    {{if .IsModerator}}
+    <div class="action-buttons" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E6E6E6;">
+        <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-primary">Save</button>
+    </div>
+    {{else}}
     <div class="action-buttons" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E6E6E6;">
         <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-primary">Save</button>
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_test_booked" class="btn btn-secondary">Mark Test Booked</button>
@@ -535,8 +531,8 @@
     </div>
     {{end}}
     
-    <!-- Cancel Lead Modal -->
-    {{if .ShowCancelModal}}
+    <!-- Cancel Lead Modal (moderators cannot cancel) -->
+    {{if and .ShowCancelModal (not .IsModerator)}}
     <div id="cancelModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
         <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
             <h2 style="margin-top: 0; color: #dc3545;">⚠️ Cancel Lead: {{.Detail.Lead.FullName}}</h2>
@@ -622,11 +618,14 @@
         </div>
     </div>
     {{end}}
+    {{end}}
 </form>
 
 <script>
     function togglePrintedFields() {
-        const bookFormat = document.getElementById('book_format').value;
+        const bookFormatEl = document.getElementById('book_format');
+        if (!bookFormatEl) return;
+        const bookFormat = bookFormatEl.value;
         const printedFields = document.getElementById('printed-fields');
         const shippingSection = document.getElementById('shipping-section');
         
@@ -726,18 +725,6 @@
         if (bundleSelect && bundleSelect.value) {
             updateBundlePricing();
         }
-        
-        // Disable all form inputs for moderators (read-only mode)
-        {{if .IsModerator}}
-        const form = document.getElementById('pre-enrolment-form');
-        if (form) {
-            const inputs = form.querySelectorAll('input, select, textarea');
-            inputs.forEach(function(input) {
-                input.disabled = true;
-            });
-        }
-        {{end}}
     });
 </script>
-{{end}}
 {{end}}
