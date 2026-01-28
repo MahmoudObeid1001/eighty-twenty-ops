@@ -1,0 +1,124 @@
+{{define "community_officer_content"}}
+<div class="header content-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo" />
+    <h1>Community Officer Dashboard</h1>
+</div>
+
+{{if eq .feedback_submitted "1"}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Feedback submitted.</div>
+{{end}}
+{{if eq .follow_up_logged "1"}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Follow-up logged.</div>
+{{end}}
+
+<h2 style="font-size: 18px; margin-top: 24px; margin-bottom: 12px;">Pending feedback · Session 4</h2>
+{{if not .PendingFeedback4}}
+<p style="color: #666;">No pending feedback for session 4.</p>
+{{else}}
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Class</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .PendingFeedback4}}
+            <tr>
+                <td>{{.FullName}}</td>
+                <td>{{.Phone}}</td>
+                <td>{{.ClassKey}}</td>
+                <td>
+                    <form method="POST" action="/community-officer/feedback">
+                        <input type="hidden" name="lead_id" value="{{.LeadID}}">
+                        <input type="hidden" name="class_key" value="{{.ClassKey}}">
+                        <input type="hidden" name="session_number" value="4">
+                        <input type="text" name="feedback_text" required placeholder="Feedback" style="padding: 6px 8px; width: 200px; border: 1px solid #ccc; border-radius: 4px;">
+                        <label style="font-size: 12px; margin-left: 8px;"><input type="checkbox" name="follow_up_required" value="1"> Follow-up</label>
+                        <button type="submit" class="btn btn-primary btn-small">Submit</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+<h2 style="font-size: 18px; margin-top: 24px; margin-bottom: 12px;">Pending feedback · Session 8</h2>
+{{if not .PendingFeedback8}}
+<p style="color: #666;">No pending feedback for session 8.</p>
+{{else}}
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Class</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .PendingFeedback8}}
+            <tr>
+                <td>{{.FullName}}</td>
+                <td>{{.Phone}}</td>
+                <td>{{.ClassKey}}</td>
+                <td>
+                    <form method="POST" action="/community-officer/feedback">
+                        <input type="hidden" name="lead_id" value="{{.LeadID}}">
+                        <input type="hidden" name="class_key" value="{{.ClassKey}}">
+                        <input type="hidden" name="session_number" value="8">
+                        <input type="text" name="feedback_text" required placeholder="Feedback" style="padding: 6px 8px; width: 200px; border: 1px solid #ccc; border-radius: 4px;">
+                        <label style="font-size: 12px; margin-left: 8px;"><input type="checkbox" name="follow_up_required" value="1"> Follow-up</label>
+                        <button type="submit" class="btn btn-primary btn-small">Submit</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+<h2 style="font-size: 18px; margin-top: 24px; margin-bottom: 12px;">Log absence follow-up</h2>
+<p style="color: #666; margin-bottom: 12px;">Log a follow-up action for an absent student. Lead ID and optional session ID from mentor class detail.</p>
+<form method="POST" action="/community-officer/follow-up">
+    <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 12px;">
+        <div>
+            <label style="display: block; font-size: 12px; margin-bottom: 4px;">Lead ID *</label>
+            <input type="text" name="lead_id" required placeholder="uuid" style="padding: 6px 8px; width: 260px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        <div>
+            <label style="display: block; font-size: 12px; margin-bottom: 4px;">Session ID (optional)</label>
+            <input type="text" name="session_id" placeholder="uuid" style="padding: 6px 8px; width: 260px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        <div>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+                <input type="checkbox" name="message_sent" value="1"> Message sent
+            </label>
+        </div>
+        <div>
+            <label style="display: block; font-size: 12px; margin-bottom: 4px;">Reason</label>
+            <input type="text" name="reason" placeholder="Reason" style="padding: 6px 8px; width: 160px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        <div>
+            <label style="display: block; font-size: 12px; margin-bottom: 4px;">Student reply</label>
+            <input type="text" name="student_reply" placeholder="Reply" style="padding: 6px 8px; width: 160px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        <div>
+            <label style="display: block; font-size: 12px; margin-bottom: 4px;">Action taken</label>
+            <input type="text" name="action_taken" placeholder="Action" style="padding: 6px 8px; width: 140px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        <div>
+            <label style="display: block; font-size: 12px; margin-bottom: 4px;">Notes</label>
+            <input type="text" name="notes" placeholder="Notes" style="padding: 6px 8px; width: 120px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        <button type="submit" class="btn btn-primary">Log follow-up</button>
+    </div>
+</form>
+{{end}}

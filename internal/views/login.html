@@ -12,6 +12,7 @@
 {{end}}
 
 <form method="POST" action="/login" class="auth-form">
+    {{if .Next}}<input type="hidden" name="next" value="{{.Next}}">{{end}}
     <div class="form-group">
         <label for="email">Email</label>
         <input type="email" id="email" name="email" required autofocus>

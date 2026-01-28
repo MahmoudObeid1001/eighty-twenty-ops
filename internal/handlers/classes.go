@@ -22,7 +22,8 @@ func NewClassesHandler(cfg *config.Config) *ClassesHandler {
 	return &ClassesHandler{cfg: cfg}
 }
 
-// List renders the classes board page, or a custom access-restricted page for moderators (403).
+// List renders the classes board page. Admin and mentor_head can access (mentor_head read-only).
+// Moderator gets 403 access-restricted.
 func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -30,14 +31,26 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole == "moderator" {
+		w.WriteHeader(http.StatusForbidden)
+		data := map[string]interface{}{
+			"Title":       "Access Restricted – Eighty Twenty",
+			"SectionName": "Classes Board",
+			"IsModerator": true,
+			"UserRole":    userRole,
+		}
+		renderTemplate(w, r, "access_restricted.html", data)
+		return
+	}
+	if userRole != "admin" && userRole != "mentor_head" {
 		w.WriteHeader(http.StatusForbidden)
 		data := map[string]interface{}{
 			"Title":       "Access Restricted – Eighty Twenty",
 			"SectionName": "Classes Board",
 			"IsModerator": IsModerator(r),
+			"UserRole":    userRole,
 		}
-		renderTemplate(w, "access_restricted.html", data)
+		renderTemplate(w, r, "access_restricted.html", data)
 		return
 	}
 
@@ -106,14 +119,15 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]interface{}{
-		"Title":        "Classes Board - Eighty Twenty",
-		"Groups":       groups,
-		"CurrentRound": currentRound,
-		"UserRole":     userRole,
-		"IsModerator":  IsModerator(r),
-		"FlashMessage": flashMessage,
+		"Title":             "Classes Board - Eighty Twenty",
+		"Groups":            groups,
+		"CurrentRound":      currentRound,
+		"UserRole":          userRole,
+		"IsModerator":       IsModerator(r),
+		"FlashMessage":      flashMessage,
+		"IsClassesReadOnly": userRole == "mentor_head",
 	}
-	renderTemplate(w, "classes.html", data)
+	renderTemplate(w, r, "classes.html", data)
 }
 
 // Move handles moving a student between groups
@@ -278,7 +292,8 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/classes?sent=1", http.StatusFound)
 }
 
-// ReturnFromMentor handles returning a class group from mentor head
+// ReturnFromMentor handles returning a class group from mentor head.
+// Uses POST /classes/return with form field class_key (not path) because classKey can contain "/".
 func (h *ClassesHandler) ReturnFromMentor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -292,14 +307,7 @@ func (h *ClassesHandler) ReturnFromMentor(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Extract class_key from URL path: /classes/{classKey}/return
-	pathParts := strings.Split(r.URL.Path, "/")
-	if len(pathParts) < 4 || pathParts[1] != "classes" || pathParts[3] != "return" {
-		http.Error(w, "Invalid URL format. Expected: /classes/{classKey}/return", http.StatusBadRequest)
-		return
-	}
-
-	classKey := pathParts[2]
+	classKey := r.FormValue("class_key")
 	if classKey == "" {
 		http.Error(w, "class_key is required", http.StatusBadRequest)
 		return

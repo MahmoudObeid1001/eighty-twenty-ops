@@ -1,0 +1,101 @@
+{{define "mentor_head_content"}}
+<div class="header content-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo" />
+    <h1>Mentor Head Dashboard</h1>
+</div>
+
+{{if eq .assigned "1"}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Mentor assigned successfully.</div>
+{{end}}
+{{if eq .returned "1"}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Class returned to Operations.</div>
+{{end}}
+{{if eq .rescheduled "1"}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Session rescheduled successfully.</div>
+{{end}}
+{{if eq .closed "1"}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Round closed successfully.</div>
+{{end}}
+{{if eq .round_started "1"}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Round started successfully. 8 sessions created.</div>
+{{end}}
+{{if eq .error "round_already_started"}}
+<div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; color: #721C24; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Round already started for this class.</div>
+{{end}}
+
+{{if not .Classes}}
+<div style="padding: 40px; text-align: center; color: #666;">
+    <p>No classes sent to Mentor Head. Operations sends classes from the Classes board.</p>
+</div>
+{{else}}
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+{{range .Classes}}
+{{$class := .}}
+<div class="class-card" style="background: white; border: 2px solid {{if eq .Readiness "LOCKED"}}#dc3545{{else if eq .Readiness "READY"}}#28a745{{else}}#ffc107{{end}}; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <div>
+            <h3 style="margin: 0; font-size: 18px;">{{.ClassDays}} @ {{.ClassTime}}</h3>
+            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Level {{.Level}} · Class #{{.ClassNumber}}</p>
+            {{if .MentorEmail}}
+            <p style="margin: 5px 0 0 0; color: #555; font-size: 12px;">Mentor: {{.MentorEmail}}</p>
+            {{else}}
+            <p style="margin: 5px 0 0 0; color: #888; font-size: 12px;">No mentor assigned</p>
+            {{end}}
+        </div>
+        <div style="text-align: right;">
+            <span class="badge" style="background-color: {{if eq .Readiness "LOCKED"}}#dc3545{{else if eq .Readiness "READY"}}#28a745{{else}}#ffc107{{end}}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">{{.StudentCount}}/6 {{.Readiness}}</span>
+        </div>
+    </div>
+
+    <form method="POST" action="/mentor-head/assign" style="margin-bottom: 12px;">
+        <input type="hidden" name="class_key" value="{{$class.ClassKey}}">
+        <label style="display: block; font-size: 13px; margin-bottom: 4px;">Assign mentor</label>
+        <select name="mentor_user_id" required style="width: 100%; padding: 6px 8px; margin-bottom: 6px; border: 1px solid #ccc; border-radius: 4px;">
+            <option value="" disabled {{if not $class.MentorUserIDStr}}selected{{end}}>— Select —</option>
+            {{range $.Mentors}}
+            <option value="{{.ID}}" {{if and $class.MentorUserIDStr (eq $class.MentorUserIDStr (printf "%s" .ID))}}selected{{end}}>{{.Email}}</option>
+            {{end}}
+        </select>
+        <button type="submit" class="btn btn-primary btn-small" style="width: 100%; padding: 6px;">Assign</button>
+    </form>
+
+    <p style="margin-bottom: 12px;"><a href="/mentor-head/class?class_key={{urlquery $class.ClassKey}}" class="btn btn-primary btn-small" style="padding: 6px 12px;">View details</a></p>
+    <form method="POST" action="/mentor-head/start-round" style="display: inline-block; margin-right: 8px;">
+        <input type="hidden" name="class_key" value="{{$class.ClassKey}}">
+        <button type="submit" class="btn btn-primary" style="padding: 6px 12px; font-size: 13px; background-color: #007bff; border-color: #007bff;">Start round</button>
+    </form>
+    <form method="POST" action="/mentor-head/return" style="display: inline-block; margin-right: 8px;">
+        <input type="hidden" name="class_key" value="{{$class.ClassKey}}">
+        <button type="submit" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px;">Return to Operations</button>
+    </form>
+    <form method="POST" action="/mentor-head/close-round" style="display: inline-block;">
+        <input type="hidden" name="class_key" value="{{.ClassKey}}">
+        <button type="submit" class="btn btn-primary" style="padding: 6px 12px; font-size: 13px; background-color: #28a745; border-color: #28a745;">Close round</button>
+    </form>
+</div>
+{{end}}
+</div>
+
+<div style="margin-top: 24px; padding: 16px; background: #f9f9f9; border-radius: 8px; border: 1px solid #e6e6e6;">
+    <h3 style="margin-top: 0; font-size: 16px;">Cancel &amp; reschedule session</h3>
+    <p style="font-size: 14px; color: #666; margin-bottom: 12px;">Use a session ID from the mentor class detail page.</p>
+    <form method="POST" action="/mentor-head/session/cancel">
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+            <div>
+                <label style="display: block; font-size: 12px; margin-bottom: 4px;">Session ID</label>
+                <input type="text" name="session_id" required placeholder="uuid" style="padding: 6px 8px; width: 260px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <div>
+                <label style="display: block; font-size: 12px; margin-bottom: 4px;">Compensation date</label>
+                <input type="date" name="compensation_date" required style="padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <div>
+                <label style="display: block; font-size: 12px; margin-bottom: 4px;">Compensation time</label>
+                <input type="time" name="compensation_time" required style="padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <button type="submit" class="btn btn-secondary" style="padding: 6px 16px;">Reschedule</button>
+        </div>
+    </form>
+</div>
+{{end}}
+{{end}}

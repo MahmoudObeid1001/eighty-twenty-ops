@@ -40,7 +40,7 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 			"SectionName": "Finance",
 			"IsModerator": IsModerator(r),
 		}
-		renderTemplate(w, "access_restricted.html", data)
+		renderTemplate(w, r, "access_restricted.html", data)
 		return
 	}
 
@@ -158,7 +158,7 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		"IsModerator":            IsModerator(r),
 		"FlashMessage":           flashMessage,
 	}
-	renderTemplate(w, "finance.html", data)
+	renderTemplate(w, r, "finance.html", data)
 }
 
 // NewExpenseForm renders the new expense form
@@ -189,7 +189,7 @@ func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) 
 		"UserRole":  userRole,
 		"Error":     errorMsg,
 	}
-	renderTemplate(w, "finance_new_expense.html", data)
+	renderTemplate(w, r, "finance_new_expense.html", data)
 }
 
 // CreateExpense handles POST to create a new expense

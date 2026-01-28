@@ -1,0 +1,42 @@
+{{define "mentor_content"}}
+<div class="header content-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo" />
+    <h1>My Classes</h1>
+</div>
+
+<p style="font-size: 16px; margin-bottom: 8px;">Welcome, {{if .MentorEmail}}{{.MentorEmail}}{{else}}Mentor{{end}}.</p>
+{{if .Classes}}
+<p style="color: #555; font-size: 14px; margin-bottom: 16px;">{{.ClassCount}} {{if eq .ClassCount 1}}class{{else}}classes{{end}}{{if and .NextClassTime (ne .NextClassTime "—")}} · Next class: {{.NextClassTime}}{{end}}</p>
+{{end}}
+
+{{if not .Classes}}
+<div style="padding: 40px; text-align: center; color: #666;">
+    <p>No classes assigned. Mentor Head assigns you to classes from the Mentor Head dashboard.</p>
+</div>
+{{else}}
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Level</th>
+                <th>Days</th>
+                <th>Time</th>
+                <th>Class #</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Classes}}
+            <tr>
+                <td>Level {{.Level}}</td>
+                <td>{{.ClassDays}}</td>
+                <td>{{.ClassTime}}</td>
+                <td>{{.ClassNumber}}</td>
+                <td><a href="/mentor/class?class_key={{urlquery .ClassKey}}" class="btn btn-primary btn-small">View class</a></td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+{{end}}

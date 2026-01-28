@@ -36,6 +36,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	searchFilter := r.URL.Query().Get("search")
 	paymentFilter := r.URL.Query().Get("payment")
 	hotFilter := r.URL.Query().Get("hot") // Changed from "filter" to "hot"
+	followUpFilter := r.URL.Query().Get("follow_up") // Milestone 2: high_priority follow-up filter
 	includeCancelled := r.URL.Query().Get("include_cancelled") == "1" || r.URL.Query().Get("include_cancelled") == "true"
 	// When explicitly filtering by status=cancelled, include cancelled even if checkbox off
 	if statusFilter == "cancelled" {
@@ -70,10 +71,10 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.cfg.Debugf("List: statusFilter=%q, searchFilter=%q, paymentFilter=%q, hotFilter=%q, includeCancelled=%v", statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled)
+	h.cfg.Debugf("List: statusFilter=%q, searchFilter=%q, paymentFilter=%q, hotFilter=%q, followUpFilter=%q, includeCancelled=%v", statusFilter, searchFilter, paymentFilter, hotFilter, followUpFilter, includeCancelled)
 
 	// Get filtered leads
-	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled)
+	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter)
 	if err != nil {
 		log.Printf("ERROR: Failed to load leads: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to load leads: %v", err), http.StatusInternalServerError)
@@ -90,7 +91,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		followUpCount = len(leads)
 	} else {
 		// Get all leads to count hot leads accurately (exclude cancelled)
-		allLeads, err := models.GetAllLeads("", "", "", "", false)
+		allLeads, err := models.GetAllLeads("", "", "", "", false, "")
 		if err == nil {
 			for _, lead := range allLeads {
 				if lead.FollowUpDue {
@@ -114,8 +115,9 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"HotFilter":        hotFilter,
 		"IncludeCancelled": includeCancelled,
 		"FollowUpCount":    followUpCount,
+		"FollowUpFilter":   followUpFilter,
 	}
-	renderTemplate(w, "pre_enrolment_list.html", data)
+	renderTemplate(w, r, "pre_enrolment_list.html", data)
 }
 
 func (h *PreEnrolmentHandler) NewForm(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +127,7 @@ func (h *PreEnrolmentHandler) NewForm(w http.ResponseWriter, r *http.Request) {
 		"UserRole":    middleware.GetUserRole(r),
 		"IsModerator": IsModerator(r),
 	}
-	renderTemplate(w, "pre_enrolment_new.html", data)
+	renderTemplate(w, r, "pre_enrolment_new.html", data)
 	h.cfg.Debugf("  → Template render complete")
 }
 
@@ -147,7 +149,7 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 			"UserRole":    middleware.GetUserRole(r),
 			"IsModerator": IsModerator(r),
 		}
-		renderTemplate(w, "pre_enrolment_new.html", data)
+		renderTemplate(w, r, "pre_enrolment_new.html", data)
 		return
 	}
 
@@ -199,7 +201,7 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 				"UserRole":          middleware.GetUserRole(r),
 				"IsModerator":       IsModerator(r),
 			}
-			renderTemplate(w, "pre_enrolment_new.html", data)
+			renderTemplate(w, r, "pre_enrolment_new.html", data)
 			return
 		}
 		
@@ -297,7 +299,7 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		}
 		data["PlacementTestPaid"] = placementTestPaid
 	}
-	renderTemplate(w, "pre_enrolment_detail.html", data)
+	renderTemplate(w, r, "pre_enrolment_detail.html", data)
 }
 
 // buildDetailViewModel returns the shared detail page data map used by both Detail() and renderDetailWithError.
@@ -414,7 +416,7 @@ func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *ht
 	data, _ := h.buildDetailViewModel(detail, leadID, userRole)
 	data["Error"] = errMsg
 	data["SuccessMessage"] = ""
-	renderTemplate(w, "pre_enrolment_detail.html", data)
+	renderTemplate(w, r, "pre_enrolment_detail.html", data)
 }
 
 func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -918,7 +920,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			"LeadPayments":           leadPayments,
 			"Today":                  today,
 		}
-		renderTemplate(w, "pre_enrolment_detail.html", data)
+		renderTemplate(w, r, "pre_enrolment_detail.html", data)
 		return
 
 	case "reopen":

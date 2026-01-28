@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
+	"strings"
 
 	"eighty-twenty-ops/internal/config"
 	"eighty-twenty-ops/internal/middleware"
@@ -9,6 +11,73 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+// normalizeEmail trims and lowercases email for consistent lookup and storage.
+func normalizeEmail(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// RoleHomePath returns the designated home path for a role. Fallback: /pre-enrolment.
+func RoleHomePath(role string) string {
+	switch role {
+	case "admin", "moderator":
+		return "/pre-enrolment"
+	case "mentor_head":
+		return "/mentor-head"
+	case "mentor":
+		return "/mentor"
+	case "community_officer":
+		return "/community-officer"
+	case "hr":
+		return "/hr/mentors"
+	default:
+		return "/pre-enrolment"
+	}
+}
+
+// isSafeRedirectPath returns true if path is a relative app path (no open redirect).
+func isSafeRedirectPath(path string) bool {
+	if path == "" || !strings.HasPrefix(path, "/") {
+		return false
+	}
+	if strings.HasPrefix(path, "//") || strings.Contains(path, "\\") {
+		return false
+	}
+	// Disallow redirect to login or logout
+	if strings.HasPrefix(path, "/login") || strings.HasPrefix(path, "/logout") {
+		return false
+	}
+	return true
+}
+
+// roleCanAccessPath returns true if the role is allowed to access the path.
+func roleCanAccessPath(role, path string) bool {
+	// Strip query string for permission check
+	if i := strings.Index(path, "?"); i >= 0 {
+		path = path[:i]
+	}
+	if path == "" || !strings.HasPrefix(path, "/") {
+		return false
+	}
+	switch role {
+	case "admin":
+		return true
+	case "moderator":
+		return path == "/pre-enrolment" || strings.HasPrefix(path, "/pre-enrolment/")
+	case "mentor_head":
+		return path == "/mentor-head" || strings.HasPrefix(path, "/mentor-head/") ||
+			path == "/classes" || strings.HasPrefix(path, "/classes") ||
+			path == "/learning"
+	case "mentor":
+		return path == "/mentor" || strings.HasPrefix(path, "/mentor/") || path == "/learning"
+	case "community_officer":
+		return path == "/community-officer" || strings.HasPrefix(path, "/community-officer/") || path == "/learning"
+	case "hr":
+		return path == "/hr/mentors" || strings.HasPrefix(path, "/hr/mentors") || path == "/learning"
+	default:
+		return false
+	}
+}
 
 type AuthHandler struct {
 	cfg *config.Config
@@ -34,24 +103,24 @@ func (h *AuthHandler) LoginForm(w http.ResponseWriter, r *http.Request) {
 	h.cfg.Debugf("  → Session cookie exists: %v", sessionExists)
 	
 	if sessionExists {
-		// Validate the session
-		_, _, _, err := middleware.ValidateSessionCookie(cookie, h.cfg.SessionSecret)
+		_, _, userRole, err := middleware.ValidateSessionCookie(cookie, h.cfg.SessionSecret)
 		if err == nil {
-			// Valid session, redirect to pre-enrolment
-			h.cfg.Debugf("  → Valid session found, redirecting to /pre-enrolment")
-			http.Redirect(w, r, "/pre-enrolment", http.StatusFound)
+			home := RoleHomePath(userRole)
+			h.cfg.Debugf("  → Valid session found, redirecting to %s", home)
+			http.Redirect(w, r, home, http.StatusFound)
 			return
 		}
 		h.cfg.Debugf("  → Session cookie exists but invalid: %v", err)
 	}
 
-	// No valid session - render login form with auth_layout
+	next := r.URL.Query().Get("next")
 	h.cfg.Debugf("  → No valid session, rendering login.html with auth_layout")
 	data := map[string]interface{}{
 		"Title":       "Login - Eighty Twenty",
 		"HideSidebar": true,
+		"Next":        next,
 	}
-	renderTemplate(w, "login.html", data)
+	renderTemplate(w, r, "login.html", data)
 	h.cfg.Debugf("  → Template render complete")
 }
 
@@ -61,35 +130,36 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email := r.FormValue("email")
+	emailRaw := r.FormValue("email")
 	password := r.FormValue("password")
+	email := normalizeEmail(emailRaw)
 
-	if email == "" || password == "" {
+	next := r.FormValue("next")
+	loginError := func(msg string) {
 		data := map[string]interface{}{
 			"Title": "Login - Eighty Twenty",
-			"Error": "Email and password are required",
+			"Error": msg,
+			"Next":  next,
 		}
-		renderTemplate(w, "login.html", data)
+		renderTemplate(w, r, "login.html", data)
+	}
+
+	if email == "" || password == "" {
+		loginError("Email and password are required")
 		return
 	}
 
 	user, err := models.GetUserByEmail(email)
 	if err != nil {
-		data := map[string]interface{}{
-			"Title": "Login - Eighty Twenty",
-			"Error": "Invalid email or password",
-		}
-		renderTemplate(w, "login.html", data)
+		log.Printf("LOGIN: user not found or db error email=%q: %v", email, err)
+		loginError("Invalid email or password")
 		return
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	if err != nil {
-		data := map[string]interface{}{
-			"Title": "Login - Eighty Twenty",
-			"Error": "Invalid email or password",
-		}
-		renderTemplate(w, "login.html", data)
+		log.Printf("LOGIN: password mismatch email=%q: %v", email, err)
+		loginError("Invalid email or password")
 		return
 	}
 
@@ -100,7 +170,24 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, cookie)
-	http.Redirect(w, r, "/pre-enrolment", http.StatusFound)
+
+	if next != "" && isSafeRedirectPath(next) && roleCanAccessPath(user.Role, next) {
+		http.Redirect(w, r, next, http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, RoleHomePath(user.Role), http.StatusFound)
+}
+
+// LearningRedirect redirects authenticated users to their role-specific Learning home.
+// GET /learning -> mentor: /mentor, mentor_head: /mentor-head, hr: /hr/mentors, community_officer: /community-officer, admin/moderator: /pre-enrolment.
+func (h *AuthHandler) LearningRedirect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	role := middleware.GetUserRole(r)
+	home := RoleHomePath(role)
+	http.Redirect(w, r, home, http.StatusFound)
 }
 
 // Logout clears the session cookie and redirects to login.

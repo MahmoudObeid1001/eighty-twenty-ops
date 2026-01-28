@@ -6,10 +6,13 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 
 	"eighty-twenty-ops/internal/config"
+	"eighty-twenty-ops/internal/middleware"
 	"eighty-twenty-ops/internal/views"
 )
 
@@ -63,8 +66,30 @@ func initTemplates() {
 			panic("No template files found in embedded filesystem")
 		}
 
+		funcMap := template.FuncMap{
+			"urlquery": url.QueryEscape,
+			"len": func(slice interface{}) int {
+				switch v := slice.(type) {
+				case []interface{}:
+					return len(v)
+				case nil:
+					return 0
+				default:
+					// Use reflection for other slice types
+					val := reflect.ValueOf(slice)
+					if val.Kind() == reflect.Slice || val.Kind() == reflect.Array {
+						return val.Len()
+					}
+					return 0
+				}
+			},
+			"sub": func(a, b int) int {
+				return a - b
+			},
+		}
+		tmpl := template.New("").Funcs(funcMap)
 		var err2 error
-		templates, err2 = template.ParseFS(views.TemplatesFS, "*.html")
+		templates, err2 = tmpl.ParseFS(views.TemplatesFS, "*.html")
 		if err2 != nil {
 			log.Printf("ERROR: Failed to parse templates: %v", err2)
 			panic(fmt.Sprintf("Failed to parse templates: %v", err2))
@@ -87,7 +112,7 @@ func initTemplates() {
 	})
 }
 
-func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
+func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data interface{}) {
 	if cfg != nil {
 		cfg.Debugf("🎨 renderTemplate() called with template name: %s", name)
 	}
@@ -113,6 +138,11 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 		"finance.html":              "finance_content",
 		"finance_new_expense.html":  "finance_new_expense_content",
 		"access_restricted.html":    "access_restricted_content",
+		"mentor_head.html":          "mentor_head_content",
+		"mentor.html":               "mentor_content",
+		"mentor_class_detail.html":  "mentor_class_detail_content",
+		"community_officer.html":   "community_officer_content",
+		"hr_mentors.html":          "hr_mentors_content",
 	}
 	
 	// Templates that use auth_layout instead of main layout
@@ -164,6 +194,9 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 		}
 	}
 	dataMap["ContentTemplate"] = contentTemplateName
+	if _, ok := dataMap["UserRole"]; !ok && r != nil {
+		dataMap["UserRole"] = middleware.GetUserRole(r)
+	}
 	if cfg != nil {
 		cfg.Debugf("  → Set ContentTemplate = '%s'", contentTemplateName)
 	}

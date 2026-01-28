@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -38,20 +39,20 @@ const (
 func MapOldStatusToStage(oldStatus string) string {
 	mapping := map[string]string{
 		// Direct mappings
-		"lead_created":      StageNewLead,
-		"test_booked":       StageTestBooked,
-		"tested":            StageTested,
-		"offer_sent":        StageOfferSent,
-		"ready_to_start":    StageReadyToStart,
+		"lead_created":   StageNewLead,
+		"test_booked":    StageTestBooked,
+		"tested":         StageTested,
+		"offer_sent":     StageOfferSent,
+		"ready_to_start": StageReadyToStart,
 		// Payment-based statuses need context (handled separately with payment state)
 		"booking_confirmed": StageOfferSent, // Default mapping, will be upgraded based on payment
 		"paid_full":         StageBookingConfirmedPaidFull,
 		"deposit_paid":      StageBookingConfirmedDeposit,
 		// Schedule-based statuses
 		"waiting_for_round": StageScheduleSet,
-		"schedule_assigned":  StageScheduleSet,
+		"schedule_assigned": StageScheduleSet,
 	}
-	
+
 	if mapped, ok := mapping[oldStatus]; ok {
 		return mapped
 	}
@@ -65,7 +66,7 @@ func GetPaymentState(amountPaid sql.NullInt32, finalPrice sql.NullInt32) string 
 	if !amountPaid.Valid || amountPaid.Int32 == 0 {
 		return PaymentStateUnpaid
 	}
-	
+
 	// If final price is known, compare
 	if finalPrice.Valid && finalPrice.Int32 > 0 {
 		if amountPaid.Int32 >= finalPrice.Int32 {
@@ -73,7 +74,7 @@ func GetPaymentState(amountPaid sql.NullInt32, finalPrice sql.NullInt32) string 
 		}
 		return PaymentStateDeposit
 	}
-	
+
 	// If final price unknown but amount paid > 0, check remaining balance
 	// For now, if amount_paid > 0, consider it at least a deposit
 	// In practice, we'd need remaining_balance to determine if it's full or deposit
@@ -87,16 +88,16 @@ func GetPaymentState(amountPaid sql.NullInt32, finalPrice sql.NullInt32) string 
 func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (newStage string, dbStatus string) {
 	// Start with current stage (mapped from old status)
 	currentStage := MapOldStatusToStage(currentStatus)
-	
+
 	// Stage progression rules (check furthest completed block)
-	
+
 	// 1. If test date + test time exist -> at least TEST_BOOKED
 	if detail.PlacementTest != nil && detail.PlacementTest.TestDate.Valid && detail.PlacementTest.TestTime.Valid {
 		if currentStage == StageNewLead {
 			currentStage = StageTestBooked
 		}
 	}
-	
+
 	// 2. If assigned level exists (and/or test notes exist) -> at least TESTED
 	if detail.PlacementTest != nil && detail.PlacementTest.AssignedLevel.Valid {
 		stagesBeforeTested := map[string]bool{
@@ -107,7 +108,7 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 			currentStage = StageTested
 		}
 	}
-	
+
 	// 3. If offer final price exists (or bundle selected + final price) -> at least OFFER_SENT
 	if detail.Offer != nil && detail.Offer.FinalPrice.Valid && detail.Offer.FinalPrice.Int32 > 0 {
 		stagesBeforeOfferSent := map[string]bool{
@@ -119,7 +120,7 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 			currentStage = StageOfferSent
 		}
 	}
-	
+
 	// 4. If payment amount exists:
 	//    - if amountPaid >= finalPrice -> BOOKING_CONFIRMED_PAID_FULL
 	//    - else if amountPaid > 0 -> BOOKING_CONFIRMED_DEPOSIT
@@ -128,15 +129,15 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 		if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
 			finalPrice = detail.Offer.FinalPrice.Int32
 		}
-		
+
 		if finalPrice > 0 && detail.Payment.AmountPaid.Int32 >= finalPrice {
 			// Paid in full
 			stagesBeforePaidFull := map[string]bool{
-				StageNewLead:                  true,
-				StageTestBooked:               true,
-				StageTested:                   true,
-				StageOfferSent:                true,
-				StageBookingConfirmedDeposit:  true,
+				StageNewLead:                 true,
+				StageTestBooked:              true,
+				StageTested:                  true,
+				StageOfferSent:               true,
+				StageBookingConfirmedDeposit: true,
 			}
 			if stagesBeforePaidFull[currentStage] {
 				currentStage = StageBookingConfirmedPaidFull
@@ -154,7 +155,7 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 			}
 		}
 	}
-	
+
 	// 5. If schedule (class days + class time) selected -> SCHEDULE_SET, then READY_TO_START
 	if detail.Scheduling != nil && detail.Scheduling.ClassDays.Valid && detail.Scheduling.ClassTime.Valid {
 		// First upgrade to SCHEDULE_SET if before it
@@ -169,7 +170,7 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 		if stagesBeforeSchedule[currentStage] {
 			currentStage = StageScheduleSet
 		}
-		
+
 		// Then upgrade to READY_TO_START (schedule fully filled)
 		stagesBeforeReady := map[string]bool{
 			StageNewLead:                  true,
@@ -184,7 +185,7 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 			currentStage = StageReadyToStart
 		}
 	}
-	
+
 	// Map new stage back to DB status for storage
 	stageToStatusMap := map[string]string{
 		StageNewLead:                  "lead_created",
@@ -196,19 +197,19 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 		StageScheduleSet:              "schedule_assigned",
 		StageReadyToStart:             "ready_to_start",
 	}
-	
+
 	dbStatus = stageToStatusMap[currentStage]
 	if dbStatus == "" {
 		dbStatus = "lead_created" // Fallback
 	}
-	
+
 	return currentStage, dbStatus
 }
 
 func GetNextAction(status string) string {
 	// Map to canonical stage first for consistent actions
 	stage := MapOldStatusToStage(status)
-	
+
 	actions := map[string]string{
 		StageNewLead:                  "Book placement test",
 		StageTestBooked:               "Run placement test",
@@ -300,7 +301,7 @@ func GetPaymentStatus(remainingBalance, amountPaid sql.NullInt32) string {
 	return "Unpaid"
 }
 
-func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool) ([]*LeadListItem, error) {
+func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool, followUpFilter string) ([]*LeadListItem, error) {
 	query := `
 		SELECT 
 			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.sent_to_classes,
@@ -316,16 +317,21 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		AND l.status != 'in_classes'
 		AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
 	`
-	
+
 	args := []interface{}{}
 	argIndex := 1
-	
+
+	// Apply follow-up filter (high priority follow-up)
+	if followUpFilter == "high_priority" {
+		query += fmt.Sprintf(" AND l.high_priority_follow_up = true")
+	}
+
 	// Exclude cancelled by default. Include if includeCancelled=true OR explicitly filtering by status=cancelled.
 	excludeCancelled := !includeCancelled && statusFilter != "cancelled"
 	if excludeCancelled {
 		query += " AND l.status != 'cancelled'"
 	}
-	
+
 	// Apply status filter - map new stage names to old status values for DB query
 	if statusFilter != "" {
 		// Map new stage constants to old DB status values
@@ -339,20 +345,20 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			StageScheduleSet:              "schedule_assigned",
 			StageReadyToStart:             "ready_to_start",
 		}
-		
+
 		// If it's a new stage constant, map it; otherwise use as-is (backward compat)
 		dbStatus := statusFilter
 		if mapped, ok := stageToStatusMap[statusFilter]; ok {
 			dbStatus = mapped
 		}
-		
+
 		// For booking confirmed stages, we'll filter by status in SQL
 		// but payment state filtering happens after computing flags
 		query += fmt.Sprintf(" AND l.status = $%d", argIndex)
 		args = append(args, dbStatus)
 		argIndex++
 	}
-	
+
 	// Apply search filter (name or phone)
 	if searchFilter != "" {
 		query += fmt.Sprintf(" AND (LOWER(l.full_name) LIKE LOWER($%d) OR l.phone LIKE $%d)", argIndex, argIndex)
@@ -360,7 +366,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		args = append(args, searchPattern)
 		argIndex++
 	}
-	
+
 	// Default sorting (unless hot filter is active, then we sort after computing flags in Go)
 	if hotFilter != "hot" {
 		query += " ORDER BY l.created_at DESC"
@@ -401,7 +407,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 
 		// Compute payment state
 		paymentState := GetPaymentState(amountPaid, finalPrice)
-		
+
 		item := &LeadListItem{
 			Lead:             lead,
 			AssignedLevel:    assignedLevel,
@@ -410,7 +416,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			NextAction:       GetNextAction(lead.Status),
 			TestDate:         testDate,
 			AmountPaid:       amountPaid,
-			FinalPrice:        finalPrice,
+			FinalPrice:       finalPrice,
 			RemainingBalance: remainingBalance,
 		}
 
@@ -430,7 +436,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		}
 		leads = filteredLeads
 	}
-	
+
 	// For BOOKING_CONFIRMED_PAID_FULL and BOOKING_CONFIRMED_DEPOSIT status filters,
 	// also filter by payment state after computing it
 	if statusFilter == StageBookingConfirmedPaidFull {
@@ -484,11 +490,11 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT id, full_name, phone, source, notes, status, sent_to_classes, created_by_user_id, created_at, updated_at
+		SELECT id, full_name, phone, source, notes, status, sent_to_classes, high_priority_follow_up, created_by_user_id, created_at, updated_at
 		FROM leads WHERE id = $1
 	`, id).Scan(
 		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status,
-		&lead.SentToClasses, &lead.CreatedByUserID, &lead.CreatedAt, &lead.UpdatedAt,
+		&lead.SentToClasses, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.CreatedAt, &lead.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get lead: %w", err)
@@ -631,15 +637,15 @@ func CreateLead(fullName, phone, source, notes, createdByUserID string) (*Lead, 
 	}
 
 	return &Lead{
-		ID:             leadID,
-		FullName:       fullName,
-		Phone:          phone,
-		Source:         sourceVal,
-		Notes:          notesVal,
-		Status:         "lead_created",
+		ID:              leadID,
+		FullName:        fullName,
+		Phone:           phone,
+		Source:          sourceVal,
+		Notes:           notesVal,
+		Status:          "lead_created",
 		CreatedByUserID: createdByID,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}, nil
 }
 
@@ -753,14 +759,14 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 		} else {
 			classTimeVal = nil
 		}
-		
+
 		var startTimeVal interface{}
 		if detail.Scheduling.StartTime.Valid {
 			startTimeVal = detail.Scheduling.StartTime.String
 		} else {
 			startTimeVal = nil
 		}
-		
+
 		_, err = tx.Exec(`
 			INSERT INTO scheduling (id, lead_id, expected_round, class_days, class_time, start_date, start_time, class_group_index, updated_at)
 			VALUES (COALESCE((SELECT id FROM scheduling WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4::TIME, $5, $6::TIME, $7, $8)
@@ -899,9 +905,10 @@ func BookPlacementTest(leadID uuid.UUID, testDate sql.NullTime, testTime sql.Nul
 
 func GetUserByEmail(email string) (*User, error) {
 	user := &User{}
+	// Case-insensitive lookup so login works regardless of email case (e.g. HR stores normalized, seed may not).
 	err := db.DB.QueryRow(`
 		SELECT id, email, password_hash, role, created_at
-		FROM users WHERE email = $1
+		FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
 	`, email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.Role, &user.CreatedAt)
 	if err != nil {
 		return nil, err
@@ -1104,9 +1111,9 @@ func GetClassGroups() ([]*ClassGroup, error) {
 		}
 
 		group.Students = append(group.Students, &ClassStudent{
-			LeadID:    leadID,
-			FullName:  fullName,
-			Phone:     phone,
+			LeadID:     leadID,
+			FullName:   fullName,
+			Phone:      phone,
 			GroupIndex: groupIndex,
 		})
 		group.StudentCount++
@@ -1346,6 +1353,67 @@ func StartRound() error {
 		}
 	}
 
+	// Group students by class_key to create sessions per class
+	classGroups := make(map[string]struct {
+		StartDate time.Time
+		StartTime string
+	})
+
+	// Get start_date and start_time from scheduling for each class
+	for leadID, key := range studentGroups {
+		count := groupCounts[key]
+		if count >= 4 { // READY or LOCKED
+			// Get class_key and start_date/start_time
+			var classKey string
+			var startDate sql.NullTime
+			var startTime sql.NullString
+
+			err = tx.QueryRow(`
+				SELECT 
+					COALESCE(cg.class_key, 'L' || pt.assigned_level::TEXT || '|' || s.class_days || '|' || s.class_time || '|' || COALESCE(s.class_group_index, 1)::TEXT),
+					s.start_date,
+					TO_CHAR(s.start_time, 'HH24:MI') as start_time
+				FROM scheduling s
+				INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
+				LEFT JOIN class_groups cg ON (
+					cg.level = pt.assigned_level
+					AND cg.class_days = s.class_days
+					AND cg.class_time = s.class_time::text::text
+					AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+				)
+				WHERE s.lead_id = $1
+			`, leadID).Scan(&classKey, &startDate, &startTime)
+
+			if err == nil {
+				// Ensure class_groups record exists
+				_, err = tx.Exec(`
+					INSERT INTO class_groups (class_key, level, class_days, class_time, class_number, updated_at)
+					VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+					ON CONFLICT (class_key) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+				`, classKey, key.Level, key.Days, key.Time, key.GroupIndex)
+				if err != nil {
+					return fmt.Errorf("failed to ensure class group: %w", err)
+				}
+
+				// Store start date/time for this class (use first student's schedule)
+				if _, exists := classGroups[classKey]; !exists {
+					startDateVal := time.Now() // Default to today if not set
+					if startDate.Valid {
+						startDateVal = startDate.Time
+					}
+					startTimeVal := "07:30" // Default
+					if startTime.Valid {
+						startTimeVal = startTime.String
+					}
+					classGroups[classKey] = struct {
+						StartDate time.Time
+						StartTime string
+					}{StartDate: startDateVal, StartTime: startTimeVal}
+				}
+			}
+		}
+	}
+
 	// Update status to in_classes
 	if len(leadIDsToUpdate) > 0 {
 		// Update each lead individually (PostgreSQL array handling can be tricky)
@@ -1353,6 +1421,28 @@ func StartRound() error {
 			_, err = tx.Exec(`UPDATE leads SET status = 'in_classes', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, leadID)
 			if err != nil {
 				return fmt.Errorf("failed to update status for lead %s: %w", leadID, err)
+			}
+		}
+	}
+
+	// Create 8 sessions for each class
+	for classKey, schedule := range classGroups {
+		for i := 1; i <= 8; i++ {
+			sessionDate := schedule.StartDate.AddDate(0, 0, (i-1)*7) // Weekly sessions
+			startTimeParsed, err := time.Parse("15:04", schedule.StartTime)
+			if err != nil {
+				startTimeParsed, _ = time.Parse("15:04", "07:30") // Fallback
+			}
+			endTimeParsed := startTimeParsed.Add(2 * time.Hour)
+			endTime := endTimeParsed.Format("15:04")
+
+			_, err = tx.Exec(`
+				INSERT INTO class_sessions (id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time, status, created_at, updated_at)
+				VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'scheduled', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+				ON CONFLICT (class_key, session_number) DO NOTHING
+			`, classKey, i, sessionDate, schedule.StartTime, endTime)
+			if err != nil {
+				return fmt.Errorf("failed to create session %d for class %s: %w", i, classKey, err)
 			}
 		}
 	}
@@ -1438,18 +1528,31 @@ func GenerateClassKey(level int32, classDays, classTime string, groupIndex int32
 // GetClassGroupWorkflow gets workflow state for a class group by class_key
 func GetClassGroupWorkflow(classKey string) (*ClassGroupWorkflow, error) {
 	wf := &ClassGroupWorkflow{}
+	var sentAt, returnedAt, roundStartedAt, roundClosedAt sql.NullTime
+	var roundStartedBy, roundClosedBy sql.NullString
+	var roundStatus sql.NullString
 	err := db.DB.QueryRow(`
-		SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at
+		SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at,
+		       COALESCE(round_status, 'not_started'), round_started_at, round_started_by::text, round_closed_at, round_closed_by::text
 		FROM class_groups WHERE class_key = $1
 	`, classKey).Scan(
 		&wf.ClassKey, &wf.Level, &wf.ClassDays, &wf.ClassTime, &wf.ClassNumber,
-		&wf.SentToMentor, &wf.SentAt, &wf.ReturnedAt, &wf.UpdatedAt,
+		&wf.SentToMentor, &sentAt, &returnedAt, &wf.UpdatedAt,
+		&roundStatus, &roundStartedAt, &roundStartedBy, &roundClosedAt, &roundClosedBy,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found is OK - means not sent yet
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get class group workflow: %w", err)
+	}
+	wf.SentAt, wf.ReturnedAt = sentAt, returnedAt
+	wf.RoundStartedAt, wf.RoundClosedAt = roundStartedAt, roundClosedAt
+	wf.RoundStartedBy, wf.RoundClosedBy = roundStartedBy, roundClosedBy
+	if roundStatus.Valid {
+		wf.RoundStatus = roundStatus.String
+	} else {
+		wf.RoundStatus = "not_started"
 	}
 	return wf, nil
 }
@@ -1469,17 +1572,30 @@ func SendClassGroupToMentor(classKey string, level int32, classDays, classTime s
 	return err
 }
 
-// ReturnClassGroupFromMentor clears the sent_to_mentor flag
+// ReturnClassGroupFromMentor clears the sent_to_mentor flag and removes mentor assignment.
+// Dashboard uses GetClassGroupsSentToMentor() which selects WHERE sent_to_mentor = true;
+// this UPDATE sets sent_to_mentor = false so the class no longer matches and disappears from the list.
 func ReturnClassGroupFromMentor(classKey string) error {
 	now := time.Now()
-	_, err := db.DB.Exec(`
+	res, err := db.DB.Exec(`
 		UPDATE class_groups
 		SET sent_to_mentor = false,
 			returned_at = $2,
 			updated_at = $2
 		WHERE class_key = $1
 	`, classKey, now)
-	return err
+	if err != nil {
+		return fmt.Errorf("return class_groups update: %w", err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return fmt.Errorf("no class_group updated for class_key %q (not found or already returned)", classKey)
+	}
+	_, err = db.DB.Exec(`DELETE FROM mentor_assignments WHERE class_key = $1`, classKey)
+	if err != nil {
+		return fmt.Errorf("return mentor_assignments delete: %w", err)
+	}
+	return nil
 }
 
 // GetClassGroupWorkflowsBatch gets workflow state for multiple class keys
@@ -1488,10 +1604,9 @@ func GetClassGroupWorkflowsBatch(classKeys []string) (map[string]*ClassGroupWork
 		return make(map[string]*ClassGroupWorkflow), nil
 	}
 
-	// Build query with placeholders
-	query := `SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at
+	query := `SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at,
+		COALESCE(round_status, 'not_started'), round_started_at, round_started_by::text, round_closed_at, round_closed_by::text
 		FROM class_groups WHERE class_key = ANY($1)`
-	
 	rows, err := db.DB.Query(query, classKeys)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query class group workflows: %w", err)
@@ -1501,12 +1616,23 @@ func GetClassGroupWorkflowsBatch(classKeys []string) (map[string]*ClassGroupWork
 	result := make(map[string]*ClassGroupWorkflow)
 	for rows.Next() {
 		wf := &ClassGroupWorkflow{}
+		var sentAt, returnedAt, roundStartedAt, roundClosedAt sql.NullTime
+		var roundStartedBy, roundClosedBy, roundStatus sql.NullString
 		err := rows.Scan(
 			&wf.ClassKey, &wf.Level, &wf.ClassDays, &wf.ClassTime, &wf.ClassNumber,
-			&wf.SentToMentor, &wf.SentAt, &wf.ReturnedAt, &wf.UpdatedAt,
+			&wf.SentToMentor, &sentAt, &returnedAt, &wf.UpdatedAt,
+			&roundStatus, &roundStartedAt, &roundStartedBy, &roundClosedAt, &roundClosedBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan class group workflow: %w", err)
+		}
+		wf.SentAt, wf.ReturnedAt = sentAt, returnedAt
+		wf.RoundStartedAt, wf.RoundClosedAt = roundStartedAt, roundClosedAt
+		wf.RoundStartedBy, wf.RoundClosedBy = roundStartedBy, roundClosedBy
+		if roundStatus.Valid {
+			wf.RoundStatus = roundStatus.String
+		} else {
+			wf.RoundStatus = "not_started"
 		}
 		result[wf.ClassKey] = wf
 	}
@@ -1567,12 +1693,12 @@ func GetTotalCoursePaid(leadID uuid.UUID) (int32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get total course payments: %w", err)
 	}
-	
+
 	paymentsTotal := int32(0)
 	if totalPayments.Valid {
 		paymentsTotal = totalPayments.Int32
 	}
-	
+
 	// Sum all refunds for this lead (OUT transactions with category='refund')
 	var totalRefunds sql.NullInt32
 	err = db.DB.QueryRow(`
@@ -1585,18 +1711,18 @@ func GetTotalCoursePaid(leadID uuid.UUID) (int32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get total refunds: %w", err)
 	}
-	
+
 	refundsTotal := int32(0)
 	if totalRefunds.Valid {
 		refundsTotal = totalRefunds.Int32
 	}
-	
+
 	// Net = payments - refunds
 	netTotal := paymentsTotal - refundsTotal
 	if netTotal < 0 {
 		netTotal = 0 // Don't return negative (shouldn't happen, but safety check)
 	}
-	
+
 	return netTotal, nil
 }
 
@@ -1612,7 +1738,7 @@ func GetLeadPayments(leadID uuid.UUID) ([]*LeadPayment, error) {
 		return nil, fmt.Errorf("failed to query lead payments: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var payments []*LeadPayment
 	for rows.Next() {
 		p := &LeadPayment{}
@@ -1627,7 +1753,7 @@ func GetLeadPayments(leadID uuid.UUID) ([]*LeadPayment, error) {
 		p.Notes = notes
 		payments = append(payments, p)
 	}
-	
+
 	return payments, rows.Err()
 }
 
@@ -1636,12 +1762,12 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 	if amount <= 0 {
 		return nil, fmt.Errorf("amount must be positive")
 	}
-	
+
 	// Validate payment date is not in the future
 	if err := util.ValidateNotFutureDate(paymentDate); err != nil {
 		return nil, err
 	}
-	
+
 	// Validate kind is one of allowed values
 	allowedKinds := map[string]bool{
 		"course":       true,
@@ -1652,7 +1778,7 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 	if !allowedKinds[kind] {
 		return nil, fmt.Errorf("invalid payment kind: %s", kind)
 	}
-	
+
 	// Validate payment method
 	allowedMethods := map[string]bool{
 		"vodafone_cash": true,
@@ -1663,7 +1789,7 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 	if !allowedMethods[paymentMethod] {
 		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
 	}
-	
+
 	payment := &LeadPayment{
 		ID:            uuid.New(),
 		LeadID:        leadID,
@@ -1675,7 +1801,7 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}
-	
+
 	// Insert payment record
 	_, err := db.DB.Exec(`
 		INSERT INTO lead_payments (id, lead_id, kind, amount, payment_method, payment_date, notes, created_at, updated_at)
@@ -1684,13 +1810,13 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 	if err != nil {
 		return nil, fmt.Errorf("failed to create lead payment: %w", err)
 	}
-	
+
 	// Create corresponding finance transaction (IN)
 	refKey := fmt.Sprintf("lead:%s:course_payment:%s", leadID.String(), payment.ID.String())
 	refIDStr := leadID.String()
 	paymentDateValue := paymentDate.Format("2006-01-02")
 	now := payment.CreatedAt
-	
+
 	_, err = db.DB.Exec(`
 		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, lead_id, ref_type, ref_id, ref_sub_type, ref_key, notes, created_at, updated_at)
 		VALUES ($1, $2::date, $3::text, $4::text, $5::integer, $6::text, $7::uuid, $8::text, $9::text, $10::text, $11::text, $12, $13::timestamp with time zone, $13::timestamp with time zone)
@@ -1700,12 +1826,12 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 		db.DB.Exec(`DELETE FROM lead_payments WHERE id = $1`, payment.ID)
 		return nil, fmt.Errorf("failed to create finance transaction: %w", err)
 	}
-	
+
 	if err := UpdateLeadStatusFromPayment(leadID); err != nil {
 		// Log but don't fail
 		log.Printf("WARNING: failed to auto-update lead status after payment: %v", err)
 	}
-	
+
 	return payment, nil
 }
 
@@ -1714,12 +1840,12 @@ func CreateRefund(leadID uuid.UUID, amount int32, paymentMethod string, transact
 	if amount <= 0 {
 		return nil, fmt.Errorf("amount must be positive")
 	}
-	
+
 	// Validate transaction date is not in the future
 	if err := util.ValidateNotFutureDate(transactionDate); err != nil {
 		return nil, err
 	}
-	
+
 	// Validate payment method
 	allowedMethods := map[string]bool{
 		"vodafone_cash": true,
@@ -1730,22 +1856,22 @@ func CreateRefund(leadID uuid.UUID, amount int32, paymentMethod string, transact
 	if !allowedMethods[paymentMethod] {
 		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
 	}
-	
-	// Validate refund doesn't exceed total course paid
-	totalCoursePaid, err := GetTotalCoursePaid(leadID)
+
+	// Validate refund doesn't exceed refundable amount (session-based rule)
+	refundableAmount, err := GetRefundableAmount(leadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate refund amount: %w", err)
 	}
-	if amount > totalCoursePaid {
-		return nil, fmt.Errorf("refund amount (%d) cannot exceed total course paid (%d)", amount, totalCoursePaid)
+	if amount > refundableAmount {
+		return nil, fmt.Errorf("refund amount (%d) cannot exceed refundable amount (%d)", amount, refundableAmount)
 	}
-	
+
 	// Create ref_key for traceability
 	refKey := fmt.Sprintf("lead:%s:refund:%s", leadID.String(), uuid.New().String())
 	refIDStr := leadID.String()
 	now := time.Now()
 	transactionDateValue := transactionDate.Format("2006-01-02")
-	
+
 	tx := &Transaction{
 		ID:              uuid.New(),
 		TransactionDate: transactionDate,
@@ -1762,7 +1888,7 @@ func CreateRefund(leadID uuid.UUID, amount int32, paymentMethod string, transact
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	
+
 	_, err = db.DB.Exec(`
 		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, lead_id, ref_type, ref_id, ref_sub_type, ref_key, notes, created_at, updated_at)
 		VALUES ($1, $2::date, $3::text, $4::text, $5::integer, $6::text, $7::uuid, $8::text, $9::text, $10::text, $11::text, $12, $13::timestamp with time zone, $13::timestamp with time zone)
@@ -1770,11 +1896,11 @@ func CreateRefund(leadID uuid.UUID, amount int32, paymentMethod string, transact
 	if err != nil {
 		return nil, fmt.Errorf("failed to create refund transaction: %w", err)
 	}
-	
+
 	if err := UpdateLeadStatusFromPayment(leadID); err != nil {
 		log.Printf("WARNING: failed to auto-update lead status after refund: %v", err)
 	}
-	
+
 	return tx, nil
 }
 
@@ -1793,12 +1919,12 @@ func CreateCancelRefundIdempotent(leadID uuid.UUID, amount int32, paymentMethod 
 	if !allowedMethods[paymentMethod] {
 		return fmt.Errorf("invalid payment method: %s", paymentMethod)
 	}
-	totalCoursePaid, err := GetTotalCoursePaid(leadID)
+	refundableAmount, err := GetRefundableAmount(leadID)
 	if err != nil {
 		return fmt.Errorf("failed to validate refund amount: %w", err)
 	}
-	if amount > totalCoursePaid {
-		return fmt.Errorf("refund amount (%d) cannot exceed total course paid (%d)", amount, totalCoursePaid)
+	if amount > refundableAmount {
+		return fmt.Errorf("refund amount (%d) cannot exceed refundable amount (%d)", amount, refundableAmount)
 	}
 
 	refKey := fmt.Sprintf("cancel_refund:%s:%s:%d", leadID.String(), transactionDate.Format("2006-01-02"), amount)
@@ -1858,12 +1984,12 @@ func CreateExpense(category string, amount int32, paymentMethod string, transact
 	if amount <= 0 {
 		return nil, fmt.Errorf("amount must be positive")
 	}
-	
+
 	// Validate transaction date is not in the future
 	if err := util.ValidateNotFutureDate(transactionDate); err != nil {
 		return nil, err
 	}
-	
+
 	// Validate payment method
 	allowedMethods := map[string]bool{
 		"vodafone_cash": true,
@@ -1874,7 +2000,7 @@ func CreateExpense(category string, amount int32, paymentMethod string, transact
 	if !allowedMethods[paymentMethod] {
 		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
 	}
-	
+
 	tx := &Transaction{
 		ID:              uuid.New(),
 		TransactionDate: transactionDate,
@@ -1886,17 +2012,17 @@ func CreateExpense(category string, amount int32, paymentMethod string, transact
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	
+
 	transactionDateValue := transactionDate.Format("2006-01-02")
 	_, err := db.DB.Exec(`
 		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, notes, created_at, updated_at)
 		VALUES ($1, $2::date, $3::text, $4::text, $5::integer, $6::text, $7, $8::timestamp with time zone, $8::timestamp with time zone)
 	`, tx.ID, transactionDateValue, tx.TransactionType, tx.Category, tx.Amount, tx.PaymentMethod, tx.Notes, tx.CreatedAt)
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create expense: %w", err)
 	}
-	
+
 	return tx, nil
 }
 
@@ -1906,26 +2032,26 @@ func UpsertPlacementTestIncome(leadID uuid.UUID, amountPaid int32, paymentDate s
 		// No payment, nothing to sync
 		return nil
 	}
-	
+
 	if !paymentDate.Valid {
 		return fmt.Errorf("payment date is required")
 	}
-	
+
 	// Validate payment date is not in the future
 	if err := util.ValidateNotFutureDate(paymentDate.Time); err != nil {
 		return err
 	}
-	
+
 	if !paymentMethod.Valid {
 		return fmt.Errorf("payment method is required")
 	}
-	
+
 	// Create unique ref_key for idempotency
 	refKey := fmt.Sprintf("lead:%s:placement_test", leadID.String())
 	refIDStr := leadID.String()
 	paymentDateValue := paymentDate.Time.Format("2006-01-02")
 	now := time.Now()
-	
+
 	// Use ON CONFLICT to update if exists, insert if not
 	_, err := db.DB.Exec(`
 		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, lead_id, ref_type, ref_id, ref_sub_type, ref_key, created_at, updated_at)
@@ -1936,11 +2062,11 @@ func UpsertPlacementTestIncome(leadID uuid.UUID, amountPaid int32, paymentDate s
 			payment_method = EXCLUDED.payment_method,
 			updated_at = EXCLUDED.updated_at
 	`, paymentDateValue, "IN", "placement_test", amountPaid, paymentMethod.String, leadID, "lead", refIDStr, "placement_test", refKey, now)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to upsert placement test income: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -1950,14 +2076,14 @@ func CalculateLevelsPurchased(bundleLevels sql.NullInt32, totalPaid int32) (leve
 	if !bundleLevels.Valid || bundleLevels.Int32 <= 0 {
 		return sql.NullInt32{Valid: false}, sql.NullString{String: "none", Valid: true}
 	}
-	
+
 	// If bundle levels is specified, use it
 	levelsPurchased = bundleLevels
 	bundleType = sql.NullString{String: fmt.Sprintf("bundle%d", bundleLevels.Int32), Valid: true}
 	if bundleLevels.Int32 == 1 {
 		bundleType = sql.NullString{String: "single", Valid: true}
 	}
-	
+
 	return levelsPurchased, bundleType
 }
 
@@ -1967,14 +2093,14 @@ func UpdateLeadCreditsFromPayments(leadID uuid.UUID, bundleLevels sql.NullInt32)
 	if err != nil {
 		return err
 	}
-	
+
 	var totalPaid int32 = 0
 	for _, p := range payments {
 		totalPaid += p.Amount
 	}
-	
+
 	levelsPurchased, bundleType := CalculateLevelsPurchased(bundleLevels, totalPaid)
-	
+
 	_, err = db.DB.Exec(`
 		UPDATE leads SET 
 			levels_purchased_total = $1,
@@ -1982,20 +2108,20 @@ func UpdateLeadCreditsFromPayments(leadID uuid.UUID, bundleLevels sql.NullInt32)
 			updated_at = $3
 		WHERE id = $4
 	`, levelsPurchased, bundleType, time.Now(), leadID)
-	
+
 	return err
 }
 
 // GetFinanceSummary returns aggregated finance data for today and date range
 func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 	today := time.Now().Format("2006-01-02")
-	
+
 	summary := &FinanceSummary{
-		INByCategory: make(map[string]int32),
-		OUTByCategory: make(map[string]int32),
+		INByCategory:     make(map[string]int32),
+		OUTByCategory:    make(map[string]int32),
 		CreditsBreakdown: make(map[string]int),
 	}
-	
+
 	// Today's totals
 	var todayIN, todayOUT sql.NullInt32
 	err := db.DB.QueryRow(`
@@ -2015,12 +2141,12 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 		summary.TodayOUT = todayOUT.Int32
 	}
 	summary.TodayNet = summary.TodayIN - summary.TodayOUT
-	
+
 	// Date range totals
 	rangeQuery := "SELECT COALESCE(SUM(CASE WHEN transaction_type = 'IN' THEN amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN transaction_type = 'OUT' THEN amount ELSE 0 END), 0) FROM transactions WHERE 1=1"
 	rangeArgs := []interface{}{}
 	argIndex := 1
-	
+
 	if dateFrom.Valid {
 		rangeQuery += fmt.Sprintf(" AND transaction_date >= $%d::date", argIndex)
 		rangeArgs = append(rangeArgs, dateFrom.Time.Format("2006-01-02"))
@@ -2031,7 +2157,7 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 		rangeArgs = append(rangeArgs, dateTo.Time.Format("2006-01-02"))
 		argIndex++
 	}
-	
+
 	var rangeIN, rangeOUT sql.NullInt32
 	if len(rangeArgs) > 0 {
 		err = db.DB.QueryRow(rangeQuery, rangeArgs...).Scan(&rangeIN, &rangeOUT)
@@ -2048,7 +2174,7 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 		summary.RangeOUT = rangeOUT.Int32
 	}
 	summary.RangeNet = summary.RangeIN - summary.RangeOUT
-	
+
 	// Category breakdowns for date range
 	categoryQuery := "SELECT category, transaction_type, COALESCE(SUM(amount), 0) FROM transactions WHERE 1=1"
 	if dateFrom.Valid {
@@ -2058,7 +2184,7 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 		categoryQuery += fmt.Sprintf(" AND transaction_date <= $%d::date", len(rangeArgs))
 	}
 	categoryQuery += " GROUP BY category, transaction_type"
-	
+
 	var categoryRows *sql.Rows
 	if len(rangeArgs) > 0 {
 		categoryRows, err = db.DB.Query(categoryQuery, rangeArgs...)
@@ -2069,7 +2195,7 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 		return nil, fmt.Errorf("failed to get category breakdown: %w", err)
 	}
 	defer categoryRows.Close()
-	
+
 	for categoryRows.Next() {
 		var category, txType string
 		var amount int32
@@ -2083,7 +2209,7 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 			summary.OUTByCategory[category] = amount
 		}
 	}
-	
+
 	// Credits breakdown (levels remaining)
 	var totalRemaining sql.NullInt32
 	err = db.DB.QueryRow(`
@@ -2094,7 +2220,7 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 	if err == nil && totalRemaining.Valid {
 		summary.TotalRemainingLevels = totalRemaining.Int32
 	}
-	
+
 	// Credits breakdown by count
 	creditsRows, err := db.DB.Query(`
 		SELECT 
@@ -2119,7 +2245,7 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 			}
 		}
 	}
-	
+
 	return summary, nil
 }
 
@@ -2190,7 +2316,7 @@ func GetTransactions(dateFrom, dateTo sql.NullTime, transactionTypeFilter, categ
 	`
 	args := []interface{}{}
 	argIndex := 1
-	
+
 	if dateFrom.Valid {
 		query += fmt.Sprintf(" AND transaction_date >= $%d::date", argIndex)
 		args = append(args, dateFrom.Time.Format("2006-01-02"))
@@ -2216,23 +2342,23 @@ func GetTransactions(dateFrom, dateTo sql.NullTime, transactionTypeFilter, categ
 		args = append(args, paymentMethodFilter)
 		argIndex++
 	}
-	
+
 	query += " ORDER BY transaction_date DESC, created_at DESC"
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
 	args = append(args, limit, offset)
-	
+
 	rows, err := db.DB.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query transactions: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var transactions []*Transaction
 	for rows.Next() {
 		tx := &Transaction{}
 		var paymentMethod, leadID, notes, refType, refID, refSubType, refKey sql.NullString
 		var transactionDate time.Time
-		
+
 		err := rows.Scan(
 			&tx.ID, &transactionDate, &tx.TransactionType, &tx.Category, &tx.Amount,
 			&paymentMethod, &leadID, &notes, &refType, &refID, &refSubType, &refKey,
@@ -2241,7 +2367,7 @@ func GetTransactions(dateFrom, dateTo sql.NullTime, transactionTypeFilter, categ
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan transaction: %w", err)
 		}
-		
+
 		tx.TransactionDate = transactionDate
 		tx.PaymentMethod = paymentMethod
 		tx.LeadID = leadID
@@ -2250,10 +2376,10 @@ func GetTransactions(dateFrom, dateTo sql.NullTime, transactionTypeFilter, categ
 		tx.RefID = refID
 		tx.RefSubType = refSubType
 		tx.RefKey = refKey
-		
+
 		transactions = append(transactions, tx)
 	}
-	
+
 	return transactions, rows.Err()
 }
 
@@ -2272,7 +2398,7 @@ func GroupTransactionsByDay(transactions []*Transaction) []*LedgerDayGroup {
 	for _, tx := range transactions {
 		// Get date key (YYYY-MM-DD)
 		dateKey := tx.TransactionDate.Format("2006-01-02")
-		
+
 		// Get or create group for this date
 		group, exists := groupsMap[dateKey]
 		if !exists {
@@ -2290,10 +2416,10 @@ func GroupTransactionsByDay(transactions []*Transaction) []*LedgerDayGroup {
 			groupsMap[dateKey] = group
 			orderedDates = append(orderedDates, dateKey)
 		}
-		
+
 		// Add transaction to group
 		group.Transactions = append(group.Transactions, tx)
-		
+
 		// Update totals based on transaction type
 		if tx.TransactionType == "IN" {
 			group.InTotal += tx.Amount
@@ -2303,7 +2429,7 @@ func GroupTransactionsByDay(transactions []*Transaction) []*LedgerDayGroup {
 			group.OutTotal += tx.Amount
 		}
 	}
-	
+
 	// Calculate net totals and build ordered result
 	result := make([]*LedgerDayGroup, 0, len(orderedDates))
 	for _, dateKey := range orderedDates {
@@ -2311,7 +2437,7 @@ func GroupTransactionsByDay(transactions []*Transaction) []*LedgerDayGroup {
 		group.NetTotal = group.InTotal - group.OutTotal
 		result = append(result, group)
 	}
-	
+
 	return result
 }
 
@@ -2331,18 +2457,18 @@ func GetCancelledLeadsSummary() ([]*CancelledLeadSummary, error) {
 		WHERE l.status = 'cancelled'
 		ORDER BY l.cancelled_at DESC NULLS LAST, l.updated_at DESC
 	`
-	
+
 	rows, err := db.DB.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query cancelled leads: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var summaries []*CancelledLeadSummary
 	for rows.Next() {
 		s := &CancelledLeadSummary{}
 		var cancelledAt sql.NullTime
-		
+
 		err := rows.Scan(
 			&s.LeadID, &s.FullName, &s.Phone, &cancelledAt,
 			&s.PlacementTestPaid, &s.CoursePaid, &s.Refunded,
@@ -2350,13 +2476,13 @@ func GetCancelledLeadsSummary() ([]*CancelledLeadSummary, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan cancelled lead: %w", err)
 		}
-		
+
 		s.CancelledAt = cancelledAt
 		s.NetMoney = s.CoursePaid - s.Refunded
-		
+
 		summaries = append(summaries, s)
 	}
-	
+
 	return summaries, rows.Err()
 }
 
@@ -2371,12 +2497,1462 @@ func GetCancelledLeadsTotals() (totalPlacementTest, totalCoursePaid, totalRefund
 		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
 		WHERE l.status = 'cancelled'
 	`
-	
+
 	err = db.DB.QueryRow(query).Scan(&totalPlacementTest, &totalCoursePaid, &totalRefunded)
 	if err != nil {
 		return 0, 0, 0, 0, fmt.Errorf("failed to get cancelled leads totals: %w", err)
 	}
-	
+
 	netOutstanding = totalCoursePaid - totalRefunded
 	return totalPlacementTest, totalCoursePaid, totalRefunded, netOutstanding, nil
+}
+
+// ============================================================================
+// Milestone 2: Active Classes Repository Functions
+// ============================================================================
+
+// CreateClassSessions creates 8 sessions for a class when round starts
+// Sessions are scheduled weekly (every 7 days) starting from startDate
+func CreateClassSessions(classKey string, startDate time.Time, startTime string) error {
+	// Parse start time to calculate end time (default 2 hours duration)
+	// Try multiple formats to handle HH:MM and HH:MM:SS
+	startTimeParsed, err := time.Parse("15:04", startTime)
+	if err != nil {
+		startTimeParsed, err = time.Parse("15:04:05", startTime)
+		if err != nil {
+			return fmt.Errorf("invalid start time format: %w", err)
+		}
+	}
+	endTimeParsed := startTimeParsed.Add(2 * time.Hour)
+	endTime := endTimeParsed.Format("15:04")
+
+	now := time.Now()
+	for i := 1; i <= 8; i++ {
+		sessionDate := startDate.AddDate(0, 0, (i-1)*7) // Weekly sessions
+		_, err := db.DB.Exec(`
+			INSERT INTO class_sessions (id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time, status, created_at, updated_at)
+			VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'scheduled', $6, $6)
+			ON CONFLICT (class_key, session_number) DO NOTHING
+		`, classKey, i, sessionDate, startTime, endTime, now)
+		if err != nil {
+			return fmt.Errorf("failed to create session %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// SetRoundStarted sets round_status='active', round_started_at=NOW(), round_started_by=userID for a class.
+func SetRoundStarted(classKey string, startedByUserID uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		UPDATE class_groups
+		SET round_status = 'active', round_started_at = NOW(), round_started_by = $2, updated_at = NOW()
+		WHERE class_key = $1
+	`, classKey, startedByUserID)
+	return err
+}
+
+// GetClassSessions returns all sessions for a class, ordered by session_number
+func GetClassSessions(classKey string) ([]*ClassSession, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time,
+		       actual_date, actual_time, actual_end_time, status, completed_at, created_at, updated_at
+		FROM class_sessions
+		WHERE class_key = $1
+		ORDER BY session_number
+	`, classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query class sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []*ClassSession
+	for rows.Next() {
+		s := &ClassSession{}
+		var scheduledTime, scheduledEndTime, actualTime, actualEndTime sql.NullString
+		var actualDate, completedAt sql.NullTime
+
+		err := rows.Scan(
+			&s.ID, &s.ClassKey, &s.SessionNumber, &s.ScheduledDate,
+			&scheduledTime, &scheduledEndTime, &actualDate, &actualTime, &actualEndTime,
+			&s.Status, &completedAt, &s.CreatedAt, &s.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan session: %w", err)
+		}
+
+		s.ScheduledTime = scheduledTime
+		s.ScheduledEndTime = scheduledEndTime
+		s.ActualDate = actualDate
+		s.ActualTime = actualTime
+		s.ActualEndTime = actualEndTime
+		s.CompletedAt = completedAt
+
+		sessions = append(sessions, s)
+	}
+
+	return sessions, rows.Err()
+}
+
+// CompleteSession marks a session as completed and sets completed_at timestamp
+// If session_number = 1, also increments levels_consumed for all students in the class
+func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get session info
+	var classKey string
+	var sessionNumber int32
+	err = tx.QueryRow(`
+		SELECT class_key, session_number FROM class_sessions WHERE id = $1
+	`, sessionID).Scan(&classKey, &sessionNumber)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	now := time.Now()
+	// Update session status
+	_, err = tx.Exec(`
+		UPDATE class_sessions
+		SET status = 'completed', actual_date = $1, actual_time = $2, completed_at = $3, updated_at = $3
+		WHERE id = $4
+	`, actualDate, actualTime, now, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to update session: %w", err)
+	}
+
+	// If session 1, increment levels_consumed for all students in class
+	if sessionNumber == 1 {
+		_, err = tx.Exec(`
+			UPDATE leads
+			SET levels_consumed = COALESCE(levels_consumed, 0) + 1, updated_at = $1
+			WHERE id IN (
+				SELECT s.lead_id
+				FROM scheduling s
+				INNER JOIN class_groups cg ON (
+					cg.level = (SELECT pt.assigned_level FROM placement_tests pt WHERE pt.lead_id = s.lead_id)
+					AND cg.class_days = s.class_days
+					AND cg.class_time = s.class_time::text::text
+					AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+				)
+				WHERE cg.class_key = $2
+			)
+		`, now, classKey)
+		if err != nil {
+			return fmt.Errorf("failed to increment levels_consumed: %w", err)
+		}
+	}
+
+	// Create default attendance records (all PRESENT) for all students in class who don't have records yet
+	// This ensures students who weren't manually marked are treated as present by default
+	_, err = tx.Exec(`
+		INSERT INTO attendance (id, session_id, lead_id, status, created_at, updated_at)
+		SELECT gen_random_uuid(), $1, s.lead_id, 'PRESENT', $2, $2
+		FROM scheduling s
+		INNER JOIN class_groups cg ON (
+			cg.level = (SELECT pt.assigned_level FROM placement_tests pt WHERE pt.lead_id = s.lead_id)
+			AND cg.class_days = s.class_days
+			AND cg.class_time = s.class_time::text
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		WHERE cg.class_key = $3
+		ON CONFLICT (session_id, lead_id) DO NOTHING
+	`, sessionID, now, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to create attendance records: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// CancelAndRescheduleSession cancels a session and reschedules it to a new date/time (same session_number)
+func CancelAndRescheduleSession(sessionID uuid.UUID, newDate time.Time, newTime string) error {
+	// Parse new time to calculate end time
+	startTimeParsed, err := time.Parse("15:04", newTime)
+	if err != nil {
+		return fmt.Errorf("invalid time format: %w", err)
+	}
+	endTimeParsed := startTimeParsed.Add(2 * time.Hour)
+	endTime := endTimeParsed.Format("15:04")
+
+	now := time.Now()
+	_, err = db.DB.Exec(`
+		UPDATE class_sessions
+		SET scheduled_date = $1, scheduled_time = $2, scheduled_end_time = $3,
+		    status = 'scheduled', updated_at = $4
+		WHERE id = $5
+	`, newDate, newTime, endTime, now, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to reschedule session: %w", err)
+	}
+	return nil
+}
+
+// MarkAttendance upserts attendance record for a student in a session
+func MarkAttendance(sessionID, leadID uuid.UUID, status string, notes string, markedByUserID uuid.UUID) error {
+	now := time.Now()
+	_, err := db.DB.Exec(`
+		INSERT INTO attendance (id, session_id, lead_id, status, notes, marked_by_user_id, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $6)
+		ON CONFLICT (session_id, lead_id) DO UPDATE SET
+			status = EXCLUDED.status,
+			notes = EXCLUDED.notes,
+			marked_by_user_id = EXCLUDED.marked_by_user_id,
+			updated_at = EXCLUDED.updated_at
+	`, sessionID, leadID, status, notes, markedByUserID, now)
+	return err
+}
+
+// GetAttendanceForSession returns all attendance records for a session
+func GetAttendanceForSession(sessionID uuid.UUID) ([]*Attendance, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, session_id, lead_id, status, notes, marked_by_user_id, created_at, updated_at
+		FROM attendance
+		WHERE session_id = $1
+		ORDER BY lead_id
+	`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query attendance: %w", err)
+	}
+	defer rows.Close()
+
+	var records []*Attendance
+	for rows.Next() {
+		a := &Attendance{}
+		var notes, markedByUserID sql.NullString
+
+		err := rows.Scan(
+			&a.ID, &a.SessionID, &a.LeadID, &a.Status,
+			&notes, &markedByUserID, &a.CreatedAt, &a.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan attendance: %w", err)
+		}
+
+		a.Notes = notes
+		a.MarkedByUserID = markedByUserID
+		records = append(records, a)
+	}
+
+	return records, rows.Err()
+}
+
+// EnterGrade inserts or updates a grade for a student at session 8
+func EnterGrade(leadID uuid.UUID, classKey string, grade string, notes string, createdByUserID uuid.UUID) error {
+	now := time.Now()
+	_, err := db.DB.Exec(`
+		INSERT INTO grades (id, lead_id, class_key, session_number, grade, notes, created_by_user_id, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, $2, 8, $3, $4, $5, $6, $6)
+		ON CONFLICT (lead_id, class_key, session_number) DO UPDATE SET
+			grade = EXCLUDED.grade,
+			notes = EXCLUDED.notes,
+			updated_at = EXCLUDED.updated_at
+	`, leadID, classKey, grade, notes, createdByUserID, now)
+	return err
+}
+
+// GetGrade returns the grade for a student in a class (session 8)
+func GetGrade(leadID uuid.UUID, classKey string) (*Grade, error) {
+	g := &Grade{}
+	var notes, createdByUserID sql.NullString
+
+	err := db.DB.QueryRow(`
+		SELECT id, lead_id, class_key, session_number, grade, notes, created_by_user_id, created_at, updated_at
+		FROM grades
+		WHERE lead_id = $1 AND class_key = $2 AND session_number = 8
+	`, leadID, classKey).Scan(
+		&g.ID, &g.LeadID, &g.ClassKey, &g.SessionNumber,
+		&g.Grade, &notes, &createdByUserID, &g.CreatedAt, &g.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get grade: %w", err)
+	}
+
+	g.Notes = notes
+	g.CreatedByUserID = createdByUserID
+	return g, nil
+}
+
+// AddStudentNote adds a note for a student
+func AddStudentNote(leadID uuid.UUID, classKey string, sessionNumber sql.NullInt32, noteText string, createdByUserID uuid.UUID) error {
+	now := time.Now()
+	var classKeyNull sql.NullString
+	if classKey != "" {
+		classKeyNull = sql.NullString{String: classKey, Valid: true}
+	}
+
+	var noteID uuid.UUID
+	err := db.DB.QueryRow(`
+		INSERT INTO student_notes (id, lead_id, class_key, session_number, note_text, created_by_user_id, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $6)
+		RETURNING id
+	`, leadID, classKeyNull, sessionNumber, noteText, createdByUserID, now).Scan(&noteID)
+	if err != nil {
+		return fmt.Errorf("database insert failed: %w", err)
+	}
+
+	// Verify the note was actually inserted by querying it back
+	var verifyID uuid.UUID
+	var verifyText string
+	verifyErr := db.DB.QueryRow(`
+		SELECT id, note_text FROM student_notes WHERE id = $1
+	`, noteID).Scan(&verifyID, &verifyText)
+	if verifyErr != nil {
+		return fmt.Errorf("note inserted but verification query failed: %w (inserted id: %s)", verifyErr, noteID)
+	}
+	if verifyText != noteText {
+		return fmt.Errorf("note text mismatch: inserted %q but verified %q", noteText, verifyText)
+	}
+
+	return nil
+}
+
+// GetStudentNotes returns all notes for a student, ordered by created_at DESC (newest first)
+// Includes creator email via LEFT JOIN with users table
+// Notes are NOT filtered by sessions/round - they return regardless of session count
+func GetStudentNotes(leadID uuid.UUID) ([]*StudentNote, error) {
+	rows, err := db.DB.Query(`
+		SELECT sn.id, sn.lead_id, sn.class_key, sn.session_number, sn.note_text, 
+		       sn.created_by_user_id, u.email as created_by_email, sn.created_at, sn.updated_at
+		FROM student_notes sn
+		LEFT JOIN users u ON u.id = sn.created_by_user_id
+		WHERE sn.lead_id::uuid = $1
+		ORDER BY sn.created_at DESC
+	`, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query student notes: %w", err)
+	}
+	defer rows.Close()
+
+	var notes []*StudentNote
+	for rows.Next() {
+		n := &StudentNote{}
+		var classKey sql.NullString
+		var sessionNumberInt sql.NullInt32
+		var createdByUserID sql.NullString
+		var createdByEmail sql.NullString
+
+		err := rows.Scan(
+			&n.ID, &n.LeadID, &classKey, &sessionNumberInt,
+			&n.NoteText, &createdByUserID, &createdByEmail, &n.CreatedAt, &n.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan note: %w", err)
+		}
+
+		n.ClassKey = classKey
+		n.SessionNumber = sessionNumberInt
+		n.CreatedByUserID = createdByUserID
+		n.CreatedByEmail = createdByEmail
+		notes = append(notes, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return notes, nil
+}
+
+// GetStudentNoteByID returns a single note by ID (to check creator)
+func GetStudentNoteByID(noteID uuid.UUID) (*StudentNote, error) {
+	n := &StudentNote{}
+	var classKey sql.NullString
+	var sessionNumber sql.NullInt32
+	var createdByUserID sql.NullString
+	var createdByEmail sql.NullString
+
+	err := db.DB.QueryRow(`
+		SELECT sn.id, sn.lead_id, sn.class_key, sn.session_number, sn.note_text,
+		       sn.created_by_user_id, u.email as created_by_email, sn.created_at, sn.updated_at
+		FROM student_notes sn
+		LEFT JOIN users u ON u.id = sn.created_by_user_id
+		WHERE sn.id = $1
+	`, noteID).Scan(
+		&n.ID, &n.LeadID, &classKey, &sessionNumber, &n.NoteText,
+		&createdByUserID, &createdByEmail, &n.CreatedAt, &n.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get student note: %w", err)
+	}
+
+	if classKey.Valid {
+		n.ClassKey = sql.NullString{String: classKey.String, Valid: true}
+	}
+	if sessionNumber.Valid {
+		n.SessionNumber = sql.NullInt32{Int32: sessionNumber.Int32, Valid: true}
+	}
+	n.CreatedByUserID = createdByUserID
+	n.CreatedByEmail = createdByEmail
+	return n, nil
+}
+
+// DeleteStudentNote deletes a note by ID
+func DeleteStudentNote(noteID uuid.UUID) error {
+	result, err := db.DB.Exec(`
+		DELETE FROM student_notes WHERE id = $1
+	`, noteID)
+	if err != nil {
+		return fmt.Errorf("failed to delete student note: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("note not found")
+	}
+	return nil
+}
+
+// GetRefundableAmount calculates refundable amount based on session completion markers (not wall-clock time)
+// Rules:
+// - If session 2 has completed_at IS NOT NULL: refundable = 0
+// - If session 1 has completed_at IS NOT NULL AND session 2 has completed_at IS NULL: refundable = 50% of course paid
+// - Otherwise: refundable = 100% of course paid
+func GetRefundableAmount(leadID uuid.UUID) (int32, error) {
+	totalCoursePaid, err := GetTotalCoursePaid(leadID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get total course paid: %w", err)
+	}
+
+	// Get student's class_key
+	var classKey sql.NullString
+	err = db.DB.QueryRow(`
+		SELECT cg.class_key
+		FROM scheduling s
+		INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
+		INNER JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND cg.class_time = s.class_time::text
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		WHERE s.lead_id = $1
+		LIMIT 1
+	`, leadID).Scan(&classKey)
+	if err == sql.ErrNoRows || !classKey.Valid {
+		// No active class, full refund available
+		return totalCoursePaid, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to get class key: %w", err)
+	}
+
+	// Check session completion markers
+	var session1Completed, session2Completed bool
+	err = db.DB.QueryRow(`
+		SELECT 
+			EXISTS(SELECT 1 FROM class_sessions WHERE class_key = $1 AND session_number = 1 AND completed_at IS NOT NULL),
+			EXISTS(SELECT 1 FROM class_sessions WHERE class_key = $1 AND session_number = 2 AND completed_at IS NOT NULL)
+	`, classKey.String).Scan(&session1Completed, &session2Completed)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check session completion: %w", err)
+	}
+
+	if session2Completed {
+		return 0, nil // No refund after session 2 completed
+	}
+	if session1Completed {
+		return totalCoursePaid / 2, nil // 50% refund after session 1 completed
+	}
+
+	return totalCoursePaid, nil // Full refund before session 1 completed
+}
+
+// AssignMentorToClass assigns a mentor (user with role='mentor') to a class
+func AssignMentorToClass(classKey string, mentorUserID uuid.UUID, createdByUserID uuid.UUID) error {
+	now := time.Now()
+	_, err := db.DB.Exec(`
+		INSERT INTO mentor_assignments (id, mentor_user_id, class_key, assigned_at, created_by_user_id)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4)
+		ON CONFLICT (class_key) DO UPDATE SET
+			mentor_user_id = EXCLUDED.mentor_user_id,
+			assigned_at = EXCLUDED.assigned_at,
+			created_by_user_id = EXCLUDED.created_by_user_id
+	`, mentorUserID, classKey, now, createdByUserID)
+	return err
+}
+
+// CheckMentorDoubleBookByDaysTime returns true if mentor is already assigned to another class
+// (different class_key) with the same class_days and class_time. Also returns days and time for error message.
+func CheckMentorDoubleBookByDaysTime(mentorUserID uuid.UUID, excludeClassKey, classDays, classTime string) (hasConflict bool, days, timeStr string, err error) {
+	var conflictDays, conflictTime string
+	rowErr := db.DB.QueryRow(`
+		SELECT cg.class_days, cg.class_time
+		FROM mentor_assignments ma
+		INNER JOIN class_groups cg ON cg.class_key = ma.class_key
+		WHERE ma.mentor_user_id = $1
+		  AND ma.class_key != $2
+		  AND cg.class_days = $3
+		  AND cg.class_time = $4
+		LIMIT 1
+	`, mentorUserID, excludeClassKey, classDays, classTime).Scan(&conflictDays, &conflictTime)
+	if rowErr == sql.ErrNoRows {
+		return false, "", "", nil
+	}
+	if rowErr != nil {
+		return false, "", "", fmt.Errorf("failed to check double-book: %w", rowErr)
+	}
+	return true, conflictDays, conflictTime, nil
+}
+
+// UnassignMentorFromClass removes the mentor assignment for a class. Caller must ensure no sessions exist.
+func UnassignMentorFromClass(classKey string) error {
+	res, err := db.DB.Exec(`DELETE FROM mentor_assignments WHERE class_key = $1`, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to unassign mentor: %w", err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return nil // No assignment existed; idempotent
+	}
+	return nil
+}
+
+// CheckMentorScheduleConflict checks if assigning a mentor to a class would create overlapping sessions
+func CheckMentorScheduleConflict(mentorUserID uuid.UUID, date time.Time, startTime, endTime string) (bool, error) {
+	var count int
+	err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM class_sessions cs
+		INNER JOIN mentor_assignments ma ON cs.class_key = ma.class_key
+		WHERE ma.mentor_user_id = $1
+		AND cs.scheduled_date = $2
+		AND cs.status != 'cancelled'
+		AND (
+			(cs.scheduled_time <= $3 AND cs.scheduled_end_time > $3) OR
+			(cs.scheduled_time < $4 AND cs.scheduled_end_time >= $4) OR
+			(cs.scheduled_time >= $3 AND cs.scheduled_end_time <= $4)
+		)
+	`, mentorUserID, date, startTime, endTime).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check conflict: %w", err)
+	}
+	return count > 0, nil
+}
+
+// GetMentorAssignment returns the mentor assignment for a class
+func GetMentorAssignment(classKey string) (*MentorAssignment, error) {
+	ma := &MentorAssignment{}
+	var createdByUserID sql.NullString
+
+	err := db.DB.QueryRow(`
+		SELECT id, mentor_user_id, class_key, assigned_at, created_by_user_id
+		FROM mentor_assignments
+		WHERE class_key = $1
+	`, classKey).Scan(
+		&ma.ID, &ma.MentorUserID, &ma.ClassKey, &ma.AssignedAt, &createdByUserID,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mentor assignment: %w", err)
+	}
+
+	ma.CreatedByUserID = createdByUserID
+	return ma, nil
+}
+
+// GetMentorClasses returns all classes assigned to a mentor
+func GetMentorClasses(mentorUserID uuid.UUID) ([]*ClassGroupWorkflow, error) {
+	rows, err := db.DB.Query(`
+		SELECT cg.class_key, cg.level, cg.class_days, cg.class_time, cg.class_number,
+		       cg.sent_to_mentor, cg.sent_at, cg.returned_at, cg.updated_at
+		FROM class_groups cg
+		INNER JOIN mentor_assignments ma ON cg.class_key = ma.class_key
+		WHERE ma.mentor_user_id = $1
+		ORDER BY cg.level, cg.class_days, cg.class_time
+	`, mentorUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query mentor classes: %w", err)
+	}
+	defer rows.Close()
+
+	var classes []*ClassGroupWorkflow
+	for rows.Next() {
+		c := &ClassGroupWorkflow{}
+		var sentAt, returnedAt sql.NullTime
+
+		err := rows.Scan(
+			&c.ClassKey, &c.Level, &c.ClassDays, &c.ClassTime, &c.ClassNumber,
+			&c.SentToMentor, &sentAt, &returnedAt, &c.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan class: %w", err)
+		}
+
+		c.SentAt = sentAt
+		c.ReturnedAt = returnedAt
+		classes = append(classes, c)
+	}
+
+	return classes, rows.Err()
+}
+
+// CloseRound computes outcomes for all students in a class and sets high_priority_follow_up flag.
+// Returns to Operations by setting sent_to_mentor = false and round_status = 'closed'.
+func CloseRound(classKey string, closedByUserID uuid.UUID) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get all students in the class
+	rows, err := tx.Query(`
+		SELECT s.lead_id
+		FROM scheduling s
+		INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
+		INNER JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND cg.class_time = s.class_time::text
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		WHERE cg.class_key = $1
+	`, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to query students: %w", err)
+	}
+	defer rows.Close()
+
+	var leadIDs []uuid.UUID
+	for rows.Next() {
+		var leadID uuid.UUID
+		if err := rows.Scan(&leadID); err != nil {
+			return fmt.Errorf("failed to scan lead ID: %w", err)
+		}
+		leadIDs = append(leadIDs, leadID)
+	}
+	rows.Close()
+
+	now := time.Now()
+	// For each student, compute outcome and set follow-up flag if needed
+	for _, leadID := range leadIDs {
+		// Count absences
+		var absences int
+		err = tx.QueryRow(`
+			SELECT COUNT(*)
+			FROM attendance a
+			INNER JOIN class_sessions cs ON a.session_id = cs.id
+			WHERE a.lead_id = $1 AND cs.class_key = $2 AND a.attended = false
+		`, leadID, classKey).Scan(&absences)
+		if err != nil {
+			return fmt.Errorf("failed to count absences: %w", err)
+		}
+
+		// Get grade
+		var grade sql.NullString
+		err = tx.QueryRow(`
+			SELECT grade FROM grades WHERE lead_id = $1 AND class_key = $2 AND session_number = 8
+		`, leadID, classKey).Scan(&grade)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("failed to get grade: %w", err)
+		}
+
+		// Compute decision: repeat if absences > 2 OR grade = 'F'
+		shouldRepeat := absences > 2 || (grade.Valid && grade.String == "F")
+		_ = shouldRepeat // outcome: repeat vs promote (stored when outcome column exists)
+
+		// Check if student has no remaining credits
+		var levelsPurchased, levelsConsumed sql.NullInt32
+		err = tx.QueryRow(`
+			SELECT levels_purchased_total, levels_consumed FROM leads WHERE id = $1
+		`, leadID).Scan(&levelsPurchased, &levelsConsumed)
+		if err != nil {
+			return fmt.Errorf("failed to get levels: %w", err)
+		}
+
+		purchased := int32(0)
+		if levelsPurchased.Valid {
+			purchased = levelsPurchased.Int32
+		}
+		consumed := int32(0)
+		if levelsConsumed.Valid {
+			consumed = levelsConsumed.Int32
+		}
+
+		// Set high_priority_follow_up if no remaining credits
+		highPriority := consumed >= purchased
+		_, err = tx.Exec(`
+			UPDATE leads SET high_priority_follow_up = $1, updated_at = $2 WHERE id = $3
+		`, highPriority, now, leadID)
+		if err != nil {
+			return fmt.Errorf("failed to update follow-up flag: %w", err)
+		}
+	}
+
+	// Return class to Operations and mark round closed
+	_, err = tx.Exec(`
+		UPDATE class_groups
+		SET sent_to_mentor = false, returned_at = $1, updated_at = $1,
+		    round_status = 'closed', round_closed_at = $1, round_closed_by = $3
+		WHERE class_key = $2
+	`, now, classKey, closedByUserID)
+	if err != nil {
+		return fmt.Errorf("failed to return class: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// SubmitFeedback submits community officer feedback for a student at session 4 or 8
+func SubmitFeedback(leadID uuid.UUID, classKey string, sessionNumber int32, feedbackText string, followUpRequired bool, createdByUserID uuid.UUID) error {
+	now := time.Now()
+	_, err := db.DB.Exec(`
+		INSERT INTO community_officer_feedback (id, lead_id, class_key, session_number, feedback_text, follow_up_required, created_by_user_id, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $7)
+		ON CONFLICT (lead_id, class_key, session_number) DO UPDATE SET
+			feedback_text = EXCLUDED.feedback_text,
+			follow_up_required = EXCLUDED.follow_up_required,
+			updated_at = EXCLUDED.updated_at
+	`, leadID, classKey, sessionNumber, feedbackText, followUpRequired, createdByUserID, now)
+	return err
+}
+
+// GetClassFeedbackRecords returns all feedback records for a given class.
+func GetClassFeedbackRecords(classKey string) ([]*CommunityOfficerFeedback, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, lead_id, class_key, session_number, feedback_text, follow_up_required, created_by_user_id, created_at, updated_at
+		FROM community_officer_feedback
+		WHERE class_key = $1
+		ORDER BY session_number, created_at DESC
+	`, classKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*CommunityOfficerFeedback
+	for rows.Next() {
+		f := &CommunityOfficerFeedback{}
+		if err := rows.Scan(&f.ID, &f.LeadID, &f.ClassKey, &f.SessionNumber, &f.FeedbackText, &f.FollowUpRequired, &f.CreatedByUserID, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, f)
+	}
+	return results, rows.Err()
+}
+
+// GetPendingFeedback returns students who need feedback at session 4 or 8
+func GetPendingFeedback(sessionNumber int32) ([]struct {
+	LeadID   uuid.UUID
+	FullName string
+	Phone    string
+	ClassKey string
+}, error) {
+	rows, err := db.DB.Query(`
+		SELECT DISTINCT l.id, l.full_name, l.phone, cs.class_key
+		FROM leads l
+		INNER JOIN scheduling s ON s.lead_id = l.id
+		INNER JOIN placement_tests pt ON pt.lead_id = l.id
+		INNER JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND cg.class_time = s.class_time::text
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		INNER JOIN class_sessions cs ON cs.class_key = cg.class_key AND cs.session_number = $1
+		WHERE cs.status = 'completed'
+		AND NOT EXISTS (
+			SELECT 1 FROM community_officer_feedback cof
+			WHERE cof.lead_id = l.id AND cof.class_key = cs.class_key AND cof.session_number = $1
+		)
+		ORDER BY l.full_name
+	`, sessionNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query pending feedback: %w", err)
+	}
+	defer rows.Close()
+
+	var results []struct {
+		LeadID   uuid.UUID
+		FullName string
+		Phone    string
+		ClassKey string
+	}
+	for rows.Next() {
+		var r struct {
+			LeadID   uuid.UUID
+			FullName string
+			Phone    string
+			ClassKey string
+		}
+		if err := rows.Scan(&r.LeadID, &r.FullName, &r.Phone, &r.ClassKey); err != nil {
+			return nil, fmt.Errorf("failed to scan: %w", err)
+		}
+		results = append(results, r)
+	}
+
+	return results, rows.Err()
+}
+
+// LogAbsenceFollowUp logs a follow-up action for an absence
+func LogAbsenceFollowUp(leadID uuid.UUID, sessionID uuid.UUID, messageSent bool, reason, studentReply, actionTaken, notes string, createdByUserID uuid.UUID) error {
+	now := time.Now()
+	var sessionIDNull sql.NullString
+	if sessionID != uuid.Nil {
+		sessionIDNull = sql.NullString{String: sessionID.String(), Valid: true}
+	}
+
+	_, err := db.DB.Exec(`
+		INSERT INTO absence_follow_up_logs (id, lead_id, session_id, message_sent, reason, student_reply, action_taken, notes, created_by_user_id, created_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, leadID, sessionIDNull, messageSent, reason, studentReply, actionTaken, notes, createdByUserID, now)
+	return err
+}
+
+// GetAbsenceFollowUpLogs returns all follow-up logs for a student
+func GetAbsenceFollowUpLogs(leadID uuid.UUID) ([]*AbsenceFollowUpLog, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, lead_id, session_id, message_sent, reason, student_reply, action_taken, notes, created_by_user_id, created_at
+		FROM absence_follow_up_logs
+		WHERE lead_id = $1
+		ORDER BY created_at DESC
+	`, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query follow-up logs: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []*AbsenceFollowUpLog
+	for rows.Next() {
+		l := &AbsenceFollowUpLog{}
+		var sessionID, reason, studentReply, actionTaken, notes, createdByUserID sql.NullString
+
+		err := rows.Scan(
+			&l.ID, &l.LeadID, &sessionID, &l.MessageSent,
+			&reason, &studentReply, &actionTaken, &notes, &createdByUserID, &l.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan log: %w", err)
+		}
+
+		l.SessionID = sessionID
+		l.Reason = reason
+		l.StudentReply = studentReply
+		l.ActionTaken = actionTaken
+		l.Notes = notes
+		l.CreatedByUserID = createdByUserID
+		logs = append(logs, l)
+	}
+
+	return logs, rows.Err()
+}
+
+// GetUsersByRole returns all users with a specific role
+func GetUsersByRole(role string) ([]*User, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, email, password_hash, role, created_at
+		FROM users
+		WHERE role = $1
+		ORDER BY email
+	`, role)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []*User
+	for rows.Next() {
+		u := &User{}
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", err)
+		}
+		users = append(users, u)
+	}
+
+	return users, rows.Err()
+}
+
+// GetAssignedMentors returns all distinct mentors assigned to at least one class, with their class count and evaluation data
+func GetAssignedMentors() ([]struct {
+	User               *User
+	AssignedClassCount int
+	Evaluation         *MentorEvaluation
+}, error) {
+	rows, err := db.DB.Query(`
+		SELECT 
+			u.id, u.email, u.password_hash, u.role, u.created_at, 
+			COUNT(ma.class_key) as assigned_class_count,
+			me.kpi_session_quality, me.kpi_trello, me.kpi_whatsapp, me.kpi_students_feedback,
+			me.attendance_statuses
+		FROM users u
+		INNER JOIN mentor_assignments ma ON u.id = ma.mentor_user_id
+		LEFT JOIN mentor_evaluations me ON u.id = me.mentor_id
+		WHERE u.role = 'mentor'
+		GROUP BY u.id, u.email, u.password_hash, u.role, u.created_at,
+		         me.kpi_session_quality, me.kpi_trello, me.kpi_whatsapp, me.kpi_students_feedback,
+		         me.attendance_statuses
+		ORDER BY u.email
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query assigned mentors: %w", err)
+	}
+	defer rows.Close()
+
+	var results []struct {
+		User               *User
+		AssignedClassCount int
+		Evaluation         *MentorEvaluation
+	}
+
+	for rows.Next() {
+		u := &User{}
+		var count int
+		var kpiSessionQuality, kpiTrello, kpiWhatsapp, kpiStudentsFeedback sql.NullInt32
+		var attendanceStatusesJSON sql.NullString
+
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &count,
+			&kpiSessionQuality, &kpiTrello, &kpiWhatsapp, &kpiStudentsFeedback, &attendanceStatusesJSON); err != nil {
+			return nil, fmt.Errorf("failed to scan mentor: %w", err)
+		}
+
+		var eval *MentorEvaluation
+		if kpiSessionQuality.Valid {
+			eval = &MentorEvaluation{
+				MentorID:            u.ID,
+				KPISessionQuality:   int(kpiSessionQuality.Int32),
+				KPITrello:           int(kpiTrello.Int32),
+				KPIWhatsapp:         int(kpiWhatsapp.Int32),
+				KPIStudentsFeedback: int(kpiStudentsFeedback.Int32),
+			}
+			if attendanceStatusesJSON.Valid {
+				// Parse JSON array
+				var statuses []string
+				if err := json.Unmarshal([]byte(attendanceStatusesJSON.String), &statuses); err == nil {
+					eval.AttendanceStatuses = statuses
+				} else {
+					// Default to unknown if parse fails
+					eval.AttendanceStatuses = []string{"unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"}
+				}
+			} else {
+				eval.AttendanceStatuses = []string{"unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"}
+			}
+		}
+
+		results = append(results, struct {
+			User               *User
+			AssignedClassCount int
+			Evaluation         *MentorEvaluation
+		}{
+			User:               u,
+			AssignedClassCount: count,
+			Evaluation:         eval,
+		})
+	}
+
+	return results, rows.Err()
+}
+
+// UpsertMentorEvaluation creates or updates a mentor evaluation
+func UpsertMentorEvaluation(mentorID uuid.UUID, evaluatorID uuid.UUID, kpiSessionQuality, kpiTrello, kpiWhatsapp, kpiStudentsFeedback int, attendanceStatuses []string) error {
+	// Validate attendance statuses
+	if len(attendanceStatuses) != 8 {
+		return fmt.Errorf("attendance statuses must have exactly 8 elements")
+	}
+	for _, status := range attendanceStatuses {
+		if status != "on-time" && status != "late" && status != "absent" && status != "unknown" {
+			return fmt.Errorf("invalid attendance status: %s (must be on-time, late, absent, or unknown)", status)
+		}
+	}
+
+	// Validate KPIs (0-100)
+	if kpiSessionQuality < 0 || kpiSessionQuality > 100 {
+		return fmt.Errorf("kpi_session_quality must be between 0 and 100")
+	}
+	if kpiTrello < 0 || kpiTrello > 100 {
+		return fmt.Errorf("kpi_trello must be between 0 and 100")
+	}
+	if kpiWhatsapp < 0 || kpiWhatsapp > 100 {
+		return fmt.Errorf("kpi_whatsapp must be between 0 and 100")
+	}
+	if kpiStudentsFeedback < 0 || kpiStudentsFeedback > 100 {
+		return fmt.Errorf("kpi_students_feedback must be between 0 and 100")
+	}
+
+	// Convert attendance statuses to JSON
+	statusesJSON, err := json.Marshal(attendanceStatuses)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attendance statuses: %w", err)
+	}
+
+	// Upsert (INSERT ... ON CONFLICT UPDATE)
+	_, err = db.DB.Exec(`
+		INSERT INTO mentor_evaluations (mentor_id, kpi_session_quality, kpi_trello, kpi_whatsapp, kpi_students_feedback, attendance_statuses, evaluator_id, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())
+		ON CONFLICT (mentor_id) DO UPDATE SET
+			kpi_session_quality = EXCLUDED.kpi_session_quality,
+			kpi_trello = EXCLUDED.kpi_trello,
+			kpi_whatsapp = EXCLUDED.kpi_whatsapp,
+			kpi_students_feedback = EXCLUDED.kpi_students_feedback,
+			attendance_statuses = EXCLUDED.attendance_statuses,
+			evaluator_id = EXCLUDED.evaluator_id,
+			updated_at = NOW()
+	`, mentorID, kpiSessionQuality, kpiTrello, kpiWhatsapp, kpiStudentsFeedback, string(statusesJSON), evaluatorID)
+	if err != nil {
+		return fmt.Errorf("failed to upsert mentor evaluation: %w", err)
+	}
+
+	return nil
+}
+
+// GetUserByID returns a user by ID
+func GetUserByID(userID string) (*User, error) {
+	u := &User{}
+	err := db.DB.QueryRow(`
+		SELECT id, email, password_hash, role, created_at
+		FROM users
+		WHERE id = $1
+	`, userID).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	return u, nil
+}
+
+// GetClassGroupByKey returns a class group by class_key
+func GetClassGroupByKey(classKey string) (*ClassGroupWorkflow, error) {
+	return GetClassGroupWorkflow(classKey)
+}
+
+// GetSessionByID returns a session by ID
+func GetSessionByID(sessionID uuid.UUID) (*ClassSession, error) {
+	s := &ClassSession{}
+	var scheduledTime, scheduledEndTime, actualTime, actualEndTime sql.NullString
+	var actualDate, completedAt sql.NullTime
+
+	err := db.DB.QueryRow(`
+		SELECT id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time,
+		       actual_date, actual_time, actual_end_time, status, completed_at, created_at, updated_at
+		FROM class_sessions
+		WHERE id = $1
+	`, sessionID).Scan(
+		&s.ID, &s.ClassKey, &s.SessionNumber, &s.ScheduledDate,
+		&scheduledTime, &scheduledEndTime, &actualDate, &actualTime, &actualEndTime,
+		&s.Status, &completedAt, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+
+	s.ScheduledTime = scheduledTime
+	s.ScheduledEndTime = scheduledEndTime
+	s.ActualDate = actualDate
+	s.ActualTime = actualTime
+	s.ActualEndTime = actualEndTime
+	s.CompletedAt = completedAt
+	return s, nil
+}
+
+// GetClassGroupsSentToMentor returns all class groups where sent_to_mentor = true
+func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
+	rows, err := db.DB.Query(`
+		SELECT class_key, level, class_days, class_time, class_number,
+		       sent_to_mentor, sent_at, returned_at, updated_at
+		FROM class_groups
+		WHERE sent_to_mentor = true
+		ORDER BY level, class_days, class_time
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query class groups: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []*ClassGroupWorkflow
+	for rows.Next() {
+		g := &ClassGroupWorkflow{}
+		var sentAt, returnedAt sql.NullTime
+
+		err := rows.Scan(
+			&g.ClassKey, &g.Level, &g.ClassDays, &g.ClassTime, &g.ClassNumber,
+			&g.SentToMentor, &sentAt, &returnedAt, &g.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan class group: %w", err)
+		}
+
+		g.SentAt = sentAt
+		g.ReturnedAt = returnedAt
+		groups = append(groups, g)
+	}
+
+	return groups, rows.Err()
+}
+
+// StudentSuccessClassRow represents one active class for Student Success list.
+type StudentSuccessClassRow struct {
+	ClassKey     string
+	Level        int32
+	ClassDays    string
+	ClassTime    string
+	ClassNumber  int32
+	MentorEmail  string
+	MentorName   string
+	MentorUserID string
+	StudentCount int
+}
+
+// GetActiveClassesForStudentSuccess returns all classes where round_status = 'active'.
+// Includes mentor email/name (if assigned), schedule, level, class_number, student_count.
+func GetActiveClassesForStudentSuccess() ([]StudentSuccessClassRow, error) {
+	rows, err := db.DB.Query(`
+		SELECT cg.class_key, cg.level, cg.class_days, cg.class_time, cg.class_number,
+		       COALESCE(u.email, ''), COALESCE(u.email, ''), COALESCE(ma.mentor_user_id::text, '')
+		FROM class_groups cg
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+		LEFT JOIN users u ON u.id = ma.mentor_user_id
+		WHERE cg.round_status = 'active'
+		ORDER BY cg.level, cg.class_days, cg.class_time
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query active classes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []StudentSuccessClassRow
+	for rows.Next() {
+		var r StudentSuccessClassRow
+		if err := rows.Scan(&r.ClassKey, &r.Level, &r.ClassDays, &r.ClassTime, &r.ClassNumber,
+			&r.MentorEmail, &r.MentorName, &r.MentorUserID); err != nil {
+			return nil, fmt.Errorf("failed to scan: %w", err)
+		}
+		students, _ := GetStudentsInClassGroup(r.ClassKey)
+		r.StudentCount = len(students)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// GetAttendanceMissedSessions returns map of lead_id -> slice of missed session numbers for a class.
+func GetAttendanceMissedSessions(classKey string) (map[uuid.UUID][]int32, error) {
+	rows, err := db.DB.Query(`
+		SELECT a.lead_id, cs.session_number
+		FROM attendance a
+		INNER JOIN class_sessions cs ON cs.id = a.session_id
+		WHERE cs.class_key = $1 AND a.status = 'ABSENT'
+		ORDER BY cs.session_number
+	`, classKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	m := make(map[uuid.UUID][]int32)
+	for rows.Next() {
+		var id uuid.UUID
+		var n int32
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		m[id] = append(m[id], n)
+	}
+	return m, rows.Err()
+}
+
+// GetStudentSuccessClassDetail returns class + students (with missed_sessions) + sessions + feedback for round_status='active' classes.
+func GetStudentSuccessClassDetail(classKey string) (classGroup *ClassGroupWorkflow, students []*ClassStudent, sessions []*ClassSession, missedSessions map[uuid.UUID][]int32, feedbackRecords []*CommunityOfficerFeedback, completedCount int, err error) {
+	classGroup, err = GetClassGroupByKey(classKey)
+	if err != nil || classGroup == nil {
+		return nil, nil, nil, nil, nil, 0, err
+	}
+	if classGroup.RoundStatus != "active" {
+		return nil, nil, nil, nil, nil, 0, fmt.Errorf("class is not active")
+	}
+	students, err = GetStudentsInClassGroup(classKey)
+	if err != nil {
+		return nil, nil, nil, nil, nil, 0, err
+	}
+	sessions, err = GetClassSessions(classKey)
+	if err != nil {
+		sessions = nil
+	}
+	missedSessions, _ = GetAttendanceMissedSessions(classKey)
+	if missedSessions == nil {
+		missedSessions = make(map[uuid.UUID][]int32)
+	}
+
+	feedbackRecords, _ = GetClassFeedbackRecords(classKey)
+	if feedbackRecords == nil {
+		feedbackRecords = []*CommunityOfficerFeedback{}
+	}
+
+	for _, s := range sessions {
+		if s.Status == "completed" {
+			completedCount++
+		}
+	}
+
+	return classGroup, students, sessions, missedSessions, feedbackRecords, completedCount, nil
+}
+
+// GetStudentsInClassGroup returns all students in a class group
+func GetStudentsInClassGroup(classKey string) ([]*ClassStudent, error) {
+	rows, err := db.DB.Query(`
+		SELECT l.id, l.full_name, l.phone, s.class_group_index
+		FROM leads l
+		INNER JOIN scheduling s ON s.lead_id = l.id
+		INNER JOIN placement_tests pt ON pt.lead_id = l.id
+		INNER JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND cg.class_time = s.class_time::text
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		WHERE cg.class_key = $1
+		ORDER BY l.full_name
+	`, classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query students: %w", err)
+	}
+	defer rows.Close()
+
+	var students []*ClassStudent
+	for rows.Next() {
+		s := &ClassStudent{}
+		var groupIndex sql.NullInt32
+
+		err := rows.Scan(&s.LeadID, &s.FullName, &s.Phone, &groupIndex)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan student: %w", err)
+		}
+
+		s.GroupIndex = groupIndex
+		students = append(students, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return students, nil
+}
+
+// StartClassRound starts the round for a class group: sets status to 'active' and creates 8 sessions
+func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.Time, startTime string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+
+	// 1. Update class_groups round status
+	res, err := tx.Exec(`
+		UPDATE class_groups 
+		SET round_status = 'active', 
+			round_started_at = $1, 
+			round_started_by = $2,
+			updated_at = $3
+		WHERE class_key = $4
+	`, now, startedByUserID, now, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to update class group status: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("class group not found: %s", classKey)
+	}
+
+	// 2. Create 8 sessions
+	// Parse time ensuring HH:MM format
+	parsedTime, err := time.Parse("15:04", startTime)
+	if err != nil {
+		// Try other formats if needed or just fail
+		parsedTime, err = time.Parse("15:04:05", startTime)
+		if err != nil {
+			return fmt.Errorf("invalid time format %q: %v", startTime, err)
+		}
+	}
+	formattedTime := parsedTime.Format("15:04")
+
+	for i := 1; i <= 8; i++ {
+		sessionDate := startDate.AddDate(0, 0, (i-1)*7)
+		sessionID := uuid.New()
+
+		_, err := tx.Exec(`
+			INSERT INTO class_sessions (id, class_key, session_number, scheduled_date, scheduled_time, status, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5::TIME, $6, $7, $8)
+		`, sessionID, classKey, i, sessionDate, formattedTime, "scheduled", now, now)
+
+		if err != nil {
+			return fmt.Errorf("failed to create session %d: %w", i, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetAbsenceFeed returns attendance events for a class (ABSENT/LATE) along with follow-up info
+func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error) {
+	query := `
+		SELECT 
+			s.session_number,
+			s.scheduled_date,
+			s.scheduled_time::TEXT,
+			l.id,
+			l.full_name,
+			l.phone,
+			a.status,
+			COALESCE(u.email, 'unknown'),
+			a.created_at,
+			a.notes,
+			f.id,
+			f.status,
+			f.note,
+			f.updated_at,
+			f.resolved,
+			f.resolved_at
+		FROM class_sessions s
+		JOIN attendance a ON s.id = a.session_id
+		JOIN leads l ON a.lead_id = l.id
+		LEFT JOIN users u ON a.marked_by_user_id = u.id
+		LEFT JOIN followups f ON f.class_key = s.class_key AND f.lead_id = l.id AND f.session_number = s.session_number
+		WHERE s.class_key = $1 AND a.status IN ('ABSENT', 'LATE')
+	`
+	args := []interface{}{classKey}
+	argIdx := 2
+
+	if filter != "" && filter != "all" {
+		switch filter {
+		case "unresolved":
+			query += " AND (f.resolved IS NULL OR f.resolved = false)"
+		case "absent":
+			query += " AND a.status = 'ABSENT'"
+		case "late":
+			query += " AND a.status = 'LATE'"
+		}
+	}
+
+	if search != "" {
+		query += fmt.Sprintf(" AND (l.full_name ILIKE $%d OR l.phone ILIKE $%d)", argIdx, argIdx)
+		args = append(args, "%"+search+"%")
+		argIdx++
+	}
+
+	query += " ORDER BY s.session_number DESC, a.created_at DESC"
+
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query absence feed: %w", err)
+	}
+	defer rows.Close()
+
+	results := []*AbsenceFeedItem{}
+	for rows.Next() {
+		item := &AbsenceFeedItem{}
+		var fID sql.NullString
+		var fStatus sql.NullString
+		var fNote sql.NullString
+		var fUpdatedAt sql.NullTime
+		var fResolved sql.NullBool
+		var fResolvedAt sql.NullTime
+		var mNote sql.NullString
+		var sDate time.Time
+
+		err := rows.Scan(
+			&item.SessionNumber,
+			&sDate,
+			&item.StartTime,
+			&item.StudentID,
+			&item.StudentName,
+			&item.StudentPhone,
+			&item.Status,
+			&item.MarkedBy,
+			&item.MarkedAt,
+			&mNote,
+			&fID,
+			&fStatus,
+			&fNote,
+			&fUpdatedAt,
+			&fResolved,
+			&fResolvedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan absence feed item: %w", err)
+		}
+
+		item.SessionDate = sDate.Format("2006-01-02")
+		item.MentorNote = mNote.String
+
+		if fID.Valid {
+			fid, _ := uuid.Parse(fID.String)
+			item.FollowUp = &FollowUpInfo{
+				ID:         fid,
+				Status:     fStatus.String,
+				LastNote:   fNote.String,
+				UpdatedAt:  fUpdatedAt.Time,
+				Resolved:   fResolved.Bool,
+				ResolvedAt: fResolvedAt,
+			}
+		}
+
+		results = append(results, item)
+	}
+
+	return results, rows.Err()
+}
+
+// CreateFollowUp creates or updates a follow-up note
+func CreateFollowUp(classKey string, leadID uuid.UUID, sessionNumber int, note string, status string, createdBy uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		ON CONFLICT (class_key, lead_id, session_number) 
+		DO UPDATE SET note = $4, status = $5, created_by = $6, updated_at = NOW()
+	`, classKey, leadID, sessionNumber, note, status, createdBy)
+	return err
+}
+
+// ResolveFollowUp marks a follow-up as resolved
+func ResolveFollowUp(id uuid.UUID, resolvedBy uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		UPDATE followups 
+		SET resolved = true, resolved_at = NOW(), resolved_by_user_id = $1, updated_at = NOW()
+		WHERE id = $2
+	`, resolvedBy, id)
+	return err
+}
+
+// UpdateFollowUpStatus updates the status of a follow-up
+func UpdateFollowUpStatus(id uuid.UUID, status string) error {
+	_, err := db.DB.Exec(`
+		UPDATE followups SET status = $1, updated_at = NOW() WHERE id = $2
+	`, status, id)
+	return err
+}
+
+// UpdateFollowUp handles generic update of follow-up details
+func UpdateFollowUp(id uuid.UUID, status, note string, resolved bool, userID uuid.UUID) error {
+	var err error
+	if resolved {
+		_, err = db.DB.Exec(`
+			UPDATE followups 
+			SET status = $1, note = $2, resolved = true, resolved_at = NOW(), resolved_by_user_id = $3, updated_at = NOW()
+			WHERE id = $4
+		`, status, note, userID, id)
+	} else {
+		_, err = db.DB.Exec(`
+			UPDATE followups 
+			SET status = $1, note = $2, updated_at = NOW()
+			WHERE id = $3
+		`, status, note, id)
+	}
+	return err
 }

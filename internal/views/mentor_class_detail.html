@@ -1,0 +1,388 @@
+{{define "mentor_class_detail_content"}}
+<style>
+/* Smooth scroll behavior for anchor links */
+html {
+    scroll-behavior: smooth;
+}
+/* Ensure student panel has scroll margin for fixed headers */
+[id^="student-"] {
+    scroll-margin-top: 20px;
+}
+/* Notes history dropdown */
+.notes-history-list {
+    display: none;
+}
+.notes-history-list.expanded {
+    display: block;
+}
+</style>
+<script>
+// Scroll restoration using sessionStorage - prevents page "yanking" on navigation
+(function() {
+    var scrollKey = 'mentor_class_scroll';
+    
+    // Save scroll position before navigation
+    function saveScroll() {
+        sessionStorage.setItem(scrollKey, window.scrollY.toString());
+    }
+    
+    // Restore scroll position on page load
+    function restoreScroll() {
+        var savedScroll = sessionStorage.getItem(scrollKey);
+        if (savedScroll !== null) {
+            var scrollY = parseInt(savedScroll, 10);
+            // Restore immediately, then again after a short delay to ensure DOM is fully rendered
+            window.scrollTo(0, scrollY);
+            setTimeout(function() {
+                window.scrollTo(0, scrollY);
+                sessionStorage.removeItem(scrollKey);
+            }, 50);
+        }
+    }
+    
+    // Attach save scroll to all forms and links in class workspace
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initScrollRestore);
+    } else {
+        initScrollRestore();
+    }
+    
+    function initScrollRestore() {
+        // Save scroll before form submits
+        var forms = document.querySelectorAll('form');
+        forms.forEach(function(form) {
+            form.addEventListener('submit', saveScroll);
+        });
+        
+        // Save scroll before link clicks (for student cards, close panel, etc.)
+        var links = document.querySelectorAll('a[href*="class_key"], a[href^="#student-"], a[href*="student_id"]');
+        links.forEach(function(link) {
+            link.addEventListener('click', saveScroll);
+        });
+        
+        // Restore scroll after page loads
+        restoreScroll();
+    }
+})();
+</script>
+<div class="header content-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo" />
+    <h1>Class Workspace</h1>
+</div>
+
+{{if .Class.ClassKey}}
+<p style="margin-bottom: 16px;">{{if .IsMentorHeadView}}<a href="/mentor-head" class="btn btn-secondary">← Back to Mentor Head</a>{{else}}<a href="/mentor" class="btn btn-secondary">← Back to My Classes</a>{{end}}</p>
+{{end}}
+
+{{/* A) Improved Header with badges */}}
+<div style="margin-bottom: 24px; padding: 16px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+    <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+        <span style="background: rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 14px;">Level {{.Class.Level}}</span>
+        <span style="background: rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 6px; font-size: 14px;">{{.Class.ClassDays}}</span>
+        <span style="background: rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 6px; font-size: 14px;">{{.Class.ClassTime}}</span>
+        <span style="background: rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 14px;">Class #{{.Class.ClassNumber}}</span>
+        <span style="background: rgba(255,255,255,0.3); padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 14px; margin-left: auto;">Sessions {{.CompletedCount}} / 8</span>
+    </div>
+</div>
+
+{{if not .Sessions}}
+<div style="padding: 24px; text-align: center; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; margin-bottom: 20px;">
+    <p style="color: #856404; margin: 0;">No sessions yet. Round may not have started. Mentor Head can start the round from the dashboard.</p>
+</div>
+{{else}}
+{{/* B) Sessions strip with status badges */}}
+<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
+    {{range .Sessions}}
+    {{$sel := eq .SessionNumber $.SelectedSession}}
+    {{$statusColor := "#6c757d"}}
+    {{if eq .Status "completed"}}{{$statusColor = "#28a745"}}{{else if eq .Status "scheduled"}}{{$statusColor = "#007bff"}}{{end}}
+    {{if $sel}}
+    <span style="display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; border-radius: 8px; font-weight: 600; background: #007bff; color: white; box-shadow: 0 2px 4px rgba(0,123,255,0.3);">
+        Session {{.SessionNumber}}
+        <span style="background: rgba(255,255,255,0.3); padding: 2px 6px; border-radius: 4px; font-size: 11px; text-transform: uppercase;">{{.Status}}</span>
+    </span>
+    {{else}}
+    <a href="{{if $.IsMentorHeadView}}/mentor-head/class{{else}}/mentor/class{{end}}?class_key={{urlquery $.Class.ClassKey}}&session={{.SessionNumber}}{{if $.SelectedStudent}}&student_id={{$.SelectedStudent.LeadID}}{{end}}" 
+       style="display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; border-radius: 8px; background: white; border: 2px solid {{$statusColor}}; color: {{$statusColor}}; text-decoration: none; font-weight: 500; transition: all 0.2s;">
+        Session {{.SessionNumber}}
+        <span style="background: {{$statusColor}}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; text-transform: uppercase;">{{.Status}}</span>
+    </a>
+    {{end}}
+    {{end}}
+</div>
+
+{{/* Complete button for selected session only (mentor, not mentor head) */}}
+{{if not .IsMentorHeadView}}
+{{range .Sessions}}
+{{if eq .SessionNumber $.SelectedSession}}
+{{if eq .Status "scheduled"}}
+<form method="POST" action="/mentor/session/complete" style="margin-bottom: 24px;">
+    <input type="hidden" name="session_id" value="{{.ID}}">
+    <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+    <input type="hidden" name="session" value="{{$.SelectedSession}}">
+    {{if $.SelectedStudent}}<input type="hidden" name="student_id" value="{{$.SelectedStudent.LeadID}}">{{end}}
+    <button type="submit" class="btn btn-primary" style="padding: 10px 20px; font-size: 15px; font-weight: 600;">✓ Complete session {{.SessionNumber}}</button>
+</form>
+{{end}}
+{{end}}
+{{end}}
+{{end}}
+{{end}}
+
+{{/* Student Panel (when student_id is in query) */}}
+{{if .SelectedStudent}}
+{{$st := .SelectedStudent}}
+<div id="student-{{$st.LeadID}}" style="background: white; border: 2px solid #007bff; border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); scroll-margin-top: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px solid #e9ecef;">
+        <div>
+            <h2 style="margin: 0 0 4px 0; font-size: 20px; color: #212529;">{{$st.FullName}}</h2>
+            <p style="margin: 0; color: #6c757d; font-size: 14px;">{{$st.Phone}}</p>
+        </div>
+        <a href="{{if $.IsMentorHeadView}}/mentor-head/class{{else}}/mentor/class{{end}}?class_key={{urlquery $.Class.ClassKey}}{{if $.Sessions}}&session={{$.SelectedSession}}{{end}}" 
+           class="btn btn-secondary" style="padding: 8px 16px;">Close panel</a>
+    </div>
+
+    {{/* Attendance grid for all sessions */}}
+    {{if $.Sessions}}
+    <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 16px; margin-bottom: 12px; color: #495057;">Attendance (Sessions 1-8)</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px;">
+            {{range $.Sessions}}
+            {{$att := index $st.Attendance .ID}}
+            <div style="padding: 12px; background: #f8f9fa; border-radius: 8px; text-align: center; border: 2px solid {{if $att}}#28a745{{else}}#dc3545{{end}};">
+                <div style="font-size: 12px; color: #6c757d; margin-bottom: 4px;">S{{.SessionNumber}}</div>
+                {{if $.IsMentorHeadView}}
+                <div style="font-weight: 600; color: {{if $att}}#28a745{{else}}#dc3545{{end}};">{{if $att}}P{{else}}A{{end}}</div>
+                {{else}}
+                <form method="POST" action="/mentor/attendance" style="display: inline-block; margin-right: 4px;">
+                    <input type="hidden" name="session_id" value="{{.ID}}">
+                    <input type="hidden" name="lead_id" value="{{$st.LeadID}}">
+                    <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+                    <input type="hidden" name="session" value="{{$.SelectedSession}}">
+                    <input type="hidden" name="student_id" value="{{$st.LeadID}}">
+                    <input type="hidden" name="attended" value="1">
+                    <button type="submit" class="btn btn-small" style="padding: 4px 8px; font-size: 11px; {{if $att}}background: #28a745; color: white;{{else}}background: #e9ecef; color: #666;{{end}}">P</button>
+                </form>
+                <form method="POST" action="/mentor/attendance" style="display: inline-block;">
+                    <input type="hidden" name="session_id" value="{{.ID}}">
+                    <input type="hidden" name="lead_id" value="{{$st.LeadID}}">
+                    <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+                    <input type="hidden" name="session" value="{{$.SelectedSession}}">
+                    <input type="hidden" name="student_id" value="{{$st.LeadID}}">
+                    <input type="hidden" name="attended" value="0">
+                    <button type="submit" class="btn btn-small" style="padding: 4px 8px; font-size: 11px; {{if not $att}}background: #dc3545; color: white;{{else}}background: #e9ecef; color: #666;{{end}}">A</button>
+                </form>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{else}}
+    <div style="margin-bottom: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px;">
+        <p style="color: #856404; margin: 0;">No sessions yet. Attendance will be available after round starts.</p>
+    </div>
+    {{end}}
+
+    {{/* Notes section: Latest note + collapsible history */}}
+    <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 16px; margin-bottom: 12px; color: #495057;">Notes</h3>
+        
+        {{if $st.Notes}}
+        {{$notesCount := len $st.Notes}}
+        {{$latestNote := index $st.Notes 0}}
+        
+        {{/* Latest note (always visible) */}}
+        <div style="background: white; padding: 12px; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #007bff; position: relative;">
+            <div style="font-size: 11px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">Latest Note</div>
+            <div style="font-size: 13px; color: #495057; margin-bottom: 4px; padding-right: 60px;">{{$latestNote.NoteText}}</div>
+            <div style="font-size: 11px; color: #6c757d;">
+                {{if $latestNote.CreatedByEmail.Valid}}{{$latestNote.CreatedByEmail.String}}{{else}}System{{end}} · 
+                {{if $latestNote.SessionNumber.Valid}}Session {{$latestNote.SessionNumber.Int32}} · {{end}}
+                {{$latestNote.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}
+            </div>
+            {{/* Delete button for latest note */}}
+            {{$canDeleteLatest := false}}
+            {{if eq $.UserRole "mentor_head"}}{{$canDeleteLatest = true}}{{end}}
+            {{if eq $.UserRole "admin"}}{{$canDeleteLatest = true}}{{end}}
+            {{if and (eq $.UserRole "mentor") $latestNote.CreatedByUserID.Valid (eq $latestNote.CreatedByUserID.String $.CurrentUserID)}}{{$canDeleteLatest = true}}{{end}}
+            {{if $canDeleteLatest}}
+            <form method="POST" action="/mentor/note?note_id={{$latestNote.ID}}&class_key={{urlquery $.Class.ClassKey}}{{if $.Sessions}}&session={{$.SelectedSession}}{{end}}&student_id={{$st.LeadID}}" 
+                  style="position: absolute; top: 8px; right: 8px;" 
+                  onsubmit="return confirm('Are you sure you want to delete this note?');">
+                <input type="hidden" name="note_id" value="{{$latestNote.ID}}">
+                <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+                {{if $.Sessions}}<input type="hidden" name="session" value="{{$.SelectedSession}}">{{end}}
+                <input type="hidden" name="student_id" value="{{$st.LeadID}}">
+                <button type="submit" style="background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Delete</button>
+            </form>
+            {{end}}
+        </div>
+        
+        {{/* Collapsible history dropdown (if more than 1 note) */}}
+        {{if gt $notesCount 1}}
+        {{$remainingCount := sub $notesCount 1}}
+        <div style="margin-bottom: 12px;">
+            <button type="button" id="toggle-notes-{{$st.LeadID}}" onclick="var list = document.getElementById('notes-history-{{$st.LeadID}}'); var btn = document.getElementById('toggle-notes-{{$st.LeadID}}'); list.classList.toggle('expanded'); btn.textContent = list.classList.contains('expanded') ? 'Hide history ({{$remainingCount}} older)' : 'View all notes ({{$notesCount}})';" 
+                    style="background: #f8f9fa; border: 1px solid #dee2e6; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #495057; cursor: pointer;">
+                View all notes ({{$notesCount}})
+            </button>
+        </div>
+        <div id="notes-history-{{$st.LeadID}}" class="notes-history-list" style="max-height: 300px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; background: #f8f9fa;">
+            {{$isFirst := true}}
+            {{range $st.Notes}}
+            {{if not $isFirst}}
+            <div style="background: white; padding: 12px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #007bff; position: relative;">
+                <div style="font-size: 13px; color: #495057; margin-bottom: 4px; padding-right: 60px;">{{.NoteText}}</div>
+                <div style="font-size: 11px; color: #6c757d;">
+                    {{if .CreatedByEmail.Valid}}{{.CreatedByEmail.String}}{{else}}System{{end}} · 
+                    {{if .SessionNumber.Valid}}Session {{.SessionNumber.Int32}} · {{end}}
+                    {{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}
+                </div>
+                {{/* Delete button for history notes */}}
+                {{$canDelete := false}}
+                {{if eq $.UserRole "mentor_head"}}{{$canDelete = true}}{{end}}
+                {{if eq $.UserRole "admin"}}{{$canDelete = true}}{{end}}
+                {{if and (eq $.UserRole "mentor") .CreatedByUserID.Valid (eq .CreatedByUserID.String $.CurrentUserID)}}{{$canDelete = true}}{{end}}
+                {{if $canDelete}}
+                <form method="POST" action="/mentor/note?note_id={{.ID}}&class_key={{urlquery $.Class.ClassKey}}{{if $.Sessions}}&session={{$.SelectedSession}}{{end}}&student_id={{$st.LeadID}}" 
+                      style="position: absolute; top: 8px; right: 8px;" 
+                      onsubmit="return confirm('Are you sure you want to delete this note?');">
+                    <input type="hidden" name="note_id" value="{{.ID}}">
+                    <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+                    {{if $.Sessions}}<input type="hidden" name="session" value="{{$.SelectedSession}}">{{end}}
+                    <input type="hidden" name="student_id" value="{{$st.LeadID}}">
+                    <button type="submit" style="background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Delete</button>
+                </form>
+                {{end}}
+            </div>
+            {{end}}
+            {{$isFirst = false}}
+            {{end}}
+        </div>
+        {{end}}
+        {{else}}
+        <p style="color: #6c757d; font-style: italic; margin-bottom: 12px;">No notes yet.</p>
+        {{end}}
+        
+        {{/* Add note form (always visible) */}}
+        <form method="POST" action="/mentor/note" style="margin-top: 12px;">
+            <input type="hidden" name="lead_id" value="{{$st.LeadID}}">
+            <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+            {{if $.Sessions}}<input type="hidden" name="session_number" value="{{$.SelectedSession}}">{{end}}
+            {{if $.Sessions}}<input type="hidden" name="session" value="{{$.SelectedSession}}">{{end}}
+            <input type="hidden" name="student_id" value="{{$st.LeadID}}">
+            <div style="display: flex; gap: 8px;">
+                <input type="text" name="note_text" placeholder="Add a new note..." style="flex: 1; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px;">
+                <button type="submit" class="btn btn-primary" style="padding: 10px 20px;">Add Note</button>
+            </div>
+        </form>
+    </div>
+
+    {{/* Grade (only when session 8 and sessions exist) */}}
+    {{if and $.Sessions (eq $.SelectedSession 8)}}
+    <div>
+        <h3 style="font-size: 16px; margin-bottom: 12px; color: #495057;">Grade</h3>
+        {{if $.IsMentorHeadView}}
+        <p style="font-size: 18px; font-weight: 600; color: #495057;">{{if $st.Grade}}{{$st.Grade.Grade}}{{else}}—{{end}}</p>
+        {{else}}
+        <form method="POST" action="/mentor/grade" style="display: flex; gap: 8px; align-items: center;">
+            <input type="hidden" name="lead_id" value="{{$st.LeadID}}">
+            <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+            <input type="hidden" name="session" value="8">
+            <input type="hidden" name="student_id" value="{{$st.LeadID}}">
+            <select name="grade" style="padding: 10px 12px; font-size: 15px; border: 2px solid #ced4da; border-radius: 6px; font-weight: 600; min-width: 80px;">
+                <option value="A" {{if and $st.Grade (eq $st.Grade.Grade "A")}}selected{{end}}>A</option>
+                <option value="B" {{if and $st.Grade (eq $st.Grade.Grade "B")}}selected{{end}}>B</option>
+                <option value="C" {{if and $st.Grade (eq $st.Grade.Grade "C")}}selected{{end}}>C</option>
+                <option value="F" {{if and $st.Grade (eq $st.Grade.Grade "F")}}selected{{end}}>F</option>
+            </select>
+            <button type="submit" class="btn btn-primary" style="padding: 10px 20px;">Save Grade</button>
+        </form>
+        {{end}}
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{/* C) Student cards - clickable - ALWAYS RENDERED (outside sessions conditional) */}}
+<h2 style="font-size: 20px; margin-top: 24px; margin-bottom: 16px; color: #212529;">Students</h2>
+{{if not .Students}}
+<p style="color: #6c757d; padding: 24px; text-align: center; background: #f8f9fa; border-radius: 8px;">No students in this class.</p>
+{{else}}
+<div style="display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
+{{range .Students}}
+{{$st := .}}
+<a href="{{if $.IsMentorHeadView}}/mentor-head/class{{else}}/mentor/class{{end}}?class_key={{urlquery $.Class.ClassKey}}{{if $.Sessions}}&session={{$.SelectedSession}}{{end}}&student_id={{$st.LeadID}}#student-{{$st.LeadID}}" 
+   style="text-decoration: none; color: inherit; display: block;">
+<div style="border: 2px solid #dee2e6; border-radius: 12px; padding: 20px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.08); transition: all 0.2s; cursor: pointer; {{if and $.SelectedStudent (eq $.SelectedStudent.LeadID $st.LeadID)}}border-color: #007bff; box-shadow: 0 4px 12px rgba(0,123,255,0.2);{{end}}">
+    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+        <div style="flex: 1;">
+            <div style="font-weight: 600; font-size: 16px; color: #212529; margin-bottom: 4px;">{{.FullName}}</div>
+            <div style="font-size: 13px; color: #6c757d; margin-bottom: 8px;">{{.Phone}}</div>
+        </div>
+        <span style="background: {{if eq .MissedCount 0}}#28a745{{else if le .MissedCount 2}}#ffc107{{else}}#dc3545{{end}}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;">
+            {{.MissedCount}} missed
+        </span>
+    </div>
+
+    {{/* Quick attendance for selected session (only if sessions exist) */}}
+    {{if $.Sessions}}
+    {{range $.Sessions}}
+    {{if eq .SessionNumber $.SelectedSession}}
+    <div style="margin-bottom: 12px; padding: 8px; background: #f8f9fa; border-radius: 6px;">
+        {{$att := index $st.Attendance .ID}}
+        <div style="font-size: 12px; color: #6c757d; margin-bottom: 4px;">Session {{.SessionNumber}}</div>
+        {{if $.IsMentorHeadView}}
+        <span style="font-weight: 600; color: {{if $att}}#28a745{{else}}#dc3545{{end}};">{{if $att}}Present{{else}}Absent{{end}}</span>
+        {{else}}
+        <div style="display: flex; gap: 4px;">
+            <form method="POST" action="/mentor/attendance" style="flex: 1;" onclick="event.stopPropagation();">
+                <input type="hidden" name="session_id" value="{{.ID}}">
+                <input type="hidden" name="lead_id" value="{{$st.LeadID}}">
+                <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+                <input type="hidden" name="session" value="{{$.SelectedSession}}">
+                <input type="hidden" name="attended" value="1">
+                <button type="submit" class="btn btn-small" style="width: 100%; padding: 6px; font-size: 12px; {{if $att}}background: #28a745; color: white;{{else}}background: #e9ecef; color: #666;{{end}}">Present</button>
+            </form>
+            <form method="POST" action="/mentor/attendance" style="flex: 1;" onclick="event.stopPropagation();">
+                <input type="hidden" name="session_id" value="{{.ID}}">
+                <input type="hidden" name="lead_id" value="{{$st.LeadID}}">
+                <input type="hidden" name="class_key" value="{{$.Class.ClassKey}}">
+                <input type="hidden" name="session" value="{{$.SelectedSession}}">
+                <input type="hidden" name="attended" value="0">
+                <button type="submit" class="btn btn-small" style="width: 100%; padding: 6px; font-size: 12px; {{if not $att}}background: #dc3545; color: white;{{else}}background: #e9ecef; color: #666;{{end}}">Absent</button>
+            </form>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+    {{end}}
+    {{else}}
+    <div style="margin-bottom: 12px; padding: 8px; background: #fff3cd; border-radius: 6px;">
+        <div style="font-size: 12px; color: #856404;">No sessions yet. Attendance will be available after round starts.</div>
+    </div>
+    {{end}}
+
+    {{/* Last note preview */}}
+    {{if .LastNote}}
+    <div style="padding: 8px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 4px; margin-bottom: 8px;">
+        <div style="font-size: 12px; color: #856404; margin-bottom: 2px;">{{.LastNote.NoteText}}</div>
+        <div style="font-size: 10px; color: #856404;">
+            {{if .LastNote.CreatedByEmail.Valid}}{{.LastNote.CreatedByEmail.String}}{{else}}System{{end}} · {{.LastNote.CreatedAt.Format "Jan 2"}}
+        </div>
+    </div>
+    {{end}}
+
+    {{/* Grade preview (session 8 only, and only if sessions exist) */}}
+    {{if and $.Sessions (eq $.SelectedSession 8)}}
+    <div style="padding: 8px; background: #d1ecf1; border-left: 3px solid #0c5460; border-radius: 4px;">
+        <div style="font-size: 12px; color: #0c5460; font-weight: 600;">Grade: {{if $st.Grade}}{{$st.Grade.Grade}}{{else}}—{{end}}</div>
+    </div>
+    {{end}}
+</div>
+</a>
+{{end}}
+</div>
+{{end}}
+
+{{end}}

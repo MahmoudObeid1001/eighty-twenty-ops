@@ -18,6 +18,24 @@
         </div>
         <nav style="flex: 1;">
             <ul>
+                {{if eq .UserRole "admin"}}
+                <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
+                <li><a href="/classes">Classes</a></li>
+                <li><a href="/finance">Finance</a></li>
+                <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
+                <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
+                {{else if eq .UserRole "moderator"}}
+                <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
+                {{else if eq .UserRole "mentor_head"}}
+                <li><a href="/app/mentor-head">Learning</a></li>
+                <li><a href="/app/mentor-head">Classes</a></li>
+                {{else if eq .UserRole "mentor"}}
+                <li><a href="/app/mentor">Learning</a></li>
+                {{else if eq .UserRole "community_officer"}}
+                <li><a href="/learning">Learning</a></li>
+                {{else if eq .UserRole "hr"}}
+                <li><a href="/learning">Learning</a></li>
+                {{else}}
                 <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
                 {{if not .IsModerator}}
                 <li><a href="/classes">Classes</a></li>
@@ -25,6 +43,7 @@
                 {{end}}
                 <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
                 <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
+                {{end}}
             </ul>
         </nav>
         <div style="padding: 20px; border-top: 1px solid #8C8C8C; margin-top: auto;">
@@ -51,6 +70,16 @@
             {{template "finance_new_expense_content" .}}
         {{else if eq .ContentTemplate "access_restricted_content"}}
             {{template "access_restricted_content" .}}
+        {{else if eq .ContentTemplate "mentor_head_content"}}
+            {{template "mentor_head_content" .}}
+        {{else if eq .ContentTemplate "mentor_content"}}
+            {{template "mentor_content" .}}
+        {{else if eq .ContentTemplate "mentor_class_detail_content"}}
+            {{template "mentor_class_detail_content" .}}
+        {{else if eq .ContentTemplate "community_officer_content"}}
+            {{template "community_officer_content" .}}
+        {{else if eq .ContentTemplate "hr_mentors_content"}}
+            {{template "hr_mentors_content" .}}
         {{else}}
             <p>Error: Unknown content template: {{.ContentTemplate}}</p>
         {{end}}

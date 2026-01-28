@@ -15,9 +15,13 @@
     <div>
         <strong>Current Round: {{.CurrentRound}}</strong>
     </div>
+    {{if not .IsClassesReadOnly}}
     <form method="POST" action="/classes/start-round" style="display: inline-block;" onsubmit="return confirm('Start Round? This will move READY and LOCKED classes to IN_CLASSES status. NOT READY classes will remain for the next round.');">
         <button type="submit" class="btn btn-primary" style="background-color: #28a745; border-color: #28a745;">Start Round</button>
     </form>
+    {{else}}
+    <span style="color: #666; font-size: 14px;">Read-only</span>
+    {{end}}
 </div>
 
 {{if not .Groups}}
@@ -68,11 +72,14 @@
             {{if .SentToMentor}}
             <div style="margin-bottom: 15px; padding: 10px; background-color: #f0f0f0; border-radius: 4px; text-align: center;">
                 <span style="color: #666; font-size: 14px;">Sent to Mentor Head</span>
-                <form method="POST" action="/classes/{{.ClassKey}}/return" style="display: inline-block; margin-left: 10px;">
+                {{if not $.IsClassesReadOnly}}
+                <form method="POST" action="/classes/return" style="display: inline-block; margin-left: 10px;">
+                    <input type="hidden" name="class_key" value="{{.ClassKey}}">
                     <button type="submit" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;">Return</button>
                 </form>
+                {{end}}
             </div>
-            {{else if or (eq .Readiness "READY") (eq .Readiness "LOCKED")}}
+            {{else if and (not $.IsClassesReadOnly) (or (eq .Readiness "READY") (eq .Readiness "LOCKED"))}}
             <div style="margin-bottom: 15px;">
                 <form method="POST" action="/classes/send" style="display: block;">
                     <input type="hidden" name="class_key" value="{{.ClassKey}}">
@@ -98,7 +105,7 @@
                         </div>
                         <div style="display: flex; gap: 8px;">
                             <a href="/pre-enrolment/{{.LeadID}}" class="btn btn-primary btn-small" style="padding: 4px 12px; font-size: 12px;">Open</a>
-                            {{if not $parentGroup.SentToMentor}}
+                            {{if and (not $.IsClassesReadOnly) (not $parentGroup.SentToMentor)}}
                             <form method="POST" action="/classes/move" style="display: inline-block;">
                                 <input type="hidden" name="lead_id" value="{{.LeadID}}">
                                 <select name="target_group" onchange="this.form.submit()" style="padding: 4px 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px;">
@@ -113,6 +120,10 @@
                                     <option value="0">Create New Class</option>
                                 </select>
                             </form>
+                            {{else if not $parentGroup.SentToMentor}}
+                            <select disabled style="padding: 4px 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; background-color: #f0f0f0; color: #999;">
+                                <option>Move disabled (read-only)</option>
+                            </select>
                             {{else}}
                             <select disabled style="padding: 4px 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; background-color: #f0f0f0; color: #999;">
                                 <option>Move disabled</option>

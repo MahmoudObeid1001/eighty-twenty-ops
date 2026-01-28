@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -65,17 +66,29 @@ func ValidateSessionCookie(cookie *http.Cookie, secret string) (userID, userEmai
 	return userID, userEmail, userRole, nil
 }
 
+func redirectToLoginWithNext(w http.ResponseWriter, r *http.Request) {
+	next := r.URL.Path
+	if r.URL.RawQuery != "" {
+		next += "?" + r.URL.RawQuery
+	}
+	if next != "" && next != "/" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusFound)
+}
+
 func RequireAuth(next http.HandlerFunc, secret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("eighty_twenty_session")
 		if err != nil {
-			http.Redirect(w, r, "/login", http.StatusFound)
+			redirectToLoginWithNext(w, r)
 			return
 		}
 
 		userID, userEmail, userRole, err := ValidateSessionCookie(cookie, secret)
 		if err != nil {
-			http.Redirect(w, r, "/login", http.StatusFound)
+			redirectToLoginWithNext(w, r)
 			return
 		}
 

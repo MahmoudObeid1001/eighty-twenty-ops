@@ -1,0 +1,36 @@
+{{define "hr_mentors_content"}}
+<div class="header content-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo" />
+    <h1>HR · Mentors</h1>
+</div>
+
+{{if eq .created "1"}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Mentor created successfully. They will appear in the Mentor Head assign dropdown.</div>
+{{end}}
+{{if eq .error "email_and_password_required"}}
+<div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; color: #721C24; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Email and password are required.</div>
+{{end}}
+{{if eq .error "password_too_short"}}
+<div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; color: #721C24; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Password must be at least 6 characters.</div>
+{{end}}
+{{if eq .error "email_exists"}}
+<div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; color: #721C24; padding: 12px; border-radius: 4px; margin-bottom: 20px;">A user with this email already exists.</div>
+{{end}}
+{{if eq .error "create_failed"}}
+<div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; color: #721C24; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Failed to create mentor. Please try again.</div>
+{{end}}
+
+<p style="margin-bottom: 20px; color: #666;">Create new mentor users. New mentors appear in the Mentor Head assign dropdown on <strong>/mentor-head</strong>.</p>
+
+<form method="POST" action="/hr/mentors" style="max-width: 400px; padding: 20px; background: #f9f9f9; border-radius: 8px; border: 1px solid #e6e6e6;">
+    <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 14px; margin-bottom: 6px;">Email</label>
+        <input type="email" name="email" required placeholder="mentor@example.com" style="width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px;">
+    </div>
+    <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 14px; margin-bottom: 6px;">Password</label>
+        <input type="password" name="password" required minlength="6" placeholder="min 6 characters" style="width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px;">
+    </div>
+    <button type="submit" class="btn btn-primary" style="padding: 8px 20px;">Create mentor</button>
+</form>
+{{end}}

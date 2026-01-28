@@ -14,13 +14,21 @@
    ```
 
 2. **Set environment variables (optional):**
-   Create a `.env` file based on `.env.example`:
+   Create a `.env` file (or set env vars). Example:
    ```bash
    DATABASE_URL=postgres://postgres:postgres@localhost:5432/eighty_twenty_ops?sslmode=disable
    PORT=3000
    SESSION_SECRET=change-this-to-a-random-secret-in-production
    ADMIN_EMAIL=admin@eightytwenty.test
    ADMIN_PASSWORD=admin123
+   MODERATOR_EMAIL=moderator@eightytwenty.test
+   MODERATOR_PASSWORD=moderator123
+   MENTOR_HEAD_EMAIL=mentor_head@eightytwenty.test
+   MENTOR_HEAD_PASSWORD=mentor_head123
+   MENTOR_EMAIL=mentor@eightytwenty.test
+   MENTOR_PASSWORD=mentor123
+   COMMUNITY_OFFICER_EMAIL=community_officer@eightytwenty.test
+   COMMUNITY_OFFICER_PASSWORD=community_officer123
    ```
 
 3. **Install Go dependencies:**
@@ -36,19 +44,25 @@
 5. **Access the application:**
    - URL: http://localhost:3000
    - Default logins:
-     - **Admin:** `admin@eightytwenty.test` / `admin123` (or values from `ADMIN_EMAIL` / `ADMIN_PASSWORD` env vars)
-     - **Moderator:** `moderator@eightytwenty.test` / `moderator123` (or values from `MODERATOR_EMAIL` / `MODERATOR_PASSWORD` env vars)
+     - **Admin:** `admin@eightytwenty.test` / `admin123` (or `ADMIN_EMAIL` / `ADMIN_PASSWORD`)
+     - **Moderator:** `moderator@eightytwenty.test` / `moderator123` (or `MODERATOR_EMAIL` / `MODERATOR_PASSWORD`)
+     - **Mentor Head:** `mentor_head@eightytwenty.test` / `mentor_head123` (or `MENTOR_HEAD_EMAIL` / `MENTOR_HEAD_PASSWORD`)
+     - **Mentor:** `mentor@eightytwenty.test` / `mentor123` (or `MENTOR_EMAIL` / `MENTOR_PASSWORD`)
+     - **Community Officer:** `community_officer@eightytwenty.test` / `community_officer123` (or `COMMUNITY_OFFICER_EMAIL` / `COMMUNITY_OFFICER_PASSWORD`)
 
 ### Authentication & Roles
 
 - All routes except `/login` and `/static/*` require authentication
 - Sessions are stored in signed cookies (`eighty_twenty_session`)
-- Default admin and moderator users are automatically created on first server start if they don't exist
+- Default admin, moderator, mentor_head, mentor, and community_officer users are automatically created on first server start if they don't exist
 - After login, users are redirected to `/pre-enrolment`
 
 **Role Permissions:**
-- **Admin:** Full access - can create, view, edit, delete leads, update lead status, manage payments/offers/refunds, access Classes and Finance pages
-- **Moderator:** Limited access - can create leads, view leads, and edit **only** basic lead info (name, phone, source, notes) to fix mistakes. Cannot delete leads, change status, see/edit payments/offers/pricing, or access Classes/Finance pages
+- **Admin:** Full access - can create, view, edit, delete leads, update lead status, manage payments/offers/refunds, access Classes, Finance, Mentor Head, Mentor, and Community Officer pages
+- **Moderator:** Limited access - can create leads, view leads, and edit **only** basic lead info (name, phone, source, notes) to fix mistakes. Cannot delete leads, change status, see/edit payments/offers/pricing, or access Classes/Finance/Mentor sections
+- **Mentor Head:** Access `/mentor-head` - assign mentors to classes, return classes to Operations, cancel/reschedule sessions, close rounds
+- **Mentor:** Access `/mentor` and assigned class detail - mark attendance, enter grades, add notes, complete sessions
+- **Community Officer:** Access `/community-officer` - submit feedback (sessions 4 & 8), log absence follow-up
 
 ### Features
 

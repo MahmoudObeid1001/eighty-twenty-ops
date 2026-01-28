@@ -51,15 +51,19 @@
             <input type="checkbox" name="include_cancelled" value="1" {{if .IncludeCancelled}}checked{{end}} onchange="this.form.submit()">
             Show cancelled leads
         </label>
+        <label class="filter-checkbox" style="display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 500;">
+            <input type="checkbox" name="follow_up" value="high_priority" {{if eq .FollowUpFilter "high_priority"}}checked{{end}} onchange="this.form.submit()">
+            High Priority Follow-Up
+        </label>
         <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
     </form>
     <div class="quick-filters">
-        <a href="/pre-enrolment?hot=1{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .HotFilter "1"}}active{{end}}" style="{{if eq .HotFilter "1"}}background-color: #FF6B6B; color: white; border-color: #FF6B6B;{{end}}">🔥 Hot Leads</a>
-        <a href="/pre-enrolment?status=NEW_LEAD{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "NEW_LEAD"}}active{{end}}">Needs Test</a>
-        <a href="/pre-enrolment?status=TESTED{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "TESTED"}}active{{end}}">Tested</a>
-        <a href="/pre-enrolment?status=OFFER_SENT{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "OFFER_SENT"}}active{{end}}">Offer Sent</a>
-        <a href="/pre-enrolment?status=SCHEDULE_SET{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "SCHEDULE_SET"}}active{{end}}">Waiting</a>
-        <a href="/pre-enrolment?status=READY_TO_START{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}" class="quick-filter-btn {{if eq .StatusFilter "READY_TO_START"}}active{{end}}">Ready to Start</a>
+        <a href="/pre-enrolment?hot=1{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .HotFilter "1"}}active{{end}}" style="{{if eq .HotFilter "1"}}background-color: #FF6B6B; color: white; border-color: #FF6B6B;{{end}}">🔥 Hot Leads</a>
+        <a href="/pre-enrolment?status=NEW_LEAD{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "NEW_LEAD"}}active{{end}}">Needs Test</a>
+        <a href="/pre-enrolment?status=TESTED{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "TESTED"}}active{{end}}">Tested</a>
+        <a href="/pre-enrolment?status=OFFER_SENT{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "OFFER_SENT"}}active{{end}}">Offer Sent</a>
+        <a href="/pre-enrolment?status=SCHEDULE_SET{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "SCHEDULE_SET"}}active{{end}}">Waiting</a>
+        <a href="/pre-enrolment?status=READY_TO_START{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "READY_TO_START"}}active{{end}}">Ready to Start</a>
     </div>
 </div>
 
