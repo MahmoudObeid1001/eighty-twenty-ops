@@ -3068,7 +3068,7 @@ func GetMentorClasses(mentorUserID uuid.UUID) ([]*ClassGroupWorkflow, error) {
 		       cg.sent_to_mentor, cg.sent_at, cg.returned_at, cg.updated_at
 		FROM class_groups cg
 		INNER JOIN mentor_assignments ma ON cg.class_key = ma.class_key
-		WHERE ma.mentor_user_id = $1
+		WHERE ma.mentor_user_id = $1 AND cg.sent_to_mentor = true
 		ORDER BY cg.level, cg.class_days, cg.class_time
 	`, mentorUserID)
 	if err != nil {
@@ -3201,6 +3201,12 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 		return fmt.Errorf("failed to return class: %w", err)
 	}
 
+	// Clean up mentor assignment
+	_, err = tx.Exec(`DELETE FROM mentor_assignments WHERE class_key = $1`, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to delete mentor assignment: %w", err)
+	}
+
 	return tx.Commit()
 }
 
@@ -3221,7 +3227,7 @@ func SubmitFeedback(leadID uuid.UUID, classKey string, sessionNumber int32, feed
 // GetClassFeedbackRecords returns all feedback records for a given class.
 func GetClassFeedbackRecords(classKey string) ([]*CommunityOfficerFeedback, error) {
 	rows, err := db.DB.Query(`
-		SELECT id, lead_id, class_key, session_number, feedback_text, follow_up_required, created_by_user_id, created_at, updated_at
+		SELECT id, lead_id, class_key, session_number, feedback_text, follow_up_required, status, created_by_user_id, created_at, updated_at
 		FROM community_officer_feedback
 		WHERE class_key = $1
 		ORDER BY session_number, created_at DESC
@@ -3234,8 +3240,14 @@ func GetClassFeedbackRecords(classKey string) ([]*CommunityOfficerFeedback, erro
 	var results []*CommunityOfficerFeedback
 	for rows.Next() {
 		f := &CommunityOfficerFeedback{}
-		if err := rows.Scan(&f.ID, &f.LeadID, &f.ClassKey, &f.SessionNumber, &f.FeedbackText, &f.FollowUpRequired, &f.CreatedByUserID, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		var status sql.NullString
+		if err := rows.Scan(&f.ID, &f.LeadID, &f.ClassKey, &f.SessionNumber, &f.FeedbackText, &f.FollowUpRequired, &status, &f.CreatedByUserID, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if status.Valid {
+			f.Status = status.String
+		} else {
+			f.Status = "sent" // Default for existing records
 		}
 		results = append(results, f)
 	}
@@ -3824,7 +3836,10 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 		JOIN leads l ON a.lead_id = l.id
 		LEFT JOIN users u ON a.marked_by_user_id = u.id
 		LEFT JOIN followups f ON f.class_key = s.class_key AND f.lead_id = l.id AND f.session_number = s.session_number
-		WHERE s.class_key = $1 AND a.status IN ('ABSENT', 'LATE')
+		WHERE s.class_key = $1 
+		  AND a.status IN ('ABSENT', 'LATE')
+		  AND (f.resolved IS NULL OR f.resolved = false)
+		  AND (f.status IS NULL OR f.status != 'no_response')
 	`
 	args := []interface{}{classKey}
 	argIdx := 2
@@ -3832,7 +3847,9 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 	if filter != "" && filter != "all" {
 		switch filter {
 		case "unresolved":
-			query += " AND (f.resolved IS NULL OR f.resolved = false)"
+			// Item is already filtered by base query, but let's keep it explicit if needed.
+			// Actually, the base query now handles "unresolved" by default.
+			// We can leave this as a no-op or remove it.
 		case "absent":
 			query += " AND a.status = 'ABSENT'"
 		case "late":
@@ -3954,5 +3971,56 @@ func UpdateFollowUp(id uuid.UUID, status, note string, resolved bool, userID uui
 			WHERE id = $3
 		`, status, note, id)
 	}
+	return err
+}
+
+// GetFollowUps returns follow-up records for a class, filtered by resolved status
+func GetFollowUps(classKey string, resolved bool) ([]*FollowUpListItem, error) {
+	rows, err := db.DB.Query(`
+		SELECT 
+			f.id, f.lead_id, l.full_name, l.phone, f.session_number, 
+			a.status as attendance_status, f.note, f.status, f.created_at, f.resolved, f.resolved_at
+		FROM followups f
+		JOIN leads l ON f.lead_id = l.id
+		LEFT JOIN class_sessions s ON s.class_key = f.class_key AND s.session_number = f.session_number
+		LEFT JOIN attendance a ON a.session_id = s.id AND a.lead_id = f.lead_id
+		WHERE f.class_key = $1 AND f.resolved = $2 AND f.status = 'no_response'
+		ORDER BY f.created_at DESC
+	`, classKey, resolved)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query follow-ups: %w", err)
+	}
+	defer rows.Close()
+
+	results := []*FollowUpListItem{}
+	for rows.Next() {
+		item := &FollowUpListItem{}
+		var note sql.NullString
+		var resolvedAt sql.NullTime
+		var attStatus sql.NullString
+		if err := rows.Scan(
+			&item.ID, &item.LeadID, &item.StudentName, &item.StudentPhone, &item.SessionNumber,
+			&attStatus, &note, &item.Status, &item.CreatedAt, &item.Resolved, &resolvedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan follow-up: %w", err)
+		}
+		item.Note = note.String
+		item.AttendanceStatus = attStatus.String
+		if resolvedAt.Valid {
+			item.ResolvedAt = &resolvedAt.Time
+		}
+		results = append(results, item)
+	}
+	return results, rows.Err()
+}
+
+// ResolveAbsence marks an absence as resolved, creating a follow-up record if necessary
+func ResolveAbsence(classKey string, leadID uuid.UUID, sessionNumber int, resolvedBy uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at, resolved, resolved_at, resolved_by_user_id)
+		VALUES ($1, $2, $3, '', 'none', $4, NOW(), true, NOW(), $4)
+		ON CONFLICT (class_key, lead_id, session_number) 
+		DO UPDATE SET resolved = true, resolved_at = NOW(), resolved_by_user_id = $4, updated_at = NOW()
+	`, classKey, leadID, sessionNumber, resolvedBy)
 	return err
 }

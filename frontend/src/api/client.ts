@@ -2,7 +2,9 @@
 const API_BASE = '/api'
 
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const url = `${API_BASE}${endpoint}`
+  // console.log(`[DEBUG] fetchAPI: ${url}`)
+  const response = await fetch(url, {
     ...options,
     credentials: 'include', // Send cookies
     headers: {
@@ -298,6 +300,12 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  updateFeedbackStatus: (leadID: string, classKey: string, sessionNumber: number, status: 'received' | 'removed'): Promise<{ status: string }> =>
+    fetchAPI('/student-success/feedback/status', {
+      method: 'POST',
+      body: JSON.stringify({ lead_id: leadID, class_key: classKey, session_number: sessionNumber, status }),
+    }),
+
   markAttendance: (
     sessionId: string,
     leadId: string,
@@ -319,6 +327,15 @@ export const api = {
   getAbsenceFeed: (classKey: string, filter: string = '', search: string = ''): Promise<AbsenceFeedItem[]> =>
     fetchAPI(`/student-success/class/absence-feed?class_key=${encodeURIComponent(classKey)}&filter=${encodeURIComponent(filter)}&search=${encodeURIComponent(search)}`),
 
+  getFollowUps: (classKey: string, resolved: boolean = false): Promise<any[]> =>
+    fetchAPI(`/student-success/followups?class_key=${encodeURIComponent(classKey)}&resolved=${resolved}`),
+
+  resolveAbsence: (data: { class_key: string; lead_id: string; session_number: number }): Promise<{ ok: boolean }> =>
+    fetchAPI('/student-success/resolve-absence', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   addFollowUp: (data: {
     class_key: string
     lead_id: string
@@ -332,18 +349,18 @@ export const api = {
     }),
 
   updateFollowUpStatus: (id: string, status: string): Promise<{ ok: boolean }> =>
-    fetchAPI('/student-success/followups/update', {
+    fetchAPI(`/student-success/followups/update`, {
       method: 'POST',
       body: JSON.stringify({ id, status }),
     }),
 
   resolveFollowUp: (id: string): Promise<{ ok: boolean }> =>
-    fetchAPI(`/api/absence-cases/${encodeURIComponent(id)}/resolve`, {
+    fetchAPI(`/absence-cases/${encodeURIComponent(id)}/resolve`, {
       method: 'POST',
     }),
 
   updateFollowUp: (id: string, data: { status: string; note: string; resolved: boolean }): Promise<{ ok: boolean }> =>
-    fetchAPI(`/api/absence-cases/${encodeURIComponent(id)}/follow-up`, {
+    fetchAPI(`/absence-cases/${encodeURIComponent(id)}/follow-up`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

@@ -266,7 +266,7 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -449,7 +449,7 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
-	} else if userRole != "admin" {
+	} else if userRole != "admin" && userRole != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -501,7 +501,7 @@ func (h *APIHandler) CompleteSession(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
-	} else if userRole != "admin" {
+	} else if userRole != "admin" && userRole != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -559,7 +559,7 @@ func (h *APIHandler) GetNotes(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -644,7 +644,7 @@ func (h *APIHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -721,7 +721,7 @@ func (h *APIHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You can only delete your own notes")
 			return
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -738,7 +738,7 @@ func (h *APIHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 // GET /api/student?student_id=... - returns student profile for ID card
 func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor" && userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -1604,7 +1604,7 @@ func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Reque
 		}
 		entry := &FeedbackEntry{
 			SessionNumber:    f.SessionNumber,
-			Status:           "sent",
+			Status:           f.Status,
 			FeedbackText:     f.FeedbackText,
 			FollowUpRequired: f.FollowUpRequired,
 		}
@@ -1690,6 +1690,81 @@ func (h *APIHandler) GetAbsenceFeed(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, feed)
 }
 
+// GET /api/student-success/followups
+func (h *APIHandler) GetFollowUps(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "student_success" && role != "mentor_head" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
+		return
+	}
+
+	classKey := r.URL.Query().Get("class_key")
+	if classKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+
+	resolvedStr := r.URL.Query().Get("resolved")
+	resolved := resolvedStr == "true"
+
+	log.Printf("DEBUG: GetFollowUps called with class_key: %q, resolved: %v", classKey, resolved)
+
+	followUps, err := models.GetFollowUps(classKey, resolved)
+	if err != nil {
+		log.Printf("ERROR: Failed to get follow-ups: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load follow-ups")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, followUps)
+}
+
+// POST /api/student-success/resolve-absence
+func (h *APIHandler) ResolveAbsence(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "student_success" && role != "mentor_head" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
+		return
+	}
+
+	var req struct {
+		ClassKey      string `json:"class_key"`
+		LeadID        string `json:"lead_id"`
+		SessionNumber int    `json:"session_number"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	leadID, err := uuid.Parse(req.LeadID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	userID, _ := uuid.Parse(userIDStr)
+
+	if err := models.ResolveAbsence(req.ClassKey, leadID, req.SessionNumber, userID); err != nil {
+		log.Printf("ERROR: Failed to resolve absence: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to resolve absence")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // POST /api/student-success/followups
 func (h *APIHandler) CreateFollowUp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1724,6 +1799,8 @@ func (h *APIHandler) CreateFollowUp(w http.ResponseWriter, r *http.Request) {
 
 	userIDStr := middleware.GetUserID(r)
 	userID, _ := uuid.Parse(userIDStr)
+
+	log.Printf("DEBUG: CreateFollowUp called with class_key: %q, lead_id: %s, session: %d", req.ClassKey, req.LeadID, req.SessionNumber)
 
 	if err := models.CreateFollowUp(req.ClassKey, leadID, req.SessionNumber, req.Note, req.Status, userID); err != nil {
 		log.Printf("ERROR: Failed to create follow-up: %v", err)
@@ -1895,7 +1972,7 @@ func (h *APIHandler) CompleteSessionByNumber(w http.ResponseWriter, r *http.Requ
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -1949,6 +2026,57 @@ func (h *APIHandler) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 	if err := models.SubmitFeedback(leadID, req.ClassKey, req.SessionNumber, req.FeedbackText, req.FollowUpRequired, userID); err != nil {
 		log.Printf("ERROR: Failed to submit feedback: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to submit feedback")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+// UpdateFeedbackStatus updates the status of sent feedback (received/removed)
+func (h *APIHandler) UpdateFeedbackStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "student_success" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Student Success or Admin access required")
+		return
+	}
+
+	var req struct {
+		LeadID        string `json:"lead_id"`
+		ClassKey      string `json:"class_key"`
+		SessionNumber int32  `json:"session_number"`
+		Status        string `json:"status"` // "received" or "removed"
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	leadID, err := uuid.Parse(req.LeadID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+
+	if req.Status != "received" && req.Status != "removed" {
+		jsonError(w, http.StatusBadRequest, "Invalid status. Must be 'received' or 'removed'")
+		return
+	}
+
+	rowsAffected, err := models.UpdateFeedbackStatus(leadID, req.ClassKey, req.SessionNumber, req.Status)
+	if err != nil {
+		log.Printf("ERROR: Failed to update feedback status: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to update feedback status")
+		return
+	}
+	if rowsAffected == 0 {
+		log.Printf("WARNING: UpdateFeedbackStatus affected 0 rows for lead_id=%s class_key=%s session=%d", leadID, req.ClassKey, req.SessionNumber)
+		jsonError(w, http.StatusNotFound, "No feedback row updated for this lead/class/session combo")
 		return
 	}
 

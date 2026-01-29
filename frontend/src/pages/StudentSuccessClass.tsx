@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, type StudentSuccessClassDetail } from '../api/client'
+import StudentModal from '../components/StudentModal'
 
 type Tab = 'students' | 'absence' | 'followups' | 'feedback'
 
@@ -12,6 +13,14 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
   const [viewFeedback, setViewFeedback] = useState<{ student_name: string; session: number; text: string } | null>(null)
   const [feedbackText, setFeedbackText] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // IMMEDIATE UI: Track which rows should be hidden
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
+
+  // Sync hiddenIds when students change (reset on refetch)
+  useEffect(() => {
+    setHiddenIds(new Set())
+  }, [students])
 
   async function handleSubmit() {
     if (!selected || !feedbackText) return
@@ -34,6 +43,23 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
     }
   }
 
+  const handleStatusUpdate = async (leadId: string, session: number, status: 'received' | 'removed') => {
+    try {
+      await api.updateFeedbackStatus(leadId, classKey, session, status)
+
+      // Task 1: Immediate Row Removal (Frontend)
+      setHiddenIds(prev => {
+        const next = new Set(prev)
+        next.add(leadId)
+        return next
+      })
+
+      onUpdate()
+    } catch (err) {
+      alert(`Failed to update status: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }
+
   return (
     <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6' }}>
       <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
@@ -49,57 +75,84 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
             </tr>
           </thead>
           <tbody>
-            {students.map((s) => (
-              <tr key={s.lead_id} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '12px' }}>
-                  <div style={{ fontWeight: 600 }}>{s.full_name}</div>
-                </td>
-                <td style={{ padding: '12px' }}>
-                  {s.s4 ? (
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <span style={{ color: '#155724', background: '#d4edda', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>
-                        ✓ SENT
-                      </span>
+            {students
+              .filter(s => {
+                // Task 1: Immediate Row Removal (Frontend)
+                if (hiddenIds.has(s.lead_id)) return false
+
+                const s4Pending = !s.s4 || s.s4.status === 'sent'
+                const s8Pending = !s.s8 || s.s8.status === 'sent'
+                return s4Pending || s8Pending
+              })
+              .map((s) => (
+                <tr key={s.lead_id} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '12px' }}>
+                    <div style={{ fontWeight: 600 }}>{s.full_name}</div>
+                  </td>
+                  <td style={{ padding: '12px' }}>
+                    {s.s4 ? (
+                      s.s4.status === 'sent' ? (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            onClick={() => handleStatusUpdate(s.lead_id, 4, 'received')}
+                            style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#28a745', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            Received
+                          </button>
+                          <button
+                            onClick={() => handleStatusUpdate(s.lead_id, 4, 'removed')}
+                            style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#dc3545', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ color: '#28a745', fontWeight: 600, fontSize: '11px' }}>
+                          ✓ COMPLETED
+                        </div>
+                      )
+                    ) : (
                       <button
-                        onClick={() => setViewFeedback({ student_name: s.full_name, session: 4, text: s.s4.feedback_text })}
-                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #6c757d', background: '#fff', color: '#6c757d', fontSize: '11px', cursor: 'pointer' }}
+                        onClick={() => setSelected({ lead_id: s.lead_id, full_name: s.full_name, session_number: 4 })}
+                        style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#007bff', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
                       >
-                        View
+                        Send
                       </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setSelected({ lead_id: s.lead_id, full_name: s.full_name, session_number: 4 })}
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #007bff', background: '#fff', color: '#007bff', fontSize: '12px', cursor: 'pointer' }}
-                    >
-                      Send S4 Feedback
-                    </button>
-                  )}
-                </td>
-                <td style={{ padding: '12px' }}>
-                  {s.s8 ? (
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <span style={{ color: '#155724', background: '#d4edda', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>
-                        ✓ SENT
-                      </span>
+                    )}
+                  </td>
+                  <td style={{ padding: '12px' }}>
+                    {s.s8 ? (
+                      s.s8.status === 'sent' ? (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            onClick={() => handleStatusUpdate(s.lead_id, 8, 'received')}
+                            style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#28a745', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            Received
+                          </button>
+                          <button
+                            onClick={() => handleStatusUpdate(s.lead_id, 8, 'removed')}
+                            style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#dc3545', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ color: '#28a745', fontWeight: 600, fontSize: '11px' }}>
+                          ✓ COMPLETED
+                        </div>
+                      )
+                    ) : (
                       <button
-                        onClick={() => setViewFeedback({ student_name: s.full_name, session: 8, text: s.s8.feedback_text })}
-                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #6c757d', background: '#fff', color: '#6c757d', fontSize: '11px', cursor: 'pointer' }}
+                        onClick={() => setSelected({ lead_id: s.lead_id, full_name: s.full_name, session_number: 8 })}
+                        style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#007bff', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
                       >
-                        View
+                        Send
                       </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setSelected({ lead_id: s.lead_id, full_name: s.full_name, session_number: 8 })}
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #007bff', background: '#fff', color: '#007bff', fontSize: '12px', cursor: 'pointer' }}
-                    >
-                      Send S8 Feedback
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+                    )}
+                  </td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>
@@ -161,16 +214,26 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
 
 export default function StudentSuccessClass() {
   const [searchParams] = useSearchParams()
-  const classKey = searchParams.get('class_key') || ''
+  const classKey = searchParams.get('class_key') || localStorage.getItem('student_success_class_key') || ''
   const [data, setData] = useState<StudentSuccessClassDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('students')
   const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null)
+  const [followUpModal, setFollowUpModal] = useState<{ open: boolean; item: any | null }>({
+    open: false,
+    item: null,
+  })
+  const [refreshNonce, setRefreshNonce] = useState(0)
+
+  const triggerRefresh = () => setRefreshNonce(n => n + 1)
 
   useEffect(() => {
-    if (classKey) loadClass()
-    else {
+    if (classKey) {
+      // Save to localStorage for refresh persistence
+      localStorage.setItem('student_success_class_key', classKey)
+      loadClass()
+    } else {
       setError('class_key is required')
       setLoading(false)
     }
@@ -178,17 +241,21 @@ export default function StudentSuccessClass() {
 
   async function loadClass() {
     try {
+      console.log('AUDIT: Loading class with classKey:', classKey)
       setLoading(true)
       setError(null)
       const me = await api.getMe()
-      if (me.role !== 'student_success') {
-        setError('No access. Student Success only.')
+      console.log('AUDIT: Current user role:', me.role)
+      if (me.role !== 'student_success' && me.role !== 'admin') {
+        setError('No access. Student Success or Admin only.')
         setLoading(false)
         return
       }
       const res = await api.getStudentSuccessClass(classKey)
+      console.log('AUDIT: API response feedback count:', res.feedback?.length)
       setData(res)
     } catch (err) {
+      console.error('AUDIT: Load class error:', err)
       setError(err instanceof Error ? err.message : 'Failed to load class')
     } finally {
       setLoading(false)
@@ -397,14 +464,20 @@ export default function StudentSuccessClass() {
       )}
 
       {tab === 'absence' && (
-        <AbsenceFeed classKey={classKey} />
+        <AbsenceFeed
+          classKey={classKey}
+          onOpenFollowUp={(item) => setFollowUpModal({ open: true, item })}
+          refreshNonce={refreshNonce}
+          triggerRefresh={triggerRefresh}
+        />
       )}
 
       {tab === 'followups' && (
-        <div style={{ padding: '24px', background: '#f9f9f9', borderRadius: '8px' }}>
-          <h2 style={{ fontSize: '18px', marginBottom: '12px' }}>Follow-ups</h2>
-          <p style={{ color: '#666' }}>Placeholder. Data fetching coming later.</p>
-        </div>
+        <FollowUpsTab
+          classKey={classKey}
+          onOpenFollowUp={(item) => setFollowUpModal({ open: true, item })}
+          refreshNonce={refreshNonce}
+        />
       )}
 
       {tab === 'feedback' && (
@@ -413,29 +486,137 @@ export default function StudentSuccessClass() {
 
 
       {selectedStudent && (
-        <StudentSuccessStudentModal
+        <StudentModal
           student={selectedStudent}
+          classKey={classKey}
+          sessionsCount={data.sessionsCount}
           onClose={() => setSelectedStudent(null)}
         />
+      )}
+
+      {followUpModal.open && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
+          onClick={() => setFollowUpModal({ open: false, item: null })}
+        >
+          <div
+            style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px', maxWidth: '90%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ marginBottom: '16px' }}>Add Follow-up Note</h3>
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
+              Student: <strong>{followUpModal.item.studentName || followUpModal.item.student_name}</strong> (S{followUpModal.item.sessionNumber || followUpModal.item.session_number})
+            </p>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>Status</label>
+              <select
+                id="followup-status"
+                defaultValue={followUpModal.item.followUp?.status || followUpModal.item.status || 'contacted'}
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
+              >
+                <option value="none">None</option>
+                <option value="contacted">Contacted (same day)</option>
+                <option value="not_replied">Not Replied (after 1 day)</option>
+                <option value="no_response">No Response (after 4 days) → Escalates</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>Follow-up Note</label>
+              <textarea
+                id="followup-note"
+                defaultValue={followUpModal.item.followUp?.lastNote || followUpModal.item.note || ''}
+                placeholder="Enter follow-up details..."
+                style={{ width: '100%', height: '100px', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setFollowUpModal({ open: false, item: null })}
+                style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const note = (document.getElementById('followup-note') as HTMLTextAreaElement).value
+                  const status = (document.getElementById('followup-status') as HTMLSelectElement).value
+                  if (!note) return alert('Please enter a note')
+                  try {
+                    const followUpId = followUpModal.item.followUp?.id || (followUpModal.item.status ? followUpModal.item.id : null)
+
+                    if (followUpId) {
+                      await api.updateFollowUp(followUpId, {
+                        status: status,
+                        note: note,
+                        resolved: false
+                      })
+                    } else {
+                      await api.addFollowUp({
+                        class_key: classKey,
+                        lead_id: followUpModal.item.studentId || followUpModal.item.lead_id,
+                        session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number,
+                        note,
+                        status: status
+                      })
+                    }
+                    setFollowUpModal({ open: false, item: null })
+                    await loadClass()
+                    triggerRefresh()
+                    if (status === 'no_response' && tab === 'absence') {
+                      setTab('followups')
+                    }
+                  } catch (err) {
+                    alert(err instanceof Error ? err.message : 'Failed to save note')
+                  }
+                }}
+                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#007bff', color: '#fff', cursor: 'pointer' }}
+              >
+                Save
+              </button>
+              {(followUpModal.item.followUp?.id || followUpModal.item.status) && (
+                <button
+                  onClick={async () => {
+                    const note = (document.getElementById('followup-note') as HTMLTextAreaElement).value
+                    const status = (document.getElementById('followup-status') as HTMLSelectElement).value
+                    if (!note) return alert('Please enter a final note')
+                    if (!confirm('Mark as resolved?')) return
+                    try {
+                      const followUpId = followUpModal.item.followUp?.id || followUpModal.item.id
+                      await api.updateFollowUp(followUpId, {
+                        status: status,
+                        note: note,
+                        resolved: true
+                      })
+                      setFollowUpModal({ open: false, item: null })
+                      await loadClass()
+                      triggerRefresh()
+                    } catch (err) {
+                      alert(err instanceof Error ? err.message : 'Failed to resolve')
+                    }
+                  }}
+                  style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#28a745', color: '#fff', cursor: 'pointer' }}
+                >
+                  Resolve & Close
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </>
   )
 }
 
-function AbsenceFeed({ classKey }: { classKey: string }) {
+function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }: { classKey: string; onOpenFollowUp: (item: any) => void; refreshNonce: number; triggerRefresh: () => void }) {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'unresolved' | 'absent' | 'late'>('all')
   const [search, setSearch] = useState('')
-  const [followUpModal, setFollowUpModal] = useState<{ open: boolean; item: any | null }>({
-    open: false,
-    item: null,
-  })
 
   useEffect(() => {
     loadFeed()
-  }, [classKey, filter, search])
+  }, [classKey, filter, search, refreshNonce])
 
   async function loadFeed() {
     try {
@@ -449,15 +630,28 @@ function AbsenceFeed({ classKey }: { classKey: string }) {
     }
   }
 
-  async function handleMarkResolved(id: string) {
+  async function handleMarkResolved(followUpId: string | undefined, studentId: string, sessionNum: number) {
     if (!confirm('Mark this absence as resolved?')) return
     try {
-      if (id) {
-        await api.resolveFollowUp(id)
+      // Immediate removal from current view (optimistic)
+      setItems(prev => prev.filter(item =>
+        !(item.studentId === studentId && item.sessionNumber === sessionNum)
+      ))
+
+      if (followUpId) {
+        await api.resolveFollowUp(followUpId)
+      } else {
+        await api.resolveAbsence({
+          class_key: classKey,
+          lead_id: studentId,
+          session_number: sessionNum
+        })
       }
+      triggerRefresh()
       await loadFeed()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to resolve')
+      loadFeed()
     }
   }
 
@@ -614,7 +808,7 @@ function AbsenceFeed({ classKey }: { classKey: string }) {
                             W
                           </a>
                           <button
-                            onClick={() => setFollowUpModal({ open: true, item })}
+                            onClick={() => onOpenFollowUp(item)}
                             title="Add Follow-up Note"
                             style={{
                               padding: '4px 8px',
@@ -626,7 +820,22 @@ function AbsenceFeed({ classKey }: { classKey: string }) {
                               cursor: 'pointer'
                             }}
                           >
-                            Note
+                            Follow up
+                          </button>
+                          <button
+                            onClick={() => handleMarkResolved(undefined, item.studentId, item.sessionNumber)}
+                            title="Resolve without follow-up"
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid #6c757d',
+                              background: '#fff',
+                              color: '#6c757d',
+                              fontSize: '11px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Resolve
                           </button>
                           {item.followUp && (
                             item.followUp.resolved ? (
@@ -644,7 +853,7 @@ function AbsenceFeed({ classKey }: { classKey: string }) {
                               </span>
                             ) : (
                               <button
-                                onClick={() => handleMarkResolved(item.followUp.id)}
+                                onClick={() => onOpenFollowUp(item)}
                                 title="Mark Resolved"
                                 style={{
                                   padding: '4px 8px',
@@ -670,167 +879,112 @@ function AbsenceFeed({ classKey }: { classKey: string }) {
           ))
         )}
       </div>
-
-      {followUpModal.open && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
-          onClick={() => setFollowUpModal({ open: false, item: null })}
-        >
-          <div
-            style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px', maxWidth: '90%' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ marginBottom: '16px' }}>Add Follow-up Note</h3>
-            <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
-              Student: <strong>{followUpModal.item.studentName}</strong> (S{followUpModal.item.sessionNumber})
-            </p>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>Status</label>
-              <select
-                id="followup-status"
-                defaultValue={followUpModal.item.followUp?.status || 'contacted'}
-                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
-              >
-                <option value="none">None</option>
-                <option value="contacted">Contacted</option>
-                <option value="replied">Replied</option>
-                <option value="no_response">No Response</option>
-              </select>
-            </div>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>Follow-up Note</label>
-              <textarea
-                id="followup-note"
-                defaultValue={followUpModal.item.followUp?.lastNote || ''}
-                placeholder="Enter follow-up details..."
-                style={{ width: '100%', height: '100px', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setFollowUpModal({ open: false, item: null })}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  const note = (document.getElementById('followup-note') as HTMLTextAreaElement).value
-                  const status = (document.getElementById('followup-status') as HTMLSelectElement).value
-                  if (!note) return alert('Please enter a note')
-                  try {
-                    if (followUpModal.item.followUp) {
-                      await api.updateFollowUp(followUpModal.item.followUp.id, {
-                        status: status,
-                        note: note,
-                        resolved: false
-                      })
-                    } else {
-                      await api.addFollowUp({
-                        class_key: classKey,
-                        lead_id: followUpModal.item.studentId,
-                        session_number: followUpModal.item.sessionNumber,
-                        note,
-                        status: status
-                      })
-                    }
-                    setFollowUpModal({ open: false, item: null })
-                    loadFeed()
-                  } catch (err) {
-                    alert(err instanceof Error ? err.message : 'Failed to save note')
-                  }
-                }}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#007bff', color: '#fff', cursor: 'pointer' }}
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
-function StudentSuccessStudentModal({
-  student,
-  onClose,
-}: {
-  student: StudentRow
-  onClose: () => void
-}) {
+function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: string; onOpenFollowUp: (item: any) => void; refreshNonce: number }) {
+  const [items, setItems] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showResolved, setShowResolved] = useState(false)
+
   useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+    loadFollowUps()
+  }, [classKey, showResolved, refreshNonce])
+
+  async function loadFollowUps() {
+    try {
+      setLoading(true)
+      const res = await api.getFollowUps(classKey, showResolved)
+      setItems(res || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load follow-ups')
+    } finally {
+      setLoading(false)
     }
-    document.addEventListener('keydown', handleEsc)
-    return () => document.removeEventListener('keydown', handleEsc)
-  }, [onClose])
+  }
+
+  // We are replacing the handleResolve with the modal flow
+
+  if (loading) return <p style={{ padding: '20px' }}>Loading follow-ups...</p>
+  if (error) return <p style={{ color: 'red', padding: '20px' }}>{error}</p>
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
-    >
-      <div
-        style={{
-          background: 'white',
-          borderRadius: '12px',
-          maxWidth: '480px',
-          width: '90%',
-          maxHeight: '85vh',
-          overflow: 'auto',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h2 style={{ fontSize: '20px', marginBottom: '4px' }}>{student.full_name}</h2>
-            <p style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>{student.phone}</p>
-            <p style={{ fontSize: '12px', color: '#999', fontFamily: 'monospace' }}>ID: {student.lead_id}</p>
-            <span
-              style={{
-                display: 'inline-block',
-                marginTop: '8px',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                fontSize: '12px',
-                fontWeight: 600,
-                background: student.missed_count === 0 ? '#d4edda' : student.missed_count <= 2 ? '#fff3cd' : '#f8d7da',
-                color: student.missed_count === 0 ? '#155724' : student.missed_count <= 2 ? '#856404' : '#721c24',
-              }}
-            >
-              {student.missed_count} missed
-            </span>
+    <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
+      <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ fontSize: '18px', margin: 0 }}>Follow-ups</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+          <label>Show Resolved:</label>
+          <input
+            type="checkbox"
+            checked={showResolved}
+            onChange={(e) => setShowResolved(e.target.checked)}
+          />
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        {items.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
+            No active follow-ups for this class.
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontSize: '24px',
-              cursor: 'pointer',
-              color: '#666',
-              padding: '0 4px',
-            }}
-          >
-            X
-          </button>
-        </div>
-        <div style={{ padding: '20px' }}>
-          <p style={{ color: '#666', fontSize: '14px' }}>Student details. Notes / Absence Feed / Follow-ups integration coming later.</p>
-        </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', background: '#f8f9fa', borderBottom: '1px solid #eee' }}>
+                <th style={{ padding: '12px' }}>Student</th>
+                <th style={{ padding: '12px' }}>Session</th>
+                <th style={{ padding: '12px' }}>Reason</th>
+                <th style={{ padding: '12px' }}>Status</th>
+                <th style={{ padding: '12px' }}>Created At</th>
+                <th style={{ padding: '12px' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '12px' }}>
+                    <div style={{ fontWeight: 600 }}>{item.student_name}</div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>{item.student_phone}</div>
+                  </td>
+                  <td style={{ padding: '12px' }}>S{item.session_number}</td>
+                  <td style={{ padding: '12px' }}>{item.attendance_status}</td>
+                  <td style={{ padding: '12px' }}>
+                    <span style={{
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      background: item.resolved ? '#d4edda' : '#e2e3e5',
+                      color: item.resolved ? '#155724' : '#383d41',
+                    }}>
+                      {item.resolved ? 'RESOLVED' : item.status.toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px' }}>{new Date(item.created_at).toLocaleString()}</td>
+                  <td style={{ padding: '12px' }}>
+                    {!item.resolved && (
+                      <button
+                        onClick={() => onOpenFollowUp(item)}
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          border: '1px solid #28a745',
+                          background: '#fff',
+                          color: '#28a745',
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Resolve
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )

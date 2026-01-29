@@ -309,6 +309,7 @@ type CommunityOfficerFeedback struct {
 	SessionNumber    int32 // 4 or 8
 	FeedbackText     string
 	FollowUpRequired bool
+	Status           string // sent, received, removed
 	CreatedByUserID  sql.NullString
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -388,4 +389,18 @@ type FollowUpInfo struct {
 	UpdatedAt  time.Time    `json:"updatedAt"`
 	Resolved   bool         `json:"resolved"`
 	ResolvedAt sql.NullTime `json:"resolvedAt"`
+}
+
+type FollowUpListItem struct {
+	ID               uuid.UUID  `json:"id"`
+	LeadID           uuid.UUID  `json:"lead_id"`
+	StudentName      string     `json:"student_name"`
+	StudentPhone     string     `json:"student_phone"`
+	SessionNumber    int32      `json:"session_number"`
+	AttendanceStatus string     `json:"attendance_status"`
+	Note             string     `json:"note"`
+	Status           string     `json:"status"`
+	CreatedAt        time.Time  `json:"created_at"`
+	Resolved         bool       `json:"resolved"`
+	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
 }
