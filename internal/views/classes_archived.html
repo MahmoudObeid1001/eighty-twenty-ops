@@ -1,0 +1,72 @@
+{{define "classes_archived_content"}}
+<div class="header content-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+    <h1>Archived Classes</h1>
+</div>
+
+{{if .FlashMessage}}
+<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+    {{.FlashMessage}}
+</div>
+{{end}}
+
+<div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <a href="/classes" class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;">Back to Classes</a>
+    </div>
+</div>
+
+<form method="GET" action="/classes/archived" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px;">
+    <div>
+        <label for="class_key" style="font-size: 12px; color: #666;">Class Key</label>
+        <input id="class_key" name="class_key" value="{{.ClassKey}}" placeholder="L1|Sat/Tues|07:30:00|1" style="width: 100%; padding: 8px;" />
+    </div>
+    <div>
+        <label for="from" style="font-size: 12px; color: #666;">From</label>
+        <input id="from" name="from" type="date" value="{{.From}}" style="width: 100%; padding: 8px;" />
+    </div>
+    <div>
+        <label for="to" style="font-size: 12px; color: #666;">To</label>
+        <input id="to" name="to" type="date" value="{{.To}}" style="width: 100%; padding: 8px;" />
+    </div>
+    <div style="align-self: end;">
+        <button type="submit" class="btn btn-primary" style="padding: 8px 12px;">Search</button>
+    </div>
+</form>
+
+{{if not .Archived}}
+<div style="padding: 40px; text-align: center; color: #666;">
+    <p>No archived classes found.</p>
+</div>
+{{else}}
+<table style="width: 100%; border-collapse: collapse;">
+    <thead>
+        <tr style="text-align: left; border-bottom: 2px solid #E6E6E6;">
+            <th style="padding: 8px;">Class Key</th>
+            <th style="padding: 8px;">Level</th>
+            <th style="padding: 8px;">Schedule</th>
+            <th style="padding: 8px;">Round Started</th>
+            <th style="padding: 8px;">Archived At</th>
+            <th style="padding: 8px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Archived}}
+        <tr style="border-bottom: 1px solid #F0F0F0;">
+            <td style="padding: 8px; font-family: monospace;">{{.ClassKey}}</td>
+            <td style="padding: 8px;">{{.Level}}</td>
+            <td style="padding: 8px;">{{.ClassDays}} @ {{.ClassTime}}</td>
+            <td style="padding: 8px;">{{if .RoundStarted.Valid}}{{.RoundStarted.Time.Format "2006-01-02"}}{{else}}-{{end}}</td>
+            <td style="padding: 8px;">{{if .HiddenAt.Valid}}{{.HiddenAt.Time.Format "2006-01-02"}}{{else}}-{{end}}</td>
+            <td style="padding: 8px;">
+                <form method="POST" action="/classes/unarchive" style="display: inline-block;">
+                    <input type="hidden" name="class_key" value="{{.ClassKey}}" />
+                    <button type="submit" class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;">Unarchive</button>
+                </form>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}
+{{end}}

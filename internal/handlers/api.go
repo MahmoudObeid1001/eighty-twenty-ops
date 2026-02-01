@@ -193,7 +193,7 @@ func (h *APIHandler) GetMentorHeadClasses(w http.ResponseWriter, r *http.Request
 		assignment, err := models.GetMentorAssignment(c.ClassKey)
 		if err != nil || assignment == nil {
 			// Unassigned class
-			students, _ := models.GetStudentsInClassGroup(c.ClassKey)
+			students, _ := models.GetStudentsForMentorHeadClass(c.ClassKey)
 			unassigned.Classes = append(unassigned.Classes, ClassResponse{
 				ClassKey:     c.ClassKey,
 				Level:        c.Level,
@@ -219,7 +219,7 @@ func (h *APIHandler) GetMentorHeadClasses(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		students, _ := models.GetStudentsInClassGroup(c.ClassKey)
+		students, _ := models.GetStudentsForMentorHeadClass(c.ClassKey)
 		mentorMap[mentorIDStr].Classes = append(mentorMap[mentorIDStr].Classes, ClassResponse{
 			ClassKey:     c.ClassKey,
 			Level:        c.Level,
@@ -279,8 +279,13 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get students
-	students, err := models.GetStudentsInClassGroup(classKey)
+	// Get students (mentor_head/admin can see ready_to_start when round not started)
+	var students []*models.ClassStudent
+	if userRole == "mentor_head" || userRole == "admin" {
+		students, err = models.GetStudentsForMentorHeadClass(classKey)
+	} else {
+		students, err = models.GetStudentsInClassGroup(classKey)
+	}
 	if err != nil {
 		log.Printf("ERROR: Failed to get students: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load students")
@@ -464,6 +469,13 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Trigger high priority check (3+ absences)
+	if req.ClassKey != "" {
+		if err := models.UpdateAbsencePriority(leadID, req.ClassKey); err != nil {
+			log.Printf("WARNING: Failed to update absence priority for lead %s: %v", leadID, err)
+		}
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -574,12 +586,17 @@ func (h *APIHandler) GetNotes(w http.ResponseWriter, r *http.Request) {
 	type NoteResponse struct {
 		ID             string `json:"id"`
 		Text           string `json:"text"`
+		IsPrivate      bool   `json:"is_private"`
 		CreatedAt      string `json:"created_at"`
 		CreatedByEmail string `json:"created_by_email"`
 	}
 
+	role := middleware.GetUserRole(r)
 	response := make([]NoteResponse, 0, len(notes))
 	for _, n := range notes {
+		if n.IsPrivate && role == "mentor" {
+			continue
+		}
 		email := "System"
 		if n.CreatedByEmail.Valid {
 			email = n.CreatedByEmail.String
@@ -587,6 +604,7 @@ func (h *APIHandler) GetNotes(w http.ResponseWriter, r *http.Request) {
 		response = append(response, NoteResponse{
 			ID:             n.ID.String(),
 			Text:           n.NoteText,
+			IsPrivate:      n.IsPrivate,
 			CreatedAt:      n.CreatedAt.Format(time.RFC3339),
 			CreatedByEmail: email,
 		})
@@ -607,6 +625,7 @@ func (h *APIHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
 		LeadID    string `json:"lead_id"` // Legacy support
 		ClassKey  string `json:"class_key"`
 		Text      string `json:"text"`
+		IsPrivate bool   `json:"is_private"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -657,7 +676,7 @@ func (h *APIHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
 
 	// Create note (session_number is optional, can be null)
 	var sessionNumber sql.NullInt32
-	if err := models.AddStudentNote(leadID, req.ClassKey, sessionNumber, req.Text, createdByUserID); err != nil {
+	if err := models.AddStudentNote(leadID, req.ClassKey, sessionNumber, req.Text, req.IsPrivate, createdByUserID); err != nil {
 		log.Printf("ERROR: Failed to add note: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to create note")
 		return
@@ -758,12 +777,17 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 	// Get lead/student info directly (we only need basic fields + levels)
 	lead := &models.Lead{}
 	var levelsPurchasedTotal, levelsConsumed sql.NullInt32
+	var highPriority bool
+	var highPriorityReason sql.NullString
+
 	err = db.DB.QueryRow(`
-		SELECT id, full_name, phone, levels_purchased_total, levels_consumed
+		SELECT id, full_name, phone, levels_purchased_total, levels_consumed, high_priority, high_priority_reason
 		FROM leads WHERE id = $1
 	`, studentID).Scan(
-		&lead.ID, &lead.FullName, &lead.Phone, &levelsPurchasedTotal, &levelsConsumed,
+		&lead.ID, &lead.FullName, &lead.Phone, &levelsPurchasedTotal, &levelsConsumed, &highPriority, &highPriorityReason,
 	)
+	lead.HighPriorityAbsence = highPriority
+	lead.HighPriorityReason = highPriorityReason
 	if err != nil {
 		if err == sql.ErrNoRows {
 			jsonError(w, http.StatusNotFound, "Student not found")
@@ -799,13 +823,32 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fetch and filter notes
+	notes, err := models.GetStudentNotes(studentID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get notes: %v", err)
+		notes = []*models.StudentNote{}
+	}
+
+	var filteredNotes []*models.StudentNote
+	role := middleware.GetUserRole(r)
+	for _, n := range notes {
+		if n.IsPrivate && role == "mentor" {
+			continue
+		}
+		filteredNotes = append(filteredNotes, n)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"id":             studentID.String(),
-		"name":           lead.FullName,
-		"phone":          lead.Phone,
-		"levelsFinished": levelsFinished,
-		"levelsLeft":     levelsLeft,
-		"lastLevelGrade": lastLevelGrade,
+		"id":                 studentID.String(),
+		"name":               lead.FullName,
+		"phone":              lead.Phone,
+		"levelsFinished":     levelsFinished,
+		"levelsLeft":         levelsLeft,
+		"lastLevelGrade":     lastLevelGrade,
+		"highPriority":       lead.HighPriorityAbsence,
+		"highPriorityReason": lead.HighPriorityReason.String,
+		"notes":              filteredNotes,
 	})
 }
 
@@ -863,7 +906,7 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 		}
 
 		// Get student count and readiness
-		students, err := models.GetStudentsInClassGroup(c.ClassKey)
+		students, err := models.GetStudentsForMentorHeadClass(c.ClassKey)
 		if err == nil {
 			cr.StudentCount = len(students)
 			if cr.StudentCount >= 6 {
@@ -902,6 +945,111 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 		"classes": classesResponse,
 		"mentors": mentorsResponse,
 	})
+}
+
+// GET /api/mentor-head/archive - returns closed classes grouped by mentor
+func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request) {
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
+		return
+	}
+
+	sort := r.URL.Query().Get("sort")
+	if sort == "" {
+		sort = "oldest"
+	}
+
+	classes, err := models.GetArchivedClassGroups(sort)
+	if err != nil {
+		log.Printf("ERROR: Failed to get archived classes: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load archived classes")
+		return
+	}
+
+	type ArchivedClass struct {
+		ClassKey     string `json:"class_key"`
+		Level        int32  `json:"level"`
+		Days         string `json:"days"`
+		Time         string `json:"time"`
+		ClassNumber  int32  `json:"class_number"`
+		StudentCount int    `json:"student_count"`
+		ClosedAt     string `json:"closed_at"`
+	}
+
+	type MentorArchiveGroup struct {
+		Mentor struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+			Name  string `json:"name"`
+		} `json:"mentor"`
+		Classes []ArchivedClass `json:"classes"`
+	}
+
+	// Group by mentor
+	groupMap := make(map[string]*MentorArchiveGroup)
+	var unknownGroup *MentorArchiveGroup
+
+	for _, c := range classes {
+		archived := ArchivedClass{
+			ClassKey:    c.ClassKey,
+			Level:       c.Level,
+			Days:        c.ClassDays,
+			Time:        c.ClassTime,
+			ClassNumber: c.ClassNumber,
+		}
+		if c.RoundClosedAt.Valid {
+			archived.ClosedAt = c.RoundClosedAt.Time.Format(time.RFC3339)
+		}
+
+		// Get student count
+		students, err := models.GetStudentsInClassGroup(c.ClassKey)
+		if err == nil {
+			archived.StudentCount = len(students)
+		}
+
+		mentorID := ""
+		if c.ClosedMentorUserID.Valid {
+			mentorID = c.ClosedMentorUserID.String
+		}
+
+		if mentorID == "" {
+			if unknownGroup == nil {
+				unknownGroup = &MentorArchiveGroup{
+					Classes: []ArchivedClass{},
+				}
+				unknownGroup.Mentor.Email = "Unknown/Unassigned"
+			}
+			unknownGroup.Classes = append(unknownGroup.Classes, archived)
+			continue
+		}
+
+		if _, ok := groupMap[mentorID]; !ok {
+			group := &MentorArchiveGroup{
+				Classes: []ArchivedClass{},
+			}
+			group.Mentor.ID = mentorID
+			// Get mentor info
+			user, err := models.GetUserByID(mentorID)
+			if err == nil && user != nil {
+				group.Mentor.Email = user.Email
+				group.Mentor.Name = user.Email // Use email as name if name field doesn't exist/empty
+			}
+			groupMap[mentorID] = group
+		}
+		groupMap[mentorID].Classes = append(groupMap[mentorID].Classes, archived)
+	}
+
+	// Prepare final response
+	response := make([]*MentorArchiveGroup, 0, len(groupMap))
+	for _, g := range groupMap {
+		response = append(response, g)
+	}
+	if unknownGroup != nil {
+		response = append(response, unknownGroup)
+	}
+
+	jsonResponse(w, http.StatusOK, response)
 }
 
 // POST /api/mentor-head/assign-mentor - assigns a mentor to a class
@@ -1193,6 +1341,10 @@ func (h *APIHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	startedByID, _ := uuid.Parse(middleware.GetUserID(r))
 	if err := models.StartClassRound(req.ClassKey, startedByID, startDate, startTime); err != nil {
 		log.Printf("ERROR: Failed to start round: %v", err)
+		if strings.Contains(err.Error(), "mentor not assigned") {
+			jsonError(w, http.StatusBadRequest, "Assign a mentor before starting the round")
+			return
+		}
 		jsonError(w, http.StatusInternalServerError, "Failed to start round")
 		return
 	}
@@ -1463,28 +1615,30 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 	}
 
 	type ClassResp struct {
-		ClassKey     string `json:"class_key"`
-		Level        int32  `json:"level"`
-		Days         string `json:"days"`
-		Time         string `json:"time"`
-		ClassNumber  int32  `json:"class_number"`
-		MentorEmail  string `json:"mentor_email"`
-		MentorName   string `json:"mentor_name"`
-		MentorUserID string `json:"mentor_user_id,omitempty"`
-		StudentCount int    `json:"student_count"`
+		ClassKey        string `json:"class_key"`
+		Level           int    `json:"level"`
+		Days            string `json:"days"`
+		Time            string `json:"time"`
+		ClassNumber     int    `json:"class_number"`
+		MentorEmail     string `json:"mentor_email"`
+		MentorName      string `json:"mentor_name"`
+		MentorUserID    string `json:"mentor_user_id,omitempty"`
+		StudentCount    int    `json:"student_count"`
+		HasHighPriority bool   `json:"has_high_priority"`
 	}
 	classes := make([]ClassResp, 0, len(rows))
 	for _, row := range rows {
 		classes = append(classes, ClassResp{
-			ClassKey:     row.ClassKey,
-			Level:        row.Level,
-			Days:         row.ClassDays,
-			Time:         row.ClassTime,
-			ClassNumber:  row.ClassNumber,
-			MentorEmail:  row.MentorEmail,
-			MentorName:   row.MentorName,
-			MentorUserID: row.MentorUserID,
-			StudentCount: row.StudentCount,
+			ClassKey:        row.ClassKey,
+			Level:           row.Level,
+			Days:            row.ClassDays,
+			Time:            row.ClassTime,
+			ClassNumber:     row.ClassNumber,
+			MentorEmail:     row.MentorEmail,
+			MentorName:      row.MentorName,
+			MentorUserID:    row.MentorUserID,
+			StudentCount:    row.StudentCount,
+			HasHighPriority: row.HasHighPriority,
 		})
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"classes": classes})
@@ -1680,6 +1834,11 @@ func (h *APIHandler) GetAbsenceFeed(w http.ResponseWriter, r *http.Request) {
 	filter := r.URL.Query().Get("filter")
 	search := r.URL.Query().Get("search")
 
+	// Trigger automatic progression of follow-up statuses
+	if err := models.AutoProgressFollowupStatuses(); err != nil {
+		log.Printf("WARNING: AutoProgressFollowupStatuses failed: %v", err)
+	}
+
 	feed, err := models.GetAbsenceFeed(classKey, filter, search)
 	if err != nil {
 		log.Printf("ERROR: Failed to get absence feed: %v", err)
@@ -1713,6 +1872,11 @@ func (h *APIHandler) GetFollowUps(w http.ResponseWriter, r *http.Request) {
 	resolved := resolvedStr == "true"
 
 	log.Printf("DEBUG: GetFollowUps called with class_key: %q, resolved: %v", classKey, resolved)
+
+	// Trigger automatic progression of follow-up statuses
+	if err := models.AutoProgressFollowupStatuses(); err != nil {
+		log.Printf("WARNING: AutoProgressFollowupStatuses failed: %v", err)
+	}
 
 	followUps, err := models.GetFollowUps(classKey, resolved)
 	if err != nil {
@@ -2081,4 +2245,421 @@ func (h *APIHandler) UpdateFeedbackStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+// ========== COMPLAINTS API ENDPOINTS ==========
+
+// POST /api/student-success/complaints - Create complaint
+func (h *APIHandler) CreateComplaint(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "student_success" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	var req struct {
+		ClassKey      string `json:"class_key"`
+		StudentPhone  string `json:"student_phone"`
+		Category      string `json:"category"`
+		ComplaintText string `json:"complaint_text"`
+		Urgency       string `json:"urgency"` // low, medium, high
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ClassKey == "" || req.StudentPhone == "" || req.Category == "" || req.ComplaintText == "" {
+		jsonError(w, http.StatusBadRequest, "Missing required fields: class_key, student_phone, category, complaint_text")
+		return
+	}
+
+	// Default urgency to medium if not specified
+	if req.Urgency == "" {
+		req.Urgency = "medium"
+	}
+
+	complaint, err := models.CreateComplaint(req.ClassKey, req.StudentPhone, req.Category, req.ComplaintText, req.Urgency, userID)
+	if err != nil {
+		log.Printf("ERROR: Failed to create complaint: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to create complaint")
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, complaint)
+}
+
+// GET /api/student-success/followups?class_key=...&show_resolved=0|1
+// Modified to include complaints alongside absence escalations
+func (h *APIHandler) GetFollowUpsWithComplaints(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "student_success" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
+		return
+	}
+
+	classKey := r.URL.Query().Get("class_key")
+	if classKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+
+	showResolved := r.URL.Query().Get("show_resolved") == "1"
+
+	followUps, err := models.GetFollowUpsWithComplaints(classKey, showResolved)
+	if err != nil {
+		log.Printf("ERROR: Failed to get follow-ups with complaints: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load follow-ups")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"followups": followUps,
+	})
+}
+
+// GET /api/mentor-head/complaints?show_resolved=0|1 - List all complaints
+func (h *APIHandler) GetMentorHeadComplaints(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "mentor_head" && role != "manager" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head access required")
+		return
+	}
+
+	showResolved := r.URL.Query().Get("show_resolved") == "1"
+
+	complaints, err := models.GetComplaintsForMentorHead(showResolved)
+	if err != nil {
+		log.Printf("ERROR: Failed to get complaints: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load complaints")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"complaints": complaints,
+	})
+}
+
+// POST /api/mentor-head/complaints/:id/update - Update complaint status and add note
+func (h *APIHandler) UpdateComplaintStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "mentor_head" && role != "manager" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head access required")
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	// Extract complaint ID from URL path: /api/mentor-head/complaints/{id}/update
+	path := r.URL.Path
+	prefix := "/api/mentor-head/complaints/"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, "/update") {
+		jsonError(w, http.StatusBadRequest, "Invalid URL format")
+		return
+	}
+	idPart := strings.TrimPrefix(path, prefix)
+	idPart = strings.TrimSuffix(idPart, "/update")
+
+	complaintID, err := uuid.Parse(idPart)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid complaint ID")
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"` // contacted, investigating
+		Note   string `json:"note"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Status == "" {
+		jsonError(w, http.StatusBadRequest, "Status is required")
+		return
+	}
+
+	if err := models.UpdateComplaintStatus(complaintID, req.Status, req.Note, userID); err != nil {
+		log.Printf("ERROR: Failed to update complaint status: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to update complaint")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// POST /api/mentor-head/complaints/:id/resolve - Resolve complaint with required note
+func (h *APIHandler) ResolveComplaintHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "mentor_head" && role != "manager" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head access required")
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	// Extract complaint ID from URL path: /api/mentor-head/complaints/{id}/resolve
+	path := r.URL.Path
+	prefix := "/api/mentor-head/complaints/"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, "/resolve") {
+		jsonError(w, http.StatusBadRequest, "Invalid URL format")
+		return
+	}
+	idPart := strings.TrimPrefix(path, prefix)
+	idPart = strings.TrimSuffix(idPart, "/resolve")
+
+	complaintID, err := uuid.Parse(idPart)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid complaint ID")
+		return
+	}
+
+	var req struct {
+		ResolutionNote string `json:"resolution_note"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ResolutionNote == "" {
+		jsonError(w, http.StatusBadRequest, "Resolution note is required")
+		return
+	}
+
+	if err := models.ResolveComplaint(complaintID, req.ResolutionNote, userID); err != nil {
+		log.Printf("ERROR: Failed to resolve complaint: %v", err)
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// GetEligibleClassesForLateJoin returns classes a student is eligible to join.
+func (h *APIHandler) GetEligibleClassesForLateJoin(w http.ResponseWriter, r *http.Request) {
+	// Canonical path: /api/pre-enrolment/:leadId/late-join-eligible-classes
+	parts := strings.Split(r.URL.Path, "/")
+	var leadIDStr string
+	if len(parts) >= 4 && parts[1] == "api" && parts[2] == "pre-enrolment" {
+		leadIDStr = parts[3]
+	}
+
+	if leadIDStr == "" {
+		leadIDStr = r.URL.Query().Get("id") // Fallback
+	}
+	if leadIDStr == "" {
+		jsonError(w, http.StatusBadRequest, "leadId is required")
+		return
+	}
+	leadID, err := uuid.Parse(leadIDStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead ID")
+		return
+	}
+
+	eligible, err := models.GetEligibleClassesForLateJoin(leadID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get eligible classes: %v", err)
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"classes": eligible,
+	})
+}
+
+// AddLateJoiner adds a student to an active class.
+func (h *APIHandler) AddLateJoiner(w http.ResponseWriter, r *http.Request) {
+	userRole := middleware.GetUserRole(r)
+	if userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Admin access required")
+		return
+	}
+
+	leadIDStr := r.URL.Query().Get("id")
+	if leadIDStr == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 3 && parts[1] == "pre-enrolment" {
+			leadIDStr = parts[2]
+		}
+	}
+	if leadIDStr == "" {
+		jsonError(w, http.StatusBadRequest, "leadId is required")
+		return
+	}
+	leadID, err := uuid.Parse(leadIDStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead ID")
+		return
+	}
+
+	var req struct {
+		ClassKey string `json:"class_key"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ClassKey == "" {
+		jsonError(w, http.StatusBadRequest, "Class key is required")
+		return
+	}
+	if len(req.Reason) < 10 {
+		jsonError(w, http.StatusBadRequest, "Reason must be at least 10 characters long")
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	if err := models.AddLateJoiner(leadID, req.ClassKey, req.Reason, userID); err != nil {
+		log.Printf("ERROR: Failed to add late joiner: %v", err)
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// UndoLateJoiner reverts a late join action.
+func (h *APIHandler) UndoLateJoiner(w http.ResponseWriter, r *http.Request) {
+	userRole := middleware.GetUserRole(r)
+	if userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Admin access required")
+		return
+	}
+
+	leadIDStr := r.URL.Query().Get("id")
+	if leadIDStr == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 3 && parts[1] == "pre-enrolment" {
+			leadIDStr = parts[2]
+		}
+	}
+	if leadIDStr == "" {
+		jsonError(w, http.StatusBadRequest, "leadId is required")
+		return
+	}
+	leadID, err := uuid.Parse(leadIDStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead ID")
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	if err := models.UndoLateJoiner(leadID, userID); err != nil {
+		log.Printf("ERROR: Failed to undo late joiner: %v", err)
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+func (h *APIHandler) GetLateJoinNotifications(w http.ResponseWriter, r *http.Request) {
+	userIDStr := middleware.GetUserID(r)
+	if userIDStr == "" {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	userID, _ := uuid.Parse(userIDStr)
+
+	notifications, err := models.GetPendingLateJoinerNotifications(userID)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(notifications)
+}
+
+func (h *APIHandler) AcknowledgeLateJoinNotification(w http.ResponseWriter, r *http.Request) {
+	userIDStr := middleware.GetUserID(r)
+	if userIDStr == "" {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	userID, _ := uuid.Parse(userIDStr)
+
+	// Parse notification ID from path parts: /api/notifications/late-join/:id/acknowledge
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 5 {
+		jsonError(w, http.StatusBadRequest, "Invalid request path")
+		return
+	}
+	idStr := parts[3]
+	notificationID, err := uuid.Parse(idStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid notification ID")
+		return
+	}
+
+	err = models.AcknowledgeLateJoinerNotification(notificationID, userID)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
 }

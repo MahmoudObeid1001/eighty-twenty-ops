@@ -77,6 +77,7 @@ stateDiagram-v2
 **Route**: `POST /api/mentor-head/start-round`  
 **Handler**: `apiHandler.StartRound`  
 **Database**: Updates `class_groups.round_status = 'IN_PROGRESS'`  
+**Prerequisite**: Mentor must be assigned before starting the round.  
 **Evidence**:
 - `cmd/server/main.go:183-190`
 - `internal/handlers/api.go` - StartRound function
@@ -111,6 +112,7 @@ stateDiagram-v2
 **Route**: `POST /api/mentor-head/return-to-ops` or `POST /classes/return`  
 **Handler**: `apiHandler.ReturnToOps` or `classesHandler.ReturnFromMentor`  
 **Database**: Updates `class_groups.sent_to_mentor = false`, sets `returned_at` timestamp  
+**Guard**: Class cannot be returned if `round_status = 'active'` (started rounds must be closed or archived, not returned).  
 **Evidence**:
 - `cmd/server/main.go:156-163` (mentor-head)
 - `cmd/server/main.go:567-581` (admin)
@@ -151,6 +153,7 @@ stateDiagram-v2
 - **Mentor/Mentor-Head Views**: Classes are visible only when `sent_to_mentor = true` and not closed.
 - **Student Success Views**: Should only show classes when **Mentor Head has started the round** (`round_status = 'active'`) **and** `sent_to_mentor = true`.
 - **OP Admin Classes Board**: Classes remain visible even after they start (`round_status = 'active'`) with a blue **STARTED** badge, but they are read-only to prevent out-of-sync roster mid-round.
+- **OP Admin Archive**: Admin can hide classes from the Ops board **only if** `sent_to_mentor = true` **and** `round_status = 'active'`. Archived classes are reversible via Ops archive view (filterable by class_key and date).
 **Evidence**: `models.GetClassGroups`, `models.GetClassGroupsSentToMentor`, `models.GetMentorClasses`, `internal/views/classes.html`
 
 ---

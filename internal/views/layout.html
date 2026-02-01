@@ -1,92 +1,173 @@
 {{define "layout"}}
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
     <link rel="stylesheet" href="/static/main.css">
 </head>
-<body>
-{{if ne .HideSidebar true}}
-<div class="container">
-    <!-- Sidebar Navigation -->
-    <aside class="sidebar">
-        <div class="brand-block">
-            <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo-sidebar" />
-            <span class="brand-name">Eighty Twenty</span>
-        </div>
-        <nav style="flex: 1;">
-            <ul>
-                {{if eq .UserRole "admin"}}
-                <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
-                <li><a href="/classes">Classes</a></li>
-                <li><a href="/finance">Finance</a></li>
-                <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
-                <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
-                {{else if eq .UserRole "moderator"}}
-                <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
-                {{else if eq .UserRole "mentor_head"}}
-                <li><a href="/app/mentor-head">Learning</a></li>
-                <li><a href="/app/mentor-head">Classes</a></li>
-                {{else if eq .UserRole "mentor"}}
-                <li><a href="/app/mentor">Learning</a></li>
-                {{else if eq .UserRole "community_officer"}}
-                <li><a href="/learning">Learning</a></li>
-                {{else if eq .UserRole "hr"}}
-                <li><a href="/learning">Learning</a></li>
-                {{else}}
-                <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
-                {{if not .IsModerator}}
-                <li><a href="/classes">Classes</a></li>
-                <li><a href="/finance">Finance</a></li>
-                {{end}}
-                <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a></li>
-                <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a></li>
-                {{end}}
-            </ul>
-        </nav>
-        <div style="padding: 20px; border-top: 1px solid #8C8C8C; margin-top: auto;">
-            <a href="/logout" class="btn btn-secondary" style="width: 100%; display: block; text-align: center; background-color: #6c757d; color: white; text-decoration: none; padding: 12px;">Logout</a>
-        </div>
-    </aside>
 
-    <!-- Main Content -->
-    <main class="main-content">
-{{end}}
-        {{if eq .ContentTemplate "login_content"}}
+<body>
+    {{if ne .HideSidebar true}}
+    <div class="container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand-block">
+                <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo-sidebar" />
+                <span class="brand-name">Eighty Twenty</span>
+            </div>
+            <nav style="flex: 1;">
+                <ul>
+                    {{if eq .UserRole "admin"}}
+                    <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
+                    <li><a href="/classes">Classes</a></li>
+                    <li><a href="/finance">Finance</a></li>
+                    <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a>
+                    </li>
+                    <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a>
+                    </li>
+                    {{else if eq .UserRole "moderator"}}
+                    <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
+                    {{else if eq .UserRole "mentor_head"}}
+                    <li><a href="/app/mentor-head">Learning</a></li>
+                    <li><a href="/app/mentor-head">Classes</a></li>
+                    {{else if eq .UserRole "mentor"}}
+                    <li><a href="/app/mentor">Learning</a></li>
+                    {{else if eq .UserRole "student_success"}}
+                    <li><a href="/app/student-success">Learning</a></li>
+                    {{else if eq .UserRole "hr"}}
+                    <li><a href="/learning">Learning</a></li>
+                    {{else}}
+                    <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
+                    {{if not .IsModerator}}
+                    <li><a href="/classes">Classes</a></li>
+                    <li><a href="/finance">Finance</a></li>
+                    {{end}}
+                    <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a>
+                    </li>
+                    <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a>
+                    </li>
+                    {{end}}
+                </ul>
+            </nav>
+            <div style="padding: 20px; border-top: 1px solid #8C8C8C; margin-top: auto;">
+                <a href="/logout" class="btn btn-secondary"
+                    style="width: 100%; display: block; text-align: center; background-color: #6c757d; color: white; text-decoration: none; padding: 12px;">Logout</a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            {{end}}
+
+            {{if .PendingLateJoinerAlerts}}
+            <div id="late-joiner-alerts-container" style="margin-bottom: 20px;">
+                {{range .PendingLateJoinerAlerts}}
+                <div class="alert alert-info" id="alert-{{.ID}}"
+                    style="display: flex; justify-content: space-between; align-items: center; background-color: #f7fbff; border-left: 4px solid #007bff; border-right: 1px solid #d1e9ff; border-top: 1px solid #d1e9ff; border-bottom: 1px solid #d1e9ff; padding: 16px; border-radius: 6px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); animation: slideIn 0.3s ease-out;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div
+                            style="background-color: #007bff; color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            🔔</div>
+                        <div>
+                            <strong style="display: block; font-size: 16px; color: #333;">Late Joiner:
+                                {{.FullName}}</strong>
+                            <span style="color: #666; font-size: 14px;">Added to class <strong
+                                    style="color: #444;">{{.ClassKey}}</strong> at Session
+                                {{.JoinedAtSessionNumber}}</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px;">
+                        <a href="/app/class/{{.ClassKey}}" class="btn btn-sm btn-outline-primary"
+                            style="padding: 6px 14px; text-decoration: none; display: inline-flex; align-items: center;">Open
+                            Class</a>
+                        <button onclick="acknowledgeLateJoin('{{.ID}}')" class="btn btn-sm"
+                            style="background-color: #28a745; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 500;">Acknowledge</button>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+            <style>
+                @keyframes slideIn {
+                    from {
+                        transform: translateY(-10px);
+                        opacity: 0;
+                    }
+
+                    to {
+                        transform: translateY(0);
+                        opacity: 1;
+                    }
+                }
+            </style>
+            <script>
+                function acknowledgeLateJoin(notificationId) {
+                    fetch(`/api/notifications/late-join/${notificationId}/acknowledge`, {
+                        method: 'POST'
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            const alert = document.getElementById(`alert-${notificationId}`);
+                            alert.style.transition = 'all 0.3s ease';
+                            alert.style.opacity = '0';
+                            alert.style.transform = 'translateY(-10px)';
+                            setTimeout(() => {
+                                alert.remove();
+                                const container = document.getElementById('late-joiner-alerts-container');
+                                if (container && container.children.length === 0) {
+                                    container.remove();
+                                }
+                            }, 300);
+                        } else {
+                            alert('Error: ' + (data.error || 'Failed to acknowledge'));
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Error:', err);
+                        alert('Network error. Check console.');
+                    });
+                }
+            </script>
+            {{end}}
+            {{if eq .ContentTemplate "login_content"}}
             {{template "login_content" .}}
-        {{else if eq .ContentTemplate "pre_enrolment_new_content"}}
+            {{else if eq .ContentTemplate "pre_enrolment_new_content"}}
             {{template "pre_enrolment_new_content" .}}
-        {{else if eq .ContentTemplate "pre_enrolment_list_content"}}
+            {{else if eq .ContentTemplate "pre_enrolment_list_content"}}
             {{template "pre_enrolment_list_content" .}}
-        {{else if eq .ContentTemplate "pre_enrolment_detail_content"}}
+            {{else if eq .ContentTemplate "pre_enrolment_detail_content"}}
             {{template "pre_enrolment_detail_content" .}}
-        {{else if eq .ContentTemplate "classes_content"}}
+            {{else if eq .ContentTemplate "classes_content"}}
             {{template "classes_content" .}}
-        {{else if eq .ContentTemplate "finance_content"}}
+            {{else if eq .ContentTemplate "classes_archived_content"}}
+            {{template "classes_archived_content" .}}
+            {{else if eq .ContentTemplate "finance_content"}}
             {{template "finance_content" .}}
-        {{else if eq .ContentTemplate "finance_new_expense_content"}}
+            {{else if eq .ContentTemplate "finance_new_expense_content"}}
             {{template "finance_new_expense_content" .}}
-        {{else if eq .ContentTemplate "access_restricted_content"}}
+            {{else if eq .ContentTemplate "access_restricted_content"}}
             {{template "access_restricted_content" .}}
-        {{else if eq .ContentTemplate "mentor_head_content"}}
+            {{else if eq .ContentTemplate "mentor_head_content"}}
             {{template "mentor_head_content" .}}
-        {{else if eq .ContentTemplate "mentor_content"}}
+            {{else if eq .ContentTemplate "mentor_content"}}
             {{template "mentor_content" .}}
-        {{else if eq .ContentTemplate "mentor_class_detail_content"}}
+            {{else if eq .ContentTemplate "mentor_class_detail_content"}}
             {{template "mentor_class_detail_content" .}}
-        {{else if eq .ContentTemplate "community_officer_content"}}
-            {{template "community_officer_content" .}}
-        {{else if eq .ContentTemplate "hr_mentors_content"}}
+            {{else if eq .ContentTemplate "student_success_content"}}
+            {{template "student_success_content" .}}
+            {{else if eq .ContentTemplate "hr_mentors_content"}}
             {{template "hr_mentors_content" .}}
-        {{else}}
+            {{else}}
             <p>Error: Unknown content template: {{.ContentTemplate}}</p>
-        {{end}}
-{{if ne .HideSidebar true}}
-    </main>
-</div>
-{{end}}
+            {{end}}
+            {{if ne .HideSidebar true}}
+        </main>
+    </div>
+    {{end}}
 </body>
+
 </html>
 {{end}}

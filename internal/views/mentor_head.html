@@ -22,6 +22,9 @@
 {{if eq .error "round_already_started"}}
 <div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; color: #721C24; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Round already started for this class.</div>
 {{end}}
+{{if eq .error "mentor_not_assigned"}}
+<div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; color: #721C24; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Assign a mentor before starting the round.</div>
+{{end}}
 
 {{if not .Classes}}
 <div style="padding: 40px; text-align: center; color: #666;">

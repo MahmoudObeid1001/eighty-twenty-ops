@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"eighty-twenty-ops/internal/config"
@@ -72,7 +73,7 @@ func (h *MentorHeadHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get student count and readiness
-		students, err := models.GetStudentsInClassGroup(c.ClassKey)
+		students, err := models.GetStudentsForMentorHeadClass(c.ClassKey)
 		if err == nil {
 			cwm.StudentCount = len(students)
 			if cwm.StudentCount >= 6 {
@@ -256,7 +257,7 @@ func (h *MentorHeadHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(sessions) > 0 {
-		http.Redirect(w, r, fmt.Sprintf("/mentor-head?error=round_already_started"), http.StatusFound)
+		http.Redirect(w, r, "/mentor-head?error=round_already_started", http.StatusFound)
 		return
 	}
 
@@ -276,11 +277,15 @@ func (h *MentorHeadHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	// Start round (set status='active' + create 8 sessions)
 	if err := models.StartClassRound(classKey, userID, startDate, startTime); err != nil {
 		log.Printf("ERROR: Failed to start round: %v", err)
+		if strings.Contains(err.Error(), "mentor not assigned") {
+			http.Redirect(w, r, "/mentor-head?error=mentor_not_assigned", http.StatusFound)
+			return
+		}
 		http.Error(w, "Failed to start round", http.StatusInternalServerError)
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/mentor-head?round_started=1"), http.StatusFound)
+	http.Redirect(w, r, "/mentor-head?round_started=1", http.StatusFound)
 }
 
 // CancelSession cancels a session and reschedules it
@@ -401,7 +406,7 @@ func (h *MentorHeadHandler) ClassDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	students, err := models.GetStudentsInClassGroup(classKey)
+	students, err := models.GetStudentsForMentorHeadClass(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get students: %v", err)
 		http.Error(w, "Failed to load students", http.StatusInternalServerError)

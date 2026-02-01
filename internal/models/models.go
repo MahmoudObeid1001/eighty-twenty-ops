@@ -27,6 +27,8 @@ type Lead struct {
 	LevelsConsumed       sql.NullInt32  // Levels consumed (when rounds start)
 	BundleType           sql.NullString // none, single, bundle2, bundle3, bundle4
 	HighPriorityFollowUp bool           // Set by mentor_head on round close for students with no remaining credits
+	HighPriorityAbsence  bool           // Set automatically if 3+ absences
+	HighPriorityReason   sql.NullString // Reason for high priority
 	CreatedByUserID      sql.NullString
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -137,33 +139,39 @@ type ClassGroup struct {
 	SentToMentor bool   // Whether this class has been sent to mentor head
 	SentAt       sql.NullTime
 	ReturnedAt   sql.NullTime
+	RoundStatus  string // not_started | active | closed
 }
 
 // ClassGroupWorkflow tracks workflow state for a class group
 type ClassGroupWorkflow struct {
-	ClassKey       string
-	Level          int32
-	ClassDays      string
-	ClassTime      string
-	ClassNumber    int32
-	SentToMentor   bool
-	SentAt         sql.NullTime
-	ReturnedAt     sql.NullTime
-	UpdatedAt      time.Time
-	RoundStatus    string // not_started | active | closed
-	RoundStartedAt sql.NullTime
-	RoundStartedBy sql.NullString // user UUID
-	RoundClosedAt  sql.NullTime
-	RoundClosedBy  sql.NullString // user UUID
+	ClassKey           string
+	Level              int32
+	ClassDays          string
+	ClassTime          string
+	ClassNumber        int32
+	SentToMentor       bool
+	SentAt             sql.NullTime
+	ReturnedAt         sql.NullTime
+	UpdatedAt          time.Time
+	HiddenInOps        bool
+	HiddenAt           sql.NullTime
+	HiddenBy           sql.NullString // user UUID
+	RoundStatus        string         // not_started | active | closed
+	RoundStartedAt     sql.NullTime
+	RoundStartedBy     sql.NullString // user UUID
+	ClosedMentorUserID sql.NullString // user UUID
+	RoundClosedAt      sql.NullTime
+	RoundClosedBy      sql.NullString // user UUID
 }
 
 // ClassStudent represents a student in a class group
 type ClassStudent struct {
-	LeadID          uuid.UUID
-	FullName        string
-	Phone           string
-	GroupIndex      sql.NullInt32
-	AvailableGroups []int32 // Available group indices for move (computed in handler)
+	LeadID                uuid.UUID     `json:"lead_id"`
+	FullName              string        `json:"full_name"`
+	Phone                 string        `json:"phone"`
+	GroupIndex            sql.NullInt32 `json:"group_index"`
+	AvailableGroups       []int32       `json:"available_groups"`         // Available group indices for move (computed in handler)
+	JoinedAtSessionNumber sql.NullInt32 `json:"joined_at_session_number"` // NEW: For late joiners
 }
 
 // Transaction represents a financial transaction (IN or OUT)
@@ -295,14 +303,15 @@ type StudentNote struct {
 	ClassKey        sql.NullString
 	SessionNumber   sql.NullInt32
 	NoteText        string
+	IsPrivate       bool
 	CreatedByUserID sql.NullString
 	CreatedByEmail  sql.NullString // Email of the user who created the note
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
 
-// CommunityOfficerFeedback represents feedback submitted at sessions 4 or 8
-type CommunityOfficerFeedback struct {
+// StudentSuccessFeedback represents feedback submitted at sessions 4 or 8
+type StudentSuccessFeedback struct {
 	ID               uuid.UUID
 	LeadID           uuid.UUID
 	ClassKey         string
@@ -369,17 +378,18 @@ type FollowUp struct {
 
 // AbsenceFeedItem represents an item in the absence feed
 type AbsenceFeedItem struct {
-	SessionNumber int32         `json:"sessionNumber"`
-	SessionDate   string        `json:"sessionDate"`
-	StartTime     string        `json:"startTime"`
-	StudentID     uuid.UUID     `json:"studentId"`
-	StudentName   string        `json:"studentName"`
-	StudentPhone  string        `json:"studentPhone"`
-	Status        string        `json:"status"` // PRESENT, ABSENT, LATE, EXCUSED
-	MarkedBy      string        `json:"markedBy"`
-	MarkedAt      time.Time     `json:"markedAt"`
-	MentorNote    string        `json:"mentorNote"`
-	FollowUp      *FollowUpInfo `json:"followUp"`
+	SessionNumber         int32         `json:"sessionNumber"`
+	SessionDate           string        `json:"sessionDate"`
+	StartTime             string        `json:"startTime"`
+	StudentID             uuid.UUID     `json:"studentId"`
+	StudentName           string        `json:"studentName"`
+	StudentPhone          string        `json:"studentPhone"`
+	Status                string        `json:"status"` // PRESENT, ABSENT, LATE, EXCUSED
+	MarkedBy              string        `json:"markedBy"`
+	MarkedAt              time.Time     `json:"markedAt"`
+	MentorNote            string        `json:"mentorNote"`
+	JoinedAtSessionNumber sql.NullInt32 `json:"joinedAtSessionNumber"`
+	FollowUp              *FollowUpInfo `json:"followUp"`
 }
 
 type FollowUpInfo struct {
@@ -403,4 +413,77 @@ type FollowUpListItem struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	Resolved         bool       `json:"resolved"`
 	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
+}
+
+// ComplaintCase represents a complaint filed by Student Success
+type ComplaintCase struct {
+	ID               uuid.UUID      `json:"id"`
+	Type             string         `json:"type"` // Always "complaint"
+	ClassKey         string         `json:"class_key"`
+	LeadID           sql.NullString `json:"lead_id"`
+	StudentPhone     string         `json:"student_phone"`
+	SessionNumber    sql.NullInt32  `json:"session_number"`
+	Category         string         `json:"category"`
+	ComplaintText    string         `json:"complaint_text"`
+	Urgency          string         `json:"urgency"` // low, medium, high
+	Status           string         `json:"status"`  // open, contacted, investigating, resolved
+	CreatedBy        uuid.UUID      `json:"created_by"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	Resolved         bool           `json:"resolved"`
+	ResolvedAt       sql.NullTime   `json:"resolved_at"`
+	ResolvedByUserID sql.NullString `json:"resolved_by_user_id"`
+	DeletedAt        sql.NullTime   `json:"deleted_at"`
+	DeletedByUserID  sql.NullString `json:"deleted_by_user_id"`
+	DeleteReason     sql.NullString `json:"delete_reason"`
+}
+
+// FollowUpCaseNote represents a note/action on a follow-up case
+type FollowUpCaseNote struct {
+	ID              uuid.UUID `json:"id"`
+	CaseID          uuid.UUID `json:"case_id"`
+	NoteText        string    `json:"note_text"`
+	NoteType        string    `json:"note_type"` // comment, status_change, resolution, system
+	CreatedAt       time.Time `json:"created_at"`
+	CreatedByUserID uuid.UUID `json:"created_by_user_id"`
+	CreatedByEmail  string    `json:"created_by_email,omitempty"`
+}
+
+// ComplaintListItem for API responses
+type ComplaintListItem struct {
+	ID           uuid.UUID  `json:"id"`
+	ClassKey     string     `json:"class_key"`
+	StudentName  string     `json:"student_name"`
+	StudentPhone string     `json:"student_phone"`
+	Category     string     `json:"category"`
+	Urgency      string     `json:"urgency"`
+	Status       string     `json:"status"`
+	LastNote     string     `json:"last_note"`
+	CreatedAt    time.Time  `json:"created_at"`
+	Resolved     bool       `json:"resolved"`
+	ResolvedAt   *time.Time `json:"resolved_at,omitempty"`
+}
+
+// LateJoiner represents an audit record for a student who joined a class after session 1
+type LateJoiner struct {
+	ID                      uuid.UUID      `json:"id"`
+	LeadID                  uuid.UUID      `json:"lead_id"`
+	ClassKey                string         `json:"class_key"`
+	JoinedAtSessionNumber   int32          `json:"joined_at_session_number"`
+	Reason                  string         `json:"reason"`
+	AddedByUserID           uuid.UUID      `json:"added_by_user_id"`
+	CreatedAt               time.Time      `json:"created_at"`
+	PreviousClassDays       sql.NullString `json:"previous_class_days"`
+	PreviousClassTime       sql.NullString `json:"previous_class_time"`
+	PreviousClassGroupIndex sql.NullInt32  `json:"previous_class_group_index"`
+}
+
+// EligibleClass represents a class that a lead can join as a late joiner
+type EligibleClass struct {
+	ClassKey          string `json:"class_key"`
+	Level             int32  `json:"level"`
+	ClassDays         string `json:"class_days"`
+	ClassTime         string `json:"class_time"`
+	CurrentSession    int32  `json:"current_session"`
+	CurrentEnrollment int32  `json:"current_enrollment"`
 }

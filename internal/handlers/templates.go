@@ -13,7 +13,10 @@ import (
 
 	"eighty-twenty-ops/internal/config"
 	"eighty-twenty-ops/internal/middleware"
+	"eighty-twenty-ops/internal/models"
 	"eighty-twenty-ops/internal/views"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -116,7 +119,7 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 	if cfg != nil {
 		cfg.Debugf("🎨 renderTemplate() called with template name: %s", name)
 	}
-	
+
 	// Initialize templates (will only run once due to sync.Once)
 	initTemplates()
 
@@ -135,16 +138,17 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 		"pre_enrolment_list.html":   "pre_enrolment_list_content",
 		"pre_enrolment_detail.html": "pre_enrolment_detail_content",
 		"classes.html":              "classes_content",
+		"classes_archived.html":     "classes_archived_content",
 		"finance.html":              "finance_content",
 		"finance_new_expense.html":  "finance_new_expense_content",
 		"access_restricted.html":    "access_restricted_content",
 		"mentor_head.html":          "mentor_head_content",
 		"mentor.html":               "mentor_content",
 		"mentor_class_detail.html":  "mentor_class_detail_content",
-		"community_officer.html":   "community_officer_content",
-		"hr_mentors.html":          "hr_mentors_content",
+		"student_success.html":      "student_success_content",
+		"hr_mentors.html":           "hr_mentors_content",
 	}
-	
+
 	// Templates that use auth_layout instead of main layout
 	authLayoutTemplates := map[string]bool{
 		"login.html": true,
@@ -196,6 +200,24 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 	dataMap["ContentTemplate"] = contentTemplateName
 	if _, ok := dataMap["UserRole"]; !ok && r != nil {
 		dataMap["UserRole"] = middleware.GetUserRole(r)
+	}
+
+	// Inject pending late joiner alerts for relevant roles
+	if userRole, ok := dataMap["UserRole"].(string); ok && (userRole == "mentor" || userRole == "mentor_head" || userRole == "student_success") {
+		userIDStr := middleware.GetUserID(r)
+		if userIDStr != "" {
+			if userID, err := uuid.Parse(userIDStr); err == nil {
+				alerts, err := models.GetPendingLateJoinerNotifications(userID)
+				if err == nil {
+					dataMap["PendingLateJoinerAlerts"] = alerts
+					if len(alerts) > 0 {
+						log.Printf("DEBUG: Injected %d late joiner alerts for user %s (role: %s)", len(alerts), userIDStr, userRole)
+					}
+				} else {
+					log.Printf("ERROR: Failed to get late joiner notifications for user %s: %v", userIDStr, err)
+				}
+			}
+		}
 	}
 	if cfg != nil {
 		cfg.Debugf("  → Set ContentTemplate = '%s'", contentTemplateName)

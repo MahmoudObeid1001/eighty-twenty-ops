@@ -1157,13 +1157,21 @@ func GetClassGroups() ([]*ClassGroup, error) {
 	if len(classKeys) > 0 {
 		workflows, err := GetClassGroupWorkflowsBatch(classKeys)
 		if err == nil {
+			var visible []*ClassGroup
 			for _, group := range groups {
 				if wf, ok := workflows[group.ClassKey]; ok {
+					if wf.HiddenInOps {
+						continue
+					}
 					group.SentToMentor = wf.SentToMentor
 					group.SentAt = wf.SentAt
 					group.ReturnedAt = wf.ReturnedAt
+					visible = append(visible, group)
+				} else {
+					visible = append(visible, group)
 				}
 			}
+			groups = visible
 		}
 	}
 
@@ -1295,17 +1303,13 @@ func MoveStudentBetweenGroups(leadID uuid.UUID, targetGroupIndex int32) error {
 	return nil
 }
 
-// StartRound moves students in READY/LOCKED groups to in_classes status and increments round
+// StartRound sends READY/LOCKED groups to Mentor Head and increments round.
 func StartRound() error {
 	tx, err := db.DB.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
-
-	// Find all students in READY (4-5) or LOCKED (6) groups
-	// We need to identify groups by counting students per (level, days, time, group_index)
-	// Then update status for students in those groups
 
 	// First, get all eligible students with their group info
 	rows, err := tx.Query(`
@@ -1356,106 +1360,27 @@ func StartRound() error {
 	}
 	rows.Close()
 
-	// Collect lead IDs for READY (4-5) or LOCKED (6) groups
-	var leadIDsToUpdate []uuid.UUID
-	for leadID, key := range studentGroups {
-		count := groupCounts[key]
-		if count >= 4 { // READY or LOCKED
-			leadIDsToUpdate = append(leadIDsToUpdate, leadID)
+	now := time.Now()
+	for key, count := range groupCounts {
+		if count < 4 { // Only READY/LOCKED groups
+			continue
 		}
-	}
-
-	// Group students by class_key to create sessions per class
-	classGroups := make(map[string]struct {
-		StartDate time.Time
-		StartTime string
-	})
-
-	// Get start_date and start_time from scheduling for each class
-	for leadID, key := range studentGroups {
-		count := groupCounts[key]
-		if count >= 4 { // READY or LOCKED
-			// Get class_key and start_date/start_time
-			var classKey string
-			var startDate sql.NullTime
-			var startTime sql.NullString
-
-			err = tx.QueryRow(`
-				SELECT 
-					COALESCE(cg.class_key, 'L' || pt.assigned_level::TEXT || '|' || s.class_days || '|' || s.class_time || '|' || COALESCE(s.class_group_index, 1)::TEXT),
-					s.start_date,
-					TO_CHAR(s.start_time, 'HH24:MI') as start_time
-				FROM scheduling s
-				INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
-				LEFT JOIN class_groups cg ON (
-					cg.level = pt.assigned_level
-					AND cg.class_days = s.class_days
-					AND cg.class_time = s.class_time::text::text
-					AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-				)
-				WHERE s.lead_id = $1
-			`, leadID).Scan(&classKey, &startDate, &startTime)
-
-			if err == nil {
-				// Ensure class_groups record exists
-				_, err = tx.Exec(`
-					INSERT INTO class_groups (class_key, level, class_days, class_time, class_number, updated_at)
-					VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-					ON CONFLICT (class_key) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-				`, classKey, key.Level, key.Days, key.Time, key.GroupIndex)
-				if err != nil {
-					return fmt.Errorf("failed to ensure class group: %w", err)
-				}
-
-				// Store start date/time for this class (use first student's schedule)
-				if _, exists := classGroups[classKey]; !exists {
-					startDateVal := time.Now() // Default to today if not set
-					if startDate.Valid {
-						startDateVal = startDate.Time
-					}
-					startTimeVal := "07:30" // Default
-					if startTime.Valid {
-						startTimeVal = startTime.String
-					}
-					classGroups[classKey] = struct {
-						StartDate time.Time
-						StartTime string
-					}{StartDate: startDateVal, StartTime: startTimeVal}
-				}
-			}
-		}
-	}
-
-	// Update status to in_classes
-	if len(leadIDsToUpdate) > 0 {
-		// Update each lead individually (PostgreSQL array handling can be tricky)
-		for _, leadID := range leadIDsToUpdate {
-			_, err = tx.Exec(`UPDATE leads SET status = 'in_classes', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, leadID)
-			if err != nil {
-				return fmt.Errorf("failed to update status for lead %s: %w", leadID, err)
-			}
-		}
-	}
-
-	// Create 8 sessions for each class
-	for classKey, schedule := range classGroups {
-		for i := 1; i <= 8; i++ {
-			sessionDate := schedule.StartDate.AddDate(0, 0, (i-1)*7) // Weekly sessions
-			startTimeParsed, err := time.Parse("15:04", schedule.StartTime)
-			if err != nil {
-				startTimeParsed, _ = time.Parse("15:04", "07:30") // Fallback
-			}
-			endTimeParsed := startTimeParsed.Add(2 * time.Hour)
-			endTime := endTimeParsed.Format("15:04")
-
-			_, err = tx.Exec(`
-				INSERT INTO class_sessions (id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time, status, created_at, updated_at)
-				VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'scheduled', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-				ON CONFLICT (class_key, session_number) DO NOTHING
-			`, classKey, i, sessionDate, schedule.StartTime, endTime)
-			if err != nil {
-				return fmt.Errorf("failed to create session %d for class %s: %w", i, classKey, err)
-			}
+		classKey := fmt.Sprintf("L%d|%s|%s|%d", key.Level, key.Days, key.Time, key.GroupIndex)
+		_, err = tx.Exec(`
+			INSERT INTO class_groups (class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, true, $6, NULL, $6)
+			ON CONFLICT (class_key) DO UPDATE SET
+				level = EXCLUDED.level,
+				class_days = EXCLUDED.class_days,
+				class_time = EXCLUDED.class_time,
+				class_number = EXCLUDED.class_number,
+				sent_to_mentor = true,
+				sent_at = $6,
+				returned_at = NULL,
+				updated_at = $6
+		`, classKey, key.Level, key.Days, key.Time, key.GroupIndex, now)
+		if err != nil {
+			return fmt.Errorf("failed to send class group to mentor: %w", err)
 		}
 	}
 
@@ -1540,16 +1465,18 @@ func GenerateClassKey(level int32, classDays, classTime string, groupIndex int32
 // GetClassGroupWorkflow gets workflow state for a class group by class_key
 func GetClassGroupWorkflow(classKey string) (*ClassGroupWorkflow, error) {
 	wf := &ClassGroupWorkflow{}
-	var sentAt, returnedAt, roundStartedAt, roundClosedAt sql.NullTime
-	var roundStartedBy, roundClosedBy sql.NullString
+	var sentAt, returnedAt, hiddenAt, roundStartedAt, roundClosedAt sql.NullTime
+	var hiddenBy, roundStartedBy, roundClosedBy sql.NullString
 	var roundStatus sql.NullString
 	err := db.DB.QueryRow(`
 		SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at,
+		       hidden_in_ops, hidden_at, hidden_by::text,
 		       COALESCE(round_status, 'not_started'), round_started_at, round_started_by::text, round_closed_at, round_closed_by::text
 		FROM class_groups WHERE class_key = $1
 	`, classKey).Scan(
 		&wf.ClassKey, &wf.Level, &wf.ClassDays, &wf.ClassTime, &wf.ClassNumber,
 		&wf.SentToMentor, &sentAt, &returnedAt, &wf.UpdatedAt,
+		&wf.HiddenInOps, &hiddenAt, &hiddenBy,
 		&roundStatus, &roundStartedAt, &roundStartedBy, &roundClosedAt, &roundClosedBy,
 	)
 	if err == sql.ErrNoRows {
@@ -1559,6 +1486,7 @@ func GetClassGroupWorkflow(classKey string) (*ClassGroupWorkflow, error) {
 		return nil, fmt.Errorf("failed to get class group workflow: %w", err)
 	}
 	wf.SentAt, wf.ReturnedAt = sentAt, returnedAt
+	wf.HiddenAt, wf.HiddenBy = hiddenAt, hiddenBy
 	wf.RoundStartedAt, wf.RoundClosedAt = roundStartedAt, roundClosedAt
 	wf.RoundStartedBy, wf.RoundClosedBy = roundStartedBy, roundClosedBy
 	if roundStatus.Valid {
@@ -1579,6 +1507,9 @@ func SendClassGroupToMentor(classKey string, level int32, classDays, classTime s
 			sent_to_mentor = true,
 			sent_at = $6,
 			returned_at = NULL,
+			hidden_in_ops = false,
+			hidden_at = NULL,
+			hidden_by = NULL,
 			updated_at = $6
 	`, classKey, level, classDays, classTime, classNumber, now)
 	return err
@@ -1595,22 +1526,156 @@ func ReturnClassGroupFromMentor(classKey string) error {
 			round_status = 'not_started',
 			round_started_at = NULL,
 			round_started_by = NULL,
+			hidden_in_ops = false,
+			hidden_at = NULL,
+			hidden_by = NULL,
 			returned_at = $2,
 			updated_at = $2
 		WHERE class_key = $1
+		  AND COALESCE(round_status, '') != 'active'
 	`, classKey, now)
 	if err != nil {
 		return fmt.Errorf("return class_groups update: %w", err)
 	}
 	aff, _ := res.RowsAffected()
 	if aff == 0 {
-		return fmt.Errorf("no class_group updated for class_key %q (not found or already returned)", classKey)
+		return fmt.Errorf("class cannot be returned (not found, already returned, or round active)")
 	}
 	_, err = db.DB.Exec(`DELETE FROM mentor_assignments WHERE class_key = $1`, classKey)
 	if err != nil {
 		return fmt.Errorf("return mentor_assignments delete: %w", err)
 	}
+	// Move students back to ready_to_start so class appears as NOT STARTED in Ops.
+	_, err = db.DB.Exec(`
+		UPDATE leads l
+		SET status = 'ready_to_start', updated_at = NOW()
+		FROM scheduling s
+		INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
+		INNER JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND cg.class_time = s.class_time::text
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		WHERE l.id = s.lead_id
+		  AND cg.class_key = $1
+		  AND l.status = 'in_classes'
+	`, classKey)
+	if err != nil {
+		return fmt.Errorf("return lead status update: %w", err)
+	}
 	return nil
+}
+
+// ArchiveClassInOps hides a class from the Ops Classes board.
+// Allowed only when class is sent_to_mentor and round_status is active.
+func ArchiveClassInOps(classKey string, userID uuid.UUID) error {
+	now := time.Now()
+	res, err := db.DB.Exec(`
+		UPDATE class_groups
+		SET hidden_in_ops = true,
+		    hidden_at = $2,
+		    hidden_by = $3,
+		    updated_at = $2
+		WHERE class_key = $1
+		  AND sent_to_mentor = true
+		  AND COALESCE(round_status, '') = 'active'
+	`, classKey, now, userID)
+	if err != nil {
+		return fmt.Errorf("archive class update: %w", err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return fmt.Errorf("class not eligible for archive")
+	}
+	return nil
+}
+
+// UnarchiveClassInOps restores a class to the Ops Classes board.
+func UnarchiveClassInOps(classKey string) error {
+	_, err := db.DB.Exec(`
+		UPDATE class_groups
+		SET hidden_in_ops = false,
+		    hidden_at = NULL,
+		    hidden_by = NULL,
+		    updated_at = NOW()
+		WHERE class_key = $1
+	`, classKey)
+	if err != nil {
+		return fmt.Errorf("unarchive class update: %w", err)
+	}
+	return nil
+}
+
+// ArchivedOpsClass represents an archived class entry for Ops view.
+type ArchivedOpsClass struct {
+	ClassKey     string
+	Level        int32
+	ClassDays    string
+	ClassTime    string
+	ClassNumber  int32
+	SentAt       sql.NullTime
+	RoundStarted sql.NullTime
+	HiddenAt     sql.NullTime
+	HiddenBy     sql.NullString
+	RoundStatus  string
+	SentToMentor bool
+}
+
+// GetArchivedOpsClasses returns classes hidden from Ops with optional filters.
+func GetArchivedOpsClasses(classKeyLike string, fromDate, toDate *time.Time) ([]*ArchivedOpsClass, error) {
+	query := `
+		SELECT class_key, level, class_days, class_time, class_number,
+		       sent_at, round_started_at, hidden_at, hidden_by::text,
+		       COALESCE(round_status, 'not_started'), sent_to_mentor
+		FROM class_groups
+		WHERE hidden_in_ops = true
+	`
+	var args []interface{}
+	argN := 1
+	if classKeyLike != "" {
+		query += fmt.Sprintf(" AND class_key ILIKE $%d", argN)
+		args = append(args, "%"+classKeyLike+"%")
+		argN++
+	}
+	if fromDate != nil {
+		query += fmt.Sprintf(" AND hidden_at >= $%d", argN)
+		args = append(args, *fromDate)
+		argN++
+	}
+	if toDate != nil {
+		query += fmt.Sprintf(" AND hidden_at <= $%d", argN)
+		args = append(args, *toDate)
+		argN++
+	}
+	query += " ORDER BY hidden_at DESC"
+
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query archived classes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*ArchivedOpsClass
+	for rows.Next() {
+		c := &ArchivedOpsClass{}
+		var roundStatus sql.NullString
+		err := rows.Scan(
+			&c.ClassKey, &c.Level, &c.ClassDays, &c.ClassTime, &c.ClassNumber,
+			&c.SentAt, &c.RoundStarted, &c.HiddenAt, &c.HiddenBy,
+			&roundStatus, &c.SentToMentor,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan archived class: %w", err)
+		}
+		if roundStatus.Valid {
+			c.RoundStatus = roundStatus.String
+		} else {
+			c.RoundStatus = "not_started"
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // GetClassGroupWorkflowsBatch gets workflow state for multiple class keys
@@ -1620,6 +1685,7 @@ func GetClassGroupWorkflowsBatch(classKeys []string) (map[string]*ClassGroupWork
 	}
 
 	query := `SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at,
+		hidden_in_ops, hidden_at, hidden_by::text,
 		COALESCE(round_status, 'not_started'), round_started_at, round_started_by::text, round_closed_at, round_closed_by::text
 		FROM class_groups WHERE class_key = ANY($1)`
 	rows, err := db.DB.Query(query, classKeys)
@@ -1631,17 +1697,19 @@ func GetClassGroupWorkflowsBatch(classKeys []string) (map[string]*ClassGroupWork
 	result := make(map[string]*ClassGroupWorkflow)
 	for rows.Next() {
 		wf := &ClassGroupWorkflow{}
-		var sentAt, returnedAt, roundStartedAt, roundClosedAt sql.NullTime
-		var roundStartedBy, roundClosedBy, roundStatus sql.NullString
+		var sentAt, returnedAt, hiddenAt, roundStartedAt, roundClosedAt sql.NullTime
+		var hiddenBy, roundStartedBy, roundClosedBy, roundStatus sql.NullString
 		err := rows.Scan(
 			&wf.ClassKey, &wf.Level, &wf.ClassDays, &wf.ClassTime, &wf.ClassNumber,
 			&wf.SentToMentor, &sentAt, &returnedAt, &wf.UpdatedAt,
+			&wf.HiddenInOps, &hiddenAt, &hiddenBy,
 			&roundStatus, &roundStartedAt, &roundStartedBy, &roundClosedAt, &roundClosedBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan class group workflow: %w", err)
 		}
 		wf.SentAt, wf.ReturnedAt = sentAt, returnedAt
+		wf.HiddenAt, wf.HiddenBy = hiddenAt, hiddenBy
 		wf.RoundStartedAt, wf.RoundClosedAt = roundStartedAt, roundClosedAt
 		wf.RoundStartedBy, wf.RoundClosedBy = roundStartedBy, roundClosedBy
 		if roundStatus.Valid {
@@ -3661,7 +3729,8 @@ func GetSessionByID(sessionID uuid.UUID) (*ClassSession, error) {
 func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 	rows, err := db.DB.Query(`
 		SELECT class_key, level, class_days, class_time, class_number,
-		       sent_to_mentor, sent_at, returned_at, updated_at
+		       sent_to_mentor, sent_at, returned_at, updated_at,
+		       hidden_in_ops, hidden_at, hidden_by::text
 		FROM class_groups
 		WHERE sent_to_mentor = true AND COALESCE(round_status, '') != 'closed'
 		ORDER BY level, class_days, class_time
@@ -3674,11 +3743,13 @@ func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 	var groups []*ClassGroupWorkflow
 	for rows.Next() {
 		g := &ClassGroupWorkflow{}
-		var sentAt, returnedAt sql.NullTime
+		var sentAt, returnedAt, hiddenAt sql.NullTime
+		var hiddenBy sql.NullString
 
 		err := rows.Scan(
 			&g.ClassKey, &g.Level, &g.ClassDays, &g.ClassTime, &g.ClassNumber,
 			&g.SentToMentor, &sentAt, &returnedAt, &g.UpdatedAt,
+			&g.HiddenInOps, &hiddenAt, &hiddenBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan class group: %w", err)
@@ -3686,6 +3757,8 @@ func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 
 		g.SentAt = sentAt
 		g.ReturnedAt = returnedAt
+		g.HiddenAt = hiddenAt
+		g.HiddenBy = hiddenBy
 		groups = append(groups, g)
 	}
 
@@ -4251,6 +4324,14 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 	defer tx.Rollback()
 
 	now := time.Now()
+
+	assignment, err := GetMentorAssignment(classKey)
+	if err != nil {
+		return fmt.Errorf("failed to check mentor assignment: %w", err)
+	}
+	if assignment == nil {
+		return fmt.Errorf("cannot start round: mentor not assigned")
+	}
 
 	// 1. Update class_groups round status
 	res, err := tx.Exec(`

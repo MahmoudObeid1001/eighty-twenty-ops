@@ -48,14 +48,11 @@ func main() {
 	if err := seedMentorUser(cfg); err != nil {
 		log.Printf("Warning: Failed to seed mentor user: %v", err)
 	}
-	if err := seedCommunityOfficerUser(cfg); err != nil {
-		log.Printf("Warning: Failed to seed community_officer user: %v", err)
+	if err := seedStudentSuccessUser(cfg); err != nil {
+		log.Printf("Warning: Failed to seed student_success user: %v", err)
 	}
 	if err := seedHRUser(cfg); err != nil {
 		log.Printf("Warning: Failed to seed hr user: %v", err)
-	}
-	if err := seedStudentSuccessUser(cfg); err != nil {
-		log.Printf("Warning: Failed to seed student_success user: %v", err)
 	}
 
 	// Initialize handlers
@@ -71,7 +68,7 @@ func main() {
 	financeHandler := handlers.NewFinanceHandler(cfg)
 	mentorHeadHandler := handlers.NewMentorHeadHandler(cfg)
 	mentorHandler := handlers.NewMentorHandler(cfg)
-	communityOfficerHandler := handlers.NewCommunityOfficerHandler(cfg)
+	studentSuccessHandler := handlers.NewStudentSuccessHandler(cfg)
 	hrHandler := handlers.NewHRHandler(cfg)
 	apiHandler := handlers.NewAPIHandler(cfg)
 
@@ -134,6 +131,15 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/dashboard -> apiHandler.GetMentorHeadDashboard [mentor_head+admin]")
+
+	mux.HandleFunc("/api/mentor-head/archive", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorHeadArchive)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/archive -> apiHandler.GetMentorHeadArchive [mentor_head+admin]")
 
 	mux.HandleFunc("/api/mentor-head/assign-mentor", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
@@ -243,6 +249,58 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student -> apiHandler.GetStudent [mentor+mentor_head+admin]")
 
+	// Notification Routes
+	mux.HandleFunc("/api/notifications/late-join/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/acknowledge") {
+			if r.Method == http.MethodPost {
+				middleware.RequireAnyRole([]string{"mentor", "mentor_head", "student_success"}, cfg.SessionSecret)(apiHandler.AcknowledgeLateJoinNotification)(w, r)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	mux.HandleFunc("/api/notifications/late-join", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "student_success"}, cfg.SessionSecret)(apiHandler.GetLateJoinNotifications)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/notifications/late-join -> apiHandler [mentor+mentor_head+student_success]")
+
+	// Late Joiner Routes (Canonical: /api/pre-enrolment/:leadId/...)
+	mux.HandleFunc("/api/pre-enrolment/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		// parts: [api, pre-enrolment, :leadId, ...]
+		if len(parts) < 3 {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Routing logic for sub-paths
+		if len(parts) == 4 && parts[3] == "late-join-eligible-classes" {
+			if r.Method == http.MethodGet {
+				middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(apiHandler.GetEligibleClassesForLateJoin)(w, r)
+				return
+			}
+		} else if len(parts) == 5 && parts[3] == "late-join" && parts[4] == "add" {
+			if r.Method == http.MethodPost {
+				middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(apiHandler.AddLateJoiner)(w, r)
+				return
+			}
+		} else if len(parts) == 5 && parts[3] == "late-join" && parts[4] == "undo" {
+			if r.Method == http.MethodPost {
+				middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(apiHandler.UndoLateJoiner)(w, r)
+				return
+			}
+		}
+
+		http.NotFound(w, r)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/pre-enrolment/ -> Late Joiner Routes (Eligible/Add/Undo)")
+
 	// Register GET /api/mentor-head/evaluations first (exact match)
 	mux.HandleFunc("/api/mentor-head/evaluations", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Only handle exact path match (no trailing slash, no path params)
@@ -273,6 +331,34 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/evaluations/:mentorId -> apiHandler.UpdateMentorEvaluation [mentor_head only]")
+
+	// Grades API routes
+	mux.HandleFunc("/api/mentor/grades", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor", "admin"}, cfg.SessionSecret)(apiHandler.CreateGrade)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor/grades -> apiHandler.CreateGrade [mentor+admin]")
+
+	mux.HandleFunc("/api/mentor-head/grades/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.UpdateGrade)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/grades/:id -> apiHandler.UpdateGrade [mentor_head+admin]")
+
+	mux.HandleFunc("/api/grades", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "student_success", "admin"}, cfg.SessionSecret)(apiHandler.GetGradesForClass)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/grades?class_key=X -> apiHandler.GetGradesForClass [mentor+mentor_head+student_success+admin]")
 
 	mux.HandleFunc("/api/student-success/classes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/student-success/classes" {
@@ -330,6 +416,40 @@ func main() {
 		middleware.RequireAnyRole([]string{"student_success", "admin"}, cfg.SessionSecret)(apiHandler.UpdateFeedbackStatus)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/feedback/status -> apiHandler.UpdateFeedbackStatus")
+
+	// Complaint routes - Student Success
+	mux.HandleFunc("/api/student-success/complaints", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		middleware.RequireAnyRole([]string{"student_success", "admin"}, cfg.SessionSecret)(apiHandler.CreateComplaint)(w, r)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/student-success/complaints -> apiHandler.CreateComplaint")
+
+	// Complaint routes - Mentor Head
+	mux.HandleFunc("/api/mentor-head/complaints", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/mentor-head/complaints" {
+			http.NotFound(w, r)
+			return
+		}
+		middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorHeadComplaints)(w, r)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/complaints -> apiHandler.GetMentorHeadComplaints")
+
+	// Complaint actions - Mentor Head (with path params)
+	mux.HandleFunc("/api/mentor-head/complaints/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/mentor-head/complaints" || r.URL.Path == "/api/mentor-head/complaints/" {
+			http.NotFound(w, r)
+			return
+		}
+		middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/update") {
+				apiHandler.UpdateComplaintStatusHandler(w, r)
+			} else if strings.HasSuffix(r.URL.Path, "/resolve") {
+				apiHandler.ResolveComplaintHandler(w, r)
+			} else {
+				http.NotFound(w, r)
+			}
+		})(w, r)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/complaints/:id/update and /resolve")
 
 	// Specific absence case actions
 	mux.HandleFunc("/api/absence-cases/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -536,6 +656,57 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /classes/return -> classesHandler.ReturnFromMentor [admin only]")
+
+	// Archived classes (Ops)
+	mux.HandleFunc("/classes/archived", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /classes/archived handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/classes/archived" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			cfg.Debugf("  → Calling classesHandler.Archived")
+			middleware.RequireAnyRole([]string{"admin", "mentor_head", "moderator"}, cfg.SessionSecret)(classesHandler.Archived)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /classes/archived -> classesHandler.Archived [admin+mentor_head+moderator]")
+
+	// POST /classes/archive
+	mux.HandleFunc("/classes/archive", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /classes/archive handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/classes/archive" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			cfg.Debugf("  → Calling classesHandler.ArchiveClass")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(classesHandler.ArchiveClass)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /classes/archive -> classesHandler.ArchiveClass [admin only]")
+
+	// POST /classes/unarchive
+	mux.HandleFunc("/classes/unarchive", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /classes/unarchive handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/classes/unarchive" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			cfg.Debugf("  → Calling classesHandler.UnarchiveClass")
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(classesHandler.UnarchiveClass)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /classes/unarchive -> classesHandler.UnarchiveClass [admin only]")
 
 	// Finance routes - admin only
 	mux.HandleFunc("/finance", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -774,43 +945,43 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /mentor/class -> 302 redirect to /app/mentor/class [backward compatibility]")
 
-	// Community Officer routes - community_officer + admin
-	mux.HandleFunc("/community-officer", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		cfg.Debugf("HANDLER: /community-officer handler for %s %s", r.Method, r.URL.Path)
-		if r.URL.Path != "/community-officer" {
+	// Student Success routes - student_success + admin
+	mux.HandleFunc("/student-success", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /student-success handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/student-success" {
 			http.NotFound(w, r)
 			return
 		}
 		if r.Method == http.MethodGet {
-			cfg.Debugf("  → Calling communityOfficerHandler.Dashboard")
-			middleware.RequireAnyRole([]string{"community_officer", "admin"}, cfg.SessionSecret)(communityOfficerHandler.Dashboard)(w, r)
+			// Redirect to React app
+			http.Redirect(w, r, "/app/student-success", http.StatusFound)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /community-officer -> communityOfficerHandler.Dashboard [community_officer+admin]")
+	cfg.Debugf("ROUTE REGISTERED: /student-success -> studentSuccessHandler.Dashboard [student_success+admin]")
 
-	mux.HandleFunc("/community-officer/feedback", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		cfg.Debugf("HANDLER: /community-officer/feedback handler for %s %s", r.Method, r.URL.Path)
+	mux.HandleFunc("/student-success/feedback", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /student-success/feedback handler for %s %s", r.Method, r.URL.Path)
 		if r.Method == http.MethodPost {
-			cfg.Debugf("  → Calling communityOfficerHandler.SubmitFeedback")
-			middleware.RequireAnyRole([]string{"community_officer", "admin"}, cfg.SessionSecret)(communityOfficerHandler.SubmitFeedback)(w, r)
+			cfg.Debugf("  → Calling studentSuccessHandler.SubmitFeedback")
+			middleware.RequireAnyRole([]string{"student_success", "admin"}, cfg.SessionSecret)(studentSuccessHandler.SubmitFeedback)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /community-officer/feedback -> communityOfficerHandler.SubmitFeedback [community_officer+admin]")
+	cfg.Debugf("ROUTE REGISTERED: /student-success/feedback -> studentSuccessHandler.SubmitFeedback [student_success+admin]")
 
-	mux.HandleFunc("/community-officer/follow-up", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		cfg.Debugf("HANDLER: /community-officer/follow-up handler for %s %s", r.Method, r.URL.Path)
+	mux.HandleFunc("/student-success/follow-up", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /student-success/follow-up handler for %s %s", r.Method, r.URL.Path)
 		if r.Method == http.MethodPost {
-			cfg.Debugf("  → Calling communityOfficerHandler.LogFollowUp")
-			middleware.RequireAnyRole([]string{"community_officer", "admin"}, cfg.SessionSecret)(communityOfficerHandler.LogFollowUp)(w, r)
+			cfg.Debugf("  → Calling studentSuccessHandler.LogFollowUp")
+			middleware.RequireAnyRole([]string{"student_success", "admin"}, cfg.SessionSecret)(studentSuccessHandler.LogFollowUp)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /community-officer/follow-up -> communityOfficerHandler.LogFollowUp [community_officer+admin]")
+	cfg.Debugf("ROUTE REGISTERED: /student-success/follow-up -> studentSuccessHandler.LogFollowUp [student_success+admin]")
 
 	// HR routes - hr + admin
 	mux.HandleFunc("/hr/mentors", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -920,9 +1091,10 @@ func main() {
 	log.Printf("Default moderator login: %s / %s", cfg.ModeratorEmail, cfg.ModeratorPassword)
 	log.Printf("Default mentor_head login: %s / %s", cfg.MentorHeadEmail, cfg.MentorHeadPassword)
 	log.Printf("Default mentor login: %s / %s", cfg.MentorEmail, cfg.MentorPassword)
-	log.Printf("Default community_officer login: %s / %s", cfg.CommunityOfficerEmail, cfg.CommunityOfficerPassword)
-	log.Printf("Default hr login: %s / %s", cfg.HREmail, cfg.HRPassword)
 	log.Printf("Default student_success login: %s / %s", cfg.StudentSuccessEmail, cfg.StudentSuccessPassword)
+	log.Printf("Default hr login: %s / %s", cfg.HREmail, cfg.HRPassword)
+
+	log.Printf("Default manager login: %s / %s", cfg.ManagerEmail, cfg.ManagerPassword)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
@@ -1007,23 +1179,6 @@ func seedMentorUser(cfg *config.Config) error {
 		return fmt.Errorf("failed to create mentor user: %w", err)
 	}
 	log.Printf("Created default mentor user: %s", cfg.MentorEmail)
-	return nil
-}
-
-func seedCommunityOfficerUser(cfg *config.Config) error {
-	_, err := models.GetUserByEmail(cfg.CommunityOfficerEmail)
-	if err == nil {
-		return nil
-	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(cfg.CommunityOfficerPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
-	}
-	_, err = models.CreateUser(cfg.CommunityOfficerEmail, string(hashedPassword), "community_officer")
-	if err != nil {
-		return fmt.Errorf("failed to create community_officer user: %w", err)
-	}
-	log.Printf("Created default community_officer user: %s", cfg.CommunityOfficerEmail)
 	return nil
 }
 

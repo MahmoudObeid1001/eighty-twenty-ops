@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"eighty-twenty-ops/internal/config"
 	"eighty-twenty-ops/internal/middleware"
@@ -75,13 +76,19 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		flashMessage = "Student moved successfully"
 	}
 	if r.URL.Query().Get("round_started") == "1" {
-		flashMessage = "Round started successfully. READY and LOCKED classes moved to IN_CLASSES."
+		flashMessage = "Classes sent to Mentor Head successfully."
 	}
 	if r.URL.Query().Get("sent") == "1" {
 		flashMessage = "Class sent to mentor head successfully"
 	}
 	if r.URL.Query().Get("returned") == "1" {
 		flashMessage = "Class returned from mentor head"
+	}
+	if r.URL.Query().Get("archived") == "1" {
+		flashMessage = "Class archived from Ops view"
+	}
+	if r.URL.Query().Get("unarchived") == "1" {
+		flashMessage = "Class restored to Ops view"
 	}
 
 	// Auto-assign students without group_index
@@ -316,9 +323,126 @@ func (h *ClassesHandler) ReturnFromMentor(w http.ResponseWriter, r *http.Request
 	err := models.ReturnClassGroupFromMentor(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to return class from mentor: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to return class from mentor: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Cannot return this class. If the round already started, please archive or close it instead.", http.StatusBadRequest)
 		return
 	}
 
 	http.Redirect(w, r, "/classes?returned=1", http.StatusFound)
+}
+
+// ArchiveClass hides a started class from the Ops Classes board.
+// Only allowed when class is sent_to_mentor and active.
+func (h *ClassesHandler) ArchiveClass(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "admin" {
+		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		return
+	}
+
+	classKey := r.FormValue("class_key")
+	if classKey == "" {
+		http.Error(w, "class_key is required", http.StatusBadRequest)
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		http.Error(w, "Invalid user", http.StatusBadRequest)
+		return
+	}
+
+	if err := models.ArchiveClassInOps(classKey, userID); err != nil {
+		log.Printf("ERROR: Failed to archive class: %v", err)
+		http.Error(w, "Only started classes that were sent to Mentor Head can be archived.", http.StatusBadRequest)
+		return
+	}
+
+	http.Redirect(w, r, "/classes?archived=1", http.StatusFound)
+}
+
+// UnarchiveClass restores a class to the Ops Classes board.
+func (h *ClassesHandler) UnarchiveClass(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "admin" {
+		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		return
+	}
+
+	classKey := r.FormValue("class_key")
+	if classKey == "" {
+		http.Error(w, "class_key is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := models.UnarchiveClassInOps(classKey); err != nil {
+		log.Printf("ERROR: Failed to unarchive class: %v", err)
+		http.Error(w, "Could not restore this class. Please try again.", http.StatusBadRequest)
+		return
+	}
+
+	http.Redirect(w, r, "/classes/archived?unarchived=1", http.StatusFound)
+}
+
+// Archived shows archived classes for Ops with basic filters.
+func (h *ClassesHandler) Archived(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "admin" && userRole != "mentor_head" {
+		http.Error(w, "Forbidden: Admin or Mentor Head access required", http.StatusForbidden)
+		return
+	}
+
+	classKeyFilter := strings.TrimSpace(r.URL.Query().Get("class_key"))
+	var fromDate *time.Time
+	var toDate *time.Time
+	if v := r.URL.Query().Get("from"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			fromDate = &t
+		}
+	}
+	if v := r.URL.Query().Get("to"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			toDate = &t
+		}
+	}
+
+	archived, err := models.GetArchivedOpsClasses(classKeyFilter, fromDate, toDate)
+	if err != nil {
+		log.Printf("ERROR: Failed to load archived classes: %v", err)
+		http.Error(w, "Failed to load archived classes", http.StatusInternalServerError)
+		return
+	}
+
+	flashMessage := ""
+	if r.URL.Query().Get("unarchived") == "1" {
+		flashMessage = "Class restored to Ops view"
+	}
+
+	data := map[string]interface{}{
+		"Title":           "Archived Classes – Eighty Twenty",
+		"ContentTemplate": "classes_archived_content",
+		"Archived":        archived,
+		"FlashMessage":    flashMessage,
+		"UserRole":        userRole,
+		"IsModerator":     IsModerator(r),
+		"ClassKey":        classKeyFilter,
+		"From":            r.URL.Query().Get("from"),
+		"To":              r.URL.Query().Get("to"),
+	}
+	renderTemplate(w, r, "classes_archived.html", data)
 }
