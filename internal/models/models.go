@@ -140,6 +140,8 @@ type ClassGroup struct {
 	SentAt       sql.NullTime
 	ReturnedAt   sql.NullTime
 	RoundStatus  string // not_started | active | closed
+	// Current session for active rounds (computed from completed sessions + 1)
+	CurrentSession sql.NullInt32
 }
 
 // ClassGroupWorkflow tracks workflow state for a class group
@@ -388,17 +390,17 @@ type AbsenceFeedItem struct {
 	MarkedBy              string        `json:"markedBy"`
 	MarkedAt              time.Time     `json:"markedAt"`
 	MentorNote            string        `json:"mentorNote"`
-	JoinedAtSessionNumber sql.NullInt32 `json:"joinedAtSessionNumber"`
+	JoinedAtSessionNumber *int32        `json:"joinedAtSessionNumber,omitempty"`
 	FollowUp              *FollowUpInfo `json:"followUp"`
 }
 
 type FollowUpInfo struct {
-	ID         uuid.UUID    `json:"id"`
-	Status     string       `json:"status"`
-	LastNote   string       `json:"lastNote"`
-	UpdatedAt  time.Time    `json:"updatedAt"`
-	Resolved   bool         `json:"resolved"`
-	ResolvedAt sql.NullTime `json:"resolvedAt"`
+	ID         uuid.UUID  `json:"id"`
+	Status     string     `json:"status"`
+	LastNote   string     `json:"lastNote"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
+	Resolved   bool       `json:"resolved"`
+	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 }
 
 type FollowUpListItem struct {
@@ -451,17 +453,18 @@ type FollowUpCaseNote struct {
 
 // ComplaintListItem for API responses
 type ComplaintListItem struct {
-	ID           uuid.UUID  `json:"id"`
-	ClassKey     string     `json:"class_key"`
-	StudentName  string     `json:"student_name"`
-	StudentPhone string     `json:"student_phone"`
-	Category     string     `json:"category"`
-	Urgency      string     `json:"urgency"`
-	Status       string     `json:"status"`
-	LastNote     string     `json:"last_note"`
-	CreatedAt    time.Time  `json:"created_at"`
-	Resolved     bool       `json:"resolved"`
-	ResolvedAt   *time.Time `json:"resolved_at,omitempty"`
+	ID            uuid.UUID  `json:"id"`
+	ClassKey      string     `json:"class_key"`
+	StudentName   string     `json:"student_name"`
+	StudentPhone  string     `json:"student_phone"`
+	Category      string     `json:"category"`
+	Urgency       string     `json:"urgency"`
+	Status        string     `json:"status"`
+	ComplaintText string     `json:"complaint_text"`
+	LastNote      string     `json:"last_note"`
+	CreatedAt     time.Time  `json:"created_at"`
+	Resolved      bool       `json:"resolved"`
+	ResolvedAt    *time.Time `json:"resolved_at,omitempty"`
 }
 
 // LateJoiner represents an audit record for a student who joined a class after session 1

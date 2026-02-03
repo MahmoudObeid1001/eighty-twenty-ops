@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -26,13 +27,13 @@ func NewMentorHeadHandler(cfg *config.Config) *MentorHeadHandler {
 // Dashboard lists all classes sent to mentor head
 func (h *MentorHeadHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor_head" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor Head or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
 
@@ -40,7 +41,7 @@ func (h *MentorHeadHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	classes, err := models.GetClassGroupsSentToMentor()
 	if err != nil {
 		log.Printf("ERROR: Failed to get classes: %v", err)
-		http.Error(w, "Failed to load classes", http.StatusInternalServerError)
+		http.Error(w, "Couldn't load classes. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -114,13 +115,13 @@ func (h *MentorHeadHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 // AssignMentor assigns a mentor to a class
 func (h *MentorHeadHandler) AssignMentor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor_head" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor Head or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to do this.", http.StatusForbidden)
 		return
 	}
 
@@ -128,20 +129,20 @@ func (h *MentorHeadHandler) AssignMentor(w http.ResponseWriter, r *http.Request)
 	mentorUserIDStr := r.FormValue("mentor_user_id")
 
 	if classKey == "" || mentorUserIDStr == "" {
-		http.Error(w, "class_key and mentor_user_id are required", http.StatusBadRequest)
+		http.Error(w, "Please choose a mentor and try again.", http.StatusBadRequest)
 		return
 	}
 
 	mentorUserID, err := uuid.Parse(mentorUserIDStr)
 	if err != nil {
-		http.Error(w, "Invalid mentor_user_id", http.StatusBadRequest)
+		http.Error(w, "Please choose a valid mentor.", http.StatusBadRequest)
 		return
 	}
 
 	// Verify user has role='mentor'
 	user, err := models.GetUserByID(mentorUserIDStr)
 	if err != nil || user == nil || user.Role != "mentor" {
-		http.Error(w, "Invalid mentor user", http.StatusBadRequest)
+		http.Error(w, "Selected mentor is invalid.", http.StatusBadRequest)
 		return
 	}
 
@@ -149,7 +150,7 @@ func (h *MentorHeadHandler) AssignMentor(w http.ResponseWriter, r *http.Request)
 	sessions, err := models.GetClassSessions(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get sessions: %v", err)
-		http.Error(w, "Failed to check schedule conflicts", http.StatusInternalServerError)
+		http.Error(w, "Couldn't verify mentor availability. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -170,7 +171,7 @@ func (h *MentorHeadHandler) AssignMentor(w http.ResponseWriter, r *http.Request)
 		)
 		if err != nil {
 			log.Printf("ERROR: Failed to check conflict: %v", err)
-			http.Error(w, "Failed to check schedule conflicts", http.StatusInternalServerError)
+			http.Error(w, "Couldn't verify mentor availability. Please try again.", http.StatusInternalServerError)
 			return
 		}
 		if hasConflict {
@@ -183,7 +184,7 @@ func (h *MentorHeadHandler) AssignMentor(w http.ResponseWriter, r *http.Request)
 	createdByUserID, _ := uuid.Parse(middleware.GetUserID(r))
 	if err := models.AssignMentorToClass(classKey, mentorUserID, createdByUserID); err != nil {
 		log.Printf("ERROR: Failed to assign mentor: %v", err)
-		http.Error(w, "Failed to assign mentor", http.StatusInternalServerError)
+		http.Error(w, "Couldn't assign mentor. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -195,26 +196,35 @@ func (h *MentorHeadHandler) AssignMentor(w http.ResponseWriter, r *http.Request)
 // can contain "/" (e.g. "Sun/Wed") and breaks path-based routing.
 func (h *MentorHeadHandler) ReturnClass(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor_head" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor Head or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to do this.", http.StatusForbidden)
 		return
 	}
 
 	classKey := r.FormValue("class_key")
 	if classKey == "" {
-		http.Error(w, "class_key is required", http.StatusBadRequest)
+		http.Error(w, "Missing class reference. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	log.Printf("[Return] classKey=%q (from form), fields: sent_to_mentor=false, returned_at=now, delete mentor_assignments", classKey)
 	if err := models.ReturnClassGroupFromMentor(classKey); err != nil {
 		log.Printf("ERROR: Failed to return class classKey=%q: %v", classKey, err)
-		http.Error(w, "Failed to return class", http.StatusInternalServerError)
+		switch {
+		case errors.Is(err, models.ErrClassRoundActive):
+			http.Error(w, "Cannot return class because the round has started.", http.StatusConflict)
+		case errors.Is(err, models.ErrClassAlreadyReturned):
+			http.Error(w, "Class is already returned to Operations.", http.StatusConflict)
+		case errors.Is(err, models.ErrClassNotFound):
+			http.Error(w, "Class not found.", http.StatusNotFound)
+		default:
+			http.Error(w, "Couldn't return the class. Please try again.", http.StatusInternalServerError)
+		}
 		return
 	}
 	log.Printf("[Return] classKey=%q OK, removed from mentor-head list", classKey)
@@ -225,19 +235,19 @@ func (h *MentorHeadHandler) ReturnClass(w http.ResponseWriter, r *http.Request) 
 // StartRound starts a round for a class by creating 8 sessions
 func (h *MentorHeadHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor_head" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor Head or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to do this.", http.StatusForbidden)
 		return
 	}
 
 	classKey := r.FormValue("class_key")
 	if classKey == "" {
-		http.Error(w, "class_key is required", http.StatusBadRequest)
+		http.Error(w, "Missing class reference. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -245,7 +255,7 @@ func (h *MentorHeadHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	classGroup, err := models.GetClassGroupByKey(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get class group: %v", err)
-		http.Error(w, "Class not found", http.StatusNotFound)
+		http.Error(w, "Class not found. Please refresh and try again.", http.StatusNotFound)
 		return
 	}
 
@@ -253,7 +263,7 @@ func (h *MentorHeadHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	sessions, err := models.GetClassSessions(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to check sessions: %v", err)
-		http.Error(w, "Failed to check sessions", http.StatusInternalServerError)
+		http.Error(w, "Couldn't verify sessions. Please try again.", http.StatusInternalServerError)
 		return
 	}
 	if len(sessions) > 0 {
@@ -270,7 +280,7 @@ func (h *MentorHeadHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		log.Printf("ERROR: Invalid user ID: %v", err)
-		http.Error(w, "Invalid user", http.StatusInternalServerError)
+		http.Error(w, "Your session looks invalid. Please log in again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -281,7 +291,7 @@ func (h *MentorHeadHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/mentor-head?error=mentor_not_assigned", http.StatusFound)
 			return
 		}
-		http.Error(w, "Failed to start round", http.StatusInternalServerError)
+		http.Error(w, "Couldn't start the round. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -291,13 +301,13 @@ func (h *MentorHeadHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 // CancelSession cancels a session and reschedules it
 func (h *MentorHeadHandler) CancelSession(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor_head" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor Head or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to do this.", http.StatusForbidden)
 		return
 	}
 
@@ -306,26 +316,26 @@ func (h *MentorHeadHandler) CancelSession(w http.ResponseWriter, r *http.Request
 	compensationTimeStr := r.FormValue("compensation_time")
 
 	if sessionIDStr == "" || compensationDateStr == "" || compensationTimeStr == "" {
-		http.Error(w, "session_id, compensation_date, and compensation_time are required", http.StatusBadRequest)
+		http.Error(w, "Session, date, and time are required.", http.StatusBadRequest)
 		return
 	}
 
 	sessionID, err := uuid.Parse(sessionIDStr)
 	if err != nil {
-		http.Error(w, "Invalid session_id", http.StatusBadRequest)
+		http.Error(w, "Invalid session. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	compensationDate, err := time.Parse("2006-01-02", compensationDateStr)
 	if err != nil {
-		http.Error(w, "Invalid compensation_date format (use YYYY-MM-DD)", http.StatusBadRequest)
+		http.Error(w, "Use YYYY-MM-DD for the compensation date.", http.StatusBadRequest)
 		return
 	}
 
 	// Reschedule the same session
 	if err := models.CancelAndRescheduleSession(sessionID, compensationDate, compensationTimeStr); err != nil {
 		log.Printf("ERROR: Failed to reschedule session: %v", err)
-		http.Error(w, "Failed to reschedule session", http.StatusInternalServerError)
+		http.Error(w, "Couldn't reschedule the session. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -335,26 +345,26 @@ func (h *MentorHeadHandler) CancelSession(w http.ResponseWriter, r *http.Request
 // CloseRound closes the round, computes outcomes, and returns class to Operations
 func (h *MentorHeadHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor_head" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor Head or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to do this.", http.StatusForbidden)
 		return
 	}
 
 	classKey := r.FormValue("class_key")
 	if classKey == "" {
-		http.Error(w, "class_key is required", http.StatusBadRequest)
+		http.Error(w, "Missing class reference. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	closedByID, _ := uuid.Parse(middleware.GetUserID(r))
 	if err := models.CloseRound(classKey, closedByID); err != nil {
 		log.Printf("ERROR: Failed to close round: %v", err)
-		http.Error(w, "Failed to close round", http.StatusInternalServerError)
+		http.Error(w, "Couldn't close the round. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -365,51 +375,51 @@ func (h *MentorHeadHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 // Uses GET /mentor-head/class?class_key=... (query param) because classKey can contain "/" and breaks path params.
 func (h *MentorHeadHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor_head" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor Head or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
 
 	classKey := r.URL.Query().Get("class_key")
 	if classKey == "" {
-		http.Error(w, "class_key is required", http.StatusBadRequest)
+		http.Error(w, "Missing class reference. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	wf, err := models.GetClassGroupWorkflow(classKey)
 	if err != nil || wf == nil {
-		http.Error(w, "Class not found", http.StatusNotFound)
+		http.Error(w, "Class not found. Please refresh and try again.", http.StatusNotFound)
 		return
 	}
 	assignment, _ := models.GetMentorAssignment(classKey)
 	if !wf.SentToMentor && assignment == nil {
-		http.Error(w, "Class not sent to Mentor Head or assigned to a mentor", http.StatusForbidden)
+		http.Error(w, "This class isn't available yet. Please make sure it's sent to Mentor Head.", http.StatusForbidden)
 		return
 	}
 
 	classGroup, err := models.GetClassGroupByKey(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get class group: %v", err)
-		http.Error(w, "Class not found", http.StatusNotFound)
+		http.Error(w, "Class not found. Please refresh and try again.", http.StatusNotFound)
 		return
 	}
 
 	sessions, err := models.GetClassSessions(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get sessions: %v", err)
-		http.Error(w, "Failed to load sessions", http.StatusInternalServerError)
+		http.Error(w, "Couldn't load sessions. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
 	students, err := models.GetStudentsForMentorHeadClass(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get students: %v", err)
-		http.Error(w, "Failed to load students", http.StatusInternalServerError)
+		http.Error(w, "Couldn't load students. Please try again.", http.StatusInternalServerError)
 		return
 	}
 

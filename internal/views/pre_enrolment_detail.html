@@ -6,34 +6,46 @@
         <h1 style="margin: 0;">Pre-Enrolment Detail</h1>
     </div>
     <!-- Unified Status Banner (top-right) -->
-    <div style="background-color: {{.StatusBgColor}}; color: {{.StatusTextColor}}; border: 2px solid {{.StatusBorderColor}}; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px;">
+    <div
+        style="background-color: {{.StatusBgColor}}; color: {{.StatusTextColor}}; border: 2px solid {{.StatusBorderColor}}; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px;">
         {{.StatusDisplayName}}
     </div>
 </div>
 
 {{if .IsModerator}}
-<div style="background-color: #FFF4E6; border: 1px solid #FFD700; border-left: 4px solid #FFA500; padding: 15px; margin-bottom: 20px; border-radius: 4px;">
-    <strong>Moderator Mode: Limited Edit.</strong> You can edit only <strong>name</strong>, <strong>phone</strong>, <strong>source</strong>, and <strong>notes</strong> to fix mistakes. All other sections are hidden.
+<div
+    style="background-color: #FFF4E6; border: 1px solid #FFD700; border-left: 4px solid #FFA500; padding: 15px; margin-bottom: 20px; border-radius: 4px;">
+    <strong>Moderator Mode: Limited Edit.</strong> You can edit only <strong>name</strong>, <strong>phone</strong>,
+    <strong>source</strong>, and <strong>notes</strong> to fix mistakes. All other sections are hidden.
 </div>
 {{end}}
 
 {{if .Error}}
-<div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #721C24;">
+<div
+    style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #721C24;">
     <strong>Error:</strong> {{.Error}}
 </div>
 {{end}}
 
 {{if .SuccessMessage}}
-<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; border-left: 4px solid #28a745; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #155724;">
+<div
+    style="background-color: #D4EDDA; border: 1px solid #C3E6CB; border-left: 4px solid #28a745; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #155724;">
     <strong>✓ Success:</strong> {{.SuccessMessage}}
 </div>
 {{end}}
 
 {{if and (not .IsModerator) .ShowFollowUpBanner}}
-<div style="background-color: {{if eq .HotLevel "HOT"}}#FFE6E6{{else if eq .HotLevel "WARM"}}#FFF4E6{{else}}#F0F0F0{{end}}; border: 2px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; border-left: 6px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
-    <h3 style="margin-top: 0; color: {{if eq .HotLevel "HOT"}}#CC0000{{else if eq .HotLevel "WARM"}}#CC6600{{else}}#333{{end}};">🔥 Follow-up Required</h3>
-    <p style="margin-bottom: 10px;"><strong>Lead is unpaid after test/offer.</strong> Days since last progress: <strong>{{.DaysSinceLastProgress}}</strong></p>
-    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}};">
+<div style="background-color: {{if eq .HotLevel " HOT"}}#FFE6E6{{else if eq .HotLevel "WARM"
+    }}#FFF4E6{{else}}#F0F0F0{{end}}; border: 2px solid {{if eq .HotLevel "HOT" }}#FF6B6B{{else if eq .HotLevel "WARM"
+    }}#FFA500{{else}}#8C8C8C{{end}}; border-left: 6px solid {{if eq .HotLevel "HOT" }}#FF6B6B{{else if eq
+    .HotLevel "WARM" }}#FFA500{{else}}#8C8C8C{{end}}; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
+    <h3 style="margin-top: 0; color: {{if eq .HotLevel " HOT"}}#CC0000{{else if eq .HotLevel "WARM"
+        }}#CC6600{{else}}#333{{end}};">🔥 Follow-up Required</h3>
+    <p style="margin-bottom: 10px;"><strong>Lead is unpaid after test/offer.</strong> Days since last progress:
+        <strong>{{.DaysSinceLastProgress}}</strong>
+    </p>
+    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid {{if eq .HotLevel " HOT"}}#FF6B6B{{else if eq
+        .HotLevel "WARM" }}#FFA500{{else}}#8C8C8C{{end}};">
         <strong>Suggested next action:</strong>
         {{if eq .HotLevel "HOT"}}
         <p style="margin: 5px 0;">Call today + remind about offer</p>
@@ -45,35 +57,39 @@
     </div>
 </div>
 {{else if and (not .IsModerator) .IsFullyPaid}}
-<div style="background-color: #E6F7FF; border: 2px solid #4EC6E0; border-left: 6px solid #4EC6E0; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
+<div
+    style="background-color: #E6F7FF; border: 2px solid #4EC6E0; border-left: 6px solid #4EC6E0; padding: 20px; margin-bottom: 20px; border-radius: 4px;">
     <h3 style="margin-top: 0; color: #0052A3;">✓ Paid in Full</h3>
-    <p style="margin-bottom: 0; color: #0052A3;"><strong>Next step:</strong> Set schedule (class days and time) in the "Round / Schedule" section below.</p>
+    <p style="margin-bottom: 0; color: #0052A3;"><strong>Next step:</strong> Set schedule (class days and time) in the
+        "Round / Schedule" section below.</p>
 </div>
 {{end}}
 
 <!-- Main form for full edit - uses single endpoint with action parameter -->
 <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="pre-enrolment-form">
     <input type="hidden" name="status" value="{{.Detail.Lead.Status}}">
-    
+
     <!-- 1. Lead Info -->
     <div class="form-section">
         <h2>Lead Info</h2>
         <div class="section-note">Moderator: Fills this section when creating the lead</div>
-        
+
         <div class="form-group">
             <label for="full_name">Full Name *</label>
             <input type="text" id="full_name" name="full_name" value="{{.Detail.Lead.FullName}}" required>
         </div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="phone">Phone Number *</label>
-                <input type="tel" id="phone" name="phone" value="{{.Detail.Lead.Phone}}" required class="{{if .PhoneError}}error-field{{end}}">
+                <input type="tel" id="phone" name="phone" value="{{.Detail.Lead.Phone}}" required
+                    class="{{if .PhoneError}}error-field{{end}}">
                 {{if .PhoneError}}
                 <div style="color: #dc3545; font-size: 13px; margin-top: 5px;">
                     {{.PhoneError}}
                     {{if .ExistingLeadID}}
-                    <a href="/pre-enrolment/{{.ExistingLeadID.String}}" style="margin-left: 10px; color: #4EC6E0; text-decoration: underline;">Open existing lead →</a>
+                    <a href="/pre-enrolment/{{.ExistingLeadID.String}}"
+                        style="margin-left: 10px; color: #4EC6E0; text-decoration: underline;">Open existing lead →</a>
                     {{end}}
                 </div>
                 {{end}}
@@ -81,19 +97,26 @@
             <div class="form-group">
                 <label for="source">Source</label>
                 <select id="source" name="source">
-                    <option value="Facebook" {{if or (not .Detail.Lead.Source.Valid) (eq .Detail.Lead.Source.String "Facebook")}}selected{{end}}>Facebook</option>
-                    <option value="WhatsApp" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "WhatsApp")}}selected{{end}}>WhatsApp</option>
-                    <option value="Instagram" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "Instagram")}}selected{{end}}>Instagram</option>
-                    <option value="Referral" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "Referral")}}selected{{end}}>Referral</option>
-                    <option value="Walk-in" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "Walk-in")}}selected{{end}}>Walk-in</option>
-                    <option value="Other" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "Other")}}selected{{end}}>Other</option>
+                    <option value="Facebook" {{if or (not .Detail.Lead.Source.Valid) (eq
+                        .Detail.Lead.Source.String "Facebook" )}}selected{{end}}>Facebook</option>
+                    <option value="WhatsApp" {{if and .Detail.Lead.Source.Valid (eq
+                        .Detail.Lead.Source.String "WhatsApp" )}}selected{{end}}>WhatsApp</option>
+                    <option value="Instagram" {{if and .Detail.Lead.Source.Valid (eq
+                        .Detail.Lead.Source.String "Instagram" )}}selected{{end}}>Instagram</option>
+                    <option value="Referral" {{if and .Detail.Lead.Source.Valid (eq
+                        .Detail.Lead.Source.String "Referral" )}}selected{{end}}>Referral</option>
+                    <option value="Walk-in" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "Walk-in"
+                        )}}selected{{end}}>Walk-in</option>
+                    <option value="Other" {{if and .Detail.Lead.Source.Valid (eq .Detail.Lead.Source.String "Other"
+                        )}}selected{{end}}>Other</option>
                 </select>
             </div>
         </div>
-        
+
         <div class="form-group">
             <label for="notes">Notes</label>
-            <textarea id="notes" name="notes" placeholder="Internal notes about this lead...">{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
+            <textarea id="notes" name="notes"
+                placeholder="Internal notes about this lead...">{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
         </div>
     </div>
 
@@ -102,18 +125,23 @@
     <div class="form-section">
         <h2>Placement Test</h2>
         <div class="section-note">Admin: Books test | Community Officer: Assigns level and test notes</div>
-        
+
         <!-- Placement Test Fee (admin can edit) -->
-        <div style="background: #FFF4E6; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #FFD700;">
+        <div
+            style="background: #FFF4E6; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #FFD700;">
             <h3 style="margin-top: 0; font-size: 16px;">Placement Test Fee</h3>
             <div class="form-row">
                 <div class="form-group">
                     <label for="placement_test_fee">Fee (EGP)</label>
-                    <input type="number" id="placement_test_fee" name="placement_test_fee" min="0" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFee.Valid}}{{.Detail.PlacementTest.PlacementTestFee.Int32}}{{else}}100{{end}}" form="pre-enrolment-form">
+                    <input type="number" id="placement_test_fee" name="placement_test_fee" min="0"
+                        value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFee.Valid}}{{.Detail.PlacementTest.PlacementTestFee.Int32}}{{else}}100{{end}}"
+                        form="pre-enrolment-form">
                 </div>
                 <div class="form-group">
                     <label for="placement_test_fee_paid">Paid (EGP)</label>
-                    <input type="number" id="placement_test_fee_paid" name="placement_test_fee_paid" min="0" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFeePaid.Valid}}{{.Detail.PlacementTest.PlacementTestFeePaid.Int32}}{{else}}0{{end}}" form="pre-enrolment-form">
+                    <input type="number" id="placement_test_fee_paid" name="placement_test_fee_paid" min="0"
+                        value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFeePaid.Valid}}{{.Detail.PlacementTest.PlacementTestFeePaid.Int32}}{{else}}0{{end}}"
+                        form="pre-enrolment-form">
                 </div>
                 <div class="form-group">
                     <label>Remaining (EGP)</label>
@@ -123,60 +151,88 @@
             <div class="form-row" style="margin-top: 12px;">
                 <div class="form-group">
                     <label for="placement_test_payment_date">Payment Date</label>
-                    <input type="date" id="placement_test_payment_date" name="placement_test_payment_date" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentDate.Valid}}{{.Detail.PlacementTest.PlacementTestPaymentDate.Time.Format "2006-01-02"}}{{else}}{{.Today}}{{end}}" max="{{.Today}}" form="pre-enrolment-form">
+                    <input type="date" id="placement_test_payment_date" name="placement_test_payment_date"
+                        value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentDate.Valid}}{{.Detail.PlacementTest.PlacementTestPaymentDate.Time.Format "2006-01-02"}}{{else}}{{.Today}}{{end}}" max="{{.Today}}" form="pre-enrolment-form">
                 </div>
                 <div class="form-group">
                     <label for="placement_test_payment_method">Payment Method</label>
-                    <select id="placement_test_payment_method" name="placement_test_payment_method" form="pre-enrolment-form">
+                    <select id="placement_test_payment_method" name="placement_test_payment_method"
+                        form="pre-enrolment-form">
                         <option value="">Select method</option>
-                        <option value="vodafone_cash" {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq .Detail.PlacementTest.PlacementTestPaymentMethod.String "vodafone_cash"}}selected{{end}}{{end}}>Vodafone Cash</option>
-                        <option value="bank_transfer" {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq .Detail.PlacementTest.PlacementTestPaymentMethod.String "bank_transfer"}}selected{{end}}{{end}}>Bank Transfer</option>
-                        <option value="paypal" {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq .Detail.PlacementTest.PlacementTestPaymentMethod.String "paypal"}}selected{{end}}{{end}}>PayPal</option>
-                        <option value="other" {{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq .Detail.PlacementTest.PlacementTestPaymentMethod.String "other"}}selected{{end}}{{end}}>Other</option>
+                        <option value="vodafone_cash" {{if and .Detail.PlacementTest
+                            .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq
+                            .Detail.PlacementTest.PlacementTestPaymentMethod.String "vodafone_cash"
+                            }}selected{{end}}{{end}}>Vodafone Cash</option>
+                        <option value="bank_transfer" {{if and .Detail.PlacementTest
+                            .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq
+                            .Detail.PlacementTest.PlacementTestPaymentMethod.String "bank_transfer"
+                            }}selected{{end}}{{end}}>Bank Transfer</option>
+                        <option value="paypal" {{if and .Detail.PlacementTest
+                            .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq
+                            .Detail.PlacementTest.PlacementTestPaymentMethod.String "paypal" }}selected{{end}}{{end}}>
+                            PayPal</option>
+                        <option value="other" {{if and .Detail.PlacementTest
+                            .Detail.PlacementTest.PlacementTestPaymentMethod.Valid}}{{if eq
+                            .Detail.PlacementTest.PlacementTestPaymentMethod.String "other" }}selected{{end}}{{end}}>
+                            Other</option>
                     </select>
                 </div>
             </div>
         </div>
-        
+
         <!-- Full placement test form (for main form) -->
         <div class="form-row">
             <div class="form-group">
                 <label for="test_date">Test Date</label>
-                <input type="date" id="test_date" name="test_date" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestDate.Valid}}{{.Detail.PlacementTest.TestDate.Time.Format "2006-01-02"}}{{end}}">
+                <input type="date" id="test_date" name="test_date"
+                    value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestDate.Valid}}{{.Detail.PlacementTest.TestDate.Time.Format "2006-01-02"}}{{end}}">
             </div>
             <div class="form-group">
                 <label for="test_time">Test Time</label>
-                <input type="time" id="test_time" name="test_time" value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestTime.Valid}}{{.Detail.PlacementTest.TestTime.String}}{{end}}">
+                <input type="time" id="test_time" name="test_time"
+                    value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestTime.Valid}}{{.Detail.PlacementTest.TestTime.String}}{{end}}">
             </div>
         </div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="test_type">Test Type</label>
                 <select id="test_type" name="test_type">
-                    <option value="online" {{if and .Detail.PlacementTest .Detail.PlacementTest.TestType.Valid}}{{if eq .Detail.PlacementTest.TestType.String "online"}}selected{{end}}{{end}}>Online</option>
-                    <option value="live" {{if and .Detail.PlacementTest .Detail.PlacementTest.TestType.Valid}}{{if eq .Detail.PlacementTest.TestType.String "live"}}selected{{end}}{{else}}selected{{end}}>Live</option>
+                    <option value="online" {{if and .Detail.PlacementTest .Detail.PlacementTest.TestType.Valid}}{{if eq
+                        .Detail.PlacementTest.TestType.String "online" }}selected{{end}}{{end}}>Online</option>
+                    <option value="live" {{if and .Detail.PlacementTest .Detail.PlacementTest.TestType.Valid}}{{if eq
+                        .Detail.PlacementTest.TestType.String "live" }}selected{{end}}{{else}}selected{{end}}>Live
+                    </option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="assigned_level">Assigned Level</label>
                 <select id="assigned_level" name="assigned_level">
                     <option value="">Not tested yet</option>
-                    <option value="1" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 1}}selected{{end}}{{end}}>Level 1</option>
-                    <option value="2" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 2}}selected{{end}}{{end}}>Level 2</option>
-                    <option value="3" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 3}}selected{{end}}{{end}}>Level 3</option>
-                    <option value="4" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 4}}selected{{end}}{{end}}>Level 4</option>
-                    <option value="5" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 5}}selected{{end}}{{end}}>Level 5</option>
-                    <option value="6" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 6}}selected{{end}}{{end}}>Level 6</option>
-                    <option value="7" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 7}}selected{{end}}{{end}}>Level 7</option>
-                    <option value="8" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq .Detail.PlacementTest.AssignedLevel.Int32 8}}selected{{end}}{{end}}>Level 8</option>
+                    <option value="1" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
+                        .Detail.PlacementTest.AssignedLevel.Int32 1}}selected{{end}}{{end}}>Level 1</option>
+                    <option value="2" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
+                        .Detail.PlacementTest.AssignedLevel.Int32 2}}selected{{end}}{{end}}>Level 2</option>
+                    <option value="3" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
+                        .Detail.PlacementTest.AssignedLevel.Int32 3}}selected{{end}}{{end}}>Level 3</option>
+                    <option value="4" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
+                        .Detail.PlacementTest.AssignedLevel.Int32 4}}selected{{end}}{{end}}>Level 4</option>
+                    <option value="5" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
+                        .Detail.PlacementTest.AssignedLevel.Int32 5}}selected{{end}}{{end}}>Level 5</option>
+                    <option value="6" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
+                        .Detail.PlacementTest.AssignedLevel.Int32 6}}selected{{end}}{{end}}>Level 6</option>
+                    <option value="7" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
+                        .Detail.PlacementTest.AssignedLevel.Int32 7}}selected{{end}}{{end}}>Level 7</option>
+                    <option value="8" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
+                        .Detail.PlacementTest.AssignedLevel.Int32 8}}selected{{end}}{{end}}>Level 8</option>
                 </select>
             </div>
         </div>
-        
+
         <div class="form-group">
             <label for="test_notes">Test Notes</label>
-            <textarea id="test_notes" name="test_notes" placeholder="Community Officer: Add test results and observations...">{{if and .Detail.PlacementTest .Detail.PlacementTest.TestNotes.Valid}}{{.Detail.PlacementTest.TestNotes.String}}{{end}}</textarea>
+            <textarea id="test_notes" name="test_notes"
+                placeholder="Community Officer: Add test results and observations...">{{if and .Detail.PlacementTest .Detail.PlacementTest.TestNotes.Valid}}{{.Detail.PlacementTest.TestNotes.String}}{{end}}</textarea>
         </div>
     </div>
 
@@ -184,41 +240,58 @@
     <div class="form-section">
         <h2>Offer & Pricing</h2>
         <div class="section-note">Admin: Sets pricing and sends offer</div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="bundle">Bundle Selected</label>
                 <select id="bundle" name="bundle" onchange="updateBundlePricing()">
-                    <option value="" {{if or (not .Detail.Offer) (not .Detail.Offer.BundleLevels.Valid)}}selected{{end}}>-- Select bundle --</option>
-                    <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 1}}selected{{end}}{{end}}>Bundle 1 (1 level = 1300 EGP)</option>
-                    <option value="2" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 2}}selected{{end}}{{end}}>Bundle 2 (2 levels = 2400 EGP)</option>
-                    <option value="3" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 3}}selected{{end}}{{end}}>Bundle 3 (3 levels = 3300 EGP)</option>
-                    <option value="4" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq .Detail.Offer.BundleLevels.Int32 4}}selected{{end}}{{end}}>Bundle 4 (4 levels = 4000 EGP)</option>
+                    <option value="" {{if or (not .Detail.Offer) (not
+                        .Detail.Offer.BundleLevels.Valid)}}selected{{end}}>-- Select bundle --</option>
+                    <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
+                        .Detail.Offer.BundleLevels.Int32 1}}selected{{end}}{{end}}>Bundle 1 (1 level = 1300 EGP)
+                    </option>
+                    <option value="2" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
+                        .Detail.Offer.BundleLevels.Int32 2}}selected{{end}}{{end}}>Bundle 2 (2 levels = 2400 EGP)
+                    </option>
+                    <option value="3" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
+                        .Detail.Offer.BundleLevels.Int32 3}}selected{{end}}{{end}}>Bundle 3 (3 levels = 3300 EGP)
+                    </option>
+                    <option value="4" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
+                        .Detail.Offer.BundleLevels.Int32 4}}selected{{end}}{{end}}>Bundle 4 (4 levels = 4000 EGP)
+                    </option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="base_price">Base Price</label>
-                <input type="number" id="base_price" name="base_price" value="{{if and .Detail.Offer .Detail.Offer.BasePrice.Valid}}{{.Detail.Offer.BasePrice.Int32}}{{end}}" step="1" readonly style="background-color: #F5F5F5;">
+                <input type="number" id="base_price" name="base_price"
+                    value="{{if and .Detail.Offer .Detail.Offer.BasePrice.Valid}}{{.Detail.Offer.BasePrice.Int32}}{{end}}"
+                    step="1" readonly style="background-color: #F5F5F5;">
                 <small style="color: #666; display: block; margin-top: 5px;">Auto-calculated from bundle</small>
             </div>
         </div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="discount">Discount (Amount or %)</label>
-                <input type="text" id="discount" name="discount" value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{if and .Detail.Offer .Detail.Offer.DiscountType.Valid}}{{if eq .Detail.Offer.DiscountType.String "percent"}}%{{end}}{{end}}{{end}}" placeholder="e.g., 500 or 10%" onchange="updateFinalPrice()">
+                <input type="text" id="discount" name="discount"
+                    value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{if and .Detail.Offer .Detail.Offer.DiscountType.Valid}}{{if eq .Detail.Offer.DiscountType.String "percent"}}%{{end}}{{end}}{{end}}" placeholder="e.g., 500 or 10%" onchange="updateFinalPrice()">
             </div>
             <div class="form-group">
                 <label for="final_price">Final Price</label>
-                <input type="number" id="final_price" name="final_price" value="{{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}{{.Detail.Offer.FinalPrice.Int32}}{{end}}" step="1" onchange="updateFinalPrice()">
-                <small style="color: #666; display: block; margin-top: 5px;">Auto-calculated: Base - Discount (editable)</small>
+                <input type="number" id="final_price" name="final_price"
+                    value="{{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}{{.Detail.Offer.FinalPrice.Int32}}{{end}}"
+                    step="1" onchange="updateFinalPrice()">
+                <small style="color: #666; display: block; margin-top: 5px;">Auto-calculated: Base - Discount
+                    (editable)</small>
             </div>
         </div>
-        
+
         <div class="form-group">
             <label>Status</label>
-            <span class="status-indicator {{.Detail.Lead.Status}}" style="opacity: 0.7; font-size: 12px;">{{.StatusDisplayName}}</span>
-            <small style="color: #666; display: block; margin-top: 5px;">Status is displayed in the header banner above</small>
+            <span class="status-indicator {{.Detail.Lead.Status}}"
+                style="opacity: 0.7; font-size: 12px;">{{.StatusDisplayName}}</span>
+            <small style="color: #666; display: block; margin-top: 5px;">Status is displayed in the header banner
+                above</small>
         </div>
     </div>
 
@@ -226,29 +299,35 @@
     <div class="form-section">
         <h2>Booking & Materials</h2>
         <div class="section-note">Admin: Handles booking format and delivery</div>
-        
+
         <div class="form-group">
             <label for="book_format">Book Format</label>
             <select id="book_format" name="book_format" onchange="togglePrintedFields()">
-                <option value="pdf" {{if and .Detail.Booking .Detail.Booking.BookFormat.Valid}}{{if eq .Detail.Booking.BookFormat.String "pdf"}}selected{{end}}{{end}}>PDF</option>
-                <option value="printed" {{if and .Detail.Booking .Detail.Booking.BookFormat.Valid}}{{if eq .Detail.Booking.BookFormat.String "printed"}}selected{{end}}{{else}}selected{{end}}>Printed</option>
+                <option value="pdf" {{if and .Detail.Booking .Detail.Booking.BookFormat.Valid}}{{if eq
+                    .Detail.Booking.BookFormat.String "pdf" }}selected{{end}}{{end}}>PDF</option>
+                <option value="printed" {{if and .Detail.Booking .Detail.Booking.BookFormat.Valid}}{{if eq
+                    .Detail.Booking.BookFormat.String "printed" }}selected{{end}}{{else}}selected{{end}}>Printed
+                </option>
             </select>
         </div>
-        
+
         <div id="printed-fields">
             <div class="form-group">
                 <label for="address">Address</label>
-                <input type="text" id="address" name="address" value="{{if and .Detail.Booking .Detail.Booking.Address.Valid}}{{.Detail.Booking.Address.String}}{{end}}">
+                <input type="text" id="address" name="address"
+                    value="{{if and .Detail.Booking .Detail.Booking.Address.Valid}}{{.Detail.Booking.Address.String}}{{end}}">
             </div>
-            
+
             <div class="form-group">
                 <label for="city">City</label>
-                <input type="text" id="city" name="city" value="{{if and .Detail.Booking .Detail.Booking.City.Valid}}{{.Detail.Booking.City.String}}{{end}}">
+                <input type="text" id="city" name="city"
+                    value="{{if and .Detail.Booking .Detail.Booking.City.Valid}}{{.Detail.Booking.City.String}}{{end}}">
             </div>
-            
+
             <div class="form-group">
                 <label for="delivery_notes">Delivery Notes</label>
-                <textarea id="delivery_notes" name="delivery_notes" placeholder="Special delivery instructions...">{{if and .Detail.Booking .Detail.Booking.DeliveryNotes.Valid}}{{.Detail.Booking.DeliveryNotes.String}}{{end}}</textarea>
+                <textarea id="delivery_notes" name="delivery_notes"
+                    placeholder="Special delivery instructions...">{{if and .Detail.Booking .Detail.Booking.DeliveryNotes.Valid}}{{.Detail.Booking.DeliveryNotes.String}}{{end}}</textarea>
             </div>
         </div>
     </div>
@@ -257,7 +336,7 @@
     <div class="form-section">
         <h2>Course Payment</h2>
         <div class="section-note">Admin: Add new course payment (supports multiple payments: deposit + top-ups)</div>
-        
+
         <!-- Payment Summary (Read-only) -->
         <div style="margin-bottom: 20px; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
             <h3 style="margin-top: 0; font-size: 16px;">Payment Summary</h3>
@@ -266,9 +345,9 @@
                     <td style="padding: 8px;"><strong>Offer Final Price:</strong></td>
                     <td style="padding: 8px; text-align: right;">
                         {{if gt .FinalPrice 0}}
-                            <span style="font-weight: 600; color: #1976D2;">{{.FinalPrice}} EGP</span>
+                        <span style="font-weight: 600; color: #1976D2;">{{.FinalPrice}} EGP</span>
                         {{else}}
-                            <span style="color: #dc3545;">Not set</span>
+                        <span style="color: #dc3545;">Not set</span>
                         {{end}}
                     </td>
                 </tr>
@@ -279,34 +358,40 @@
                 {{if gt .FinalPrice 0}}
                 <tr>
                     <td style="padding: 8px;"><strong>Remaining Balance:</strong></td>
-                    <td style="padding: 8px; text-align: right; font-weight: 600; color: {{if eq .RemainingBalance 0}}#28a745{{else}}#dc3545{{end}};">
+                    <td
+                        style="padding: 8px; text-align: right; font-weight: 600; color: {{if eq .RemainingBalance 0}}#28a745{{else}}#dc3545{{end}};">
                         {{.RemainingBalance}} EGP
                         {{if eq .RemainingBalance 0}}
-                            <span style="color: #28a745; margin-left: 5px;">✓ Paid in full</span>
+                        <span style="color: #28a745; margin-left: 5px;">✓ Paid in full</span>
                         {{end}}
                     </td>
                 </tr>
                 {{end}}
             </table>
         </div>
-        
+
         {{if eq .FinalPrice 0}}
-        <div style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
-            <strong>⚠️ Set offer first:</strong> You must set the offer final price in the "Offer & Pricing" section above and click <strong>Save</strong> before adding course payments.
+        <div
+            style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
+            <strong>⚠️ Set offer first:</strong> You must set the offer final price in the "Offer & Pricing" section
+            above and click <strong>Save</strong> before adding course payments.
             {{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}
-            <br><small style="color: #666;">Note: Final price is set in the form but not saved yet. Please click Save to persist it.</small>
+            <br><small style="color: #666;">Note: Final price is set in the form but not saved yet. Please click Save to
+                persist it.</small>
             {{end}}
         </div>
         {{else if eq .RemainingBalance 0}}
-        <div style="padding: 15px; background-color: #E8F5E9; border: 1px solid #28a745; border-radius: 4px; margin-bottom: 15px;">
+        <div
+            style="padding: 15px; background-color: #E8F5E9; border: 1px solid #28a745; border-radius: 4px; margin-bottom: 15px;">
             <strong>✓ Paid in full:</strong> This lead has paid the full offer amount. No additional payments needed.
         </div>
         {{end}}
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="course_payment_type">Payment Type *</label>
-                <select id="course_payment_type" name="course_payment_type" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                <select id="course_payment_type" name="course_payment_type" form="pre-enrolment-form" {{if or (eq
+                    .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
                     <option value="">Select type</option>
                     <option value="deposit">Deposit</option>
                     <option value="full_payment">Full Payment</option>
@@ -315,17 +400,21 @@
             </div>
             <div class="form-group">
                 <label for="course_payment_amount">Amount (EGP) *</label>
-                <input type="number" id="course_payment_amount" name="course_payment_amount" min="1" max="{{.RemainingBalance}}" step="1" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                <input type="number" id="course_payment_amount" name="course_payment_amount" min="1"
+                    max="{{.RemainingBalance}}" step="1" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq
+                    .RemainingBalance 0)}}disabled{{end}}>
                 {{if gt .RemainingBalance 0}}
-                <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.RemainingBalance}} EGP (remaining balance)</small>
+                <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.RemainingBalance}} EGP
+                    (remaining balance)</small>
                 {{end}}
             </div>
         </div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="course_payment_method">Payment Method *</label>
-                <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" {{if or (eq
+                    .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
                     <option value="">Select method</option>
                     <option value="vodafone_cash">Vodafone Cash</option>
                     <option value="bank_transfer">Bank Transfer</option>
@@ -335,19 +424,23 @@
             </div>
             <div class="form-group">
                 <label for="course_payment_date">Payment Date *</label>
-                <input type="date" id="course_payment_date" name="course_payment_date" value="{{.Today}}" max="{{.Today}}" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                <input type="date" id="course_payment_date" name="course_payment_date" value="{{.Today}}"
+                    max="{{.Today}}" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance
+                    0)}}disabled{{end}}>
             </div>
         </div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="course_payment_notes">Notes</label>
-                <input type="text" id="course_payment_notes" name="course_payment_notes" placeholder="Optional notes..." form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                <input type="text" id="course_payment_notes" name="course_payment_notes" placeholder="Optional notes..."
+                    form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
             </div>
         </div>
-        
-        <p style="font-size: 12px; color: #666; margin-top: 8px;">Note: Leave fields empty if not adding a new payment. Multiple payments are supported (deposit now, rest later).</p>
-        
+
+        <p style="font-size: 12px; color: #666; margin-top: 8px;">Note: Leave fields empty if not adding a new payment.
+            Multiple payments are supported (deposit now, rest later).</p>
+
         {{if .LeadPayments}}
         <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
             <h3 style="margin-top: 0; font-size: 16px;">Payment History</h3>
@@ -365,7 +458,12 @@
                     {{range .LeadPayments}}
                     <tr>
                         <td style="padding: 8px;">
-                            {{if eq .Kind "deposit"}}<span style="background: #E3F2FD; color: #1976D2; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Deposit</span>{{else if eq .Kind "full_payment"}}<span style="background: #E8F5E9; color: #388E3C; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Full</span>{{else if eq .Kind "top_up"}}<span style="background: #FFF3E0; color: #F57C00; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Top-up</span>{{else}}{{.Kind}}{{end}}
+                            {{if eq .Kind "deposit"}}<span
+                                style="background: #E3F2FD; color: #1976D2; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Deposit</span>{{else
+                            if eq .Kind "full_payment"}}<span
+                                style="background: #E8F5E9; color: #388E3C; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Full</span>{{else
+                            if eq .Kind "top_up"}}<span
+                                style="background: #FFF3E0; color: #F57C00; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Top-up</span>{{else}}{{.Kind}}{{end}}
                         </td>
                         <td style="padding: 8px;">{{.PaymentDate.Format "2006-01-02"}}</td>
                         <td style="padding: 8px; font-weight: 600;">{{.Amount}} EGP</td>
@@ -380,24 +478,31 @@
     </div>
 
     <!-- 6. Round / Schedule -->
-    <div class="form-section" {{if not .IsFullyPaid}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"{{end}}>
+    <div class="form-section" {{if not
+        .IsFullyPaid}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"
+        {{end}}>
         <h2>Round / Schedule</h2>
-        <div class="section-note">Admin: Assigns schedule when student is ready. Both fields required to mark as ready.</div>
-        
+        <div class="section-note">Admin: Assigns schedule when student is ready. Both fields required to mark as ready.
+        </div>
+
         {{if not .IsFullyPaid}}
-        <div style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
+        <div
+            style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
             <strong>🔒 Locked until course is fully paid.</strong> Course must be fully paid before setting schedule.
         </div>
         {{end}}
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="class_days">Class Days *</label>
                 <select id="class_days" name="class_days" {{if not .IsFullyPaid}}disabled{{end}}>
                     <option value="">Select class days</option>
-                    <option value="Sun/Wed" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Sun/Wed"}}selected{{end}}{{end}}>Sun/Wed</option>
-                    <option value="Sat/Tues" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Sat/Tues"}}selected{{end}}{{end}}>Sat/Tues</option>
-                    <option value="Mon/Thu" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq .Detail.Scheduling.ClassDays.String "Mon/Thu"}}selected{{end}}{{end}}>Mon/Thu</option>
+                    <option value="Sun/Wed" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq
+                        .Detail.Scheduling.ClassDays.String "Sun/Wed" }}selected{{end}}{{end}}>Sun/Wed</option>
+                    <option value="Sat/Tues" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq
+                        .Detail.Scheduling.ClassDays.String "Sat/Tues" }}selected{{end}}{{end}}>Sat/Tues</option>
+                    <option value="Mon/Thu" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq
+                        .Detail.Scheduling.ClassDays.String "Mon/Thu" }}selected{{end}}{{end}}>Mon/Thu</option>
                 </select>
                 {{if and (not .IsFullyPaid) .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}
                 <input type="hidden" name="class_days" value="{{.Detail.Scheduling.ClassDays.String}}">
@@ -407,19 +512,23 @@
                 <label for="class_time">Class Time *</label>
                 <select id="class_time" name="class_time" {{if not .IsFullyPaid}}disabled{{end}}>
                     <option value="">Select class time</option>
-                    <option value="07:30" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq .Detail.Scheduling.ClassTime.String "07:30"}}selected{{end}}{{end}}>07:30</option>
-                    <option value="10:00" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq .Detail.Scheduling.ClassTime.String "10:00"}}selected{{end}}{{end}}>10:00</option>
+                    <option value="07:30" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq
+                        .Detail.Scheduling.ClassTime.String "07:30" }}selected{{end}}{{end}}>07:30</option>
+                    <option value="10:00" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq
+                        .Detail.Scheduling.ClassTime.String "10:00" }}selected{{end}}{{end}}>10:00</option>
                 </select>
                 {{if and (not .IsFullyPaid) .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}
                 <input type="hidden" name="class_time" value="{{.Detail.Scheduling.ClassTime.String}}">
                 {{end}}
             </div>
         </div>
-        
+
         <div class="form-group">
             <label>Status</label>
-            <span class="badge {{.Detail.Lead.Status}}" style="opacity: 0.7; font-size: 12px;">{{.StatusDisplayName}}</span>
-            <small style="color: #666; display: block; margin-top: 5px;">Status is displayed in the header banner above</small>
+            <span class="badge {{.Detail.Lead.Status}}"
+                style="opacity: 0.7; font-size: 12px;">{{.StatusDisplayName}}</span>
+            <small style="color: #666; display: block; margin-top: 5px;">Status is displayed in the header banner
+                above</small>
         </div>
     </div>
 
@@ -428,19 +537,24 @@
     <div class="form-section" id="shipping-section">
         <h2>Shipping</h2>
         <div class="section-note">Admin: Tracks shipment for printed books</div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label for="shipment_status">Shipment Status</label>
                 <select id="shipment_status" name="shipment_status">
-                    <option value="pending" {{if and .Detail.Shipping .Detail.Shipping.ShipmentStatus.Valid}}{{if eq .Detail.Shipping.ShipmentStatus.String "pending"}}selected{{end}}{{else}}selected{{end}}>Pending</option>
-                    <option value="sent" {{if and .Detail.Shipping .Detail.Shipping.ShipmentStatus.Valid}}{{if eq .Detail.Shipping.ShipmentStatus.String "sent"}}selected{{end}}{{end}}>Sent</option>
-                    <option value="delivered" {{if and .Detail.Shipping .Detail.Shipping.ShipmentStatus.Valid}}{{if eq .Detail.Shipping.ShipmentStatus.String "delivered"}}selected{{end}}{{end}}>Delivered</option>
+                    <option value="pending" {{if and .Detail.Shipping .Detail.Shipping.ShipmentStatus.Valid}}{{if eq
+                        .Detail.Shipping.ShipmentStatus.String "pending" }}selected{{end}}{{else}}selected{{end}}>
+                        Pending</option>
+                    <option value="sent" {{if and .Detail.Shipping .Detail.Shipping.ShipmentStatus.Valid}}{{if eq
+                        .Detail.Shipping.ShipmentStatus.String "sent" }}selected{{end}}{{end}}>Sent</option>
+                    <option value="delivered" {{if and .Detail.Shipping .Detail.Shipping.ShipmentStatus.Valid}}{{if eq
+                        .Detail.Shipping.ShipmentStatus.String "delivered" }}selected{{end}}{{end}}>Delivered</option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="shipment_date">Shipment Date</label>
-                <input type="date" id="shipment_date" name="shipment_date" value="{{if and .Detail.Shipping .Detail.Shipping.ShipmentDate.Valid}}{{.Detail.Shipping.ShipmentDate.Time.Format "2006-01-02"}}{{end}}">
+                <input type="date" id="shipment_date" name="shipment_date"
+                    value="{{if and .Detail.Shipping .Detail.Shipping.ShipmentDate.Valid}}{{.Detail.Shipping.ShipmentDate.Time.Format "2006-01-02"}}{{end}}">
             </div>
         </div>
     </div>
@@ -455,31 +569,64 @@
     {{else}}
     <div class="action-buttons" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E6E6E6;">
         <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-primary">Save</button>
-        <button type="submit" form="pre-enrolment-form" name="action" value="mark_test_booked" class="btn btn-secondary">Mark Test Booked</button>
-        <button type="submit" form="pre-enrolment-form" name="action" value="mark_tested" class="btn btn-secondary">Mark Tested</button>
-        <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent" class="btn btn-secondary">Mark Offer Sent</button>
-        <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting" class="btn btn-secondary">Move to Waiting List</button>
-        <button type="submit" form="pre-enrolment-form" name="action" value="mark_ready" class="btn btn-secondary">Mark Ready to Start</button>
+        <button type="submit" form="pre-enrolment-form" name="action" value="mark_test_booked"
+            class="btn btn-secondary">Mark Test Booked</button>
+        <button type="submit" form="pre-enrolment-form" name="action" value="mark_tested" class="btn btn-secondary">Mark
+            Tested</button>
+        <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
+            class="btn btn-secondary">Mark Offer Sent</button>
+        <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting"
+            class="btn btn-secondary">Move to Waiting List</button>
+        <button type="submit" form="pre-enrolment-form" name="action" value="mark_ready" class="btn btn-secondary">Mark
+            Ready to Start</button>
     </div>
 
     <!-- Send to Classes Button - Only show if READY_TO_START and not already sent -->
     {{if and (eq .Detail.Lead.Status "ready_to_start") (not .Detail.Lead.SentToClasses)}}
-    {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid .Detail.Scheduling.ClassTime.Valid}}
+    {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid .Detail.Scheduling
+    .Detail.Scheduling.ClassDays.Valid .Detail.Scheduling.ClassTime.Valid}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
             <input type="hidden" name="action" value="send_to_classes">
-            <button type="submit" class="btn" style="background-color: #28a745; border-color: #28a745; color: white;">Send to Classes</button>
+            <button type="submit" class="btn"
+                style="background-color: #28a745; border-color: #28a745; color: white;">Send to Classes</button>
         </form>
-        <p style="margin-top: 8px; font-size: 12px; color: #666;">This will move the lead to the Classes board. The lead must have assigned level, class days, and class time set.</p>
+        <p style="margin-top: 8px; font-size: 12px; color: #666;">This will move the lead to the Classes board. The lead
+            must have assigned level, class days, and class time set.</p>
+        <p style="margin-top: 6px; font-size: 12px; color: #666;">Send to Classes assigns the student to a non-started
+            class group for the same level/days/time (or opens a new group if all are full). To join a running class
+            (session 1 or 2), use Add as Late Joiner.</p>
     </div>
     {{end}}
+    {{end}}
+
+    <!-- Late Joiner Button - Only show if not already sent, AND user is admin, AND assigned level set -->
+    {{if and .IsAdmin (not .Detail.Lead.SentToClasses) .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid
+    (ne .Detail.Lead.Status "in_classes")}}
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <button type="button" class="btn" style="background-color: #6c5ce7; border-color: #6c5ce7; color: white;"
+            onclick="openLateJoinModal()">Add as Late Joiner</button>
+        <p style="margin-top: 8px; font-size: 12px; color: #666;">Add student to an active class (Session 1 or 2).
+            Requires capacity (4-5 students).</p>
+    </div>
+    {{end}}
+
+    <!-- Undo Late Join Button - Only show if student is a late joiner AND current session <= 2 AND user is admin -->
+    {{if and .IsAdmin .LateJoiner (le .ClassCurrentSession 2)}}
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <button type="button" class="btn" style="background-color: #e84393; border-color: #e84393; color: white;"
+            onclick="undoLateJoin()">Undo Late Join</button>
+        <p style="margin-top: 8px; font-size: 12px; color: #666;">Revert student to previous scheduling and status.
+            Available only during session 1 or 2.</p>
+    </div>
     {{end}}
 
     <!-- Refund Button - Show if lead has payments -->
     {{if and .Detail.Payment .Detail.Payment.AmountPaid.Valid (gt .Detail.Payment.AmountPaid.Int32 0)}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <h3 style="margin-top: 0; color: #CC0000;">Refund</h3>
-        <form method="POST" action="/finance/refund/{{.Detail.Lead.ID}}" style="display: grid; gap: 12px; max-width: 500px;">
+        <form method="POST" action="/finance/refund/{{.Detail.Lead.ID}}"
+            style="display: grid; gap: 12px; max-width: 500px;">
             <div class="form-row">
                 <div class="form-group">
                     <label for="refund_amount">Amount (EGP) *</label>
@@ -504,46 +651,54 @@
             </div>
             <div class="form-group">
                 <label for="refund_notes">Notes</label>
-                <textarea id="refund_notes" name="notes" rows="2" placeholder="Optional notes about this refund..."></textarea>
+                <textarea id="refund_notes" name="notes" rows="2"
+                    placeholder="Optional notes about this refund..."></textarea>
             </div>
-            <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white;">Create Refund</button>
+            <button type="submit" class="btn"
+                style="background-color: #dc3545; border-color: #dc3545; color: white;">Create Refund</button>
         </form>
     </div>
     {{end}}
-    
+
     <!-- Cancel Lead Button / Reopen Lead Button -->
     {{if eq .Detail.Lead.Status "cancelled"}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
-        <div style="background-color: #FFF4E6; border: 1px solid #FFA500; padding: 15px; margin-bottom: 15px; border-radius: 4px;">
+        <div
+            style="background-color: #FFF4E6; border: 1px solid #FFA500; padding: 15px; margin-bottom: 15px; border-radius: 4px;">
             <strong>⚠️ This lead is cancelled.</strong> You can reopen it to reactivate.
         </div>
         <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
             <input type="hidden" name="action" value="reopen">
-            <button type="submit" class="btn" style="background-color: #28a745; border-color: #28a745; color: white;">Reopen Lead</button>
+            <button type="submit" class="btn"
+                style="background-color: #28a745; border-color: #28a745; color: white;">Reopen Lead</button>
         </form>
     </div>
     {{else if not .IsModerator}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <form method="GET" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
             <input type="hidden" name="action" value="cancel">
-            <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white;">Cancel Lead</button>
+            <button type="submit" class="btn"
+                style="background-color: #dc3545; border-color: #dc3545; color: white;">Cancel Lead</button>
         </form>
     </div>
     {{end}}
-    
-    <!-- Cancel Lead Modal (moderators cannot cancel) -->
+
     {{if and .ShowCancelModal (not .IsModerator)}}
-    <div id="cancelModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
-        <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+    <div id="cancelModal"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
+        <div
+            style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
             <h2 style="margin-top: 0; color: #dc3545;">⚠️ Cancel Lead: {{.Detail.Lead.FullName}}</h2>
-            <p style="color: #666;">Cancelling this lead will mark it as cancelled. If the lead has course payments, a refund must be created.</p>
-            
+            <p style="color: #666;">Cancelling this lead will mark it as cancelled. If the lead has course payments, a
+                refund must be created.</p>
+
             {{if .Error}}
-            <div style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin: 20px 0; border-radius: 4px; color: #721C24;">
+            <div
+                style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin: 20px 0; border-radius: 4px; color: #721C24;">
                 <strong>Error:</strong> {{.Error}}
             </div>
             {{end}}
-            
+
             <div style="margin: 20px 0; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
                 <h3 style="margin-top: 0; font-size: 16px;">Payment Summary</h3>
                 <table style="width: 100%; font-size: 14px;">
@@ -566,17 +721,19 @@
                     {{end}}
                 </table>
             </div>
-            
+
             {{if gt .TotalCoursePaid 0}}
             <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
                 <input type="hidden" name="action" value="cancel">
-                
+
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label for="refund_amount">Refund Amount (EGP) *</label>
-                    <input type="number" id="refund_amount" name="refund_amount" min="1" max="{{.TotalCoursePaid}}" value="{{.TotalCoursePaid}}" step="1" required>
-                    <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalCoursePaid}} EGP (total course paid)</small>
+                    <input type="number" id="refund_amount" name="refund_amount" min="1" max="{{.TotalCoursePaid}}"
+                        value="{{.TotalCoursePaid}}" step="1" required>
+                    <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalCoursePaid}} EGP
+                        (total course paid)</small>
                 </div>
-                
+
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label for="refund_method">Refund Payment Method *</label>
                     <select id="refund_method" name="refund_method" required>
@@ -587,22 +744,27 @@
                         <option value="other">Other</option>
                     </select>
                 </div>
-                
+
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label for="refund_date">Refund Date *</label>
                     <input type="date" id="refund_date" name="refund_date" value="{{.Today}}" max="{{.Today}}" required>
                     <small style="color: #666; display: block; margin-top: 5px;">Date cannot be in the future</small>
                 </div>
-                
+
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label for="refund_notes">Notes</label>
-                    <textarea id="refund_notes" name="refund_notes" rows="3" placeholder="Optional notes about this cancellation and refund..."></textarea>
-                    <small style="color: #666; display: block; margin-top: 5px;">Recommended: Add notes about why the lead was cancelled</small>
+                    <textarea id="refund_notes" name="refund_notes" rows="3"
+                        placeholder="Optional notes about this cancellation and refund..."></textarea>
+                    <small style="color: #666; display: block; margin-top: 5px;">Recommended: Add notes about why the
+                        lead was cancelled</small>
                 </div>
-                
+
                 <div style="display: flex; gap: 10px; margin-top: 20px;">
-                    <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm Cancel & Refund</button>
-                    <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary" style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
+                    <button type="submit" class="btn"
+                        style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm Cancel
+                        & Refund</button>
+                    <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary"
+                        style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
                 </div>
             </form>
             {{else}}
@@ -610,14 +772,51 @@
             <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
                 <input type="hidden" name="action" value="cancel">
                 <div style="display: flex; gap: 10px; margin-top: 20px;">
-                    <button type="submit" class="btn" style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm Cancel</button>
-                    <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary" style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
+                    <button type="submit" class="btn"
+                        style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm
+                        Cancel</button>
+                    <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary"
+                        style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
                 </div>
             </form>
             {{end}}
         </div>
     </div>
     {{end}}
+
+    <!-- Late Join Modal -->
+    <div id="lateJoinModal"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: none; align-items: center; justify-content: center;">
+        <div
+            style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 95%; max-height: 90vh; overflow-y: auto;">
+            <h2 style="margin-top: 0; color: #6c5ce7;">Add as Late Joiner</h2>
+            <p style="color: #666;">Student will join an active class in session 1 or 2. Past sessions will be marked as
+                'N/A'.</p>
+
+            <div id="late-join-error"
+                style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin: 20px 0; border-radius: 4px; color: #721C24; display: none;">
+            </div>
+
+            <div id="eligible-classes-container" style="margin: 20px 0;">
+                <p>Loading eligible classes...</p>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label for="late_join_reason">Reason for Late Join *</label>
+                <textarea id="late_join_reason" name="late_join_reason" rows="3"
+                    placeholder="Explain why this student is joining late..." required></textarea>
+                <small style="color: #666; display: block; margin-top: 5px;">Minimum 10 characters.</small>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="button" id="confirm-late-join-btn" class="btn"
+                    style="background-color: #6c5ce7; border-color: #6c5ce7; color: white; flex: 1;"
+                    onclick="confirmLateJoin()" disabled>Confirm Join</button>
+                <button type="button" class="btn btn-secondary" style="flex: 1;"
+                    onclick="closeLateJoinModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
     {{end}}
 </form>
 
@@ -628,7 +827,7 @@
         const bookFormat = bookFormatEl.value;
         const printedFields = document.getElementById('printed-fields');
         const shippingSection = document.getElementById('shipping-section');
-        
+
         if (bookFormat === 'printed') {
             if (printedFields) printedFields.style.display = 'block';
             if (shippingSection) shippingSection.style.display = 'block';
@@ -642,7 +841,7 @@
         const feeInput = document.getElementById('placement_test_fee');
         const paidInput = document.getElementById('placement_test_fee_paid');
         const remainingInput = document.getElementById('placement_test_remaining');
-        
+
         if (feeInput && paidInput && remainingInput) {
             const fee = parseInt(feeInput.value) || 0;
             const paid = parseInt(paidInput.value) || 0;
@@ -658,15 +857,15 @@
         3: 3300,
         4: 4000
     };
-    
+
     function updateBundlePricing() {
         const bundleSelect = document.getElementById('bundle');
         const basePriceInput = document.getElementById('base_price');
         const discountInput = document.getElementById('discount');
         const finalPriceInput = document.getElementById('final_price');
-        
+
         if (!bundleSelect || !basePriceInput || !finalPriceInput) return;
-        
+
         const bundleValue = bundleSelect.value;
         if (bundleValue && bundlePrices[bundleValue]) {
             const basePrice = bundlePrices[bundleValue];
@@ -678,22 +877,22 @@
             finalPriceInput.value = '';
         }
     }
-    
+
     function updateFinalPrice() {
         const basePriceInput = document.getElementById('base_price');
         const discountInput = document.getElementById('discount');
         const finalPriceInput = document.getElementById('final_price');
-        
+
         if (!basePriceInput || !discountInput || !finalPriceInput) return;
-        
+
         const basePrice = parseFloat(basePriceInput.value) || 0;
         const discountStr = discountInput.value.trim();
-        
+
         if (basePrice === 0) {
             // If no base price, don't auto-calculate
             return;
         }
-        
+
         let discountAmount = 0;
         if (discountStr) {
             if (discountStr.endsWith('%')) {
@@ -703,14 +902,14 @@
                 discountAmount = parseFloat(discountStr) || 0;
             }
         }
-        
+
         const finalPrice = Math.max(0, basePrice - discountAmount);
         finalPriceInput.value = finalPrice;
     }
-    
-    document.addEventListener('DOMContentLoaded', function() {
+
+    document.addEventListener('DOMContentLoaded', function () {
         togglePrintedFields();
-        
+
         // Calculate placement test remaining fee
         const feeInput = document.getElementById('placement_test_fee');
         const paidInput = document.getElementById('placement_test_fee_paid');
@@ -719,12 +918,152 @@
             feeInput.addEventListener('input', calculatePlacementTestRemaining);
             paidInput.addEventListener('input', calculatePlacementTestRemaining);
         }
-        
+
         // Initialize bundle pricing if bundle is already selected
         const bundleSelect = document.getElementById('bundle');
         if (bundleSelect && bundleSelect.value) {
             updateBundlePricing();
         }
     });
+
+    // Late Joiner Functions
+    const leadId = "{{.Detail.Lead.ID}}";
+
+    function openLateJoinModal() {
+        const modal = document.getElementById('lateJoinModal');
+        const container = document.getElementById('eligible-classes-container');
+        modal.style.display = 'flex';
+        container.innerHTML = '<p>Loading eligible classes...</p>';
+
+        fetch(`/api/pre-enrolment/${leadId}/late-join-eligible-classes`)
+            .then(async res => {
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || `HTTP error! status: ${res.status}`);
+                }
+                const contentType = res.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    throw new Error("Expected JSON response but got something else");
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    container.innerHTML = `<p style="color: #dc3545;">Error: ${data.error}</p>`;
+                    return;
+                }
+                if (!data.classes || data.classes.length === 0) {
+                    container.innerHTML = '<p style="color: #CC6600;">No eligible classes found (requires capacity 4-5 and session 1-2).</p>';
+                    return;
+                }
+
+                let html = '<label style="display: block; margin-bottom: 10px; font-weight: 600;">Select Class:</label>';
+                data.classes.forEach(cls => {
+                    html += `
+                        <div style="margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                            <label style="display: flex; align-items: center; cursor: pointer;">
+                                <input type="radio" name="selected_class" value="${cls.class_key}" style="margin-right: 10px;" onchange="validateLateJoinForm()">
+                                <div>
+                                    <strong>${cls.class_days} @ ${cls.class_time}</strong><br>
+                                    <small style="color: #666;">Session: ${cls.current_session} | Students: ${cls.current_enrollment}</small>
+                                </div>
+                            </label>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            })
+            .catch(err => {
+                console.error('Fetch error:', err);
+                container.innerHTML = `<p style="color: #dc3545;">Error: ${err.message}</p>`;
+            });
+    }
+
+    function closeLateJoinModal() {
+        document.getElementById('lateJoinModal').style.display = 'none';
+        document.getElementById('late-join-error').style.display = 'none';
+    }
+
+    function validateLateJoinForm() {
+        const classSelected = document.querySelector('input[name="selected_class"]:checked');
+        const reason = document.getElementById('late_join_reason').value.trim();
+        const btn = document.getElementById('confirm-late-join-btn');
+        btn.disabled = !(classSelected && reason.length >= 10);
+    }
+
+    document.getElementById('late_join_reason').addEventListener('input', validateLateJoinForm);
+
+    function confirmLateJoin() {
+        const leadId = "{{.Detail.Lead.ID}}";
+        const selectedClass = document.querySelector('input[name="selected_class"]:checked');
+        const reason = document.getElementById('late_join_reason').value;
+
+        if (!selectedClass) {
+            alert('Please select a class');
+            return;
+        }
+        if (reason.length < 10) {
+            alert('Please provide a reason (at least 10 chars)');
+            return;
+        }
+
+        const btn = document.getElementById('confirm-late-join-btn');
+        btn.disabled = true;
+        btn.innerText = 'Adding...';
+
+        fetch(`/api/pre-enrolment/${leadId}/late-join/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                class_key: selectedClass.value,
+                reason: reason
+            })
+        })
+            .then(async res => {
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || `HTTP error! status: ${res.status}`);
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    throw new Error(data.error || 'Failed to add late joiner');
+                }
+            })
+            .catch(err => {
+                alert('Error: ' + err.message);
+                btn.disabled = false;
+                btn.innerText = 'Confirm Late Join';
+            });
+    }
+
+    function undoLateJoin() {
+        if (!confirm('Are you sure you want to undo this late join? Initial scheduling data will be restored.')) return;
+
+        const leadId = "{{.Detail.Lead.ID}}";
+        fetch(`/api/pre-enrolment/${leadId}/late-join/undo`, {
+            method: 'POST'
+        })
+            .then(async res => {
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || `HTTP error! status: ${res.status}`);
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    throw new Error(data.error || 'Failed to undo late join');
+                }
+            })
+            .catch(err => {
+                alert('Error: ' + err.message);
+            });
+    }
 </script>
 {{end}}

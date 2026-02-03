@@ -26,8 +26,8 @@ func RoleHomePath(role string) string {
 		return "/mentor-head"
 	case "mentor":
 		return "/mentor"
-	case "community_officer":
-		return "/community-officer"
+	case "student_success":
+		return "/app/student-success"
 	case "hr":
 		return "/hr/mentors"
 	default:
@@ -70,8 +70,9 @@ func roleCanAccessPath(role, path string) bool {
 			path == "/learning"
 	case "mentor":
 		return path == "/mentor" || strings.HasPrefix(path, "/mentor/") || path == "/learning"
-	case "community_officer":
-		return path == "/community-officer" || strings.HasPrefix(path, "/community-officer/") || path == "/learning"
+	case "student_success":
+		return path == "/student-success" || strings.HasPrefix(path, "/student-success/") ||
+			path == "/app/student-success" || strings.HasPrefix(path, "/app/") || path == "/learning"
 	case "hr":
 		return path == "/hr/mentors" || strings.HasPrefix(path, "/hr/mentors") || path == "/learning"
 	default:
@@ -96,12 +97,12 @@ func NewAuthHandler(cfg *config.Config) *AuthHandler {
 func (h *AuthHandler) LoginForm(w http.ResponseWriter, r *http.Request) {
 	h.cfg.Debugf("📝 LoginForm() called - rendering login.html template")
 	h.cfg.Debugf("  → Request path: %s, Method: %s", r.URL.Path, r.Method)
-	
+
 	// Check if already logged in
 	cookie, err := r.Cookie("eighty_twenty_session")
 	sessionExists := err == nil
 	h.cfg.Debugf("  → Session cookie exists: %v", sessionExists)
-	
+
 	if sessionExists {
 		_, _, userRole, err := middleware.ValidateSessionCookie(cookie, h.cfg.SessionSecret)
 		if err == nil {
@@ -179,7 +180,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // LearningRedirect redirects authenticated users to their role-specific Learning home.
-// GET /learning -> mentor: /mentor, mentor_head: /mentor-head, hr: /hr/mentors, community_officer: /community-officer, admin/moderator: /pre-enrolment.
+// GET /learning -> mentor: /mentor, mentor_head: /mentor-head, hr: /hr/mentors, student_success: /student-success, admin/moderator: /pre-enrolment.
 func (h *AuthHandler) LearningRedirect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -194,7 +195,7 @@ func (h *AuthHandler) LearningRedirect(w http.ResponseWriter, r *http.Request) {
 // FIX: Added logging to track logout requests and ensure cookie is cleared properly.
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	h.cfg.Debugf("🚪 Logout() called - clearing session cookie")
-	
+
 	// Clear the session cookie
 	cookie := &http.Cookie{
 		Name:     "eighty_twenty_session",

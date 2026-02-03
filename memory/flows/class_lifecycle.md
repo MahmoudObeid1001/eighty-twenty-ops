@@ -64,6 +64,12 @@ stateDiagram-v2
 - `internal/views/classes.html:52, 156-162` (CSS opacity and locked controls)
 - `internal/handlers/classes.go:215` - calls `models.SendClassGroupToMentor`
 
+### Related Rule: Send-to-Classes (lead) does NOT join active rounds
+**Scope**: Pre-Enrolment "Send to Classes" action (lead → classes board).  
+**Behavior**: Assigns the lead to a non-started class group for the same level/days/time (or opens a new group if all are full).  
+**Active rounds**: Joining a running class requires the Late Joiner flow; Send-to-Classes should not place students into `round_status = 'active'` groups.  
+**Evidence**: `internal/models/repository.go` (`AssignClassGroup`, `MoveStudentBetweenGroups`), `internal/views/pre_enrolment_detail.html` note.
+
 ### Transition: Mentor Head assigns mentor (SentToMentor → Assigned)
 **Route**: `POST /api/mentor-head/assign-mentor`  
 **Handler**: `apiHandler.AssignMentor`  
@@ -107,6 +113,12 @@ stateDiagram-v2
 - `internal/handlers/api.go` - CloseRound function
 - `migrations/027_class_groups_round_status.sql:5-7` - Added closed_at, closed_by_mentor_user_id
 - `migrations/032_add_closed_mentor_user_id.sql`
+
+### Archived Classes Filter (Mentor Head)
+**Route**: `GET /api/mentor-head/archive`  
+**Filters**: Optional `from` and `to` (YYYY-MM-DD) to filter by `round_closed_at` date (inclusive).  
+**Sort**: `sort=oldest|newest` on `round_closed_at`.  
+**Evidence**: `internal/handlers/api.go` (`GetMentorHeadArchive`), `internal/models/repository.go` (`GetArchivedClassGroups`).
 
 ### Transition: Return to Ops (SentToMentor/Assigned → ReturnedToOps)
 **Route**: `POST /api/mentor-head/return-to-ops` or `POST /classes/return`  

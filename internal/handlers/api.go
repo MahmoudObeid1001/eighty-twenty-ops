@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -960,7 +961,26 @@ func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request
 		sort = "oldest"
 	}
 
-	classes, err := models.GetArchivedClassGroups(sort)
+	var fromDate *time.Time
+	var toDate *time.Time
+	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
+		parsed, err := time.Parse("2006-01-02", fromStr)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid from date. Use YYYY-MM-DD.")
+			return
+		}
+		fromDate = &parsed
+	}
+	if toStr := r.URL.Query().Get("to"); toStr != "" {
+		parsed, err := time.Parse("2006-01-02", toStr)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid to date. Use YYYY-MM-DD.")
+			return
+		}
+		toDate = &parsed
+	}
+
+	classes, err := models.GetArchivedClassGroups(sort, fromDate, toDate)
 	if err != nil {
 		log.Printf("ERROR: Failed to get archived classes: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load archived classes")
@@ -1203,7 +1223,16 @@ func (h *APIHandler) ReturnToOps(w http.ResponseWriter, r *http.Request) {
 
 	if err := models.ReturnClassGroupFromMentor(req.ClassKey); err != nil {
 		log.Printf("ERROR: Failed to return class: %v", err)
-		jsonError(w, http.StatusInternalServerError, "Failed to return class")
+		switch {
+		case errors.Is(err, models.ErrClassRoundActive):
+			jsonError(w, http.StatusConflict, "Cannot return class because the round has started.")
+		case errors.Is(err, models.ErrClassAlreadyReturned):
+			jsonError(w, http.StatusConflict, "Class is already returned to Operations.")
+		case errors.Is(err, models.ErrClassNotFound):
+			jsonError(w, http.StatusNotFound, "Class not found.")
+		default:
+			jsonError(w, http.StatusInternalServerError, "Failed to return class")
+		}
 		return
 	}
 
@@ -1739,6 +1768,7 @@ func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Reque
 	type StudentFeedback struct {
 		LeadID   string         `json:"lead_id"`
 		FullName string         `json:"full_name"`
+		Phone    string         `json:"phone"`
 		S4       *FeedbackEntry `json:"s4,omitempty"`
 		S8       *FeedbackEntry `json:"s8,omitempty"`
 	}
@@ -1748,6 +1778,7 @@ func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Reque
 		feedbackMap[s.LeadID.String()] = &StudentFeedback{
 			LeadID:   s.LeadID.String(),
 			FullName: s.FullName,
+			Phone:    s.Phone,
 		}
 	}
 

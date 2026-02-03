@@ -485,7 +485,7 @@ func (h *MentorHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := models.AddStudentNote(leadID, classKey, sessionNumber, noteText, createdByUserID); err != nil {
+	if err := models.AddStudentNote(leadID, classKey, sessionNumber, noteText, false, createdByUserID); err != nil {
 		log.Printf("ERROR: Failed to add note: lead_id=%s, error: %v", leadID, err)
 		http.Error(w, fmt.Sprintf("Failed to add note: %v", err), http.StatusInternalServerError)
 		return

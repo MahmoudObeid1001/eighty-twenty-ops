@@ -12,24 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
-type CommunityOfficerHandler struct {
+type StudentSuccessHandler struct {
 	config *config.Config
 }
 
-func NewCommunityOfficerHandler(cfg *config.Config) *CommunityOfficerHandler {
-	return &CommunityOfficerHandler{config: cfg}
+func NewStudentSuccessHandler(cfg *config.Config) *StudentSuccessHandler {
+	return &StudentSuccessHandler{config: cfg}
 }
 
 // Dashboard shows pending feedback and absence follow-up tasks
-func (h *CommunityOfficerHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
+func (h *StudentSuccessHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "community_officer" && userRole != "admin" {
-		http.Error(w, "Forbidden: Community Officer or Admin access required", http.StatusForbidden)
+	if userRole != "student_success" && userRole != "admin" {
+		http.Error(w, "Forbidden: Student Success or Admin access required", http.StatusForbidden)
 		return
 	}
 
@@ -57,28 +57,28 @@ func (h *CommunityOfficerHandler) Dashboard(w http.ResponseWriter, r *http.Reque
 	}
 
 	data := map[string]interface{}{
-		"Title":               "Community Officer – Eighty Twenty",
-		"PendingFeedback4":    pending4,
-		"PendingFeedback8":    pending8,
-		"IsAdmin":             userRole == "admin",
-		"IsModerator":         userRole == "moderator",
+		"Title":              "Community Officer – Eighty Twenty",
+		"PendingFeedback4":   pending4,
+		"PendingFeedback8":   pending8,
+		"IsAdmin":            userRole == "admin",
+		"IsModerator":        userRole == "moderator",
 		"feedback_submitted": r.URL.Query().Get("feedback_submitted"),
 		"follow_up_logged":   r.URL.Query().Get("follow_up_logged"),
 	}
 
-	renderTemplate(w, r, "community_officer.html", data)
+	renderTemplate(w, r, "student_success.html", data)
 }
 
 // SubmitFeedback submits feedback for a student at session 4 or 8
-func (h *CommunityOfficerHandler) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
+func (h *StudentSuccessHandler) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "community_officer" && userRole != "admin" {
-		http.Error(w, "Forbidden: Community Officer or Admin access required", http.StatusForbidden)
+	if userRole != "student_success" && userRole != "admin" {
+		http.Error(w, "Forbidden: Student Success or Admin access required", http.StatusForbidden)
 		return
 	}
 
@@ -109,19 +109,19 @@ func (h *CommunityOfficerHandler) SubmitFeedback(w http.ResponseWriter, r *http.
 		return
 	}
 
-	http.Redirect(w, r, "/community-officer?feedback_submitted=1", http.StatusFound)
+	http.Redirect(w, r, "/student-success?feedback_submitted=1", http.StatusFound)
 }
 
 // LogFollowUp logs an absence follow-up action
-func (h *CommunityOfficerHandler) LogFollowUp(w http.ResponseWriter, r *http.Request) {
+func (h *StudentSuccessHandler) LogFollowUp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "community_officer" && userRole != "admin" {
-		http.Error(w, "Forbidden: Community Officer or Admin access required", http.StatusForbidden)
+	if userRole != "student_success" && userRole != "admin" {
+		http.Error(w, "Forbidden: Student Success or Admin access required", http.StatusForbidden)
 		return
 	}
 
@@ -157,5 +157,5 @@ func (h *CommunityOfficerHandler) LogFollowUp(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	http.Redirect(w, r, "/community-officer?follow_up_logged=1", http.StatusFound)
+	http.Redirect(w, r, "/student-success?follow_up_logged=1", http.StatusFound)
 }

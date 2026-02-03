@@ -96,8 +96,65 @@ export default function ClassWorkspace() {
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
         <h1>
           Level {classData.class.level} · {classData.class.days} · {classData.class.time} · Class {classData.class.class_number}
+          {classData.class.round_status === 'closed' && (
+            <span style={{
+              marginLeft: '12px',
+              padding: '4px 8px',
+              background: '#6c757d',
+              color: 'white',
+              borderRadius: '4px',
+              fontSize: '12px',
+              verticalAlign: 'middle',
+              textTransform: 'uppercase',
+              fontWeight: 600
+            }}>
+              Archived
+            </span>
+          )}
         </h1>
       </div>
+
+      {(() => {
+        const now = new Date();
+        const overdueSessions = classData.sessions.filter(s => {
+          if (s.status === 'completed') return false;
+
+          // Combine date and time
+          // Assuming scheduled_date is YYYY-MM-DD and scheduled_time is HH:MM
+          const sessionDateTime = new Date(`${s.scheduled_date}T${s.scheduled_time}`);
+          const diffHours = (now.getTime() - sessionDateTime.getTime()) / (1000 * 60 * 60);
+
+          if (diffHours > 24) {
+            // Check if any student is missing attendance for this session
+            return classData.students.some(student => !student.attendance?.[s.id]);
+          }
+          return false;
+        });
+
+        if (overdueSessions.length > 0) {
+          return (
+            <div style={{
+              background: '#dc3545',
+              color: 'white',
+              padding: '12px 20px',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+              fontWeight: 600
+            }}>
+              <span style={{ fontSize: '20px' }}>⚠️</span>
+              <span>
+                Attention: Attendance is missing for {overdueSessions.length} session(s) that took place more than 24 hours ago.
+                Please mark attendance for: {overdueSessions.map(s => `S${s.session_number}`).join(', ')}.
+              </span>
+            </div>
+          );
+        }
+        return null;
+      })()}
 
       <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', background: '#f8f9fa', padding: '12px', borderRadius: '12px' }}>
@@ -131,7 +188,7 @@ export default function ClassWorkspace() {
         </div>
       </div>
 
-      {selectedSession && selectedSession.status === 'scheduled' && (
+      {selectedSession && selectedSession.status === 'scheduled' && classData.class.round_status !== 'closed' && (
         <div style={{ marginBottom: '24px' }}>
           <button
             onClick={() => handleCompleteSession(selectedSession.id)}
@@ -172,8 +229,19 @@ export default function ClassWorkspace() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
                     <div onClick={() => setSelectedStudent(student)} style={{ cursor: 'pointer', flex: 1 }}>
-                      <h3 style={{ fontSize: '17px', marginBottom: '4px', color: '#333', fontWeight: 600 }}>
+                      <h3 style={{ fontSize: '17px', marginBottom: '4px', color: '#333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {student.full_name}
+                        {student.joined_at_session_number && (
+                          <span style={{
+                            background: '#6c5ce7',
+                            color: 'white',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '10px'
+                          }}>
+                            Late Join (S{student.joined_at_session_number})
+                          </span>
+                        )}
                       </h3>
                       <p style={{ fontSize: '12px', color: '#666', marginBottom: '0' }}>
                         {student.phone}
@@ -202,7 +270,7 @@ export default function ClassWorkspace() {
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button
-                          disabled={isUpdating}
+                          disabled={isUpdating || classData.class.round_status === 'closed'}
                           onClick={() => handleMarkAttendance(selectedSession.id, student.lead_id, 'PRESENT')}
                           style={{
                             flex: 1,
@@ -212,14 +280,15 @@ export default function ClassWorkspace() {
                             background: status === 'PRESENT' ? '#28a745' : '#e9ecef',
                             color: status === 'PRESENT' ? 'white' : '#666',
                             fontWeight: 600,
-                            cursor: 'pointer',
+                            cursor: classData.class.round_status === 'closed' ? 'not-allowed' : 'pointer',
                             fontSize: '13px',
+                            opacity: classData.class.round_status === 'closed' ? 0.7 : 1,
                           }}
                         >
                           Present
                         </button>
                         <button
-                          disabled={isUpdating}
+                          disabled={isUpdating || classData.class.round_status === 'closed'}
                           onClick={() => handleMarkAttendance(selectedSession.id, student.lead_id, 'ABSENT')}
                           style={{
                             flex: 1,
@@ -229,8 +298,9 @@ export default function ClassWorkspace() {
                             background: status === 'ABSENT' ? '#dc3545' : '#e9ecef',
                             color: status === 'ABSENT' ? 'white' : '#666',
                             fontWeight: 600,
-                            cursor: 'pointer',
+                            cursor: classData.class.round_status === 'closed' ? 'not-allowed' : 'pointer',
                             fontSize: '13px',
+                            opacity: classData.class.round_status === 'closed' ? 0.7 : 1,
                           }}
                         >
                           Absent
@@ -254,10 +324,19 @@ export default function ClassWorkspace() {
           student={selectedStudent}
           classKey={classKey}
           sessionsCount={classData.sessionsCount}
+          totalSessions={classData.totalSessions}
+          attendedCount={selectedStudent.attendance
+            ? Object.values(selectedStudent.attendance).filter((status) =>
+                status === 'PRESENT' ||
+                status === 'LATE' ||
+                status === 'on-time' ||
+                status === 'late' ||
+                status === 'present',
+              ).length
+            : 0}
           onClose={() => setSelectedStudent(null)}
         />
       )}
     </>
   )
 }
-

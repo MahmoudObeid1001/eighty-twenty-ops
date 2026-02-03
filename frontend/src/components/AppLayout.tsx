@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api, User } from '../api/client'
+import LateJoinerBanner from './LateJoinerBanner'
 
 interface AppLayoutProps {
   children: ReactNode
@@ -41,7 +42,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const getLearningLink = () => {
     if (role === 'mentor') return '/mentor'
     if (role === 'mentor_head') return '/mentor-head'
-    if (role === 'community_officer') return '/community-officer'
     if (role === 'hr') return '/hr/mentors'
     if (role === 'student_success') return '/student-success'
     return '/mentor'
@@ -49,6 +49,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   // Check if we're on a class page (for active state)
   const isClassPage = location.pathname.includes('/class')
+  const backendOrigin = window.location.origin.includes(':3000')
+    ? window.location.origin.replace(':3000', ':3001')
+    : window.location.origin
 
   return (
     <div className="container">
@@ -59,14 +62,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
         <nav style={{ flex: 1 }}>
           <ul>
-            {(role === 'mentor_head' || role === 'mentor' || role === 'community_officer' || role === 'hr' || role === 'student_success') && (
+            {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success') && (
               <li>
                 <Link
                   to={getLearningLink()}
                   className={
                     (isActive('/mentor') ||
                       (isActive('/mentor-head') && !isActive('/mentor-head/evaluations')) ||
-                      isActive('/community-officer') ||
                       isActive('/hr') ||
                       isActive('/student-success') ||
                       isClassPage)
@@ -106,12 +108,25 @@ export default function AppLayout({ children }: AppLayoutProps) {
           </ul>
         </nav>
         <div style={{ padding: '20px', borderTop: '1px solid #8C8C8C', marginTop: 'auto' }}>
-          <a href="/logout" className="btn btn-secondary" style={{ width: '100%', display: 'block', textAlign: 'center', backgroundColor: '#6c757d', color: 'white', textDecoration: 'none', padding: '12px' }}>
+          <a
+            href={`${backendOrigin}/logout`}
+            className="btn btn-secondary"
+            style={{
+              width: '100%',
+              display: 'block',
+              textAlign: 'center',
+              backgroundColor: '#6c757d',
+              color: 'white',
+              textDecoration: 'none',
+              padding: '12px',
+            }}
+          >
             Logout
           </a>
         </div>
       </aside>
       <main className="main-content">
+        <LateJoinerBanner userRole={role} />
         {children}
       </main>
     </div>

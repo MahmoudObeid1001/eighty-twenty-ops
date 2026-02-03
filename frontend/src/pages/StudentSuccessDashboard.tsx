@@ -114,8 +114,8 @@ export default function StudentSuccessDashboard() {
                     style={{
                       padding: '16px',
                       borderRadius: '6px',
-                      border: '1px solid #eee',
-                      background: '#fff',
+                      border: cls.has_high_priority ? '1px solid #dc3545' : '1px solid #eee',
+                      background: cls.has_high_priority ? '#fffafa' : '#fff',
                     }}
                   >
                     <div style={{ marginBottom: '12px' }}>
@@ -137,10 +137,26 @@ export default function StudentSuccessDashboard() {
                           fontWeight: 600,
                           background: '#d4edda',
                           color: '#155724',
+                          marginRight: '8px',
                         }}
                       >
                         ACTIVE
                       </span>
+                      {cls.has_high_priority && (
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '4px 10px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            background: '#f8d7da',
+                            color: '#721c24',
+                          }}
+                        >
+                          🚩 AT RISK
+                        </span>
+                      )}
                     </div>
                     <button
                       onClick={() => navigate(`/student-success/class?class_key=${encodeURIComponent(cls.class_key)}`)}

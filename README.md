@@ -104,6 +104,15 @@ The database schema is automatically migrated on server startup. The migration s
 
 ### Documentation
 
+**Agent Memory System:**
+- **Before coding:** Read [`memory/`](memory/README.md) docs for relevant workflows and rules
+- **System overview:** Routes, roles, database schema, workflows - all evidence-based
+- **Key files:**
+  - [`memory/permissions/rbac_matrix.md`](memory/permissions/rbac_matrix.md) - What each role can do
+  - [`memory/flows/`](memory/flows/) - Mermaid diagrams of core workflows
+  - [`memory/db/erd.md`](memory/db/erd.md) - Database schema and relationships
+
+**Other Docs:**
 - `docs/MILESTONE_1_PRE_ENROLMENT_QA_AUDIT.md` — Comprehensive QA audit of Pre-Enrolment flows, invariants, and regression risks
 - `docs/BLOCKING_FIXES_DELIVERABLE.md` — Detailed explanation of the 5 blocking issues fixed (double refund, cancel idempotency, payment bounds, etc.)
 - `docs/MODERATOR_UX_MANUAL_CHECKLIST.md` — Manual QA checklist for moderator role behavior and permissions

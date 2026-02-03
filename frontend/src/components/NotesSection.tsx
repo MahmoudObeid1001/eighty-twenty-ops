@@ -4,22 +4,27 @@ import { Note } from '../api/client'
 interface NotesSectionProps {
   notes: Note[]
   loading: boolean
-  onAddNote: (text: string) => Promise<void>
+  onAddNote: (text: string, isPrivate?: boolean) => Promise<void>
   onDeleteNote: (noteId: string) => Promise<void>
+  userRole?: string
 }
 
-export default function NotesSection({ notes, loading, onAddNote, onDeleteNote }: NotesSectionProps) {
+export default function NotesSection({ notes, loading, onAddNote, onDeleteNote, userRole }: NotesSectionProps) {
   const [showHistory, setShowHistory] = useState(false)
   const [noteText, setNoteText] = useState('')
+  const [isPrivate, setIsPrivate] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  const canPrivate = userRole === 'student_success' || userRole === 'mentor_head' || userRole === 'admin'
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!noteText.trim() || submitting) return
     try {
       setSubmitting(true)
-      await onAddNote(noteText.trim())
+      await onAddNote(noteText.trim(), isPrivate)
       setNoteText('')
+      setIsPrivate(false)
     } catch (err) {
       // Error handled by parent
     } finally {
@@ -42,15 +47,17 @@ export default function NotesSection({ notes, loading, onAddNote, onDeleteNote }
         <>
           <div
             style={{
-              background: '#f8f9fa',
+              background: latestNote.is_private ? '#fff3cd' : '#f8f9fa',
               padding: '12px',
               borderRadius: '6px',
               marginBottom: '12px',
-              borderLeft: '3px solid #007bff',
+              borderLeft: `3px solid ${latestNote.is_private ? '#ffc107' : '#007bff'}`,
             }}
           >
-            <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>
-              Latest Note
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', fontWeight: 600 }}>
+                {latestNote.is_private ? '🔒 Private Note' : 'Latest Note'}
+              </div>
             </div>
             <div style={{ fontSize: '13px', color: '#333', marginBottom: '6px' }}>{latestNote.text}</div>
             <div style={{ fontSize: '11px', color: '#666' }}>
@@ -108,13 +115,18 @@ export default function NotesSection({ notes, loading, onAddNote, onDeleteNote }
                 <div
                   key={note.id}
                   style={{
-                    background: 'white',
+                    background: note.is_private ? '#fff3cd' : 'white',
                     padding: '12px',
                     borderRadius: '6px',
                     marginBottom: '8px',
-                    borderLeft: '3px solid #007bff',
+                    borderLeft: `3px solid ${note.is_private ? '#ffc107' : '#007bff'}`,
                   }}
                 >
+                  {note.is_private && (
+                    <div style={{ fontSize: '10px', color: '#856404', marginBottom: '4px', fontWeight: 600 }}>
+                      🔒 PRIVATE
+                    </div>
+                  )}
                   <div style={{ fontSize: '13px', color: '#333', marginBottom: '6px' }}>{note.text}</div>
                   <div style={{ fontSize: '11px', color: '#666' }}>
                     {note.created_by_email} · {new Date(note.created_at).toLocaleString()}
@@ -144,36 +156,48 @@ export default function NotesSection({ notes, loading, onAddNote, onDeleteNote }
       ) : null}
 
       <form onSubmit={handleSubmit} style={{ marginTop: '12px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <input
-            type="text"
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="Add a new note..."
-            disabled={submitting}
-            style={{
-              flex: 1,
-              padding: '10px 12px',
-              border: '1px solid #ced4da',
-              borderRadius: '6px',
-              fontSize: '14px',
-            }}
-          />
-          <button
-            type="submit"
-            disabled={submitting || !noteText.trim()}
-            style={{
-              padding: '10px 20px',
-              background: submitting ? '#ccc' : '#007bff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: submitting ? 'not-allowed' : 'pointer',
-              fontSize: '14px',
-            }}
-          >
-            {submitting ? 'Adding...' : 'Add Note'}
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              type="text"
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add a new note..."
+              disabled={submitting}
+              style={{
+                flex: 1,
+                padding: '10px 12px',
+                border: '1px solid #ced4da',
+                borderRadius: '6px',
+                fontSize: '14px',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={submitting || !noteText.trim()}
+              style={{
+                padding: '10px 20px',
+                background: submitting ? '#ccc' : '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              {submitting ? 'Adding...' : 'Add Note'}
+            </button>
+          </div>
+          {canPrivate && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: '#666' }}>
+              <input
+                type="checkbox"
+                checked={isPrivate}
+                onChange={(e) => setIsPrivate(e.target.checked)}
+              />
+              Mark as Private (Only visible to Student Success & Mentor Head)
+            </label>
+          )}
         </div>
       </form>
     </div>

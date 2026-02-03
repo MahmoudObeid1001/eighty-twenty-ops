@@ -11,6 +11,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+var (
+	ErrClassNotFound        = errors.New("class not found")
+	ErrClassRoundActive     = errors.New("class round is active")
+	ErrClassAlreadyReturned = errors.New("class already returned")
+)
+
 // PhoneAlreadyExistsError represents a phone number uniqueness violation
 type PhoneAlreadyExistsError struct {
 	Phone          string

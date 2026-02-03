@@ -35,7 +35,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	statusFilter := r.URL.Query().Get("status")
 	searchFilter := r.URL.Query().Get("search")
 	paymentFilter := r.URL.Query().Get("payment")
-	hotFilter := r.URL.Query().Get("hot") // Changed from "filter" to "hot"
+	hotFilter := r.URL.Query().Get("hot")            // Changed from "filter" to "hot"
 	followUpFilter := r.URL.Query().Get("follow_up") // Milestone 2: high_priority follow-up filter
 	includeCancelled := r.URL.Query().Get("include_cancelled") == "1" || r.URL.Query().Get("include_cancelled") == "true"
 	// When explicitly filtering by status=cancelled, include cancelled even if checkbox off
@@ -187,7 +187,7 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		if phoneErr != nil {
 			data := map[string]interface{}{
 				"Title":             "New Lead - Eighty Twenty",
@@ -204,7 +204,7 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 			renderTemplate(w, r, "pre_enrolment_new.html", data)
 			return
 		}
-		
+
 		http.Error(w, fmt.Sprintf("Failed to create lead: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -374,12 +374,25 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		statusInfo = models.GetStatusDisplayInfo("paid_full")
 	}
 
+	var lateJoiner *models.LateJoiner
+	var classCurrentSession int32 = 0
+	lj, err := models.GetLateJoinerByLeadID(leadID)
+	if err == nil && lj != nil {
+		lateJoiner = lj
+		// Get current session for the class they joined
+		if sess, err := models.GetActiveClassCurrentSession(lj.ClassKey); err == nil {
+			classCurrentSession = sess
+		}
+	}
+
 	data := map[string]interface{}{
 		"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
 		"Detail":                 detail,
 		"UserRole":               userRole,
 		"IsModerator":            userRole == "moderator",
 		"IsAdmin":                userRole == "admin",
+		"LateJoiner":             lateJoiner,
+		"ClassCurrentSession":    classCurrentSession,
 		"PlacementTestRemaining": placementTestRemaining,
 		"FollowUpDue":            tempItem.FollowUpDue,
 		"ShowFollowUpBanner":     showFollowUpBanner,
@@ -642,13 +655,13 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
 			finalPriceValue = detail.Offer.FinalPrice.Int32
 		}
-		
+
 		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
 		if err != nil {
 			log.Printf("ERROR: Failed to get total course paid: %v", err)
 			totalCoursePaid = 0
 		}
-		
+
 		isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
 		if !isFullyPaid {
 			h.renderDetailWithError(w, r, leadID, "Cannot mark READY_TO_START before full payment. Course must be fully paid first.")
@@ -771,69 +784,69 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			refundMethod := r.FormValue("refund_method")
 			refundDateStr := r.FormValue("refund_date")
 			refundNotes := r.FormValue("refund_notes")
-			
+
 			// Get course payments total
 			totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
 			if err != nil {
 				h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Failed to calculate course payments: %v", err))
 				return
 			}
-			
-		// If there are course payments, refund is required
-		if totalCoursePaid > 0 {
-			// Validate refund amount
-			if refundAmountStr == "" {
-				// Show modal again with error - redirect to detail page with action=cancel and error
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=refund_required", leadID.String()), http.StatusFound)
-				return
-			}
-				
-			refundAmount, err := strconv.Atoi(refundAmountStr)
-			if err != nil || refundAmount <= 0 {
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_amount", leadID.String()), http.StatusFound)
-				return
-			}
-			
-			if int32(refundAmount) > totalCoursePaid {
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds&max=%d", leadID.String(), totalCoursePaid), http.StatusFound)
-				return
-			}
-			
-			// Validate payment method
-			if refundMethod == "" {
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=method_required", leadID.String()), http.StatusFound)
-				return
-			}
-			
-			allowedMethods := map[string]bool{
-				"vodafone_cash": true,
-				"bank_transfer": true,
-				"paypal":        true,
-				"other":         true,
-			}
-			if !allowedMethods[refundMethod] {
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_method", leadID.String()), http.StatusFound)
-				return
-			}
-			
-			// Validate refund date
-			if refundDateStr == "" {
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=date_required", leadID.String()), http.StatusFound)
-				return
-			}
-			
-			refundDate, err := util.ParseDateLocal(refundDateStr)
-			if err != nil {
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_date", leadID.String()), http.StatusFound)
-				return
-			}
-			
-			// Validate refund date is not in the future
-			if err := util.ValidateNotFutureDate(refundDate); err != nil {
-				http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=future_date", leadID.String()), http.StatusFound)
-				return
-			}
-				
+
+			// If there are course payments, refund is required
+			if totalCoursePaid > 0 {
+				// Validate refund amount
+				if refundAmountStr == "" {
+					// Show modal again with error - redirect to detail page with action=cancel and error
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=refund_required", leadID.String()), http.StatusFound)
+					return
+				}
+
+				refundAmount, err := strconv.Atoi(refundAmountStr)
+				if err != nil || refundAmount <= 0 {
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_amount", leadID.String()), http.StatusFound)
+					return
+				}
+
+				if int32(refundAmount) > totalCoursePaid {
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds&max=%d", leadID.String(), totalCoursePaid), http.StatusFound)
+					return
+				}
+
+				// Validate payment method
+				if refundMethod == "" {
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=method_required", leadID.String()), http.StatusFound)
+					return
+				}
+
+				allowedMethods := map[string]bool{
+					"vodafone_cash": true,
+					"bank_transfer": true,
+					"paypal":        true,
+					"other":         true,
+				}
+				if !allowedMethods[refundMethod] {
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_method", leadID.String()), http.StatusFound)
+					return
+				}
+
+				// Validate refund date
+				if refundDateStr == "" {
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=date_required", leadID.String()), http.StatusFound)
+					return
+				}
+
+				refundDate, err := util.ParseDateLocal(refundDateStr)
+				if err != nil {
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_date", leadID.String()), http.StatusFound)
+					return
+				}
+
+				// Validate refund date is not in the future
+				if err := util.ValidateNotFutureDate(refundDate); err != nil {
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=future_date", leadID.String()), http.StatusFound)
+					return
+				}
+
 				refundNotesText := "Refund for cancelled lead"
 				if refundNotes != "" {
 					refundNotesText = refundNotesText + ". " + refundNotes
@@ -869,21 +882,21 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		
+
 		// GET request: show cancel modal with refund options
 		// Calculate placement test paid (read-only, not refundable)
 		var placementTestPaid int32 = 0
 		if detail.PlacementTest != nil && detail.PlacementTest.PlacementTestFeePaid.Valid {
 			placementTestPaid = detail.PlacementTest.PlacementTestFeePaid.Int32
 		}
-		
+
 		// Calculate course paid total
 		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
 		if err != nil {
 			log.Printf("ERROR: Failed to get total course paid: %v", err)
 			totalCoursePaid = 0
 		}
-		
+
 		// Get offer final price for remaining balance calculation
 		var remainingBalance int32 = 0
 		if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
@@ -892,33 +905,33 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				remainingBalance = 0
 			}
 		}
-		
+
 		// Get lead payments for display
 		leadPayments, err := models.GetLeadPayments(leadID)
 		if err != nil {
 			log.Printf("ERROR: Failed to get lead payments: %v", err)
 			leadPayments = []*models.LeadPayment{} // Empty slice on error
 		}
-		
+
 		// Calculate final price
 		var finalPriceValue int32 = 0
 		if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
 			finalPriceValue = detail.Offer.FinalPrice.Int32
 		}
-		
+
 		today := time.Now().Format("2006-01-02")
 		data := map[string]interface{}{
-			"Title":                  fmt.Sprintf("Cancel Lead - %s", detail.Lead.FullName),
-			"Detail":                 detail,
-			"UserRole":               userRole,
-			"IsModerator":            false,
-			"ShowCancelModal":        true,
-			"PlacementTestPaid":      placementTestPaid,
-			"TotalCoursePaid":        totalCoursePaid,
-			"RemainingBalance":       remainingBalance,
-			"FinalPrice":             finalPriceValue,
-			"LeadPayments":           leadPayments,
-			"Today":                  today,
+			"Title":             fmt.Sprintf("Cancel Lead - %s", detail.Lead.FullName),
+			"Detail":            detail,
+			"UserRole":          userRole,
+			"IsModerator":       false,
+			"ShowCancelModal":   true,
+			"PlacementTestPaid": placementTestPaid,
+			"TotalCoursePaid":   totalCoursePaid,
+			"RemainingBalance":  remainingBalance,
+			"FinalPrice":        finalPriceValue,
+			"LeadPayments":      leadPayments,
+			"Today":             today,
 		}
 		renderTemplate(w, r, "pre_enrolment_detail.html", data)
 		return
@@ -930,7 +943,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Forbidden: Moderators cannot reopen leads", http.StatusForbidden)
 			return
 		}
-		
+
 		// Reopen the cancelled lead
 		err = models.ReopenLead(leadID)
 		if err != nil {
@@ -938,7 +951,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Failed to reopen lead: %v", err), http.StatusInternalServerError)
 			return
 		}
-		
+
 		h.cfg.Debugf("  ✅ Lead reopened successfully, redirecting to detail")
 		http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?reopened=1", leadID.String()), http.StatusFound)
 		return
@@ -1047,10 +1060,10 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
 	fullName := r.FormValue("full_name")
 	phone := r.FormValue("phone")
-	
+
 	// If fields are empty, use existing values (might happen with some form submissions)
 	if fullName == "" {
 		fullName = existingDetail.Lead.FullName
@@ -1060,7 +1073,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		phone = existingDetail.Lead.Phone
 		h.cfg.Debugf("  ⚠️  phone empty in form, using existing: %q", phone)
 	}
-	
+
 	if fullName == "" || phone == "" {
 		log.Printf("ERROR: Validation failed for SaveFull: fullName=%q, phone=%q, leadID=%s", fullName, phone, leadID)
 		http.Error(w, "Full name and phone are required", http.StatusBadRequest)
@@ -1224,11 +1237,11 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	bundleStr := r.FormValue("bundle")
 	basePriceStr := r.FormValue("base_price")
 	discountStr := r.FormValue("discount")
-	
+
 	// Check if this is an explicit offer save action
 	action := r.FormValue("action")
 	isExplicitOfferSave := action == "save_offer" || action == "mark_offer_sent"
-	
+
 	// Check if offer already exists (existingDetail loaded above)
 	existingOffer := existingDetail.Offer
 	if existingOffer != nil {
@@ -1240,7 +1253,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				return 0
 			}(), leadID)
 	}
-	
+
 	// Process offer ONLY if:
 	// 1. Bundle is explicitly provided (not empty), OR
 	// 2. Explicit offer save action is triggered, OR
@@ -1249,10 +1262,10 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	shouldProcessOffer := bundleStr != "" || isExplicitOfferSave || finalPriceStr != ""
 	h.cfg.Debugf("  💰 Offer processing check: bundleStr=%q, finalPriceStr=%q, isExplicitOfferSave=%v, existingOffer!=nil=%v, shouldProcess=%v, leadID=%s",
 		bundleStr, finalPriceStr, isExplicitOfferSave, existingOffer != nil, shouldProcessOffer, leadID)
-	
+
 	if shouldProcessOffer {
 		offer := &models.Offer{LeadID: leadID}
-		
+
 		// If offer exists, start with existing values
 		if existingOffer != nil {
 			offer.BundleLevels = existingOffer.BundleLevels
@@ -1261,7 +1274,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			offer.DiscountType = existingOffer.DiscountType
 			offer.FinalPrice = existingOffer.FinalPrice
 		}
-		
+
 		// Hardcoded bundle prices
 		bundlePrices := map[int32]int32{
 			1: 1300,
@@ -1269,7 +1282,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			3: 3300,
 			4: 4000,
 		}
-		
+
 		// Update with form values
 		var basePrice int32 = 0
 		if bundleStr != "" {
@@ -1284,7 +1297,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		// If base price was set from bundle, use it; otherwise use form value
 		if basePrice == 0 && basePriceStr != "" {
 			if bp, err := strconv.Atoi(basePriceStr); err == nil {
@@ -1292,12 +1305,12 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				offer.BasePrice = sql.NullInt32{Int32: basePrice, Valid: true}
 			}
 		}
-		
+
 		// If base price exists from existing offer and wasn't set above, use it
 		if basePrice == 0 && existingOffer != nil && existingOffer.BasePrice.Valid {
 			basePrice = existingOffer.BasePrice.Int32
 		}
-		
+
 		// Parse discount (could be "500" or "10%")
 		var discountAmount int32 = 0
 		if discountStr != "" {
@@ -1317,7 +1330,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		// Calculate final price: base - discount (if base price is set)
 		// PRIORITY: If final_price is explicitly provided, use it (highest priority)
 		// Otherwise, calculate from base - discount
@@ -1336,7 +1349,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				calculatedFinalPrice = 0
 			}
 			offer.FinalPrice = sql.NullInt32{Int32: calculatedFinalPrice, Valid: true}
-			h.cfg.Debugf("  💰 Offer Final Price: AUTO-CALCULATED=%d (base=%d - discount=%d), leadID=%s", 
+			h.cfg.Debugf("  💰 Offer Final Price: AUTO-CALCULATED=%d (base=%d - discount=%d), leadID=%s",
 				calculatedFinalPrice, basePrice, discountAmount, leadID)
 		} else if existingOffer != nil && existingOffer.FinalPrice.Valid {
 			// Preserve existing final price if not provided in form and can't calculate
@@ -1346,13 +1359,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			// No final price set - this is OK if it's a new offer
 			h.cfg.Debugf("  ⚠️  Offer Final Price: NOT SET (new offer or no existing), leadID=%s", leadID)
 		}
-		
+
 		detail.Offer = offer
 		finalPriceVal := int32(0)
 		if offer.FinalPrice.Valid {
 			finalPriceVal = offer.FinalPrice.Int32
 		}
-		h.cfg.Debugf("  💰 Offer prepared for save: FinalPrice.Valid=%v, FinalPrice.Int32=%d, leadID=%s", 
+		h.cfg.Debugf("  💰 Offer prepared for save: FinalPrice.Valid=%v, FinalPrice.Int32=%d, leadID=%s",
 			offer.FinalPrice.Valid, finalPriceVal, leadID)
 	} else {
 		h.cfg.Debugf("  ⚠️  Offer NOT processed: no fields provided and no existing offer, leadID=%s", leadID)
@@ -1401,7 +1414,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		}
 		detail.Payment = payment
 	}
-	
+
 	// Course payment (new LeadPayment model for multiple payments)
 	// Parse course payment fields if provided
 	coursePaymentType := r.FormValue("course_payment_type")
@@ -1443,25 +1456,25 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if existingDetail.Offer != nil && existingDetail.Offer.FinalPrice.Valid {
 			finalPriceValue = existingDetail.Offer.FinalPrice.Int32
 		}
-		
+
 		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
 		if err != nil {
 			log.Printf("ERROR: Failed to get total course paid: %v", err)
 			totalCoursePaid = 0
 		}
-		
+
 		isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
-		
+
 		if !isFullyPaid {
 			h.renderDetailWithError(w, r, leadID, "Cannot schedule before full payment. Course must be fully paid before setting class days and time.")
 			return
 		}
-		
+
 		// Both fields must be present when setting NEW schedule
 		// But if one is already set, allow updating just the other one
 		existingScheduling := existingDetail.Scheduling
 		hasExistingSchedule := existingScheduling != nil && existingScheduling.ClassDays.Valid && existingScheduling.ClassTime.Valid
-		
+
 		if !hasExistingSchedule && (classDays == "" || classTime == "") {
 			h.renderDetailWithError(w, r, leadID, "Both Class Days and Class Time are required when setting schedule.")
 			return
@@ -1506,23 +1519,23 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			log.Printf("ERROR: Failed to load existing detail for scheduling preservation: %v", err)
 			existingSchedulingDetail = nil
 		}
-		
+
 		scheduling := &models.Scheduling{LeadID: leadID}
-		
+
 		// Set class_days if provided, otherwise preserve existing
 		if classDays != "" {
 			scheduling.ClassDays = sql.NullString{String: classDays, Valid: true}
 		} else if existingSchedulingDetail != nil && existingSchedulingDetail.Scheduling != nil {
 			scheduling.ClassDays = existingSchedulingDetail.Scheduling.ClassDays
 		}
-		
+
 		// Set class_time if provided, otherwise preserve existing
 		if classTime != "" {
 			scheduling.ClassTime = sql.NullString{String: classTime, Valid: true}
 		} else if existingSchedulingDetail != nil && existingSchedulingDetail.Scheduling != nil {
 			scheduling.ClassTime = existingSchedulingDetail.Scheduling.ClassTime
 		}
-		
+
 		// Preserve existing expected_round, start_date, start_time, class_group_index if they exist
 		if existingSchedulingDetail != nil && existingSchedulingDetail.Scheduling != nil {
 			scheduling.ExpectedRound = existingSchedulingDetail.Scheduling.ExpectedRound
@@ -1530,7 +1543,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			scheduling.StartTime = existingSchedulingDetail.Scheduling.StartTime
 			scheduling.ClassGroupIndex = existingSchedulingDetail.Scheduling.ClassGroupIndex
 		}
-		
+
 		detail.Scheduling = scheduling
 	}
 
@@ -1604,12 +1617,12 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if detail.Offer.FinalPrice.Valid {
 			finalPriceVal = detail.Offer.FinalPrice.Int32
 		}
-		h.cfg.Debugf("  💾 About to save: Offer.FinalPrice.Valid=%v, Offer.FinalPrice.Int32=%d, leadID=%s", 
+		h.cfg.Debugf("  💾 About to save: Offer.FinalPrice.Valid=%v, Offer.FinalPrice.Int32=%d, leadID=%s",
 			detail.Offer.FinalPrice.Valid, finalPriceVal, leadID)
 	} else {
 		h.cfg.Debugf("  💾 About to save: Offer is nil, leadID=%s", leadID)
 	}
-	
+
 	err = models.UpdateLeadDetail(detail)
 	if err != nil {
 		// Check if it's a phone constraint error
@@ -1631,7 +1644,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		if phoneErr != nil {
 			// Redirect back to detail page with error
 			redirectURL := fmt.Sprintf("/pre-enrolment/%s?error=phone_exists", leadID.String())
@@ -1641,11 +1654,11 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 			return
 		}
-		
+
 		http.Error(w, fmt.Sprintf("Failed to update lead: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Log after saving - reload to verify
 	reloadedDetail, err := models.GetLeadByID(leadID)
 	if err == nil && reloadedDetail.Offer != nil {
@@ -1653,7 +1666,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if reloadedDetail.Offer.FinalPrice.Valid {
 			finalPriceVal = reloadedDetail.Offer.FinalPrice.Int32
 		}
-		h.cfg.Debugf("  ✅ After save: Offer.FinalPrice.Valid=%v, Offer.FinalPrice.Int32=%d, leadID=%s", 
+		h.cfg.Debugf("  ✅ After save: Offer.FinalPrice.Valid=%v, Offer.FinalPrice.Int32=%d, leadID=%s",
 			reloadedDetail.Offer.FinalPrice.Valid, finalPriceVal, leadID)
 	} else if err == nil {
 		h.cfg.Debugf("  ⚠️  After save: Offer is nil, leadID=%s", leadID)
@@ -1665,7 +1678,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if detail.PlacementTest.PlacementTestFeePaid.Valid {
 			amountPaid = detail.PlacementTest.PlacementTestFeePaid.Int32
 		}
-		
+
 		// Validate: if amount > 0, date and method must be provided
 		if amountPaid > 0 {
 			if !detail.PlacementTest.PlacementTestPaymentDate.Valid || !detail.PlacementTest.PlacementTestPaymentMethod.Valid {
@@ -1673,7 +1686,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		
+
 		err = models.UpsertPlacementTestIncome(leadID, amountPaid, detail.PlacementTest.PlacementTestPaymentDate, detail.PlacementTest.PlacementTestPaymentMethod)
 		if err != nil {
 			log.Printf("ERROR: Failed to sync placement test finance transaction: %v", err)
@@ -1694,7 +1707,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			h.renderDetailWithError(w, r, leadID, "Payment type is required (Deposit, Full Payment, or Top-up).")
 			return
 		}
-		
+
 		// Validate payment type value
 		allowedPaymentTypes := map[string]bool{
 			"deposit":      true,
@@ -1705,7 +1718,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			h.renderDetailWithError(w, r, leadID, "Invalid payment type. Must be: deposit, full_payment, or top_up.")
 			return
 		}
-		
+
 		amount, err := strconv.Atoi(coursePaymentAmountStr)
 		if err != nil || amount <= 0 {
 			h.renderDetailWithError(w, r, leadID, "Invalid course payment amount.")
@@ -1739,13 +1752,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			h.renderDetailWithError(w, r, leadID, "Total course paid cannot exceed offer final price.")
 			return
 		}
-		
+
 		paymentDate, err := util.ParseDateLocal(coursePaymentDateStr)
 		if err != nil {
 			h.renderDetailWithError(w, r, leadID, "Invalid course payment date.")
 			return
 		}
-		
+
 		_, err = models.CreateLeadPayment(leadID, coursePaymentType, int32(amount), coursePaymentMethod, paymentDate, coursePaymentNotes)
 		if err != nil {
 			log.Printf("ERROR: Failed to create course payment: %v", err)
@@ -1757,7 +1770,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			h.renderDetailWithError(w, r, leadID, errorMsg)
 			return
 		}
-		
+
 		// Update lead credits based on all payments
 		var bundleLevels sql.NullInt32
 		if detail.Offer != nil && detail.Offer.BundleLevels.Valid {

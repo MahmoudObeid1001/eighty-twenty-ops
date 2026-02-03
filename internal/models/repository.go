@@ -14,6 +14,7 @@ import (
 	"eighty-twenty-ops/internal/util"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // Workflow stage constants - the 8 official stages
@@ -805,6 +806,18 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 }
 
 func UpdateLeadStatus(leadID uuid.UUID, status string) error {
+	// Waiting list should return the lead to pre-enrolment feed.
+	if status == "waiting_for_round" {
+		_, err := db.DB.Exec(`
+			UPDATE leads
+			SET status = $1,
+			    sent_to_classes = false,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = $2
+		`, status, leadID)
+		return err
+	}
+
 	_, err := db.DB.Exec(`
 		UPDATE leads SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
 	`, status, leadID)
@@ -1175,6 +1188,44 @@ func GetClassGroups() ([]*ClassGroup, error) {
 		}
 	}
 
+	// Load current session numbers for active rounds
+	if len(groups) > 0 {
+		var activeKeys []string
+		for _, group := range groups {
+			if group.RoundStatus == "active" {
+				activeKeys = append(activeKeys, group.ClassKey)
+			}
+		}
+
+		if len(activeKeys) > 0 {
+			rows, err := db.DB.Query(`
+				SELECT cg.class_key,
+				       (SELECT COUNT(*) FROM class_sessions WHERE class_key = cg.class_key AND status = 'completed') + 1 AS current_session
+				FROM class_groups cg
+				WHERE cg.class_key = ANY($1)
+				  AND COALESCE(cg.round_status, '') = 'active'
+			`, pq.Array(activeKeys))
+			if err == nil {
+				sessionMap := make(map[string]int32)
+				for rows.Next() {
+					var classKey string
+					var currentSession int32
+					if err := rows.Scan(&classKey, &currentSession); err != nil {
+						continue
+					}
+					sessionMap[classKey] = currentSession
+				}
+				_ = rows.Close()
+
+				for _, group := range groups {
+					if currentSession, ok := sessionMap[group.ClassKey]; ok {
+						group.CurrentSession = sql.NullInt32{Int32: currentSession, Valid: true}
+					}
+				}
+			}
+		}
+	}
+
 	// Sort by level, then days, then time, then group index
 	sort.Slice(groups, func(i, j int) bool {
 		if groups[i].Level != groups[j].Level {
@@ -1218,7 +1269,30 @@ func AssignClassGroup(leadID uuid.UUID) (int32, error) {
 
 	// Find existing groups for this key (level+days+time) that are not locked
 	// Check each group index 1, 2, 3... until we find one with < 6 students
+	activeGroups := map[int32]bool{}
+	activeRows, err := db.DB.Query(`
+		SELECT COALESCE(class_number, 1)
+		FROM class_groups
+		WHERE level = $1
+		  AND class_days = $2
+		  AND class_time = $3
+		  AND COALESCE(round_status, '') = 'active'
+	`, assignedLevel.Int32, classDays.String, classTime.String)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query active class groups: %w", err)
+	}
+	for activeRows.Next() {
+		var idx int32
+		if err := activeRows.Scan(&idx); err == nil {
+			activeGroups[idx] = true
+		}
+	}
+	_ = activeRows.Close()
+
 	for groupIndex := int32(1); ; groupIndex++ {
+		if activeGroups[groupIndex] {
+			continue
+		}
 		var count int
 		err := db.DB.QueryRow(`
 			SELECT COUNT(*)
@@ -1266,6 +1340,24 @@ func MoveStudentBetweenGroups(leadID uuid.UUID, targetGroupIndex int32) error {
 	`, leadID).Scan(&assignedLevel, &classDays, &classTime)
 	if err != nil {
 		return fmt.Errorf("failed to get student details: %w", err)
+	}
+
+	// Disallow moving into an active (started) class group
+	var activeCount int
+	err = db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM class_groups
+		WHERE level = $1
+		  AND class_days = $2
+		  AND class_time = $3
+		  AND COALESCE(class_number, 1) = $4
+		  AND COALESCE(round_status, '') = 'active'
+	`, assignedLevel.Int32, classDays.String, classTime.String, targetGroupIndex).Scan(&activeCount)
+	if err != nil {
+		return fmt.Errorf("failed to check class group status: %w", err)
+	}
+	if activeCount > 0 {
+		return fmt.Errorf("target group is started (active round)")
 	}
 
 	// Check if target group exists and is not locked
@@ -1418,11 +1510,18 @@ func GetAvailableGroupsForMove(leadID uuid.UUID) ([]int32, error) {
 		FROM leads l
 		INNER JOIN placement_tests pt ON l.id = pt.lead_id
 		INNER JOIN scheduling s ON l.id = s.lead_id
+		LEFT JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND cg.class_time = s.class_time::text
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
 		WHERE l.status = 'ready_to_start'
 		AND l.sent_to_classes = true
 		AND pt.assigned_level = $1
 		AND s.class_days = $2
 		AND s.class_time = $3
+		AND COALESCE(cg.round_status, 'not_started') != 'active'
 		GROUP BY COALESCE(s.class_group_index, 1)
 		ORDER BY COALESCE(s.class_group_index, 1)
 	`, assignedLevel.Int32, classDays.String, classTime.String)
@@ -1454,7 +1553,17 @@ func SendLeadToClasses(leadID uuid.UUID) error {
 		UPDATE leads SET sent_to_classes = true, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1
 	`, leadID)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Ensure the lead is assigned to a non-started class group (or a new group).
+	// This prevents "Send to Classes" from placing a lead into an active round.
+	_, err = AssignClassGroup(leadID)
+	if err != nil {
+		return fmt.Errorf("failed to assign class group: %w", err)
+	}
+	return nil
 }
 
 // GenerateClassKey creates a stable class key from level, days, time, and group index
@@ -1519,6 +1628,27 @@ func SendClassGroupToMentor(classKey string, level int32, classDays, classTime s
 // Dashboard uses GetClassGroupsSentToMentor() which selects WHERE sent_to_mentor = true;
 // this UPDATE sets sent_to_mentor = false so the class no longer matches and disappears from the list.
 func ReturnClassGroupFromMentor(classKey string) error {
+	// Validate current state for clearer error messages.
+	var sentToMentor bool
+	var roundStatus string
+	err := db.DB.QueryRow(`
+		SELECT sent_to_mentor, COALESCE(round_status, 'not_started')
+		FROM class_groups
+		WHERE class_key = $1
+	`, classKey).Scan(&sentToMentor, &roundStatus)
+	if err == sql.ErrNoRows {
+		return ErrClassNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("return class_groups select: %w", err)
+	}
+	if roundStatus == "active" {
+		return ErrClassRoundActive
+	}
+	if !sentToMentor {
+		return ErrClassAlreadyReturned
+	}
+
 	now := time.Now()
 	res, err := db.DB.Exec(`
 		UPDATE class_groups
@@ -1533,13 +1663,34 @@ func ReturnClassGroupFromMentor(classKey string) error {
 			updated_at = $2
 		WHERE class_key = $1
 		  AND COALESCE(round_status, '') != 'active'
+		  AND sent_to_mentor = true
 	`, classKey, now)
 	if err != nil {
 		return fmt.Errorf("return class_groups update: %w", err)
 	}
 	aff, _ := res.RowsAffected()
 	if aff == 0 {
-		return fmt.Errorf("class cannot be returned (not found, already returned, or round active)")
+		// Re-check state in case it changed after the initial guard.
+		var recheckSent bool
+		var recheckStatus string
+		err := db.DB.QueryRow(`
+			SELECT sent_to_mentor, COALESCE(round_status, 'not_started')
+			FROM class_groups
+			WHERE class_key = $1
+		`, classKey).Scan(&recheckSent, &recheckStatus)
+		if err == sql.ErrNoRows {
+			return ErrClassNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("return class_groups recheck: %w", err)
+		}
+		if recheckStatus == "active" {
+			return ErrClassRoundActive
+		}
+		if !recheckSent {
+			return ErrClassAlreadyReturned
+		}
+		return fmt.Errorf("class cannot be returned")
 	}
 	_, err = db.DB.Exec(`DELETE FROM mentor_assignments WHERE class_key = $1`, classKey)
 	if err != nil {
@@ -3320,21 +3471,38 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 
 // GetArchivedClassGroups returns all class groups where round_status = 'closed'.
 // sort: 'oldest' (ASC) or 'newest' (DESC) by round_closed_at.
-func GetArchivedClassGroups(sort string) ([]*ClassGroupWorkflow, error) {
+// from/to filter by round_closed_at date (inclusive) when provided.
+func GetArchivedClassGroups(sort string, fromDate, toDate *time.Time) ([]*ClassGroupWorkflow, error) {
 	order := "ASC"
 	if sort == "newest" {
 		order = "DESC"
 	}
 
-	rows, err := db.DB.Query(fmt.Sprintf(`
+	query := `
 		SELECT class_key, level, class_days, class_time, class_number,
 		       sent_to_mentor, sent_at, returned_at, updated_at,
 		       round_status, round_started_at, round_started_by,
 		       round_closed_at, round_closed_by, closed_mentor_user_id
 		FROM class_groups
 		WHERE round_status = 'closed'
-		ORDER BY round_closed_at %s
-	`, order))
+	`
+	args := []interface{}{}
+	argIndex := 1
+
+	if fromDate != nil {
+		query += fmt.Sprintf(" AND round_closed_at::date >= $%d", argIndex)
+		args = append(args, fromDate.Format("2006-01-02"))
+		argIndex++
+	}
+	if toDate != nil {
+		query += fmt.Sprintf(" AND round_closed_at::date <= $%d", argIndex)
+		args = append(args, toDate.Format("2006-01-02"))
+		argIndex++
+	}
+
+	query += fmt.Sprintf(" ORDER BY round_closed_at %s", order)
+
+	rows, err := db.DB.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query archived class groups: %w", err)
 	}
@@ -4432,7 +4600,7 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 		WHERE s.class_key = $1 
 		  AND a.status IN ('ABSENT', 'LATE')
 		  AND (f.resolved IS NULL OR f.resolved = false)
-		  AND (f.status IS NULL OR f.status != 'no_response')
+		  AND (f.status IS NULL OR f.status != 'NO_RESPONSE')
 	`
 	args := []interface{}{classKey}
 	argIdx := 2
@@ -4475,6 +4643,7 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 		var fResolvedAt sql.NullTime
 		var mNote sql.NullString
 		var sDate time.Time
+		var joinedAt sql.NullInt32
 
 		err := rows.Scan(
 			&item.SessionNumber,
@@ -4493,7 +4662,7 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 			&fUpdatedAt,
 			&fResolved,
 			&fResolvedAt,
-			&item.JoinedAtSessionNumber,
+			&joinedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan absence feed item: %w", err)
@@ -4501,16 +4670,25 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 
 		item.SessionDate = sDate.Format("2006-01-02")
 		item.MentorNote = mNote.String
+		if joinedAt.Valid {
+			v := joinedAt.Int32
+			item.JoinedAtSessionNumber = &v
+		}
 
 		if fID.Valid {
 			fid, _ := uuid.Parse(fID.String)
+			var resolvedAt *time.Time
+			if fResolvedAt.Valid {
+				t := fResolvedAt.Time
+				resolvedAt = &t
+			}
 			item.FollowUp = &FollowUpInfo{
 				ID:         fid,
 				Status:     fStatus.String,
 				LastNote:   fNote.String,
 				UpdatedAt:  fUpdatedAt.Time,
 				Resolved:   fResolved.Bool,
-				ResolvedAt: fResolvedAt,
+				ResolvedAt: resolvedAt,
 			}
 		}
 
@@ -4522,12 +4700,13 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 
 // CreateFollowUp creates or updates a follow-up note
 func CreateFollowUp(classKey string, leadID uuid.UUID, sessionNumber int, note string, status string, createdBy uuid.UUID) error {
+	standardizedStatus := normalizeFollowUpStatus(status)
 	_, err := db.DB.Exec(`
 		INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW())
 		ON CONFLICT (class_key, lead_id, session_number) 
 		DO UPDATE SET note = $4, status = $5, created_by = $6, updated_at = NOW()
-	`, classKey, leadID, sessionNumber, note, status, createdBy)
+	`, classKey, leadID, sessionNumber, note, standardizedStatus, createdBy)
 	return err
 }
 
@@ -4543,16 +4722,17 @@ func ResolveFollowUp(id uuid.UUID, resolvedBy uuid.UUID) error {
 
 // UpdateFollowUpStatus updates the status of a follow-up
 func UpdateFollowUpStatus(id uuid.UUID, status string) error {
+	standardizedStatus := normalizeFollowUpStatus(status)
 	_, err := db.DB.Exec(`
 		UPDATE followups SET status = $1, updated_at = NOW() WHERE id = $2
-	`, status, id)
+	`, standardizedStatus, id)
 	return err
 }
 
 // UpdateFollowUp handles generic update of follow-up details
 func UpdateFollowUp(id uuid.UUID, status, note string, resolved bool, userID uuid.UUID) error {
 	var err error
-	standardizedStatus := strings.ToUpper(status)
+	standardizedStatus := normalizeFollowUpStatus(status)
 	if resolved {
 		_, err = db.DB.Exec(`
 			UPDATE followups 
@@ -4567,6 +4747,24 @@ func UpdateFollowUp(id uuid.UUID, status, note string, resolved bool, userID uui
 		`, standardizedStatus, note, id)
 	}
 	return err
+}
+
+// normalizeFollowUpStatus maps UI values to DB enum values.
+func normalizeFollowUpStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "", "none", "not_contacted":
+		return "NOT_CONTACTED"
+	case "contacted":
+		return "CONTACTED"
+	case "not_replied":
+		return "NOT_REPLIED"
+	case "no_response":
+		return "NO_RESPONSE"
+	case "resolved":
+		return "RESOLVED"
+	default:
+		return strings.ToUpper(status)
+	}
 }
 
 // AutoProgressFollowupStatuses automatically advances follow-up statuses based on the timeline:
@@ -4608,7 +4806,7 @@ func GetFollowUps(classKey string, resolved bool) ([]*FollowUpListItem, error) {
 		JOIN leads l ON f.lead_id = l.id
 		LEFT JOIN class_sessions s ON s.class_key = f.class_key AND s.session_number = f.session_number
 		LEFT JOIN attendance a ON a.session_id = s.id AND a.lead_id = f.lead_id
-		WHERE f.class_key = $1 AND f.resolved = $2 AND f.status = 'no_response'
+		WHERE f.class_key = $1 AND f.resolved = $2 AND f.status = 'NO_RESPONSE'
 		ORDER BY f.created_at DESC
 	`, classKey, resolved)
 	if err != nil {
@@ -4749,7 +4947,7 @@ func GetComplaintsForMentorHead(showResolved bool) ([]*ComplaintListItem, error)
 	query := `
 		SELECT f.id, f.class_key, COALESCE(l.full_name, 'Unknown') as student_name,
 		       f.student_phone, f.category, f.urgency, f.status,
-		       COALESCE(f.complaint_text, '') as last_note,
+		       COALESCE(f.complaint_text, '') as complaint_text,
 		       f.created_at, f.resolved, f.resolved_at
 		FROM followups f
 		LEFT JOIN leads l ON f.lead_id = l.id
@@ -4775,12 +4973,13 @@ func GetComplaintsForMentorHead(showResolved bool) ([]*ComplaintListItem, error)
 
 		err := rows.Scan(
 			&item.ID, &item.ClassKey, &item.StudentName, &item.StudentPhone,
-			&item.Category, &item.Urgency, &item.Status, &item.LastNote,
+			&item.Category, &item.Urgency, &item.Status, &item.ComplaintText,
 			&item.CreatedAt, &item.Resolved, &resolvedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan complaint: %w", err)
 		}
+		item.LastNote = item.ComplaintText
 
 		if resolvedAt.Valid {
 			item.ResolvedAt = &resolvedAt.Time

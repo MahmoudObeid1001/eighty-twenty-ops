@@ -61,6 +61,9 @@
                 <div>
                     <h3 style="margin: 0; font-size: 18px;">{{.ClassDays}} @ {{.ClassTime}}</h3>
                     <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Class #{{.GroupIndex}}</p>
+                    {{if .CurrentSession.Valid}}
+                    <p style="margin: 3px 0 0 0; color: #666; font-size: 12px;">Session {{.CurrentSession.Int32}}</p>
+                    {{end}}
                     {{if .SentToMentor}}
                     <p style="margin: 5px 0 0 0; color: #666; font-size: 12px; font-style: italic;">Sent to Mentor Head
                     </p>

@@ -16,6 +16,10 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
 
   // IMMEDIATE UI: Track which rows should be hidden
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
+  const buildWhatsAppLink = (phone: string) => {
+    const digits = phone.replace(/\D/g, '')
+    return `https://wa.me/${digits}`
+  }
 
   // Sync hiddenIds when students change (reset on refetch)
   useEffect(() => {
@@ -87,7 +91,43 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
               .map((s) => (
                 <tr key={s.lead_id} style={{ borderBottom: '1px solid #eee' }}>
                   <td style={{ padding: '12px' }}>
-                    <div style={{ fontWeight: 600 }}>{s.full_name}</div>
+                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {s.full_name}
+                      {s.phone && (
+                        <a
+                          href={buildWhatsAppLink(s.phone)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open WhatsApp"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '22px',
+                            height: '22px',
+                            borderRadius: '50%',
+                            background: '#25D366',
+                            color: 'white',
+                            fontSize: '12px',
+                            textDecoration: 'none',
+                            fontWeight: 700
+                          }}
+                        >
+                          W
+                        </a>
+                      )}
+                      {s.joined_at_session_number && (
+                        <span style={{
+                          background: '#6c5ce7',
+                          color: 'white',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '10px'
+                        }}>
+                          Late Join (S{s.joined_at_session_number})
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: '12px' }}>
                     {s.s4 ? (
@@ -429,8 +469,19 @@ export default function StudentSuccessClass() {
                     e.currentTarget.style.transform = 'translateY(0)'
                   }}
                 >
-                  <h3 style={{ fontSize: '18px', marginBottom: '6px', color: '#333', fontWeight: 600 }}>
+                  <h3 style={{ fontSize: '18px', marginBottom: '6px', color: '#333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {s.full_name}
+                    {s.joined_at_session_number && (
+                      <span style={{
+                        background: '#6c5ce7',
+                        color: 'white',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        fontSize: '10px'
+                      }}>
+                        Late Join (S{s.joined_at_session_number})
+                      </span>
+                    )}
                   </h3>
                   <p style={{ fontSize: '12px', color: '#999', marginBottom: '8px', fontFamily: 'monospace' }}>
                     ID: {s.lead_id.substring(0, 8)}...
@@ -490,6 +541,12 @@ export default function StudentSuccessClass() {
           student={selectedStudent}
           classKey={classKey}
           sessionsCount={data.sessionsCount}
+          totalSessions={data.totalSessions}
+          attendedCount={(() => {
+            const missed = selectedStudent.missed_sessions ? selectedStudent.missed_sessions.length : 0
+            const attended = data.completedSessionsCount - missed
+            return attended > 0 ? attended : 0
+          })()}
           onClose={() => setSelectedStudent(null)}
         />
       )}
@@ -542,7 +599,7 @@ export default function StudentSuccessClass() {
                   const status = (document.getElementById('followup-status') as HTMLSelectElement).value
                   if (!note) return alert('Please enter a note')
                   try {
-                    const followUpId = followUpModal.item.followUp?.id || (followUpModal.item.status ? followUpModal.item.id : null)
+                    const followUpId = followUpModal.item.followUp?.id
 
                     if (followUpId) {
                       await api.updateFollowUp(followUpId, {
@@ -581,12 +638,20 @@ export default function StudentSuccessClass() {
                     if (!note) return alert('Please enter a final note')
                     if (!confirm('Mark as resolved?')) return
                     try {
-                      const followUpId = followUpModal.item.followUp?.id || followUpModal.item.id
-                      await api.updateFollowUp(followUpId, {
-                        status: status,
-                        note: note,
-                        resolved: true
-                      })
+                      const followUpId = followUpModal.item.followUp?.id
+                      if (followUpId) {
+                        await api.updateFollowUp(followUpId, {
+                          status: status,
+                          note: note,
+                          resolved: true
+                        })
+                      } else {
+                        await api.resolveAbsence({
+                          class_key: classKey,
+                          lead_id: followUpModal.item.studentId || followUpModal.item.lead_id,
+                          session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number
+                        })
+                      }
                       setFollowUpModal({ open: false, item: null })
                       await loadClass()
                       triggerRefresh()
@@ -737,7 +802,20 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }:
                   {groupedItems[sn].map((item, idx) => (
                     <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
                       <td style={{ padding: '12px' }}>
-                        <div style={{ fontWeight: 600 }}>{item.studentName}</div>
+                        <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {item.studentName}
+                          {item.joinedAtSessionNumber && (
+                            <span style={{
+                              background: '#6c5ce7',
+                              color: 'white',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '10px'
+                            }}>
+                              Late Join (S{item.joinedAtSessionNumber})
+                            </span>
+                          )}
+                        </div>
                         <div style={{ fontSize: '12px', color: '#666' }}>{item.studentPhone}</div>
                       </td>
                       <td style={{ padding: '12px' }}>
@@ -823,52 +901,20 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }:
                             Follow up
                           </button>
                           <button
-                            onClick={() => handleMarkResolved(undefined, item.studentId, item.sessionNumber)}
-                            title="Resolve without follow-up"
+                            onClick={() => handleMarkResolved(item.followUp?.id, item.studentId, item.sessionNumber)}
+                            title="Resolve"
                             style={{
                               padding: '4px 8px',
                               borderRadius: '4px',
-                              border: '1px solid #6c757d',
+                              border: '1px solid #28a745',
                               background: '#fff',
-                              color: '#6c757d',
+                              color: '#28a745',
                               fontSize: '11px',
                               cursor: 'pointer'
                             }}
                           >
                             Resolve
                           </button>
-                          {item.followUp && (
-                            item.followUp.resolved ? (
-                              <span
-                                style={{
-                                  padding: '4px 8px',
-                                  borderRadius: '4px',
-                                  background: '#d4edda',
-                                  color: '#155724',
-                                  fontSize: '11px',
-                                  fontWeight: 600
-                                }}
-                              >
-                                RESOLVED
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => onOpenFollowUp(item)}
-                                title="Mark Resolved"
-                                style={{
-                                  padding: '4px 8px',
-                                  borderRadius: '4px',
-                                  border: '1px solid #28a745',
-                                  background: '#fff',
-                                  color: '#28a745',
-                                  fontSize: '11px',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                Resolve
-                              </button>
-                            )
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -888,6 +934,7 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showResolved, setShowResolved] = useState(false)
+  const [showComplaintModal, setShowComplaintModal] = useState(false)
 
   useEffect(() => {
     loadFollowUps()
@@ -905,88 +952,339 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
     }
   }
 
-  // We are replacing the handleResolve with the modal flow
-
   if (loading) return <p style={{ padding: '20px' }}>Loading follow-ups...</p>
   if (error) return <p style={{ color: 'red', padding: '20px' }}>{error}</p>
 
   return (
-    <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
-      <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ fontSize: '18px', margin: 0 }}>Follow-ups</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
-          <label>Show Resolved:</label>
-          <input
-            type="checkbox"
-            checked={showResolved}
-            onChange={(e) => setShowResolved(e.target.checked)}
-          />
+    <>
+      <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
+        <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ fontSize: '18px', margin: 0 }}>Follow-ups</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => setShowComplaintModal(true)}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: 'none',
+                background: '#dc3545',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 600,
+              }}
+            >
+              + New Complaint
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+              <label>Show Resolved:</label>
+              <input
+                type="checkbox"
+                checked={showResolved}
+                onChange={(e) => setShowResolved(e.target.checked)}
+              />
+            </div>
+          </div>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          {items.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
+              No active follow-ups for this class.
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', background: '#f8f9fa', borderBottom: '1px solid #eee' }}>
+                  <th style={{ padding: '12px' }}>Type</th>
+                  <th style={{ padding: '12px' }}>Student</th>
+                  <th style={{ padding: '12px' }}>Session</th>
+                  <th style={{ padding: '12px' }}>Details</th>
+                  <th style={{ padding: '12px' }}>Status</th>
+                  <th style={{ padding: '12px' }}>Created At</th>
+                  <th style={{ padding: '12px' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => {
+                  // Check if this is a complaint by looking at the note prefix
+                  const isComplaint = item.note && item.note.startsWith('[COMPLAINT')
+                  let category = ''
+                  let urgency = ''
+                  let complaintText = item.note
+
+                  if (isComplaint) {
+                    // Parse: [COMPLAINT - category/urgency] text
+                    const match = item.note.match(/\[COMPLAINT - ([^/]+)\/([^\]]+)\] (.+)/)
+                    if (match) {
+                      category = match[1]
+                      urgency = match[2]
+                      complaintText = match[3]
+                    }
+                  }
+
+                  return (
+                    <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '12px' }}>
+                        {isComplaint ? (
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            background: '#dc3545',
+                            color: 'white',
+                          }}>
+                            COMPLAINT
+                          </span>
+                        ) : (
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            background: '#6c757d',
+                            color: 'white',
+                          }}>
+                            ABSENCE
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <div style={{ fontWeight: 600 }}>{item.student_name}</div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>{item.student_phone}</div>
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        {item.session_number ? `S${item.session_number}` : '-'}
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        {isComplaint ? (
+                          <div>
+                            <div style={{ fontSize: '11px', marginBottom: '4px' }}>
+                              <span style={{
+                                padding: '2px 6px',
+                                borderRadius: '3px',
+                                background: '#e7f3ff',
+                                color: '#004085',
+                                marginRight: '4px',
+                              }}>
+                                {category}
+                              </span>
+                              <span style={{
+                                padding: '2px 6px',
+                                borderRadius: '3px',
+                                background: urgency === 'high' ? '#f8d7da' : urgency === 'medium' ? '#fff3cd' : '#d4edda',
+                                color: urgency === 'high' ? '#721c24' : urgency === 'medium' ? '#856404' : '#155724',
+                              }}>
+                                {urgency.toUpperCase()}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>{complaintText}</div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '12px', color: '#666' }}>{item.attendance_status || item.note}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          background: item.resolved ? '#d4edda' : '#e2e3e5',
+                          color: item.resolved ? '#155724' : '#383d41',
+                        }}>
+                          {item.resolved ? 'RESOLVED' : item.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px' }}>{new Date(item.created_at).toLocaleString()}</td>
+                      <td style={{ padding: '12px' }}>
+                        {!item.resolved && (
+                          <button
+                            onClick={() => onOpenFollowUp(item)}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid #28a745',
+                              background: '#fff',
+                              color: '#28a745',
+                              fontSize: '11px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Resolve
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
-      <div style={{ overflowX: 'auto' }}>
-        {items.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
-            No active follow-ups for this class.
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', background: '#f8f9fa', borderBottom: '1px solid #eee' }}>
-                <th style={{ padding: '12px' }}>Student</th>
-                <th style={{ padding: '12px' }}>Session</th>
-                <th style={{ padding: '12px' }}>Reason</th>
-                <th style={{ padding: '12px' }}>Status</th>
-                <th style={{ padding: '12px' }}>Created At</th>
-                <th style={{ padding: '12px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '12px' }}>
-                    <div style={{ fontWeight: 600 }}>{item.student_name}</div>
-                    <div style={{ fontSize: '12px', color: '#666' }}>{item.student_phone}</div>
-                  </td>
-                  <td style={{ padding: '12px' }}>S{item.session_number}</td>
-                  <td style={{ padding: '12px' }}>{item.attendance_status}</td>
-                  <td style={{ padding: '12px' }}>
-                    <span style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      background: item.resolved ? '#d4edda' : '#e2e3e5',
-                      color: item.resolved ? '#155724' : '#383d41',
-                    }}>
-                      {item.resolved ? 'RESOLVED' : item.status.toUpperCase()}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px' }}>{new Date(item.created_at).toLocaleString()}</td>
-                  <td style={{ padding: '12px' }}>
-                    {!item.resolved && (
-                      <button
-                        onClick={() => onOpenFollowUp(item)}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid #28a745',
-                          background: '#fff',
-                          color: '#28a745',
-                          fontSize: '11px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Resolve
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+
+      {/* Complaint Modal */}
+      {showComplaintModal && (
+        <ComplaintModal
+          classKey={classKey}
+          onClose={() => setShowComplaintModal(false)}
+          onSuccess={() => {
+            setShowComplaintModal(false)
+            loadFollowUps()
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+// Complaint Modal Component
+function ComplaintModal({ classKey, onClose, onSuccess }: {
+  classKey: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [studentPhone, setStudentPhone] = useState('')
+  const [category, setCategory] = useState('mentor_behavior')
+  const [urgency, setUrgency] = useState('medium')
+  const [complaintText, setComplaintText] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const categories = [
+    { value: 'mentor_behavior', label: 'Mentor Behavior' },
+    { value: 'session_quality', label: 'Session Quality' },
+    { value: 'technical', label: 'Technical Issues' },
+    { value: 'scheduling', label: 'Scheduling' },
+    { value: 'other', label: 'Other' },
+  ]
+
+  const urgencies = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+  ]
+
+  async function handleSubmit() {
+    if (!studentPhone || !complaintText) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      await api.createComplaint({
+        class_key: classKey,
+        student_phone: studentPhone,
+        category,
+        complaint_text: complaintText,
+        urgency,
+      })
+      onSuccess()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to file complaint')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '500px', maxWidth: '90%' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 style={{ marginBottom: '20px', color: '#dc3545' }}>File New Complaint</h3>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
+            Student Phone <span style={{ color: '#dc3545' }}>*</span>
+          </label>
+          <input
+            type="text"
+            value={studentPhone}
+            onChange={(e) => setStudentPhone(e.target.value)}
+            placeholder="e.g., 01234567890"
+            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
+            Category <span style={{ color: '#dc3545' }}>*</span>
+          </label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
+          >
+            {categories.map((cat) => (
+              <option key={cat.value} value={cat.value}>
+                {cat.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
+            Urgency <span style={{ color: '#dc3545' }}>*</span>
+          </label>
+          <select
+            value={urgency}
+            onChange={(e) => setUrgency(e.target.value)}
+            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
+          >
+            {urgencies.map((urg) => (
+              <option key={urg.value} value={urg.value}>
+                {urg.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
+            Complaint Details <span style={{ color: '#dc3545' }}>*</span>
+          </label>
+          <textarea
+            value={complaintText}
+            onChange={(e) => setComplaintText(e.target.value)}
+            placeholder="Describe the complaint in detail..."
+            style={{ width: '100%', height: '120px', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', resize: 'vertical' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            disabled={isSubmitting}
+            style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: '14px' }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting || !studentPhone || !complaintText}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '6px',
+              border: 'none',
+              background: '#dc3545',
+              color: '#fff',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 600,
+              opacity: (isSubmitting || !studentPhone || !complaintText) ? 0.6 : 1,
+            }}
+          >
+            {isSubmitting ? 'Filing...' : 'File Complaint'}
+          </button>
+        </div>
       </div>
     </div>
   )
 }
-

@@ -24,13 +24,15 @@ type Config struct {
 	HRPassword               string
 	StudentSuccessEmail      string
 	StudentSuccessPassword   string
+	ManagerEmail             string
+	ManagerPassword          string
 	Debug                    bool
 }
 
 func Load() *Config {
 	return &Config{
 		DatabaseURL:              getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/eighty_twenty_ops?sslmode=disable"),
-		Port:                     getEnv("PORT", "3000"),
+		Port:                     getEnv("PORT", "3001"),
 		SessionSecret:            getEnv("SESSION_SECRET", "change-this-to-a-random-secret-in-production"),
 		AdminEmail:               getEnv("ADMIN_EMAIL", "admin@eightytwenty.test"),
 		AdminPassword:            getEnv("ADMIN_PASSWORD", "admin123"),
@@ -46,6 +48,8 @@ func Load() *Config {
 		HRPassword:               getEnv("HR_PASSWORD", "hr123"),
 		StudentSuccessEmail:      getEnv("STUDENT_SUCCESS_EMAIL", "student_success@eightytwenty.test"),
 		StudentSuccessPassword:   getEnv("STUDENT_SUCCESS_PASSWORD", "student_success123"),
+		ManagerEmail:             getEnv("MANAGER_EMAIL", "manager@eightytwenty.test"),
+		ManagerPassword:          getEnv("MANAGER_PASSWORD", "manager123"),
 		Debug:                    getEnvBool("DEBUG", false),
 	}
 }

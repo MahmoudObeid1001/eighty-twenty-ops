@@ -83,11 +83,13 @@ export interface Student {
   phone: string
   missed_count?: number
   attendance?: Record<string, string> // session_id -> status
+  joined_at_session_number?: number // NEW
 }
 
 export interface Note {
   id: string
   text: string
+  is_private?: boolean
   created_at: string
   created_by_email: string
 }
@@ -122,6 +124,8 @@ export interface StudentProfile {
   levelsFinished: number
   levelsLeft: number
   lastLevelGrade: string | null
+  highPriority?: boolean
+  highPriorityReason?: string
 }
 
 export interface StudentSuccessClass {
@@ -134,6 +138,7 @@ export interface StudentSuccessClass {
   mentor_name: string
   mentor_user_id?: string
   student_count: number
+  has_high_priority?: boolean
 }
 
 export interface StudentSuccessClassDetail {
@@ -145,7 +150,7 @@ export interface StudentSuccessClassDetail {
     class_number: number
     round_status: string
   }
-  students: Array<{ lead_id: string; full_name: string; phone: string; missed_count: number; missed_sessions: number[] }>
+  students: Array<{ lead_id: string; full_name: string; phone: string; missed_count: number; missed_sessions: number[]; joined_at_session_number?: number }>
   sessions: Array<{
     id: string
     session_number: number
@@ -156,6 +161,7 @@ export interface StudentSuccessClassDetail {
   feedback: Array<{
     lead_id: string
     full_name: string
+    phone: string
     s4?: { session_number: number; status: string; feedback_text?: string; follow_up_required: boolean }
     s8?: { session_number: number; status: string; feedback_text?: string; follow_up_required: boolean }
   }>
@@ -163,6 +169,23 @@ export interface StudentSuccessClassDetail {
     midRound: { reached: boolean; complete: boolean }
     endRound: { reached: boolean; complete: boolean }
   }
+}
+
+export interface MentorArchiveGroup {
+  mentor: {
+    id: string
+    email: string
+    name: string
+  }
+  classes: Array<{
+    class_key: string
+    level: number
+    days: string
+    time: string
+    class_number: number
+    student_count: number
+    closed_at: string
+  }>
 }
 
 export type SubmitFeedbackRequest = {
@@ -181,6 +204,25 @@ export const api = {
   getMentors: (): Promise<Mentor[]> => fetchAPI('/mentor-head/mentors'),
 
   getMentorHeadClasses: (): Promise<MentorGroup[]> => fetchAPI('/mentor-head/classes'),
+
+  getMentorHeadArchive: (
+    sort: string = 'oldest',
+    from?: string,
+    to?: string,
+  ): Promise<MentorArchiveGroup[]> => {
+    const params = new URLSearchParams()
+    if (sort) {
+      params.set('sort', sort)
+    }
+    if (from) {
+      params.set('from', from)
+    }
+    if (to) {
+      params.set('to', to)
+    }
+    const qs = params.toString()
+    return fetchAPI(`/mentor-head/archive${qs ? `?${qs}` : ''}`)
+  },
 
   getClassWorkspace: (classKey: string): Promise<ClassDetail> =>
     fetchAPI(`/class-workspace?class_key=${encodeURIComponent(classKey)}`),
@@ -364,6 +406,53 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // Complaints endpoints
+  createComplaint: (data: {
+    class_key: string
+    student_phone: string
+    category: string
+    complaint_text: string
+    urgency: string
+  }): Promise<any> =>
+    fetchAPI('/student-success/complaints', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // Mentor Head - Complaints
+  getMentorHeadComplaints: (showResolved: boolean = false): Promise<{ complaints: any[] }> =>
+    fetchAPI(`/mentor-head/complaints?show_resolved=${showResolved ? '1' : '0'}`),
+
+  updateComplaintStatus: (id: string, status: string, note: string): Promise<any> =>
+    fetchAPI(`/mentor-head/complaints/${id}/update`, {
+      method: 'POST',
+      body: JSON.stringify({ status, note }),
+    }),
+
+  resolveComplaint: (id: string, note: string): Promise<any> =>
+    fetchAPI(`/mentor-head/complaints/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ resolution_note: note }),
+    }),
+
+  // Late Joiner Notifications
+  getLateJoinerNotifications: (): Promise<LateJoinerNotification[]> =>
+    fetchAPI('/notifications/late-join'),
+
+  acknowledgeLateJoinerNotification: (notificationId: string): Promise<{ ok: boolean }> =>
+    fetchAPI(`/notifications/late-join/${encodeURIComponent(notificationId)}/acknowledge`, {
+      method: 'POST',
+    }),
+}
+
+export interface LateJoinerNotification {
+  id: string
+  lead_id: string
+  full_name: string
+  class_key: string
+  joined_at_session_number: number
+  created_at: string
 }
 
 export interface AbsenceFeedItem {
@@ -377,6 +466,7 @@ export interface AbsenceFeedItem {
   markedBy: string
   markedAt: string
   mentorNote?: string
+  joinedAtSessionNumber?: number // NEW
   followUp?: {
     id: string
     status: string

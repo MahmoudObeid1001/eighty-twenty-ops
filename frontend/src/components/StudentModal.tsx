@@ -6,10 +6,12 @@ interface StudentModalProps {
   student: Student | null
   classKey: string
   sessionsCount: number
+  attendedCount?: number
+  totalSessions?: number
   onClose: () => void
 }
 
-export default function StudentModal({ student, classKey, sessionsCount, onClose }: StudentModalProps) {
+export default function StudentModal({ student, classKey, sessionsCount, attendedCount, totalSessions, onClose }: StudentModalProps) {
   const [profile, setProfile] = useState<StudentProfile | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(false)
@@ -121,8 +123,26 @@ export default function StudentModal({ student, classKey, sessionsCount, onClose
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <div>
                 <h2 style={{ fontSize: '24px', marginBottom: '4px', color: '#333' }}>{profile?.name || student.full_name}</h2>
-                <p style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>{profile?.phone || student.phone}</p>
-                <p style={{ fontSize: '12px', color: '#999' }}>ID: {student.lead_id.substring(0, 8)}...</p>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>{profile?.phone || student.phone}</p>
+                  {sessionsCount > 0 && (
+                    <span style={{
+                      padding: '2px 8px',
+                      background: '#e9ecef',
+                      color: '#495057',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 700
+                    }}>
+                      {attendedCount !== undefined && totalSessions ? (
+                        <>ATTENDED {attendedCount}/{totalSessions}</>
+                      ) : (
+                        <>SESSIONS {sessionsCount}/8</>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>ID: {student.lead_id.substring(0, 8)}...</p>
               </div>
               <button
                 onClick={onClose}
@@ -161,6 +181,24 @@ export default function StudentModal({ student, classKey, sessionsCount, onClose
 
             {!loading && profile && (
               <>
+                {profile.highPriority && (
+                  <div style={{
+                    marginBottom: '20px',
+                    padding: '16px',
+                    background: '#fff5f5',
+                    border: '2px solid #feb2b2',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'center'
+                  }}>
+                    <span style={{ fontSize: '24px' }}>🚩</span>
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#c53030' }}>HIGH PRIORITY ALERT</div>
+                      <div style={{ fontSize: '13px', color: '#742a2a' }}>{profile.highPriorityReason || 'Student requires immediate attention.'}</div>
+                    </div>
+                  </div>
+                )}
                 {/* Stats blocks (ID card style) */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '24px' }}>
                   <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '6px', border: '1px solid #dee2e6' }}>
@@ -197,6 +235,7 @@ export default function StudentModal({ student, classKey, sessionsCount, onClose
               loading={loading}
               onAddNote={handleAddNote}
               onDeleteNote={handleDeleteNote}
+              userRole={localStorage.getItem('user_role') || ''}
             />
           </div>
         </div>

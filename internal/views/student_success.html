@@ -1,7 +1,7 @@
-{{define "community_officer_content"}}
+{{define "student_success_content"}}
 <div class="header content-header">
     <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo" />
-    <h1>Community Officer Dashboard</h1>
+    <h1>Student Success Dashboard</h1>
 </div>
 
 {{if eq .feedback_submitted "1"}}
@@ -32,7 +32,7 @@
                 <td>{{.Phone}}</td>
                 <td>{{.ClassKey}}</td>
                 <td>
-                    <form method="POST" action="/community-officer/feedback">
+                    <form method="POST" action="/student-success/feedback">
                         <input type="hidden" name="lead_id" value="{{.LeadID}}">
                         <input type="hidden" name="class_key" value="{{.ClassKey}}">
                         <input type="hidden" name="session_number" value="4">
@@ -69,7 +69,7 @@
                 <td>{{.Phone}}</td>
                 <td>{{.ClassKey}}</td>
                 <td>
-                    <form method="POST" action="/community-officer/feedback">
+                    <form method="POST" action="/student-success/feedback">
                         <input type="hidden" name="lead_id" value="{{.LeadID}}">
                         <input type="hidden" name="class_key" value="{{.ClassKey}}">
                         <input type="hidden" name="session_number" value="8">
@@ -87,7 +87,7 @@
 
 <h2 style="font-size: 18px; margin-top: 24px; margin-bottom: 12px;">Log absence follow-up</h2>
 <p style="color: #666; margin-bottom: 12px;">Log a follow-up action for an absent student. Lead ID and optional session ID from mentor class detail.</p>
-<form method="POST" action="/community-officer/follow-up">
+<form method="POST" action="/student-success/follow-up">
     <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 12px;">
         <div>
             <label style="display: block; font-size: 12px; margin-bottom: 4px;">Lead ID *</label>
