@@ -10,6 +10,7 @@ interface AppLayoutProps {
 export default function AppLayout({ children }: AppLayoutProps) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const location = useLocation()
 
   useEffect(() => {
@@ -22,6 +23,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
       setUser(userData)
     } catch (err) {
       console.error('Failed to load user:', err)
+      if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
+        setError('Your session has expired. Please log in again.')
+      } else {
+        setError(err instanceof Error ? err.message : 'An unknown error occurred while trying to authenticate.')
+      }
     } finally {
       setLoading(false)
     }
@@ -31,6 +37,32 @@ export default function AppLayout({ children }: AppLayoutProps) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
         <p>Loading...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    const backendOrigin = window.location.origin.includes(':3000')
+      ? window.location.origin.replace(':3000', ':3001')
+      : window.location.origin
+    return (
+      <div style={{ padding: '40px', margin: '40px auto', maxWidth: '600px', background: 'white', borderRadius: '8px', border: '1px solid #ddd', textAlign: 'center' }}>
+        <h2 style={{ color: '#dc3545', marginBottom: '1rem' }}>Authentication Error</h2>
+        <p style={{ color: '#333', marginBottom: '1.5rem' }}>{error}</p>
+        <a
+          href={`${backendOrigin}/login`}
+          style={{
+            display: 'inline-block',
+            padding: '12px 24px',
+            background: '#007bff',
+            color: 'white',
+            textDecoration: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+          }}
+        >
+          Go to Login
+        </a>
       </div>
     )
   }

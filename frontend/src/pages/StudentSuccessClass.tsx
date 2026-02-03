@@ -7,28 +7,27 @@ type Tab = 'students' | 'absence' | 'followups' | 'feedback'
 
 type StudentRow = StudentSuccessClassDetail['students'][number]
 
-
-function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string, students: any[], onUpdate: () => void }) {
+function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string; students: any[]; onUpdate: () => void }) {
   const [selected, setSelected] = useState<{ lead_id: string; full_name: string; session_number: number } | null>(null)
-  const [viewFeedback, setViewFeedback] = useState<{ student_name: string; session: number; text: string } | null>(null)
   const [feedbackText, setFeedbackText] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [modalError, setModalError] = useState<string | null>(null)
+  const [optimisticStatus, setOptimisticStatus] = useState<Record<string, boolean>>({})
 
-  // IMMEDIATE UI: Track which rows should be hidden
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const buildWhatsAppLink = (phone: string) => {
     const digits = phone.replace(/\D/g, '')
     return `https://wa.me/${digits}`
   }
 
-  // Sync hiddenIds when students change (reset on refetch)
   useEffect(() => {
-    setHiddenIds(new Set())
+    setOptimisticStatus({})
   }, [students])
 
   async function handleSubmit() {
     if (!selected || !feedbackText) return
     setIsSubmitting(true)
+    setModalError(null)
     try {
       await api.submitFeedback({
         lead_id: selected.lead_id,
@@ -41,34 +40,48 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
       setFeedbackText('')
       onUpdate()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to submit feedback')
+      setModalError(err instanceof Error ? err.message : 'Failed to submit feedback')
     } finally {
       setIsSubmitting(false)
     }
   }
 
   const handleStatusUpdate = async (leadId: string, session: number, status: 'received' | 'removed') => {
+    const key = `${leadId}-${session}`
+    setOptimisticStatus((prev) => ({ ...prev, [key]: true }))
+    setError(null)
     try {
       await api.updateFeedbackStatus(leadId, classKey, session, status)
-
-      // Task 1: Immediate Row Removal (Frontend)
-      setHiddenIds(prev => {
-        const next = new Set(prev)
-        next.add(leadId)
-        return next
-      })
-
       onUpdate()
     } catch (err) {
-      alert(`Failed to update status: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setError(`Failed to update status: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setOptimisticStatus((prev) => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
     }
   }
+
+  const filteredStudents = students.filter((s) => {
+    const s4Handled = (s.s4 && s.s4.status !== 'sent') || optimisticStatus[`${s.lead_id}-4`]
+    const s8Handled = (s.s8 && s.s8.status !== 'sent') || optimisticStatus[`${s.lead_id}-8`]
+    return !s4Handled || !s8Handled
+  })
 
   return (
     <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6' }}>
       <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
         <h2 style={{ fontSize: '18px', margin: 0 }}>Feedback Checkpoints (Session 4 & 8)</h2>
       </div>
+      {error && (
+        <div style={{ padding: '12px 16px', background: '#f8d7da', color: '#721c24', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#721c24' }}>
+            ×
+          </button>
+        </div>
+      )}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
           <thead>
@@ -79,16 +92,11 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
             </tr>
           </thead>
           <tbody>
-            {students
-              .filter(s => {
-                // Task 1: Immediate Row Removal (Frontend)
-                if (hiddenIds.has(s.lead_id)) return false
+            {filteredStudents.map((s) => {
+              const s4Handled = (s.s4 && s.s4.status !== 'sent') || optimisticStatus[`${s.lead_id}-4`]
+              const s8Handled = (s.s8 && s.s8.status !== 'sent') || optimisticStatus[`${s.lead_id}-8`]
 
-                const s4Pending = !s.s4 || s.s4.status === 'sent'
-                const s8Pending = !s.s8 || s.s8.status === 'sent'
-                return s4Pending || s8Pending
-              })
-              .map((s) => (
+              return (
                 <tr key={s.lead_id} style={{ borderBottom: '1px solid #eee' }}>
                   <td style={{ padding: '12px' }}>
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -110,47 +118,37 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
                             color: 'white',
                             fontSize: '12px',
                             textDecoration: 'none',
-                            fontWeight: 700
+                            fontWeight: 700,
                           }}
                         >
                           W
                         </a>
                       )}
                       {s.joined_at_session_number && (
-                        <span style={{
-                          background: '#6c5ce7',
-                          color: 'white',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          fontSize: '10px'
-                        }}>
+                        <span style={{ background: '#6c5ce7', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>
                           Late Join (S{s.joined_at_session_number})
                         </span>
                       )}
                     </div>
                   </td>
                   <td style={{ padding: '12px' }}>
-                    {s.s4 ? (
-                      s.s4.status === 'sent' ? (
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <button
-                            onClick={() => handleStatusUpdate(s.lead_id, 4, 'received')}
-                            style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#28a745', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
-                          >
-                            Received
-                          </button>
-                          <button
-                            onClick={() => handleStatusUpdate(s.lead_id, 4, 'removed')}
-                            style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#dc3545', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : (
-                        <div style={{ color: '#28a745', fontWeight: 600, fontSize: '11px' }}>
-                          ✓ COMPLETED
-                        </div>
-                      )
+                    {s4Handled ? (
+                      <div style={{ color: '#28a745', fontWeight: 600, fontSize: '11px' }}>✓ COMPLETED</div>
+                    ) : s.s4?.status === 'sent' ? (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          onClick={() => handleStatusUpdate(s.lead_id, 4, 'received')}
+                          style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#28a745', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          Received
+                        </button>
+                        <button
+                          onClick={() => handleStatusUpdate(s.lead_id, 4, 'removed')}
+                          style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#dc3545', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     ) : (
                       <button
                         onClick={() => setSelected({ lead_id: s.lead_id, full_name: s.full_name, session_number: 4 })}
@@ -161,27 +159,23 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
                     )}
                   </td>
                   <td style={{ padding: '12px' }}>
-                    {s.s8 ? (
-                      s.s8.status === 'sent' ? (
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <button
-                            onClick={() => handleStatusUpdate(s.lead_id, 8, 'received')}
-                            style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#28a745', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
-                          >
-                            Received
-                          </button>
-                          <button
-                            onClick={() => handleStatusUpdate(s.lead_id, 8, 'removed')}
-                            style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#dc3545', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : (
-                        <div style={{ color: '#28a745', fontWeight: 600, fontSize: '11px' }}>
-                          ✓ COMPLETED
-                        </div>
-                      )
+                    {s8Handled ? (
+                      <div style={{ color: '#28a745', fontWeight: 600, fontSize: '11px' }}>✓ COMPLETED</div>
+                    ) : s.s8?.status === 'sent' ? (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          onClick={() => handleStatusUpdate(s.lead_id, 8, 'received')}
+                          style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#28a745', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          Received
+                        </button>
+                        <button
+                          onClick={() => handleStatusUpdate(s.lead_id, 8, 'removed')}
+                          style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: '#dc3545', color: 'white', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     ) : (
                       <button
                         onClick={() => setSelected({ lead_id: s.lead_id, full_name: s.full_name, session_number: 8 })}
@@ -192,17 +186,20 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
                     )}
                   </td>
                 </tr>
-              ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Send Feedback Modal */}
       {selected && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}>
           <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px', maxWidth: '90%' }}>
             <h3 style={{ marginBottom: '16px' }}>Send Session {selected.session_number} Feedback</h3>
-            <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>Student: <strong>{selected.full_name}</strong></p>
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
+              Student: <strong>{selected.full_name}</strong>
+            </p>
+            {modalError && <div style={{ color: 'red', background: '#f8d7da', padding: '8px', borderRadius: '4px', marginBottom: '10px' }}>{modalError}</div>}
             <textarea
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
@@ -211,7 +208,11 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
             />
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button
-                onClick={() => { setSelected(null); setFeedbackText(''); }}
+                onClick={() => {
+                  setSelected(null)
+                  setFeedbackText('')
+                  setModalError(null)
+                }}
                 style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}
               >
                 Cancel
@@ -219,30 +220,9 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
               <button
                 disabled={isSubmitting || !feedbackText}
                 onClick={handleSubmit}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#007bff', color: '#fff', cursor: 'pointer', opacity: (isSubmitting || !feedbackText) ? 0.6 : 1 }}
+                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#007bff', color: '#fff', cursor: 'pointer', opacity: isSubmitting || !feedbackText ? 0.6 : 1 }}
               >
                 {isSubmitting ? 'Sending...' : 'Send Feedback'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* View Feedback Modal */}
-      {viewFeedback && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}>
-          <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px', maxWidth: '90%' }}>
-            <h3 style={{ marginBottom: '16px' }}>Session {viewFeedback.session} Feedback</h3>
-            <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>Student: <strong>{viewFeedback.student_name}</strong></p>
-            <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
-              {viewFeedback.text}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setViewFeedback(null)}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#007bff', color: '#fff', cursor: 'pointer' }}
-              >
-                Close
               </button>
             </div>
           </div>
@@ -258,44 +238,41 @@ export default function StudentSuccessClass() {
   const [data, setData] = useState<StudentSuccessClassDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('students')
   const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null)
-  const [followUpModal, setFollowUpModal] = useState<{ open: boolean; item: any | null }>({
+  const [followUpModal, setFollowUpModal] = useState<{ open: boolean; item: any | null; error?: string }>({
     open: false,
     item: null,
   })
   const [refreshNonce, setRefreshNonce] = useState(0)
 
-  const triggerRefresh = () => setRefreshNonce(n => n + 1)
+  const triggerRefresh = () => setRefreshNonce((n) => n + 1)
 
   useEffect(() => {
     if (classKey) {
-      // Save to localStorage for refresh persistence
       localStorage.setItem('student_success_class_key', classKey)
       loadClass()
     } else {
       setError('class_key is required')
       setLoading(false)
     }
-  }, [classKey])
+  }, [classKey, refreshNonce])
 
   async function loadClass() {
     try {
-      console.log('AUDIT: Loading class with classKey:', classKey)
       setLoading(true)
       setError(null)
+      setActionError(null)
       const me = await api.getMe()
-      console.log('AUDIT: Current user role:', me.role)
       if (me.role !== 'student_success' && me.role !== 'admin') {
         setError('No access. Student Success or Admin only.')
         setLoading(false)
         return
       }
       const res = await api.getStudentSuccessClass(classKey)
-      console.log('AUDIT: API response feedback count:', res.feedback?.length)
       setData(res)
     } catch (err) {
-      console.error('AUDIT: Load class error:', err)
       setError(err instanceof Error ? err.message : 'Failed to load class')
     } finally {
       setLoading(false)
@@ -325,7 +302,7 @@ export default function StudentSuccessClass() {
     { id: 'students', label: 'Students' },
     { id: 'absence', label: 'Absence Feed' },
     { id: 'followups', label: 'Follow-ups' },
-    { id: 'feedback', label: 'Feedback Checkpoints (Session 4 & 8)' },
+    { id: 'feedback', label: 'Feedback Checkpoints' },
   ]
 
   return (
@@ -338,81 +315,39 @@ export default function StudentSuccessClass() {
       </div>
 
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px', marginBottom: '16px' }}>
-        <span
-          style={{
-            padding: '4px 12px',
-            background: '#d4edda',
-            color: '#155724',
-            borderRadius: '12px',
-            fontSize: '12px',
-            fontWeight: 600,
-          }}
-        >
+        <span style={{ padding: '4px 12px', background: '#d4edda', color: '#155724', borderRadius: '12px', fontSize: '12px', fontWeight: 600 }}>
           ACTIVE · Current Session: {data.completedSessionsCount + 1} · Total: {data.totalSessions}
         </span>
       </div>
 
+      {actionError && (
+        <div style={{ background: '#f8d7da', color: '#721c24', padding: '16px', borderRadius: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#721c24' }}>
+            ×
+          </button>
+        </div>
+      )}
+
       {data.milestones.midRound.reached && !data.milestones.midRound.complete && (
-        <div style={{
-          background: '#fff3cd',
-          border: '1px solid #ffeeba',
-          color: '#856404',
-          padding: '16px',
-          borderRadius: '8px',
-          marginBottom: '24px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
+        <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <strong style={{ display: 'block', fontSize: '16px' }}>Mid-Round Feedback Required!</strong>
             <span style={{ fontSize: '14px' }}>Session 4 reached. Please send feedback to all students.</span>
           </div>
-          <button
-            onClick={() => setTab('feedback')}
-            style={{
-              background: '#856404',
-              color: 'white',
-              border: 'none',
-              padding: '8px 16px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: 600
-            }}
-          >
+          <button onClick={() => setTab('feedback')} style={{ background: '#856404', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
             Go to Feedbacks
           </button>
         </div>
       )}
 
       {data.milestones.endRound.reached && !data.milestones.endRound.complete && (
-        <div style={{
-          background: '#fff3cd',
-          border: '1px solid #ffeeba',
-          color: '#856404',
-          padding: '16px',
-          borderRadius: '8px',
-          marginBottom: '24px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
+        <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <strong style={{ display: 'block', fontSize: '16px' }}>End-of-Round Feedback Required!</strong>
             <span style={{ fontSize: '14px' }}>Session 8 reached. Please send final feedback to all students.</span>
           </div>
-          <button
-            onClick={() => setTab('feedback')}
-            style={{
-              background: '#856404',
-              color: 'white',
-              border: 'none',
-              padding: '8px 16px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: 600
-            }}
-          >
+          <button onClick={() => setTab('feedback')} style={{ background: '#856404', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
             Go to Feedbacks
           </button>
         </div>
@@ -423,15 +358,7 @@ export default function StudentSuccessClass() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            style={{
-              padding: '8px 16px',
-              border: `1px solid ${tab === t.id ? '#007bff' : '#dee2e6'}`,
-              background: tab === t.id ? '#007bff' : '#fff',
-              color: tab === t.id ? '#fff' : '#333',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px',
-            }}
+            style={{ padding: '8px 16px', border: `1px solid ${tab === t.id ? '#007bff' : '#dee2e6'}`, background: tab === t.id ? '#007bff' : '#fff', color: tab === t.id ? '#fff' : '#333', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}
           >
             {t.label}
           </button>
@@ -439,102 +366,48 @@ export default function StudentSuccessClass() {
       </div>
 
       {tab === 'students' && (
-        <div style={{ display: 'flex', gap: '20px', position: 'relative' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '18px', margin: 0 }}>Students</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
+          {data.students.map((s) => (
+            <div
+              key={s.lead_id}
+              onClick={() => setSelectedStudent(s)}
+              style={{ background: 'white', padding: '20px', borderRadius: '8px', border: '2px solid #dee2e6', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'
+                e.currentTarget.style.borderColor = '#007bff'
+                e.currentTarget.style.transform = 'translateY(-2px)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'
+                e.currentTarget.style.borderColor = '#dee2e6'
+                e.currentTarget.style.transform = 'translateY(0)'
+              }}
+            >
+              <h3 style={{ fontSize: '18px', marginBottom: '6px', color: '#333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {s.full_name}
+                {s.joined_at_session_number && (
+                  <span style={{ background: '#6c5ce7', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>
+                    Late Join (S{s.joined_at_session_number})
+                  </span>
+                )}
+              </h3>
+              <p style={{ fontSize: '12px', color: '#999', marginBottom: '8px', fontFamily: 'monospace' }}>ID: {s.lead_id.substring(0, 8)}...</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ display: 'inline-block', width: 'fit-content', padding: '4px 8px', background: s.missed_count === 0 ? '#d4edda' : s.missed_count <= 2 ? '#fff3cd' : '#f8d7da', color: s.missed_count === 0 ? '#155724' : s.missed_count <= 2 ? '#856404' : '#721c24', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                  {s.missed_count} missed
+                </span>
+                {s.missed_sessions && s.missed_sessions.length > 0 && <div style={{ fontSize: '10px', color: '#666' }}>Missed Session {s.missed_sessions.join(', ')}</div>}
+              </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
-              {data.students.map((s) => (
-                <div
-                  key={s.lead_id}
-                  onClick={() => setSelectedStudent(s)}
-                  style={{
-                    background: 'white',
-                    padding: '20px',
-                    borderRadius: '8px',
-                    border: '2px solid #dee2e6',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'
-                    e.currentTarget.style.borderColor = '#007bff'
-                    e.currentTarget.style.transform = 'translateY(-2px)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'
-                    e.currentTarget.style.borderColor = '#dee2e6'
-                    e.currentTarget.style.transform = 'translateY(0)'
-                  }}
-                >
-                  <h3 style={{ fontSize: '18px', marginBottom: '6px', color: '#333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {s.full_name}
-                    {s.joined_at_session_number && (
-                      <span style={{
-                        background: '#6c5ce7',
-                        color: 'white',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        fontSize: '10px'
-                      }}>
-                        Late Join (S{s.joined_at_session_number})
-                      </span>
-                    )}
-                  </h3>
-                  <p style={{ fontSize: '12px', color: '#999', marginBottom: '8px', fontFamily: 'monospace' }}>
-                    ID: {s.lead_id.substring(0, 8)}...
-                  </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        width: 'fit-content',
-                        padding: '4px 8px',
-                        background: s.missed_count === 0 ? '#d4edda' : s.missed_count <= 2 ? '#fff3cd' : '#f8d7da',
-                        color: s.missed_count === 0 ? '#155724' : s.missed_count <= 2 ? '#856404' : '#721c24',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {s.missed_count} missed
-                    </span>
-                    {s.missed_sessions && s.missed_sessions.length > 0 && (
-                      <div style={{ fontSize: '10px', color: '#666' }}>
-                        Missed Session {s.missed_sessions.join(', ')}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          ))}
         </div>
       )}
 
-      {tab === 'absence' && (
-        <AbsenceFeed
-          classKey={classKey}
-          onOpenFollowUp={(item) => setFollowUpModal({ open: true, item })}
-          refreshNonce={refreshNonce}
-          triggerRefresh={triggerRefresh}
-        />
-      )}
+      {tab === 'absence' && <AbsenceFeed classKey={classKey} onOpenFollowUp={(item) => setFollowUpModal({ open: true, item })} refreshNonce={refreshNonce} triggerRefresh={triggerRefresh} setActionError={setActionError} />}
 
-      {tab === 'followups' && (
-        <FollowUpsTab
-          classKey={classKey}
-          onOpenFollowUp={(item) => setFollowUpModal({ open: true, item })}
-          refreshNonce={refreshNonce}
-        />
-      )}
+      {tab === 'followups' && <FollowUpsTab classKey={classKey} onOpenFollowUp={(item) => setFollowUpModal({ open: true, item })} refreshNonce={refreshNonce} />}
 
-      {tab === 'feedback' && (
-        <FeedbackCheckpoint classKey={classKey} students={data.feedback} onUpdate={loadClass} />
-      )}
-
+      {tab === 'feedback' && <FeedbackCheckpoint classKey={classKey} students={data.feedback} onUpdate={loadClass} />}
 
       {selectedStudent && (
         <StudentModal
@@ -552,25 +425,16 @@ export default function StudentSuccessClass() {
       )}
 
       {followUpModal.open && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
-          onClick={() => setFollowUpModal({ open: false, item: null })}
-        >
-          <div
-            style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px', maxWidth: '90%' }}
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setFollowUpModal({ open: false, item: null })}>
+          <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px', maxWidth: '90%' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ marginBottom: '16px' }}>Add Follow-up Note</h3>
             <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
               Student: <strong>{followUpModal.item.studentName || followUpModal.item.student_name}</strong> (S{followUpModal.item.sessionNumber || followUpModal.item.session_number})
             </p>
+            {followUpModal.error && <div style={{ color: 'red', background: '#f8d7da', padding: '8px', borderRadius: '4px', marginBottom: '10px' }}>{followUpModal.error}</div>}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>Status</label>
-              <select
-                id="followup-status"
-                defaultValue={followUpModal.item.followUp?.status || followUpModal.item.status || 'contacted'}
-                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
-              >
+              <select id="followup-status" defaultValue={followUpModal.item.followUp?.status || followUpModal.item.status || 'contacted'} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}>
                 <option value="none">None</option>
                 <option value="contacted">Contacted (same day)</option>
                 <option value="not_replied">Not Replied (after 1 day)</option>
@@ -579,51 +443,32 @@ export default function StudentSuccessClass() {
             </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>Follow-up Note</label>
-              <textarea
-                id="followup-note"
-                defaultValue={followUpModal.item.followUp?.lastNote || followUpModal.item.note || ''}
-                placeholder="Enter follow-up details..."
-                style={{ width: '100%', height: '100px', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
-              />
+              <textarea id="followup-note" defaultValue={followUpModal.item.followUp?.lastNote || followUpModal.item.note || ''} placeholder="Enter follow-up details..." style={{ width: '100%', height: '100px', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }} />
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setFollowUpModal({ open: false, item: null })}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}
-              >
+              <button onClick={() => setFollowUpModal({ open: false, item: null })} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
                 Cancel
               </button>
               <button
                 onClick={async () => {
                   const note = (document.getElementById('followup-note') as HTMLTextAreaElement).value
                   const status = (document.getElementById('followup-status') as HTMLSelectElement).value
-                  if (!note) return alert('Please enter a note')
+                  if (!note) {
+                    setFollowUpModal((prev) => ({ ...prev, error: 'Please enter a note' }))
+                    return
+                  }
                   try {
                     const followUpId = followUpModal.item.followUp?.id
-
                     if (followUpId) {
-                      await api.updateFollowUp(followUpId, {
-                        status: status,
-                        note: note,
-                        resolved: false
-                      })
+                      await api.updateFollowUp(followUpId, { status: status, note: note, resolved: false })
                     } else {
-                      await api.addFollowUp({
-                        class_key: classKey,
-                        lead_id: followUpModal.item.studentId || followUpModal.item.lead_id,
-                        session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number,
-                        note,
-                        status: status
-                      })
+                      await api.addFollowUp({ class_key: classKey, lead_id: followUpModal.item.studentId || followUpModal.item.lead_id, session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number, note, status: status })
                     }
                     setFollowUpModal({ open: false, item: null })
-                    await loadClass()
                     triggerRefresh()
-                    if (status === 'no_response' && tab === 'absence') {
-                      setTab('followups')
-                    }
+                    if (status === 'no_response' && tab === 'absence') setTab('followups')
                   } catch (err) {
-                    alert(err instanceof Error ? err.message : 'Failed to save note')
+                    setFollowUpModal((prev) => ({ ...prev, error: err instanceof Error ? err.message : 'Failed to save note' }))
                   }
                 }}
                 style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#007bff', color: '#fff', cursor: 'pointer' }}
@@ -635,28 +480,22 @@ export default function StudentSuccessClass() {
                   onClick={async () => {
                     const note = (document.getElementById('followup-note') as HTMLTextAreaElement).value
                     const status = (document.getElementById('followup-status') as HTMLSelectElement).value
-                    if (!note) return alert('Please enter a final note')
+                    if (!note) {
+                      setFollowUpModal((prev) => ({ ...prev, error: 'Please enter a final note' }))
+                      return
+                    }
                     if (!confirm('Mark as resolved?')) return
                     try {
                       const followUpId = followUpModal.item.followUp?.id
                       if (followUpId) {
-                        await api.updateFollowUp(followUpId, {
-                          status: status,
-                          note: note,
-                          resolved: true
-                        })
+                        await api.updateFollowUp(followUpId, { status: status, note: note, resolved: true })
                       } else {
-                        await api.resolveAbsence({
-                          class_key: classKey,
-                          lead_id: followUpModal.item.studentId || followUpModal.item.lead_id,
-                          session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number
-                        })
+                        await api.resolveAbsence({ class_key: classKey, lead_id: followUpModal.item.studentId || followUpModal.item.lead_id, session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number })
                       }
                       setFollowUpModal({ open: false, item: null })
-                      await loadClass()
                       triggerRefresh()
                     } catch (err) {
-                      alert(err instanceof Error ? err.message : 'Failed to resolve')
+                      setFollowUpModal((prev) => ({ ...prev, error: err instanceof Error ? err.message : 'Failed to resolve' }))
                     }
                   }}
                   style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#28a745', color: '#fff', cursor: 'pointer' }}
@@ -672,10 +511,9 @@ export default function StudentSuccessClass() {
   )
 }
 
-function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }: { classKey: string; onOpenFollowUp: (item: any) => void; refreshNonce: number; triggerRefresh: () => void }) {
+function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, setActionError }: { classKey: string; onOpenFollowUp: (item: any) => void; refreshNonce: number; triggerRefresh: () => void; setActionError: (error: string | null) => void }) {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'unresolved' | 'absent' | 'late'>('all')
   const [search, setSearch] = useState('')
 
@@ -686,10 +524,11 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }:
   async function loadFeed() {
     try {
       setLoading(true)
+      setActionError(null)
       const res = await api.getAbsenceFeed(classKey, filter, search)
       setItems(res || [])
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load feed')
+      setActionError(err instanceof Error ? err.message : 'Failed to load feed')
     } finally {
       setLoading(false)
     }
@@ -697,36 +536,30 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }:
 
   async function handleMarkResolved(followUpId: string | undefined, studentId: string, sessionNum: number) {
     if (!confirm('Mark this absence as resolved?')) return
-    try {
-      // Immediate removal from current view (optimistic)
-      setItems(prev => prev.filter(item =>
-        !(item.studentId === studentId && item.sessionNumber === sessionNum)
-      ))
 
+    const originalItems = items
+    setItems((prev) => prev.filter((item) => !(item.studentId === studentId && item.sessionNumber === sessionNum)))
+    setActionError(null)
+
+    try {
       if (followUpId) {
         await api.resolveFollowUp(followUpId)
       } else {
         await api.resolveAbsence({
           class_key: classKey,
           lead_id: studentId,
-          session_number: sessionNum
+          session_number: sessionNum,
         })
       }
       triggerRefresh()
-      await loadFeed()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to resolve')
-      loadFeed()
+      setActionError(err instanceof Error ? err.message : 'Failed to resolve')
+      setItems(originalItems)
     }
   }
 
-  const filteredItems = items // Already filtered by backend
-
-  // Group items by session number
-  const groupedItems = filteredItems.reduce((acc: Record<number, any[]>, item) => {
-    if (!acc[item.sessionNumber]) {
-      acc[item.sessionNumber] = []
-    }
+  const groupedItems = items.reduce((acc: Record<number, any[]>, item) => {
+    if (!acc[item.sessionNumber]) acc[item.sessionNumber] = []
     acc[item.sessionNumber].push(item)
     return acc
   }, {})
@@ -736,51 +569,23 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }:
     .sort((a, b) => b - a)
 
   if (loading) return <p style={{ padding: '20px' }}>Loading absence feed...</p>
-  if (error) return <p style={{ color: 'red', padding: '20px' }}>{error}</p>
 
   return (
     <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
       <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           {(['all', 'unresolved', 'absent', 'late'] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{
-                padding: '4px 12px',
-                borderRadius: '4px',
-                border: '1px solid #dee2e6',
-                background: filter === f ? '#007bff' : '#fff',
-                color: filter === f ? '#fff' : '#666',
-                fontSize: '12px',
-                cursor: 'pointer',
-                textTransform: 'capitalize',
-              }}
-            >
+            <button key={f} onClick={() => setFilter(f)} style={{ padding: '4px 12px', borderRadius: '4px', border: '1px solid #dee2e6', background: filter === f ? '#007bff' : '#fff', color: filter === f ? '#fff' : '#666', fontSize: '12px', cursor: 'pointer', textTransform: 'capitalize' }}>
               {f}
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search name or phone..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px',
-            borderRadius: '4px',
-            border: '1px solid #dee2e6',
-            fontSize: '14px',
-            width: '200px',
-          }}
-        />
+        <input type="text" placeholder="Search name or phone..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: '6px 12px', borderRadius: '4px', border: '1px solid #dee2e6', fontSize: '14px', width: '200px' }} />
       </div>
 
       <div style={{ overflowX: 'auto' }}>
         {sessionNumbers.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
-            No absences found matching filters.
-          </div>
+          <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No absences found matching filters.</div>
         ) : (
           sessionNumbers.map((sn) => (
             <div key={sn} style={{ borderBottom: '4px solid #f8f9fa' }}>
@@ -804,36 +609,13 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }:
                       <td style={{ padding: '12px' }}>
                         <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                           {item.studentName}
-                          {item.joinedAtSessionNumber && (
-                            <span style={{
-                              background: '#6c5ce7',
-                              color: 'white',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              fontSize: '10px'
-                            }}>
-                              Late Join (S{item.joinedAtSessionNumber})
-                            </span>
-                          )}
+                          {item.joinedAtSessionNumber && <span style={{ background: '#6c5ce7', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>Late Join (S{item.joinedAtSessionNumber})</span>}
                         </div>
                         <div style={{ fontSize: '12px', color: '#666' }}>{item.studentPhone}</div>
                       </td>
                       <td style={{ padding: '12px' }}>
-                        <span style={{
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          background: item.status === 'ABSENT' ? '#f8d7da' : '#fff3cd',
-                          color: item.status === 'ABSENT' ? '#721c24' : '#856404',
-                        }}>
-                          {item.status}
-                        </span>
-                        {item.mentorNote && (
-                          <div style={{ fontSize: '11px', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>
-                            "{item.mentorNote}"
-                          </div>
-                        )}
+                        <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: item.status === 'ABSENT' ? '#f8d7da' : '#fff3cd', color: item.status === 'ABSENT' ? '#721c24' : '#856404' }}>{item.status}</span>
+                        {item.mentorNote && <div style={{ fontSize: '11px', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>"{item.mentorNote}"</div>}
                       </td>
                       <td style={{ padding: '12px' }}>
                         <div style={{ fontSize: '12px', fontWeight: 500 }}>{item.sessionDate}</div>
@@ -843,21 +625,8 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }:
                       <td style={{ padding: '12px' }}>
                         {item.followUp ? (
                           <div>
-                            <span style={{
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              fontSize: '10px',
-                              fontWeight: 600,
-                              background: item.followUp.status === 'RESOLVED' ? '#d4edda' : '#e2e3e5',
-                              color: item.followUp.status === 'RESOLVED' ? '#155724' : '#383d41',
-                            }}>
-                              {item.followUp.status}
-                            </span>
-                            {item.followUp.lastNote && (
-                              <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
-                                {item.followUp.lastNote}
-                              </div>
-                            )}
+                            <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: item.followUp.status === 'RESOLVED' ? '#d4edda' : '#e2e3e5', color: item.followUp.status === 'RESOLVED' ? '#155724' : '#383d41' }}>{item.followUp.status}</span>
+                            {item.followUp.lastNote && <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>{item.followUp.lastNote}</div>}
                           </div>
                         ) : (
                           <span style={{ fontSize: '11px', color: '#999' }}>No follow-up yet</span>
@@ -865,54 +634,13 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh }:
                       </td>
                       <td style={{ padding: '12px' }}>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <a
-                            href={`https://wa.me/${item.studentPhone.replace(/\D/g, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="Open WhatsApp"
-                            style={{
-                              padding: '4px',
-                              borderRadius: '4px',
-                              background: '#25D366',
-                              color: 'white',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              width: '24px',
-                              height: '24px',
-                              textDecoration: 'none'
-                            }}
-                          >
+                          <a href={`https://wa.me/${item.studentPhone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Open WhatsApp" style={{ padding: '4px', borderRadius: '4px', background: '#25D366', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', textDecoration: 'none' }}>
                             W
                           </a>
-                          <button
-                            onClick={() => onOpenFollowUp(item)}
-                            title="Add Follow-up Note"
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid #007bff',
-                              background: '#fff',
-                              color: '#007bff',
-                              fontSize: '11px',
-                              cursor: 'pointer'
-                            }}
-                          >
+                          <button onClick={() => onOpenFollowUp(item)} title="Add Follow-up Note" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #007bff', background: '#fff', color: '#007bff', fontSize: '11px', cursor: 'pointer' }}>
                             Follow up
                           </button>
-                          <button
-                            onClick={() => handleMarkResolved(item.followUp?.id, item.studentId, item.sessionNumber)}
-                            title="Resolve"
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid #28a745',
-                              background: '#fff',
-                              color: '#28a745',
-                              fontSize: '11px',
-                              cursor: 'pointer'
-                            }}
-                          >
+                          <button onClick={() => handleMarkResolved(item.followUp?.id, item.studentId, item.sessionNumber)} title="Resolve" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #28a745', background: '#fff', color: '#28a745', fontSize: '11px', cursor: 'pointer' }}>
                             Resolve
                           </button>
                         </div>
@@ -943,6 +671,7 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
   async function loadFollowUps() {
     try {
       setLoading(true)
+      setError(null)
       const res = await api.getFollowUps(classKey, showResolved)
       setItems(res || [])
     } catch (err) {
@@ -961,36 +690,18 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
         <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ fontSize: '18px', margin: 0 }}>Follow-ups</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button
-              onClick={() => setShowComplaintModal(true)}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '6px',
-                border: 'none',
-                background: '#dc3545',
-                color: '#fff',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 600,
-              }}
-            >
+            <button onClick={() => setShowComplaintModal(true)} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#dc3545', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
               + New Complaint
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
               <label>Show Resolved:</label>
-              <input
-                type="checkbox"
-                checked={showResolved}
-                onChange={(e) => setShowResolved(e.target.checked)}
-              />
+              <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} />
             </div>
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
           {items.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
-              No active follow-ups for this class.
-            </div>
+            <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No active follow-ups for this class.</div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
               <thead>
@@ -1006,77 +717,34 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
               </thead>
               <tbody>
                 {items.map((item) => {
-                  // Check if this is a complaint by looking at the note prefix
                   const isComplaint = item.note && item.note.startsWith('[COMPLAINT')
                   let category = ''
                   let urgency = ''
                   let complaintText = item.note
 
                   if (isComplaint) {
-                    // Parse: [COMPLAINT - category/urgency] text
                     const match = item.note.match(/\[COMPLAINT - ([^/]+)\/([^\]]+)\] (.+)/)
                     if (match) {
-                      category = match[1]
-                      urgency = match[2]
-                      complaintText = match[3]
+                      ;[category, urgency, complaintText] = match.slice(1)
                     }
                   }
 
                   return (
                     <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
                       <td style={{ padding: '12px' }}>
-                        {isComplaint ? (
-                          <span style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            background: '#dc3545',
-                            color: 'white',
-                          }}>
-                            COMPLAINT
-                          </span>
-                        ) : (
-                          <span style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            background: '#6c757d',
-                            color: 'white',
-                          }}>
-                            ABSENCE
-                          </span>
-                        )}
+                        <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: isComplaint ? '#dc3545' : '#6c757d', color: 'white' }}>{isComplaint ? 'COMPLAINT' : 'ABSENCE'}</span>
                       </td>
                       <td style={{ padding: '12px' }}>
                         <div style={{ fontWeight: 600 }}>{item.student_name}</div>
                         <div style={{ fontSize: '12px', color: '#666' }}>{item.student_phone}</div>
                       </td>
-                      <td style={{ padding: '12px' }}>
-                        {item.session_number ? `S${item.session_number}` : '-'}
-                      </td>
+                      <td style={{ padding: '12px' }}>{item.session_number ? `S${item.session_number}` : '-'}</td>
                       <td style={{ padding: '12px' }}>
                         {isComplaint ? (
                           <div>
                             <div style={{ fontSize: '11px', marginBottom: '4px' }}>
-                              <span style={{
-                                padding: '2px 6px',
-                                borderRadius: '3px',
-                                background: '#e7f3ff',
-                                color: '#004085',
-                                marginRight: '4px',
-                              }}>
-                                {category}
-                              </span>
-                              <span style={{
-                                padding: '2px 6px',
-                                borderRadius: '3px',
-                                background: urgency === 'high' ? '#f8d7da' : urgency === 'medium' ? '#fff3cd' : '#d4edda',
-                                color: urgency === 'high' ? '#721c24' : urgency === 'medium' ? '#856404' : '#155724',
-                              }}>
-                                {urgency.toUpperCase()}
-                              </span>
+                              <span style={{ padding: '2px 6px', borderRadius: '3px', background: '#e7f3ff', color: '#004085', marginRight: '4px' }}>{category}</span>
+                              <span style={{ padding: '2px 6px', borderRadius: '3px', background: urgency === 'high' ? '#f8d7da' : urgency === 'medium' ? '#fff3cd' : '#d4edda', color: urgency === 'high' ? '#721c24' : urgency === 'medium' ? '#856404' : '#155724' }}>{urgency.toUpperCase()}</span>
                             </div>
                             <div style={{ fontSize: '12px', color: '#666' }}>{complaintText}</div>
                           </div>
@@ -1085,36 +753,10 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
                         )}
                       </td>
                       <td style={{ padding: '12px' }}>
-                        <span style={{
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          background: item.resolved ? '#d4edda' : '#e2e3e5',
-                          color: item.resolved ? '#155724' : '#383d41',
-                        }}>
-                          {item.resolved ? 'RESOLVED' : item.status.toUpperCase()}
-                        </span>
+                        <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: item.resolved ? '#d4edda' : '#e2e3e5', color: item.resolved ? '#155724' : '#383d41' }}>{item.resolved ? 'RESOLVED' : item.status.toUpperCase()}</span>
                       </td>
                       <td style={{ padding: '12px' }}>{new Date(item.created_at).toLocaleString()}</td>
-                      <td style={{ padding: '12px' }}>
-                        {!item.resolved && (
-                          <button
-                            onClick={() => onOpenFollowUp(item)}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid #28a745',
-                              background: '#fff',
-                              color: '#28a745',
-                              fontSize: '11px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Resolve
-                          </button>
-                        )}
-                      </td>
+                      <td style={{ padding: '12px' }}>{!item.resolved && <button onClick={() => onOpenFollowUp(item)} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #28a745', background: '#fff', color: '#28a745', fontSize: '11px', cursor: 'pointer' }}>Resolve</button>}</td>
                     </tr>
                   )
                 })}
@@ -1123,164 +765,77 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
           )}
         </div>
       </div>
-
-      {/* Complaint Modal */}
-      {showComplaintModal && (
-        <ComplaintModal
-          classKey={classKey}
-          onClose={() => setShowComplaintModal(false)}
-          onSuccess={() => {
-            setShowComplaintModal(false)
-            loadFollowUps()
-          }}
-        />
-      )}
+      {showComplaintModal && <ComplaintModal classKey={classKey} onClose={() => setShowComplaintModal(false)} onSuccess={() => { setShowComplaintModal(false); loadFollowUps(); }} />}
     </>
   )
 }
 
-// Complaint Modal Component
-function ComplaintModal({ classKey, onClose, onSuccess }: {
-  classKey: string
-  onClose: () => void
-  onSuccess: () => void
-}) {
+function ComplaintModal({ classKey, onClose, onSuccess }: { classKey: string; onClose: () => void; onSuccess: () => void }) {
   const [studentPhone, setStudentPhone] = useState('')
   const [category, setCategory] = useState('mentor_behavior')
   const [urgency, setUrgency] = useState('medium')
   const [complaintText, setComplaintText] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const categories = [
-    { value: 'mentor_behavior', label: 'Mentor Behavior' },
-    { value: 'session_quality', label: 'Session Quality' },
-    { value: 'technical', label: 'Technical Issues' },
-    { value: 'scheduling', label: 'Scheduling' },
-    { value: 'other', label: 'Other' },
-  ]
-
-  const urgencies = [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-  ]
+  const categories = [ { value: 'mentor_behavior', label: 'Mentor Behavior' }, { value: 'session_quality', label: 'Session Quality' }, { value: 'technical', label: 'Technical Issues' }, { value: 'scheduling', label: 'Scheduling' }, { value: 'other', label: 'Other' } ]
+  const urgencies = [ { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' } ]
 
   async function handleSubmit() {
     if (!studentPhone || !complaintText) {
-      alert('Please fill in all required fields')
+      setError('Please fill in all required fields')
       return
     }
-
     setIsSubmitting(true)
+    setError(null)
     try {
-      await api.createComplaint({
-        class_key: classKey,
-        student_phone: studentPhone,
-        category,
-        complaint_text: complaintText,
-        urgency,
-      })
+      await api.createComplaint({ class_key: classKey, student_phone: studentPhone, category, complaint_text: complaintText, urgency })
       onSuccess()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to file complaint')
+      setError(err instanceof Error ? err.message : 'Failed to file complaint')
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '500px', maxWidth: '90%' }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }} onClick={onClose}>
+      <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '500px', maxWidth: '90%' }} onClick={(e) => e.stopPropagation()}>
         <h3 style={{ marginBottom: '20px', color: '#dc3545' }}>File New Complaint</h3>
-
+        {error && <div style={{ color: 'red', background: '#f8d7da', padding: '8px', borderRadius: '4px', marginBottom: '10px' }}>{error}</div>}
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
             Student Phone <span style={{ color: '#dc3545' }}>*</span>
           </label>
-          <input
-            type="text"
-            value={studentPhone}
-            onChange={(e) => setStudentPhone(e.target.value)}
-            placeholder="e.g., 01234567890"
-            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
-          />
+          <input type="text" value={studentPhone} onChange={(e) => setStudentPhone(e.target.value)} placeholder="e.g., 01234567890" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }} />
         </div>
-
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
             Category <span style={{ color: '#dc3545' }}>*</span>
           </label>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
-          >
-            {categories.map((cat) => (
-              <option key={cat.value} value={cat.value}>
-                {cat.label}
-              </option>
-            ))}
+          <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}>
+            {categories.map((cat) => ( <option key={cat.value} value={cat.value}> {cat.label} </option> ))}
           </select>
         </div>
-
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
             Urgency <span style={{ color: '#dc3545' }}>*</span>
           </label>
-          <select
-            value={urgency}
-            onChange={(e) => setUrgency(e.target.value)}
-            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
-          >
-            {urgencies.map((urg) => (
-              <option key={urg.value} value={urg.value}>
-                {urg.label}
-              </option>
-            ))}
+          <select value={urgency} onChange={(e) => setUrgency(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}>
+            {urgencies.map((urg) => ( <option key={urg.value} value={urg.value}> {urg.label} </option> ))}
           </select>
         </div>
-
         <div style={{ marginBottom: '20px' }}>
           <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
             Complaint Details <span style={{ color: '#dc3545' }}>*</span>
           </label>
-          <textarea
-            value={complaintText}
-            onChange={(e) => setComplaintText(e.target.value)}
-            placeholder="Describe the complaint in detail..."
-            style={{ width: '100%', height: '120px', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', resize: 'vertical' }}
-          />
+          <textarea value={complaintText} onChange={(e) => setComplaintText(e.target.value)} placeholder="Describe the complaint in detail..." style={{ width: '100%', height: '120px', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', resize: 'vertical' }} />
         </div>
-
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-          <button
-            onClick={onClose}
-            disabled={isSubmitting}
-            style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: '14px' }}
-          >
+          <button onClick={onClose} disabled={isSubmitting} style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
             Cancel
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting || !studentPhone || !complaintText}
-            style={{
-              padding: '10px 20px',
-              borderRadius: '6px',
-              border: 'none',
-              background: '#dc3545',
-              color: '#fff',
-              cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: 600,
-              opacity: (isSubmitting || !studentPhone || !complaintText) ? 0.6 : 1,
-            }}
-          >
+          <button onClick={handleSubmit} disabled={isSubmitting || !studentPhone || !complaintText} style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#dc3545', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600, opacity: isSubmitting || !studentPhone || !complaintText ? 0.6 : 1 }}>
             {isSubmitting ? 'Filing...' : 'File Complaint'}
           </button>
         </div>

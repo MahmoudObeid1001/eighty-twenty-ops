@@ -107,6 +107,9 @@ func (h *AuthHandler) LoginForm(w http.ResponseWriter, r *http.Request) {
 		_, _, userRole, err := middleware.ValidateSessionCookie(cookie, h.cfg.SessionSecret)
 		if err == nil {
 			home := RoleHomePath(userRole)
+			if h.cfg.FrontendOrigin != "" && strings.HasPrefix(home, "/") {
+				home = h.cfg.FrontendOrigin + home
+			}
 			h.cfg.Debugf("  → Valid session found, redirecting to %s", home)
 			http.Redirect(w, r, home, http.StatusFound)
 			return
@@ -173,10 +176,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, cookie)
 
 	if next != "" && isSafeRedirectPath(next) && roleCanAccessPath(user.Role, next) {
+		if h.cfg.FrontendOrigin != "" && strings.HasPrefix(next, "/") {
+			next = h.cfg.FrontendOrigin + next
+		}
 		http.Redirect(w, r, next, http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, RoleHomePath(user.Role), http.StatusFound)
+	home := RoleHomePath(user.Role)
+	if h.cfg.FrontendOrigin != "" && strings.HasPrefix(home, "/") {
+		home = h.cfg.FrontendOrigin + home
+	}
+	http.Redirect(w, r, home, http.StatusFound)
 }
 
 // LearningRedirect redirects authenticated users to their role-specific Learning home.
@@ -188,6 +198,9 @@ func (h *AuthHandler) LearningRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 	role := middleware.GetUserRole(r)
 	home := RoleHomePath(role)
+	if h.cfg.FrontendOrigin != "" && strings.HasPrefix(home, "/") {
+		home = h.cfg.FrontendOrigin + home
+	}
 	http.Redirect(w, r, home, http.StatusFound)
 }
 
@@ -207,6 +220,10 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1, // Immediately expire
 	}
 	http.SetCookie(w, cookie)
-	h.cfg.Debugf("  → Session cookie cleared, redirecting to /login")
-	http.Redirect(w, r, "/login", http.StatusFound)
+	redirect := "/login"
+	if h.cfg.FrontendOrigin != "" {
+		redirect = h.cfg.FrontendOrigin + "/login"
+	}
+	h.cfg.Debugf("  → Session cookie cleared, redirecting to %s", redirect)
+	http.Redirect(w, r, redirect, http.StatusFound)
 }

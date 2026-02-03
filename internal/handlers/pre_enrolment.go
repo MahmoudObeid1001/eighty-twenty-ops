@@ -962,13 +962,8 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Forbidden: Moderators cannot delete leads", http.StatusForbidden)
 			return
 		}
-		if err := models.DeleteLead(leadID); err != nil {
-			log.Printf("ERROR: Failed to delete lead: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to delete lead: %v", err), http.StatusInternalServerError)
-			return
-		}
-		h.cfg.Debugf("  ✅ Lead deleted, redirecting to list")
-		http.Redirect(w, r, "/pre-enrolment?deleted=1", http.StatusFound)
+		// Direct delete is disabled; route to cancel flow so refund modal is enforced.
+		http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel", leadID.String()), http.StatusFound)
 		return
 
 	case "save", "":
@@ -1191,6 +1186,20 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if paidStr := r.FormValue("placement_test_fee_paid"); paidStr != "" {
 			if paid, err := strconv.Atoi(paidStr); err == nil {
 				pt.PlacementTestFeePaid = sql.NullInt32{Int32: int32(paid), Valid: true}
+			}
+		}
+
+		// Normalize placement test fee/paid: paid must be 0 or equal to fee (default fee = 100).
+		feeValue := int32(100)
+		if pt.PlacementTestFee.Valid {
+			feeValue = pt.PlacementTestFee.Int32
+		}
+		if pt.PlacementTestFeePaid.Valid && pt.PlacementTestFeePaid.Int32 > 0 {
+			if !pt.PlacementTestFee.Valid {
+				pt.PlacementTestFee = sql.NullInt32{Int32: feeValue, Valid: true}
+			}
+			if pt.PlacementTestFeePaid.Int32 != feeValue {
+				pt.PlacementTestFeePaid = sql.NullInt32{Int32: feeValue, Valid: true}
 			}
 		}
 

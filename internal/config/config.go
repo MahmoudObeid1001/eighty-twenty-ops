@@ -26,10 +26,15 @@ type Config struct {
 	StudentSuccessPassword   string
 	ManagerEmail             string
 	ManagerPassword          string
+	FrontendOrigin           string
 	Debug                    bool
 }
 
 func Load() *Config {
+	frontendOrigin := getEnv("FRONTEND_ORIGIN", "")
+	if frontendOrigin == "" && getEnv("APP_ENV", "") == "dev" {
+		frontendOrigin = "http://localhost:3000"
+	}
 	return &Config{
 		DatabaseURL:              getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/eighty_twenty_ops?sslmode=disable"),
 		Port:                     getEnv("PORT", "3001"),
@@ -50,6 +55,7 @@ func Load() *Config {
 		StudentSuccessPassword:   getEnv("STUDENT_SUCCESS_PASSWORD", "student_success123"),
 		ManagerEmail:             getEnv("MANAGER_EMAIL", "manager@eightytwenty.test"),
 		ManagerPassword:          getEnv("MANAGER_PASSWORD", "manager123"),
+		FrontendOrigin:           frontendOrigin,
 		Debug:                    getEnvBool("DEBUG", false),
 	}
 }

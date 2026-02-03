@@ -81,6 +81,11 @@
 **Active rounds**: Joining a running class requires the Late Joiner flow.  
 **Evidence**: `internal/models/repository.go` (`SendLeadToClasses`, `AssignClassGroup`, `MoveStudentBetweenGroups`), `internal/views/pre_enrolment_detail.html` note.
 
+### Rule: Cancel lead requires refund modal when payments exist
+**Scope**: Pre-Enrolment cancellations  
+**Behavior**: Direct delete is disabled; cancellation must go through the cancel flow and show refund modal if course payments exist.  
+**Evidence**: `internal/handlers/pre_enrolment.go` (cancel action), `internal/views/pre_enrolment_detail.html` cancel modal; list action routes to `?action=cancel`.
+
 ### Rule: One-to-one relationships for lead data
 **Tables**: placement_tests, offers, bookings, payments, scheduling, shipping all have UNIQUE `lead_id`  
 **Effect**: One placement test, one offer, one booking, etc. per lead  

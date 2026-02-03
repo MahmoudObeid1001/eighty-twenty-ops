@@ -109,10 +109,7 @@
                         </form>
                         {{end}}
                         {{if and (not $.IsModerator) (ne .Lead.Status "cancelled")}}
-                        <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="delete-form">
-                            <input type="hidden" name="action" value="delete">
-                            <button type="submit" class="btn btn-danger btn-small">Delete</button>
-                        </form>
+                        <a href="/pre-enrolment/{{.Lead.ID}}?action=cancel" class="btn btn-danger btn-small">Cancel</a>
                         {{end}}
                     </div>
                 </td>

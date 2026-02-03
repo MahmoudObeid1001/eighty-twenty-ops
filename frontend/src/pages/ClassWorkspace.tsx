@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, ClassDetail, Student } from '../api/client'
 import StudentModal from '../components/StudentModal'
@@ -12,6 +12,7 @@ export default function ClassWorkspace() {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   useEffect(() => {
     if (classKey) {
@@ -48,10 +49,11 @@ export default function ClassWorkspace() {
   async function handleMarkAttendance(sessionId: string, leadId: string, status: string) {
     try {
       setUpdating(`${leadId}-${sessionId}`)
+      setActionError(null)
       await api.markAttendance(sessionId, leadId, status, classKey)
       await loadClass(true)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to mark attendance')
+      setActionError(err instanceof Error ? err.message : 'Failed to mark attendance')
     } finally {
       setUpdating(null)
     }
@@ -61,14 +63,31 @@ export default function ClassWorkspace() {
     if (!confirm('Are you sure you want to mark this session as completed?')) return
     try {
       setLoading(true)
+      setActionError(null)
       await api.completeSession(sessionId, classKey)
       await loadClass(true)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to complete session')
+      setActionError(err instanceof Error ? err.message : 'Failed to complete session')
     } finally {
       setLoading(false)
     }
   }
+
+  const overdueSessions = useMemo(() => {
+    if (!classData) return []
+    const now = new Date()
+    return classData.sessions.filter((s) => {
+      if (s.status === 'completed') return false
+
+      const sessionDateTime = new Date(`${s.scheduled_date}T${s.scheduled_time}`)
+      const diffHours = (now.getTime() - sessionDateTime.getTime()) / (1000 * 60 * 60)
+
+      if (diffHours > 24) {
+        return classData.students.some((student) => !student.attendance?.[s.id])
+      }
+      return false
+    })
+  }, [classData])
 
   if (loading && !classData) {
     return (
@@ -97,64 +116,69 @@ export default function ClassWorkspace() {
         <h1>
           Level {classData.class.level} · {classData.class.days} · {classData.class.time} · Class {classData.class.class_number}
           {classData.class.round_status === 'closed' && (
-            <span style={{
-              marginLeft: '12px',
-              padding: '4px 8px',
-              background: '#6c757d',
-              color: 'white',
-              borderRadius: '4px',
-              fontSize: '12px',
-              verticalAlign: 'middle',
-              textTransform: 'uppercase',
-              fontWeight: 600
-            }}>
+            <span
+              style={{
+                marginLeft: '12px',
+                padding: '4px 8px',
+                background: '#6c757d',
+                color: 'white',
+                borderRadius: '4px',
+                fontSize: '12px',
+                verticalAlign: 'middle',
+                textTransform: 'uppercase',
+                fontWeight: 600,
+              }}
+            >
               Archived
             </span>
           )}
         </h1>
       </div>
 
-      {(() => {
-        const now = new Date();
-        const overdueSessions = classData.sessions.filter(s => {
-          if (s.status === 'completed') return false;
+      {actionError && (
+        <div
+          style={{
+            background: '#f8d7da',
+            color: '#721c24',
+            padding: '12px 20px',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          }}
+        >
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#721c24' }}>
+            ×
+          </button>
+        </div>
+      )}
 
-          // Combine date and time
-          // Assuming scheduled_date is YYYY-MM-DD and scheduled_time is HH:MM
-          const sessionDateTime = new Date(`${s.scheduled_date}T${s.scheduled_time}`);
-          const diffHours = (now.getTime() - sessionDateTime.getTime()) / (1000 * 60 * 60);
-
-          if (diffHours > 24) {
-            // Check if any student is missing attendance for this session
-            return classData.students.some(student => !student.attendance?.[s.id]);
-          }
-          return false;
-        });
-
-        if (overdueSessions.length > 0) {
-          return (
-            <div style={{
-              background: '#dc3545',
-              color: 'white',
-              padding: '12px 20px',
-              borderRadius: '8px',
-              marginBottom: '20px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-              fontWeight: 600
-            }}>
-              <span style={{ fontSize: '20px' }}>⚠️</span>
-              <span>
-                Attention: Attendance is missing for {overdueSessions.length} session(s) that took place more than 24 hours ago.
-                Please mark attendance for: {overdueSessions.map(s => `S${s.session_number}`).join(', ')}.
-              </span>
-            </div>
-          );
-        }
-        return null;
-      })()}
+      {overdueSessions.length > 0 && (
+        <div
+          style={{
+            background: '#dc3545',
+            color: 'white',
+            padding: '12px 20px',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+            fontWeight: 600,
+          }}
+        >
+          <span style={{ fontSize: '20px' }}>⚠️</span>
+          <span>
+            Attention: Attendance is missing for {overdueSessions.length} session(s) that took place more than 24 hours ago. Please mark attendance for:{' '}
+            {overdueSessions.map((s) => `S${s.session_number}`).join(', ')}.
+          </span>
+        </div>
+      )}
 
       <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', background: '#f8f9fa', padding: '12px', borderRadius: '12px' }}>
@@ -232,20 +256,20 @@ export default function ClassWorkspace() {
                       <h3 style={{ fontSize: '17px', marginBottom: '4px', color: '#333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {student.full_name}
                         {student.joined_at_session_number && (
-                          <span style={{
-                            background: '#6c5ce7',
-                            color: 'white',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            fontSize: '10px'
-                          }}>
+                          <span
+                            style={{
+                              background: '#6c5ce7',
+                              color: 'white',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '10px',
+                            }}
+                          >
                             Late Join (S{student.joined_at_session_number})
                           </span>
                         )}
                       </h3>
-                      <p style={{ fontSize: '12px', color: '#666', marginBottom: '0' }}>
-                        {student.phone}
-                      </p>
+                      <p style={{ fontSize: '12px', color: '#666', marginBottom: '0' }}>{student.phone}</p>
                     </div>
                     {student.missed_count !== undefined && (
                       <span
@@ -265,9 +289,7 @@ export default function ClassWorkspace() {
 
                   {selectedSession ? (
                     <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', opacity: isUpdating ? 0.6 : 1 }}>
-                      <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
-                        Session {selectedSession.session_number} Attendance
-                      </div>
+                      <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>Session {selectedSession.session_number} Attendance</div>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button
                           disabled={isUpdating || classData.class.round_status === 'closed'}
@@ -325,15 +347,13 @@ export default function ClassWorkspace() {
           classKey={classKey}
           sessionsCount={classData.sessionsCount}
           totalSessions={classData.totalSessions}
-          attendedCount={selectedStudent.attendance
-            ? Object.values(selectedStudent.attendance).filter((status) =>
-                status === 'PRESENT' ||
-                status === 'LATE' ||
-                status === 'on-time' ||
-                status === 'late' ||
-                status === 'present',
-              ).length
-            : 0}
+          attendedCount={
+            selectedStudent.attendance
+              ? Object.values(selectedStudent.attendance).filter(
+                  (status) => status === 'PRESENT' || status === 'LATE' || status === 'on-time' || status === 'late' || status === 'present'
+                ).length
+              : 0
+          }
           onClose={() => setSelectedStudent(null)}
         />
       )}
