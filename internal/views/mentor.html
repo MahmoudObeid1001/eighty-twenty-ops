@@ -4,6 +4,12 @@
     <h1>My Classes</h1>
 </div>
 
+{{if .FlashMessage}}
+<div style="background-color: {{if eq .FlashMessageType "error"}}#F8D7DA{{else}}#D4EDDA{{end}}; border: 1px solid {{if eq .FlashMessageType "error"}}#F5C6CB{{else}}#C3E6CB{{end}}; color: {{if eq .FlashMessageType "error"}}#721C24{{else}}#155724{{end}}; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+    {{.FlashMessage}}
+</div>
+{{end}}
+
 <p style="font-size: 16px; margin-bottom: 8px;">Welcome, {{if .MentorEmail}}{{.MentorEmail}}{{else}}Mentor{{end}}.</p>
 {{if .Classes}}
 <p style="color: #555; font-size: 14px; margin-bottom: 16px;">{{.ClassCount}} {{if eq .ClassCount 1}}class{{else}}classes{{end}}{{if and .NextClassTime (ne .NextClassTime "—")}} · Next class: {{.NextClassTime}}{{end}}</p>

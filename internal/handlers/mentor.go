@@ -25,31 +25,48 @@ func NewMentorHandler(cfg *config.Config) *MentorHandler {
 	return &MentorHandler{config: cfg}
 }
 
+func mentorClassURL(basePath, classKey string, r *http.Request) string {
+	u := fmt.Sprintf("%s?class_key=%s", basePath, url.QueryEscape(classKey))
+	if r != nil {
+		if sess := r.FormValue("session"); sess != "" {
+			u += "&session=" + url.QueryEscape(sess)
+		}
+		if studentID := r.FormValue("student_id"); studentID != "" {
+			u += "&student_id=" + url.QueryEscape(studentID)
+		}
+	}
+	return u
+}
+
 // Dashboard lists all classes assigned to the current mentor
 func (h *MentorHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/mentor", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
 
 	userIDStr := middleware.GetUserID(r)
 	mentorUserID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		redirectWithError(w, r, "/mentor", "We couldn't verify your account. Please refresh and try again.")
 		return
 	}
 
+	flashMessage, flashMessageType := flashFromQuery(r)
 	classes, err := models.GetMentorClasses(mentorUserID)
 	if err != nil {
 		log.Printf("ERROR: Failed to get mentor classes: %v", err)
-		http.Error(w, "Failed to load classes", http.StatusInternalServerError)
-		return
+		if flashMessage == "" {
+			flashMessage = "Couldn't load classes. Please refresh and try again."
+			flashMessageType = "error"
+		}
+		classes = []*models.ClassGroupWorkflow{}
 	}
 
 	mentorEmail := middleware.GetUserEmail(r)
@@ -64,6 +81,8 @@ func (h *MentorHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		"NextClassTime": nextClassTime,
 		"IsAdmin":       userRole == "admin",
 		"IsModerator":   userRole == "moderator",
+		"FlashMessage":  flashMessage,
+		"FlashMessageType": flashMessageType,
 	}
 
 	renderTemplate(w, r, "mentor.html", data)
@@ -110,13 +129,13 @@ func nextUpcomingClassTime(classes []*models.ClassGroupWorkflow) string {
 // ClassDetail shows class detail with 8 sessions
 func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/mentor", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
 
@@ -126,7 +145,7 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 		classKey = classKeyRaw // Fallback to raw if decode fails
 	}
 	if classKey == "" {
-		http.Error(w, "class_key is required", http.StatusBadRequest)
+		redirectWithError(w, r, "/mentor", "Missing class reference. Please refresh and try again.")
 		return
 	}
 
@@ -136,7 +155,7 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 	if err == nil && userRole != "admin" {
 		assignment, err := models.GetMentorAssignment(classKey)
 		if err != nil || assignment == nil || assignment.MentorUserID != mentorUserID {
-			http.Error(w, "Forbidden: You are not assigned to this class", http.StatusForbidden)
+			redirectWithError(w, r, "/mentor", "You aren't assigned to this class.")
 			return
 		}
 	}
@@ -145,11 +164,11 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 	classGroup, err := models.GetClassGroupByKey(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get class group: %v", err)
-		http.Error(w, "Class not found", http.StatusNotFound)
+		redirectWithError(w, r, "/mentor", "Class not found. Please refresh and try again.")
 		return
 	}
 	if classGroup == nil {
-		http.Error(w, "Class not found", http.StatusNotFound)
+		redirectWithError(w, r, "/mentor", "Class not found. Please refresh and try again.")
 		return
 	}
 
@@ -157,7 +176,7 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 	sessions, err := models.GetClassSessions(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get sessions: %v", err)
-		http.Error(w, "Failed to load sessions", http.StatusInternalServerError)
+		redirectWithError(w, r, "/mentor", "Couldn't load sessions. Please refresh and try again.")
 		return
 	}
 
@@ -165,7 +184,7 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 	students, err := models.GetStudentsInClassGroup(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to get students: %v", err)
-		http.Error(w, "Failed to load students", http.StatusInternalServerError)
+		redirectWithError(w, r, "/mentor", "Couldn't load students. Please refresh and try again.")
 		return
 	}
 
@@ -263,6 +282,24 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 		"IsMentorHeadView": false,
 		"CurrentUserID":    middleware.GetUserID(r),
 		"UserRole":         userRole,
+		"FlashMessage":     "",
+		"FlashMessageType": "",
+	}
+	if msg, kind := flashFromQuery(r); msg != "" {
+		data["FlashMessage"] = msg
+		data["FlashMessageType"] = kind
+	} else if r.URL.Query().Get("attendance_saved") == "1" {
+		data["FlashMessage"] = "Attendance saved."
+		data["FlashMessageType"] = "success"
+	} else if r.URL.Query().Get("grade_saved") == "1" {
+		data["FlashMessage"] = "Grade saved."
+		data["FlashMessageType"] = "success"
+	} else if r.URL.Query().Get("note_saved") == "1" {
+		data["FlashMessage"] = "Note saved."
+		data["FlashMessageType"] = "success"
+	} else if r.URL.Query().Get("session_completed") == "1" {
+		data["FlashMessage"] = "Session completed."
+		data["FlashMessageType"] = "success"
 	}
 
 	renderTemplate(w, r, "mentor_class_detail.html", data)
@@ -271,16 +308,17 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 // MarkAttendance marks attendance for a student in a session
 func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/mentor", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
 
+	classKey := r.FormValue("class_key")
 	sessionIDStr := r.FormValue("session_id")
 	leadIDStr := r.FormValue("lead_id")
 	attendedStr := r.FormValue("attended")
@@ -288,13 +326,13 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 
 	sessionID, err := uuid.Parse(sessionIDStr)
 	if err != nil {
-		http.Error(w, "Invalid session_id", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Please choose a valid session.")
 		return
 	}
 
 	leadID, err := uuid.Parse(leadIDStr)
 	if err != nil {
-		http.Error(w, "Invalid lead_id", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "We couldn't find that student. Please refresh and try again.")
 		return
 	}
 
@@ -311,12 +349,12 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	if userRole != "admin" {
 		session, err := models.GetSessionByID(sessionID)
 		if err != nil || session == nil {
-			http.Error(w, "Session not found", http.StatusNotFound)
+			redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Session not found. Please refresh and try again.")
 			return
 		}
 		assignment, err := models.GetMentorAssignment(session.ClassKey)
 		if err != nil || assignment == nil || assignment.MentorUserID != mentorUserID {
-			http.Error(w, "Forbidden: You are not assigned to this class", http.StatusForbidden)
+			redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "You aren't assigned to this class.")
 			return
 		}
 	}
@@ -324,14 +362,13 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	markedByUserID, _ := uuid.Parse(userIDStr)
 	if err := models.MarkAttendance(sessionID, leadID, status, notes, markedByUserID); err != nil {
 		log.Printf("ERROR: Failed to mark attendance: %v", err)
-		http.Error(w, "Failed to mark attendance", http.StatusInternalServerError)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", r.FormValue("class_key"), r), "Couldn't save attendance. Please try again.")
 		return
 	}
 
-	ck := r.FormValue("class_key")
 	sess := r.FormValue("session")
 	studentID := r.FormValue("student_id")
-	u := fmt.Sprintf("/mentor/class?class_key=%s&attendance_saved=1", url.QueryEscape(ck))
+	u := fmt.Sprintf("/mentor/class?class_key=%s&attendance_saved=1", url.QueryEscape(classKey))
 	if sess != "" {
 		u += "&session=" + url.QueryEscape(sess)
 	}
@@ -344,13 +381,13 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 // EnterGrade enters a grade for a student at session 8
 func (h *MentorHandler) EnterGrade(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/mentor", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
 
@@ -361,21 +398,21 @@ func (h *MentorHandler) EnterGrade(w http.ResponseWriter, r *http.Request) {
 
 	leadID, err := uuid.Parse(leadIDStr)
 	if err != nil {
-		http.Error(w, "Invalid lead_id", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "We couldn't find that student. Please refresh and try again.")
 		return
 	}
 
 	// Verify grade is valid
 	allowedGrades := map[string]bool{"A": true, "B": true, "C": true, "F": true}
 	if !allowedGrades[grade] {
-		http.Error(w, "Invalid grade. Must be A, B, C, or F", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Invalid grade. Must be A, B, C, or F.")
 		return
 	}
 
 	// Verify session 8 is completed
 	sessions, err := models.GetClassSessions(classKey)
 	if err != nil {
-		http.Error(w, "Failed to verify session", http.StatusInternalServerError)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Couldn't verify the session. Please try again.")
 		return
 	}
 	var session8Completed bool
@@ -386,7 +423,7 @@ func (h *MentorHandler) EnterGrade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !session8Completed {
-		http.Error(w, "Session 8 must be completed before entering grades", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Session 8 must be completed before entering grades.")
 		return
 	}
 
@@ -396,7 +433,7 @@ func (h *MentorHandler) EnterGrade(w http.ResponseWriter, r *http.Request) {
 	if userRole != "admin" {
 		assignment, err := models.GetMentorAssignment(classKey)
 		if err != nil || assignment == nil || assignment.MentorUserID != mentorUserID {
-			http.Error(w, "Forbidden: You are not assigned to this class", http.StatusForbidden)
+			redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "You aren't assigned to this class.")
 			return
 		}
 	}
@@ -404,7 +441,7 @@ func (h *MentorHandler) EnterGrade(w http.ResponseWriter, r *http.Request) {
 	createdByUserID, _ := uuid.Parse(userIDStr)
 	if err := models.EnterGrade(leadID, classKey, grade, notes, createdByUserID); err != nil {
 		log.Printf("ERROR: Failed to enter grade: %v", err)
-		http.Error(w, "Failed to enter grade", http.StatusInternalServerError)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Couldn't save the grade. Please try again.")
 		return
 	}
 
@@ -423,20 +460,20 @@ func (h *MentorHandler) EnterGrade(w http.ResponseWriter, r *http.Request) {
 // AddNote adds a note for a student
 func (h *MentorHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/mentor", "This action isn't available.")
 		return
 	}
 
 	// Explicitly parse form to ensure data is available
 	if err := r.ParseForm(); err != nil {
 		log.Printf("ERROR: Failed to parse form: %v", err)
-		http.Error(w, "Failed to parse form data", http.StatusBadRequest)
+		redirectWithError(w, r, "/mentor", "We couldn't read the form data. Please refresh and try again.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor" && userRole != "admin" && userRole != "mentor_head" {
-		http.Error(w, "Forbidden: Mentor, Mentor Head, or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
 
@@ -444,23 +481,27 @@ func (h *MentorHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 	classKey := r.FormValue("class_key")
 	sessionNumberStr := r.FormValue("session_number")
 	noteText := strings.TrimSpace(r.FormValue("note_text"))
+	basePath := "/mentor/class"
+	if userRole == "mentor_head" {
+		basePath = "/mentor-head/class"
+	}
 
 	// Validate required fields
 	if leadIDStr == "" {
 		log.Printf("ERROR: AddNote - lead_id is empty")
-		http.Error(w, "lead_id is required", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL(basePath, classKey, r), "Please choose a student.")
 		return
 	}
 	if noteText == "" {
 		log.Printf("ERROR: AddNote - note_text is empty")
-		http.Error(w, "Note text cannot be empty", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL(basePath, classKey, r), "Please enter a note.")
 		return
 	}
 
 	leadID, err := uuid.Parse(leadIDStr)
 	if err != nil {
 		log.Printf("ERROR: AddNote - Invalid lead_id: %q, error: %v", leadIDStr, err)
-		http.Error(w, "Invalid lead_id", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL(basePath, classKey, r), "We couldn't find that student. Please refresh and try again.")
 		return
 	}
 
@@ -474,32 +515,26 @@ func (h *MentorHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 
 	userIDStr := middleware.GetUserID(r)
 	if userIDStr == "" {
-		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		redirectWithError(w, r, mentorClassURL(basePath, classKey, r), "Please log in to continue.")
 		return
 	}
 
 	createdByUserID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		log.Printf("ERROR: AddNote - Invalid user ID: %q, error: %v", userIDStr, err)
-		http.Error(w, "Invalid user ID", http.StatusInternalServerError)
+		redirectWithError(w, r, mentorClassURL(basePath, classKey, r), "We couldn't verify your account. Please refresh and try again.")
 		return
 	}
 
 	if err := models.AddStudentNote(leadID, classKey, sessionNumber, noteText, false, createdByUserID); err != nil {
 		log.Printf("ERROR: Failed to add note: lead_id=%s, error: %v", leadID, err)
-		http.Error(w, fmt.Sprintf("Failed to add note: %v", err), http.StatusInternalServerError)
+		redirectWithError(w, r, mentorClassURL(basePath, classKey, r), "Couldn't save the note. Please try again.")
 		return
 	}
 
 	sess := r.FormValue("session")
 	studentID := r.FormValue("student_id")
 	// Redirect to appropriate route based on role
-	var basePath string
-	if userRole == "mentor_head" {
-		basePath = "/mentor-head/class"
-	} else {
-		basePath = "/mentor/class"
-	}
 	u := fmt.Sprintf("%s?class_key=%s&note_saved=1", basePath, url.QueryEscape(classKey))
 	if sess != "" {
 		u += "&session=" + url.QueryEscape(sess)
@@ -515,23 +550,24 @@ func (h *MentorHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 // CompleteSession marks a session as completed
 func (h *MentorHandler) CompleteSession(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/mentor", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor" && userRole != "admin" {
-		http.Error(w, "Forbidden: Mentor or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
 
+	classKey := r.FormValue("class_key")
 	sessionIDStr := r.FormValue("session_id")
 	actualDateStr := r.FormValue("actual_date")
 	actualTimeStr := r.FormValue("actual_time")
 
 	sessionID, err := uuid.Parse(sessionIDStr)
 	if err != nil {
-		http.Error(w, "Invalid session_id", http.StatusBadRequest)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Please choose a valid session.")
 		return
 	}
 
@@ -541,12 +577,12 @@ func (h *MentorHandler) CompleteSession(w http.ResponseWriter, r *http.Request) 
 	if userRole != "admin" {
 		session, err := models.GetSessionByID(sessionID)
 		if err != nil || session == nil {
-			http.Error(w, "Session not found", http.StatusNotFound)
+			redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Session not found. Please refresh and try again.")
 			return
 		}
 		assignment, err := models.GetMentorAssignment(session.ClassKey)
 		if err != nil || assignment == nil || assignment.MentorUserID != mentorUserID {
-			http.Error(w, "Forbidden: You are not assigned to this class", http.StatusForbidden)
+			redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "You aren't assigned to this class.")
 			return
 		}
 	}
@@ -565,14 +601,13 @@ func (h *MentorHandler) CompleteSession(w http.ResponseWriter, r *http.Request) 
 
 	if err := models.CompleteSession(sessionID, actualDate, actualTime); err != nil {
 		log.Printf("ERROR: Failed to complete session: %v", err)
-		http.Error(w, "Failed to complete session", http.StatusInternalServerError)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", r.FormValue("class_key"), r), "Couldn't complete the session. Please try again.")
 		return
 	}
 
-	ck := r.FormValue("class_key")
 	sess := r.FormValue("session")
 	studentID := r.FormValue("student_id")
-	u := fmt.Sprintf("/mentor/class?class_key=%s&session_completed=1", url.QueryEscape(ck))
+	u := fmt.Sprintf("/mentor/class?class_key=%s&session_completed=1", url.QueryEscape(classKey))
 	if sess != "" {
 		u += "&session=" + url.QueryEscape(sess)
 	}

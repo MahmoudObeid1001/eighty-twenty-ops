@@ -22,13 +22,13 @@ func NewHRHandler(cfg *config.Config) *HRHandler {
 // MentorsList renders the HR mentors page (form to create mentor users).
 func (h *HRHandler) MentorsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "hr" && userRole != "admin" {
-		http.Error(w, "Forbidden: HR or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
 
@@ -46,13 +46,13 @@ func (h *HRHandler) MentorsList(w http.ResponseWriter, r *http.Request) {
 // MentorsCreate creates a new mentor user (POST).
 func (h *HRHandler) MentorsCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "hr" && userRole != "admin" {
-		http.Error(w, "Forbidden: HR or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
 

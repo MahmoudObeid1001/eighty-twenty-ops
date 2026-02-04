@@ -9,7 +9,7 @@
 <div id="toast" class="toast" style="display: none;"></div>
 
 {{if .FlashMessage}}
-<div class="flash-message" style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;">
+<div class="flash-message" style="background-color: {{if eq .FlashMessageType "error"}}#F8D7DA{{else}}#D4EDDA{{end}}; border: 1px solid {{if eq .FlashMessageType "error"}}#F5C6CB{{else}}#C3E6CB{{end}}; color: {{if eq .FlashMessageType "error"}}#721C24{{else}}#155724{{end}}; padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;">
     {{.FlashMessage}}
 </div>
 {{end}}

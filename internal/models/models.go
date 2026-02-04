@@ -151,6 +151,7 @@ type ClassGroupWorkflow struct {
 	ClassDays          string
 	ClassTime          string
 	ClassNumber        int32
+	CompletedSessions  int32
 	SentToMentor       bool
 	SentAt             sql.NullTime
 	ReturnedAt         sql.NullTime
@@ -453,18 +454,19 @@ type FollowUpCaseNote struct {
 
 // ComplaintListItem for API responses
 type ComplaintListItem struct {
-	ID            uuid.UUID  `json:"id"`
-	ClassKey      string     `json:"class_key"`
-	StudentName   string     `json:"student_name"`
-	StudentPhone  string     `json:"student_phone"`
-	Category      string     `json:"category"`
-	Urgency       string     `json:"urgency"`
-	Status        string     `json:"status"`
-	ComplaintText string     `json:"complaint_text"`
-	LastNote      string     `json:"last_note"`
-	CreatedAt     time.Time  `json:"created_at"`
-	Resolved      bool       `json:"resolved"`
-	ResolvedAt    *time.Time `json:"resolved_at,omitempty"`
+	ID            uuid.UUID           `json:"id"`
+	ClassKey      string              `json:"class_key"`
+	StudentName   string              `json:"student_name"`
+	StudentPhone  string              `json:"student_phone"`
+	Category      string              `json:"category"`
+	Urgency       string              `json:"urgency"`
+	Status        string              `json:"status"`
+	ComplaintText string              `json:"complaint_text"`
+	LastNote      string              `json:"last_note"`
+	CreatedAt     time.Time           `json:"created_at"`
+	Resolved      bool                `json:"resolved"`
+	ResolvedAt    *time.Time          `json:"resolved_at,omitempty"`
+	Notes         []*FollowUpCaseNote `json:"notes"`
 }
 
 // LateJoiner represents an audit record for a student who joined a class after session 1

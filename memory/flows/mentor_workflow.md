@@ -57,6 +57,7 @@ flowchart TD
 **Evidence**:
 - `cmd/server/main.go:114-117`
 - `internal/handlers/api.go` - GetMentorClasses function
+- `internal/handlers/mentor.go` - banner UX for server-rendered mentor pages
 
 ### Open Class Workspace
 **Route**: `GET /api/class-workspace?class_key={key}`  
@@ -82,10 +83,12 @@ flowchart TD
 **Route**: `POST /api/session/complete` or `POST /api/classes/:id/sessions/:n/complete`  
 **Handler**: `apiHandler.CompleteSession` or `apiHandler.CompleteSessionByNumber`  
 **Database**: Updates `class_sessions.status = 'completed'`, sets `completed_at` timestamp  
+**UI**: Uses a styled modal confirmation (replaces browser `confirm`)  
 **Evidence**:
 - `cmd/server/main.go:109-112`, `391-406`
 - `migrations/016_create_class_sessions.sql`
 - `internal/handlers/api.go` - CompleteSession, CompleteSessionByNumber functions
+- `frontend/src/pages/ClassWorkspace.tsx` - modal confirmation
 
 ### View Student Details  
 **Route**: `GET /api/student?lead_id={id}&class_key={key}`  
@@ -127,6 +130,14 @@ flowchart TD
 **Evidence**:
 - `migrations/016_create_class_sessions.sql`
 - Frontend displays completion counter
+
+### Rule: Mentor UI uses banner UX for server-rendered pages
+**Scope**: `/mentor` and `/mentor/class` (server-rendered)  
+**Behavior**: Handler redirects with `?error=...` or `?success=...` and template renders a banner  
+**Evidence**:
+- `internal/handlers/mentor.go`
+- `internal/views/mentor.html`
+- `internal/views/mentor_class_detail.html`
 
 ### Rule: Multi-role access to workspace
 **Allowed**: mentor, mentor_head, admin, student_success  

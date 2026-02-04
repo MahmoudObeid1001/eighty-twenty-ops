@@ -130,7 +130,7 @@ func (h *AuthHandler) LoginForm(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -169,7 +169,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	cookie, err := middleware.CreateSessionCookie(user.ID.String(), user.Email, user.Role, h.cfg.SessionSecret)
 	if err != nil {
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		http.Error(w, "We couldn't sign you in. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -193,7 +193,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 // GET /learning -> mentor: /mentor, mentor_head: /mentor-head, hr: /hr/mentors, student_success: /student-success, admin/moderator: /pre-enrolment.
 func (h *AuthHandler) LearningRedirect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 	role := middleware.GetUserRole(r)

@@ -7,6 +7,48 @@ type Tab = 'students' | 'absence' | 'followups' | 'feedback'
 
 type StudentRow = StudentSuccessClassDetail['students'][number]
 
+type ConfirmDialogState = {
+  open: boolean
+  title: string
+  body?: string
+  confirmLabel?: string
+  cancelLabel?: string
+  tone?: 'primary' | 'success' | 'danger'
+  onConfirm?: () => void | Promise<void>
+}
+
+function ConfirmDialog({ open, title, body, confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = 'primary', onConfirm, onCancel }: {
+  open: boolean
+  title: string
+  body?: string
+  confirmLabel?: string
+  cancelLabel?: string
+  tone?: 'primary' | 'success' | 'danger'
+  onConfirm?: () => void | Promise<void>
+  onCancel: () => void
+}) {
+  if (!open) return null
+
+  const toneColor = tone === 'success' ? '#28a745' : tone === 'danger' ? '#dc3545' : '#007bff'
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }} onClick={onCancel}>
+      <div style={{ background: 'white', padding: '20px', borderRadius: '10px', width: '420px', maxWidth: '90%' }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: 0, marginBottom: '12px' }}>{title}</h3>
+        {body && <p style={{ margin: 0, marginBottom: '16px', color: '#555', fontSize: '14px' }}>{body}</p>}
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
+            {cancelLabel}
+          </button>
+          <button onClick={onConfirm} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: toneColor, color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string; students: any[]; onUpdate: () => void }) {
   const [selected, setSelected] = useState<{ lead_id: string; full_name: string; session_number: number } | null>(null)
   const [feedbackText, setFeedbackText] = useState('')
@@ -245,6 +287,7 @@ export default function StudentSuccessClass() {
     open: false,
     item: null,
   })
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({ open: false, title: '' })
   const [refreshNonce, setRefreshNonce] = useState(0)
 
   const triggerRefresh = () => setRefreshNonce((n) => n + 1)
@@ -484,19 +527,28 @@ export default function StudentSuccessClass() {
                       setFollowUpModal((prev) => ({ ...prev, error: 'Please enter a final note' }))
                       return
                     }
-                    if (!confirm('Mark as resolved?')) return
-                    try {
-                      const followUpId = followUpModal.item.followUp?.id
-                      if (followUpId) {
-                        await api.updateFollowUp(followUpId, { status: status, note: note, resolved: true })
-                      } else {
-                        await api.resolveAbsence({ class_key: classKey, lead_id: followUpModal.item.studentId || followUpModal.item.lead_id, session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number })
-                      }
-                      setFollowUpModal({ open: false, item: null })
-                      triggerRefresh()
-                    } catch (err) {
-                      setFollowUpModal((prev) => ({ ...prev, error: err instanceof Error ? err.message : 'Failed to resolve' }))
-                    }
+                    setConfirmDialog({
+                      open: true,
+                      title: 'Mark as resolved?',
+                      body: 'This will mark the follow-up as resolved and close the note.',
+                      confirmLabel: 'Resolve & Close',
+                      tone: 'success',
+                      onConfirm: async () => {
+                        setConfirmDialog({ open: false, title: '' })
+                        try {
+                          const followUpId = followUpModal.item.followUp?.id
+                          if (followUpId) {
+                            await api.updateFollowUp(followUpId, { status: status, note: note, resolved: true })
+                          } else {
+                            await api.resolveAbsence({ class_key: classKey, lead_id: followUpModal.item.studentId || followUpModal.item.lead_id, session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number })
+                          }
+                          setFollowUpModal({ open: false, item: null })
+                          triggerRefresh()
+                        } catch (err) {
+                          setFollowUpModal((prev) => ({ ...prev, error: err instanceof Error ? err.message : 'Failed to resolve' }))
+                        }
+                      },
+                    })
                   }}
                   style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#28a745', color: '#fff', cursor: 'pointer' }}
                 >
@@ -507,6 +559,16 @@ export default function StudentSuccessClass() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        body={confirmDialog.body}
+        confirmLabel={confirmDialog.confirmLabel}
+        cancelLabel={confirmDialog.cancelLabel}
+        tone={confirmDialog.tone}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ open: false, title: '' })}
+      />
     </>
   )
 }
@@ -516,6 +578,7 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'unresolved' | 'absent' | 'late'>('all')
   const [search, setSearch] = useState('')
+  const [confirmState, setConfirmState] = useState<{ open: boolean; item?: { followUpId?: string; studentId: string; sessionNum: number } }>({ open: false })
 
   useEffect(() => {
     loadFeed()
@@ -535,7 +598,13 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
   }
 
   async function handleMarkResolved(followUpId: string | undefined, studentId: string, sessionNum: number) {
-    if (!confirm('Mark this absence as resolved?')) return
+    setConfirmState({ open: true, item: { followUpId, studentId, sessionNum } })
+  }
+
+  async function confirmResolve() {
+    if (!confirmState.item) return
+    const { followUpId, studentId, sessionNum } = confirmState.item
+    setConfirmState({ open: false })
 
     const originalItems = items
     setItems((prev) => prev.filter((item) => !(item.studentId === studentId && item.sessionNumber === sessionNum)))
@@ -571,7 +640,8 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
   if (loading) return <p style={{ padding: '20px' }}>Loading absence feed...</p>
 
   return (
-    <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
+    <>
+      <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
       <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           {(['all', 'unresolved', 'absent', 'late'] as const).map((f) => (
@@ -653,7 +723,17 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
           ))
         )}
       </div>
-    </div>
+      </div>
+      <ConfirmDialog
+        open={confirmState.open}
+        title="Mark as resolved?"
+        body="This will resolve the absence and remove it from the list."
+        confirmLabel="Resolve"
+        tone="success"
+        onConfirm={confirmResolve}
+        onCancel={() => setConfirmState({ open: false })}
+      />
+    </>
   )
 }
 

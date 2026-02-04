@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api/client'
+import { api, type ComplaintListItem } from '../api/client'
 
 export default function MentorHeadComplaints() {
-    const [complaints, setComplaints] = useState<any[]>([])
+    const [complaints, setComplaints] = useState<ComplaintListItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [showResolved, setShowResolved] = useState(false)
     const [actionModal, setActionModal] = useState<{
         type: 'update' | 'resolve' | null
-        complaint: any | null
+        complaint: ComplaintListItem | null
     }>({ type: null, complaint: null })
-    const [viewComplaint, setViewComplaint] = useState<any | null>(null)
+    const [viewComplaint, setViewComplaint] = useState<ComplaintListItem | null>(null)
 
     useEffect(() => {
         loadComplaints()
@@ -299,9 +299,62 @@ export default function MentorHeadComplaints() {
                             <div><strong>Urgency:</strong> {viewComplaint.urgency}</div>
                             <div><strong>Created:</strong> {new Date(viewComplaint.created_at).toLocaleString()}</div>
                         </div>
-                        <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '8px', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-                            {viewComplaint.complaint_text || viewComplaint.last_note || '-'}
+                        <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '8px', marginBottom: '20px' }}>
+                            <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '14px' }}>Initial Complaint:</div>
+                            <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: '#333' }}>
+                                {viewComplaint.complaint_text || '-'}
+                            </div>
                         </div>
+
+                        {viewComplaint.notes && viewComplaint.notes.length > 0 && (
+                            <div style={{ marginTop: '24px' }}>
+                                <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px', color: '#333', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>
+                                    Activity History
+                                </h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative', paddingLeft: '20px' }}>
+                                    {/* Timeline line */}
+                                    <div style={{ position: 'absolute', left: '7px', top: '5px', bottom: '5px', width: '2px', background: '#e9ecef' }} />
+
+                                    {viewComplaint.notes.map((note: any, idx: number) => (
+                                        <div key={note.id || idx} style={{ position: 'relative' }}>
+                                            {/* dot */}
+                                            <div style={{
+                                                position: 'absolute',
+                                                left: '-17px',
+                                                top: '5px',
+                                                width: '10px',
+                                                height: '10px',
+                                                borderRadius: '50%',
+                                                background: note.note_type === 'status_change' ? '#007bff' : note.note_type === 'resolution' ? '#28a745' : note.note_type === 'system' ? '#6c757d' : '#adb5bd',
+                                                border: '2px solid white',
+                                                zIndex: 1
+                                            }} />
+
+                                            <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>
+                                                    <strong>{note.created_by_email || 'System'}</strong>
+                                                    <span style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', background: '#e9ecef', color: '#666', fontWeight: 600 }}>
+                                                        {note.note_type.replace('_', ' ').toUpperCase()}
+                                                    </span>
+                                                </span>
+                                                <span>{new Date(note.created_at).toLocaleString()}</span>
+                                            </div>
+                                            <div style={{
+                                                fontSize: '13px',
+                                                color: '#333',
+                                                lineHeight: 1.5,
+                                                background: note.note_type === 'status_change' ? '#f0f7ff' : note.note_type === 'resolution' ? '#f0fff4' : '#fff',
+                                                padding: '8px 12px',
+                                                borderRadius: '6px',
+                                                border: '1px solid #eee'
+                                            }}>
+                                                {note.note_text}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -312,17 +365,19 @@ export default function MentorHeadComplaints() {
 // Complaint Action Modal
 function ComplaintActionModal({ type, complaint, onClose, onSuccess }: {
     type: 'update' | 'resolve'
-    complaint: any
+    complaint: ComplaintListItem
     onClose: () => void
     onSuccess: () => void
 }) {
     const [status, setStatus] = useState(complaint.status || 'contacted')
     const [note, setNote] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     async function handleSubmit() {
+        setError(null)
         if (!note.trim()) {
-            alert('Please enter a note')
+            setError('Please enter a note')
             return
         }
 
@@ -335,7 +390,7 @@ function ComplaintActionModal({ type, complaint, onClose, onSuccess }: {
             }
             onSuccess()
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Failed to update complaint')
+            setError(err instanceof Error ? err.message : 'Failed to update complaint')
         } finally {
             setIsSubmitting(false)
         }
@@ -360,6 +415,12 @@ function ComplaintActionModal({ type, complaint, onClose, onSuccess }: {
                     <div style={{ fontSize: '12px', color: '#666' }}>Complaint: {complaint.complaint_text || complaint.last_note || '-'}</div>
                 </div>
 
+                {error && (
+                    <div style={{ color: '#721c24', background: '#f8d7da', padding: '8px 12px', borderRadius: '6px', marginBottom: '12px', fontSize: '13px' }}>
+                        {error}
+                    </div>
+                )}
+
                 {type === 'update' && (
                     <div style={{ marginBottom: '16px' }}>
                         <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
@@ -383,7 +444,10 @@ function ComplaintActionModal({ type, complaint, onClose, onSuccess }: {
                     </label>
                     <textarea
                         value={note}
-                        onChange={(e) => setNote(e.target.value)}
+                        onChange={(e) => {
+                            setNote(e.target.value)
+                            if (error) setError(null)
+                        }}
                         placeholder={type === 'resolve' ? 'Describe how the complaint was resolved...' : 'Add an update or note...'}
                         style={{ width: '100%', height: '120px', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', resize: 'vertical' }}
                     />

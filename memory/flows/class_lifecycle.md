@@ -26,6 +26,7 @@ stateDiagram-v2
     AllSessionsComplete --> RoundClosed: Mentor Head closes round
     
     RoundClosed --> [*]: Class archived (removed from Mentor active feed)
+    RoundClosed --> SessionsInProgress: Mentor Head reopens (only if <8 sessions completed)
     
     SentToMentor --> ReturnedToOps: Too many students cause this state.
     Assigned --> ReturnedToOps: Mentor Head unassigns mentor
@@ -120,6 +121,13 @@ stateDiagram-v2
 **Sort**: `sort=oldest|newest` on `round_closed_at`.  
 **Evidence**: `internal/handlers/api.go` (`GetMentorHeadArchive`), `internal/models/repository.go` (`GetArchivedClassGroups`).
 
+### Mentor Head dashboard banner UX
+**Scope**: `/mentor-head` (server-rendered)  
+**Behavior**: Handler redirects with `?error=...` or `?success=...`, template renders a banner  
+**Evidence**:
+- `internal/handlers/mentor_head.go`
+- `internal/views/mentor_head.html`
+
 ### Transition: Return to Ops (SentToMentor/Assigned → ReturnedToOps)
 **Route**: `POST /api/mentor-head/return-to-ops` or `POST /classes/return`  
 **Handler**: `apiHandler.ReturnToOps` or `classesHandler.ReturnFromMentor`  
@@ -159,6 +167,12 @@ stateDiagram-v2
 ### Rule: Can only close round after all sessions complete
 **Evidence**: Handler logic (TODO: verify in `internal/handlers/api.go` - CloseRound)  
 **Expected behavior**: Frontend/backend should check all 8 sessions are completed before allowing close.
+
+### Rule: Reopen closed round only if fewer than 8 sessions completed
+**Evidence**:
+- `internal/handlers/api.go` - `ReopenRound` handler
+- `internal/models/repository.go` - `ReopenClosedRound` (counts completed sessions < 8)
+- `cmd/server/main.go` - `/api/mentor-head/reopen-round` route
 
 ### Rule: Active Classes Feed Filtering
 **Implementation**: 

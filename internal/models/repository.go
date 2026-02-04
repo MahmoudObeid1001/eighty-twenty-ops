@@ -3469,6 +3469,57 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 	return tx.Commit()
 }
 
+// ReopenClosedRound reopens a closed class if fewer than 8 sessions are completed.
+// Reopen will set sent_to_mentor = true and round_status = 'active'.
+func ReopenClosedRound(classKey string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+
+	var roundStatus string
+	err = tx.QueryRow(`SELECT COALESCE(round_status, '') FROM class_groups WHERE class_key = $1`, classKey).Scan(&roundStatus)
+	if err != nil {
+		return fmt.Errorf("failed to load class: %w", err)
+	}
+	if roundStatus != "closed" {
+		return fmt.Errorf("class is not closed")
+	}
+
+	var completedCount int32
+	err = tx.QueryRow(`
+		SELECT COALESCE(COUNT(*), 0)
+		FROM class_sessions
+		WHERE class_key = $1 AND status = 'completed'
+	`, classKey).Scan(&completedCount)
+	if err != nil {
+		return fmt.Errorf("failed to count completed sessions: %w", err)
+	}
+	if completedCount >= 8 {
+		return fmt.Errorf("class already completed")
+	}
+
+	_, err = tx.Exec(`
+		UPDATE class_groups
+		SET sent_to_mentor = true,
+		    returned_at = NULL,
+		    updated_at = $1,
+		    round_status = 'active',
+		    round_closed_at = NULL,
+		    round_closed_by = NULL,
+		    closed_mentor_user_id = NULL
+		WHERE class_key = $2
+	`, now, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to reopen class: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // GetArchivedClassGroups returns all class groups where round_status = 'closed'.
 // sort: 'oldest' (ASC) or 'newest' (DESC) by round_closed_at.
 // from/to filter by round_closed_at date (inclusive) when provided.
@@ -3482,7 +3533,8 @@ func GetArchivedClassGroups(sort string, fromDate, toDate *time.Time) ([]*ClassG
 		SELECT class_key, level, class_days, class_time, class_number,
 		       sent_to_mentor, sent_at, returned_at, updated_at,
 		       round_status, round_started_at, round_started_by,
-		       round_closed_at, round_closed_by, closed_mentor_user_id
+		       round_closed_at, round_closed_by, closed_mentor_user_id,
+		       COALESCE((SELECT COUNT(*) FROM class_sessions WHERE class_key = class_groups.class_key AND status = 'completed'), 0) AS completed_sessions
 		FROM class_groups
 		WHERE round_status = 'closed'
 	`
@@ -3518,7 +3570,7 @@ func GetArchivedClassGroups(sort string, fromDate, toDate *time.Time) ([]*ClassG
 			&g.ClassKey, &g.Level, &g.ClassDays, &g.ClassTime, &g.ClassNumber,
 			&g.SentToMentor, &sentAt, &returnedAt, &g.UpdatedAt,
 			&g.RoundStatus, &startedAt, &startedBy,
-			&closedAt, &closedBy, &closedMentorID,
+			&closedAt, &closedBy, &closedMentorID, &g.CompletedSessions,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan archived class group: %w", err)
@@ -4840,7 +4892,7 @@ func GetFollowUps(classKey string, resolved bool) ([]*FollowUpListItem, error) {
 func ResolveAbsence(classKey string, leadID uuid.UUID, sessionNumber int, resolvedBy uuid.UUID) error {
 	_, err := db.DB.Exec(`
 		INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at, resolved, resolved_at, resolved_by_user_id)
-		VALUES ($1, $2, $3, '', 'none', $4, NOW(), true, NOW(), $4)
+		VALUES ($1, $2, $3, '', 'RESOLVED', $4, NOW(), true, NOW(), $4)
 		ON CONFLICT (class_key, lead_id, session_number) 
 		DO UPDATE SET resolved = true, resolved_at = NOW(), resolved_by_user_id = $4, updated_at = NOW()
 	`, classKey, leadID, sessionNumber, resolvedBy)
@@ -4871,8 +4923,9 @@ func CreateComplaint(classKey, studentPhone, category, complaintText, urgency st
 		return nil, fmt.Errorf("failed to create complaint: %w", err)
 	}
 
-	// Create initial system note
-	_ = CreateFollowUpNote(complaint.ID, "Complaint filed", "system", createdByUserID)
+	// Create initial note with the complaint text
+	_ = CreateFollowUpNote(complaint.ID, "Initial Complaint: "+complaintText, "comment", createdByUserID)
+	_ = CreateFollowUpNote(complaint.ID, "Complaint created by Student Success", "system", createdByUserID)
 
 	return &complaint, nil
 }
@@ -4984,6 +5037,16 @@ func GetComplaintsForMentorHead(showResolved bool) ([]*ComplaintListItem, error)
 		if resolvedAt.Valid {
 			item.ResolvedAt = &resolvedAt.Time
 		}
+
+		// Fetch all notes for history
+		notes, err := GetFollowUpNotes(item.ID)
+		if err == nil {
+			item.Notes = notes
+			if len(notes) > 0 {
+				item.LastNote = notes[0].NoteText
+			}
+		}
+
 		results = append(results, item)
 	}
 	return results, rows.Err()

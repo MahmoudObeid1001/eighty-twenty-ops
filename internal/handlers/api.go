@@ -988,13 +988,14 @@ func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request
 	}
 
 	type ArchivedClass struct {
-		ClassKey     string `json:"class_key"`
-		Level        int32  `json:"level"`
-		Days         string `json:"days"`
-		Time         string `json:"time"`
-		ClassNumber  int32  `json:"class_number"`
-		StudentCount int    `json:"student_count"`
-		ClosedAt     string `json:"closed_at"`
+		ClassKey                string `json:"class_key"`
+		Level                   int32  `json:"level"`
+		Days                    string `json:"days"`
+		Time                    string `json:"time"`
+		ClassNumber             int32  `json:"class_number"`
+		StudentCount            int    `json:"student_count"`
+		ClosedAt                string `json:"closed_at"`
+		CompletedSessionsCount  int32  `json:"completed_sessions_count"`
 	}
 
 	type MentorArchiveGroup struct {
@@ -1017,6 +1018,7 @@ func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request
 			Days:        c.ClassDays,
 			Time:        c.ClassTime,
 			ClassNumber: c.ClassNumber,
+			CompletedSessionsCount: c.CompletedSessions,
 		}
 		if c.RoundClosedAt.Valid {
 			archived.ClosedAt = c.RoundClosedAt.Time.Format(time.RFC3339)
@@ -1431,6 +1433,50 @@ func (h *APIHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 	if err := models.CloseRound(req.ClassKey, closedByID); err != nil {
 		log.Printf("ERROR: Failed to close round: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to close round")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// POST /api/mentor-head/reopen-round - reopens a closed round if incomplete
+func (h *APIHandler) ReopenRound(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
+		return
+	}
+
+	var req struct {
+		ClassKey string `json:"class_key"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ClassKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+
+	if err := models.ReopenClosedRound(req.ClassKey); err != nil {
+		log.Printf("ERROR: Failed to reopen round: %v", err)
+		if strings.Contains(err.Error(), "not closed") {
+			jsonError(w, http.StatusBadRequest, "Class is not closed")
+			return
+		}
+		if strings.Contains(err.Error(), "completed") {
+			jsonError(w, http.StatusBadRequest, "Cannot reopen a class that completed all 8 sessions")
+			return
+		}
+		jsonError(w, http.StatusInternalServerError, "Failed to reopen class")
 		return
 	}
 

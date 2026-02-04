@@ -23,13 +23,13 @@ func NewStudentSuccessHandler(cfg *config.Config) *StudentSuccessHandler {
 // Dashboard shows pending feedback and absence follow-up tasks
 func (h *StudentSuccessHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/student-success", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "student_success" && userRole != "admin" {
-		http.Error(w, "Forbidden: Student Success or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/student-success", "You don't have permission to do this.")
 		return
 	}
 
@@ -56,14 +56,25 @@ func (h *StudentSuccessHandler) Dashboard(w http.ResponseWriter, r *http.Request
 		}{}
 	}
 
+	flashMessage, flashMessageType := flashFromQuery(r)
+	if flashMessage == "" {
+		if r.URL.Query().Get("feedback_submitted") == "1" {
+			flashMessage = "Feedback submitted."
+			flashMessageType = "success"
+		} else if r.URL.Query().Get("follow_up_logged") == "1" {
+			flashMessage = "Follow-up logged."
+			flashMessageType = "success"
+		}
+	}
+
 	data := map[string]interface{}{
 		"Title":              "Community Officer – Eighty Twenty",
 		"PendingFeedback4":   pending4,
 		"PendingFeedback8":   pending8,
 		"IsAdmin":            userRole == "admin",
 		"IsModerator":        userRole == "moderator",
-		"feedback_submitted": r.URL.Query().Get("feedback_submitted"),
-		"follow_up_logged":   r.URL.Query().Get("follow_up_logged"),
+		"FlashMessage":       flashMessage,
+		"FlashMessageType":   flashMessageType,
 	}
 
 	renderTemplate(w, r, "student_success.html", data)
@@ -72,13 +83,13 @@ func (h *StudentSuccessHandler) Dashboard(w http.ResponseWriter, r *http.Request
 // SubmitFeedback submits feedback for a student at session 4 or 8
 func (h *StudentSuccessHandler) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/student-success", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "student_success" && userRole != "admin" {
-		http.Error(w, "Forbidden: Student Success or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/student-success", "You don't have permission to do this.")
 		return
 	}
 
@@ -90,13 +101,13 @@ func (h *StudentSuccessHandler) SubmitFeedback(w http.ResponseWriter, r *http.Re
 
 	leadID, err := uuid.Parse(leadIDStr)
 	if err != nil {
-		http.Error(w, "Invalid lead_id", http.StatusBadRequest)
+		redirectWithError(w, r, "/student-success", "We couldn't find that student. Please refresh and try again.")
 		return
 	}
 
 	sessionNumber, err := strconv.Atoi(sessionNumberStr)
 	if err != nil || (sessionNumber != 4 && sessionNumber != 8) {
-		http.Error(w, "Invalid session_number. Must be 4 or 8", http.StatusBadRequest)
+		redirectWithError(w, r, "/student-success", "Please choose session 4 or session 8.")
 		return
 	}
 
@@ -105,7 +116,7 @@ func (h *StudentSuccessHandler) SubmitFeedback(w http.ResponseWriter, r *http.Re
 	createdByUserID, _ := uuid.Parse(middleware.GetUserID(r))
 	if err := models.SubmitFeedback(leadID, classKey, int32(sessionNumber), feedbackText, followUpRequired, createdByUserID); err != nil {
 		log.Printf("ERROR: Failed to submit feedback: %v", err)
-		http.Error(w, "Failed to submit feedback", http.StatusInternalServerError)
+		redirectWithError(w, r, "/student-success", "Couldn't submit feedback. Please try again.")
 		return
 	}
 
@@ -115,13 +126,13 @@ func (h *StudentSuccessHandler) SubmitFeedback(w http.ResponseWriter, r *http.Re
 // LogFollowUp logs an absence follow-up action
 func (h *StudentSuccessHandler) LogFollowUp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/student-success", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "student_success" && userRole != "admin" {
-		http.Error(w, "Forbidden: Student Success or Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/student-success", "You don't have permission to do this.")
 		return
 	}
 
@@ -135,7 +146,7 @@ func (h *StudentSuccessHandler) LogFollowUp(w http.ResponseWriter, r *http.Reque
 
 	leadID, err := uuid.Parse(leadIDStr)
 	if err != nil {
-		http.Error(w, "Invalid lead_id", http.StatusBadRequest)
+		redirectWithError(w, r, "/student-success", "We couldn't find that student. Please refresh and try again.")
 		return
 	}
 
@@ -143,7 +154,7 @@ func (h *StudentSuccessHandler) LogFollowUp(w http.ResponseWriter, r *http.Reque
 	if sessionIDStr != "" {
 		sessionID, err = uuid.Parse(sessionIDStr)
 		if err != nil {
-			http.Error(w, "Invalid session_id", http.StatusBadRequest)
+			redirectWithError(w, r, "/student-success", "Please choose a valid session.")
 			return
 		}
 	}
@@ -153,7 +164,7 @@ func (h *StudentSuccessHandler) LogFollowUp(w http.ResponseWriter, r *http.Reque
 	createdByUserID, _ := uuid.Parse(middleware.GetUserID(r))
 	if err := models.LogAbsenceFollowUp(leadID, sessionID, messageSent, reason, studentReply, actionTaken, notes, createdByUserID); err != nil {
 		log.Printf("ERROR: Failed to log follow-up: %v", err)
-		http.Error(w, "Failed to log follow-up", http.StatusInternalServerError)
+		redirectWithError(w, r, "/student-success", "Couldn't save this follow-up. Please try again.")
 		return
 	}
 

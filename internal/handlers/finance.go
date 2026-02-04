@@ -28,7 +28,7 @@ func NewFinanceHandler(cfg *config.Config) *FinanceHandler {
 // Dashboard renders the finance dashboard, or a custom access-restricted page for moderators (403).
 func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -70,20 +70,31 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	balanceByMethod, _ := models.GetCurrentCashBalanceByPaymentMethod()
 
-	// Get summary
+	flashMessage, flashMessageType := flashFromQuery(r)
+
 	summary, err := models.GetFinanceSummary(dateFrom, dateTo)
 	if err != nil {
 		log.Printf("ERROR: Failed to get finance summary: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to load finance summary: %v", err), http.StatusInternalServerError)
-		return
+		summary = &models.FinanceSummary{
+			INByCategory:     map[string]int32{},
+			OUTByCategory:    map[string]int32{},
+			CreditsBreakdown: map[string]int{},
+		}
+		if flashMessage == "" {
+			flashMessage = "Couldn't load the finance summary. Please refresh and try again."
+			flashMessageType = "error"
+		}
 	}
 
 	// Get transactions
 	transactions, err := models.GetTransactions(dateFrom, dateTo, transactionTypeFilter, categoryFilter, paymentMethodFilter, 100, 0)
 	if err != nil {
 		log.Printf("ERROR: Failed to get transactions: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to load transactions: %v", err), http.StatusInternalServerError)
-		return
+		if flashMessage == "" {
+			flashMessage = "Couldn't load transactions. Please refresh and try again."
+			flashMessageType = "error"
+		}
+		transactions = []*models.Transaction{}
 	}
 
 	// Group transactions by day with daily totals
@@ -130,11 +141,12 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for flash messages
-	flashMessage := ""
 	if r.URL.Query().Get("expense_created") == "1" {
 		flashMessage = "Expense created successfully"
+		flashMessageType = "success"
 	} else if r.URL.Query().Get("error") == "future_date" {
 		flashMessage = "Payment date cannot be in the future"
+		flashMessageType = "error"
 	}
 
 	data := map[string]interface{}{
@@ -157,6 +169,7 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		"UserRole":               userRole,
 		"IsModerator":            IsModerator(r),
 		"FlashMessage":           flashMessage,
+		"FlashMessageType":       flashMessageType,
 	}
 	renderTemplate(w, r, "finance.html", data)
 }
@@ -164,14 +177,14 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 // NewExpenseForm renders the new expense form
 func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
 
@@ -179,6 +192,9 @@ func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) 
 	
 	// Check for error messages
 	errorMsg := ""
+	if msg := r.URL.Query().Get("error"); msg != "" && msg != "future_date" {
+		errorMsg = msg
+	}
 	if r.URL.Query().Get("error") == "future_date" {
 		errorMsg = "Payment date cannot be in the future"
 	}
@@ -195,14 +211,14 @@ func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) 
 // CreateExpense handles POST to create a new expense
 func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/finance", "This action isn't available.")
 		return
 	}
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/finance", "You don't have permission to do this.")
 		return
 	}
 
@@ -214,13 +230,13 @@ func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	notes := r.FormValue("notes")
 
 	if category == "" || amountStr == "" || paymentMethod == "" {
-		http.Error(w, "Category, amount, and payment method are required", http.StatusBadRequest)
+		redirectWithError(w, r, "/finance/new-expense", "Please fill in category, amount, and payment method.")
 		return
 	}
 
 	amount, err := strconv.Atoi(amountStr)
 	if err != nil || amount <= 0 {
-		http.Error(w, "Invalid amount", http.StatusBadRequest)
+		redirectWithError(w, r, "/finance/new-expense", "Please enter a valid amount.")
 		return
 	}
 
@@ -239,7 +255,7 @@ func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/finance/new-expense?error=future_date", http.StatusFound)
 			return
 		}
-		http.Error(w, fmt.Sprintf("Failed to create expense: %v", err), http.StatusInternalServerError)
+		redirectWithError(w, r, "/finance/new-expense", "We couldn't save this expense. Please try again.")
 		return
 	}
 
@@ -251,25 +267,25 @@ func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 // Uses GetTotalCoursePaid as source of truth, same as pre-enrolment.
 func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/finance", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/finance", "You don't have permission to do this.")
 		return
 	}
 
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 || pathParts[2] != "refund" {
-		http.Error(w, "Invalid URL format", http.StatusBadRequest)
+		redirectWithError(w, r, "/finance", "We couldn't process that refund request. Please refresh and try again.")
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[3])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		redirectWithError(w, r, "/finance", "We couldn't find that lead. Please refresh and try again.")
 		return
 	}
 
@@ -279,13 +295,13 @@ func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 	notes := r.FormValue("notes")
 
 	if amountStr == "" || paymentMethod == "" {
-		http.Error(w, "Amount and payment method are required", http.StatusBadRequest)
+		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "Please enter the refund amount and payment method.")
 		return
 	}
 
 	amount, err := strconv.Atoi(amountStr)
 	if err != nil || amount <= 0 {
-		http.Error(w, "Invalid amount", http.StatusBadRequest)
+		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "Please enter a valid amount.")
 		return
 	}
 
@@ -304,18 +320,18 @@ func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 		"vodafone_cash": true, "bank_transfer": true, "paypal": true, "other": true,
 	}
 	if !allowedMethods[paymentMethod] {
-		http.Error(w, "Invalid payment method", http.StatusBadRequest)
+		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "Please choose a valid payment method.")
 		return
 	}
 
 	totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
 	if err != nil {
 		log.Printf("ERROR: Failed to get total course paid: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to validate refund: %v", err), http.StatusInternalServerError)
+		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "We couldn't validate this refund. Please try again.")
 		return
 	}
 	if int32(amount) > totalCoursePaid {
-		http.Error(w, fmt.Sprintf("Refund amount (%d) exceeds total course paid (%d)", amount, totalCoursePaid), http.StatusBadRequest)
+		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "Refund amount exceeds the total course paid.")
 		return
 	}
 
@@ -326,7 +342,7 @@ func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?error=future_date", leadID.String()), http.StatusFound)
 			return
 		}
-		http.Error(w, fmt.Sprintf("Failed to create refund: %v", err), http.StatusInternalServerError)
+		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "We couldn't save this refund. Please try again.")
 		return
 	}
 

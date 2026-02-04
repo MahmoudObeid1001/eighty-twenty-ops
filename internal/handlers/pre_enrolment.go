@@ -44,21 +44,25 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for flash messages in query params (separate from filter status)
-	flashMessage := ""
+	flashMessage, flashMessageType := flashFromQuery(r)
 	savedParam := r.URL.Query().Get("saved")
 	deletedParam := r.URL.Query().Get("deleted")
 	statusFlashParam := r.URL.Query().Get("status_flash")
 	sentToClassesParam := r.URL.Query().Get("sentToClasses")
 
-	if sentToClassesParam == "1" {
+	if flashMessage == "" && sentToClassesParam == "1" {
 		flashMessage = "Lead sent to classes board successfully!"
-	} else if deletedParam == "1" {
+		flashMessageType = "success"
+	} else if flashMessage == "" && deletedParam == "1" {
 		flashMessage = "Lead cancelled successfully!"
-	} else if r.URL.Query().Get("cancelled") == "1" {
+		flashMessageType = "success"
+	} else if flashMessage == "" && r.URL.Query().Get("cancelled") == "1" {
 		flashMessage = "Lead cancelled successfully!"
-	} else if savedParam == "1" {
+		flashMessageType = "success"
+	} else if flashMessage == "" && savedParam == "1" {
 		flashMessage = "Lead saved successfully!"
-	} else if statusFlashParam != "" {
+		flashMessageType = "success"
+	} else if flashMessage == "" && statusFlashParam != "" {
 		statusMessages := map[string]string{
 			"test_booked": "Placement test booked successfully!",
 			"tested":      "Lead marked as tested!",
@@ -68,6 +72,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		if msg, ok := statusMessages[statusFlashParam]; ok {
 			flashMessage = msg
+			flashMessageType = "success"
 		}
 	}
 
@@ -77,8 +82,11 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter)
 	if err != nil {
 		log.Printf("ERROR: Failed to load leads: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to load leads: %v", err), http.StatusInternalServerError)
-		return
+		if flashMessage == "" {
+			flashMessage = "Couldn't load leads. Please refresh and try again."
+			flashMessageType = "error"
+		}
+		leads = []*models.LeadListItem{}
 	}
 
 	h.cfg.Debugf("List: returned %d leads", len(leads))
@@ -109,6 +117,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"IsModerator":      IsModerator(r),
 		"IsAdmin":          IsAdmin(r),
 		"FlashMessage":     flashMessage,
+		"FlashMessageType": flashMessageType,
 		"StatusFilter":     statusFilter,
 		"SearchFilter":     searchFilter,
 		"PaymentFilter":    paymentFilter,
@@ -133,7 +142,7 @@ func (h *PreEnrolmentHandler) NewForm(w http.ResponseWriter, r *http.Request) {
 
 func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -205,7 +214,7 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		http.Error(w, fmt.Sprintf("Failed to create lead: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't create this lead. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -215,19 +224,19 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	detail, err := models.GetLeadByID(leadID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -268,6 +277,11 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 			if parsedID, err := uuid.Parse(existingIDStr); err == nil {
 				existingLeadID = &parsedID
 			}
+		}
+	}
+	if errorMsg == "" {
+		if rawErr := r.URL.Query().Get("error"); rawErr != "" {
+			errorMsg = rawErr
 		}
 	}
 	data["Error"] = errorMsg
@@ -422,7 +436,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *http.Request, leadID uuid.UUID, errMsg string) {
 	detail, err := models.GetLeadByID(leadID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 	userRole := middleware.GetUserRole(r)
@@ -434,20 +448,20 @@ func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *ht
 
 func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -465,7 +479,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		testType := r.FormValue("test_type")
 		if testDate == "" || testTime == "" || testType == "" {
 			log.Printf("ERROR: Validation failed for mark_test_booked: test_date=%q, test_time=%q, test_type=%q", testDate, testTime, testType)
-			http.Error(w, "Test date, time, and type are required to book placement test", http.StatusBadRequest)
+			http.Error(w, "Please choose the test date, time, and type.", http.StatusBadRequest)
 			return
 		}
 
@@ -490,7 +504,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		err = models.BookPlacementTest(leadID, testDateVal, testTimeVal, testTypeVal, testNotes)
 		if err != nil {
 			log.Printf("ERROR: Failed to book placement test: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to book placement test: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't book the placement test. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -502,7 +516,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.cfg.Debugf("  → Action: mark_tested")
 		// Server-side check: moderators cannot update status
 		if userRole == "moderator" {
-			http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 			return
 		}
 
@@ -510,7 +524,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if r.FormValue("assigned_level") != "" || r.FormValue("test_notes") != "" {
 			detail, err := models.GetLeadByID(leadID)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+				http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 				return
 			}
 
@@ -531,7 +545,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if err := models.UpdatePlacementTest(detail.PlacementTest); err != nil {
-				http.Error(w, fmt.Sprintf("Failed to update placement test: %v", err), http.StatusInternalServerError)
+				http.Error(w, "Couldn't update the placement test. Please try again.", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -539,7 +553,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		err = models.UpdateLeadStatus(leadID, "tested")
 		if err != nil {
 			log.Printf("ERROR: Failed to update status: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -551,7 +565,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.cfg.Debugf("  → Action: mark_offer_sent")
 		// Server-side check: moderators cannot update status
 		if userRole == "moderator" {
-			http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 			return
 		}
 
@@ -560,14 +574,14 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		finalPrice := r.FormValue("final_price")
 		if bundle == "" || finalPrice == "" {
 			log.Printf("ERROR: Validation failed for mark_offer_sent: bundle=%q, final_price=%q", bundle, finalPrice)
-			http.Error(w, "Bundle and Final Price are required to send offer", http.StatusBadRequest)
+			http.Error(w, "Please enter the bundle and final price.", http.StatusBadRequest)
 			return
 		}
 
 		// Update or create offer
 		detail, err := models.GetLeadByID(leadID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -601,14 +615,14 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := models.UpdateOffer(detail.Offer); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to update offer: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't update the offer. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
 		err = models.UpdateLeadStatus(leadID, "offer_sent")
 		if err != nil {
 			log.Printf("ERROR: Failed to update status: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -619,7 +633,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	case "move_waiting":
 		h.cfg.Debugf("  → Action: move_waiting")
 		if userRole == "moderator" {
-			http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 			return
 		}
 
@@ -627,7 +641,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		err = models.UpdateLeadStatus(leadID, "waiting_for_round")
 		if err != nil {
 			log.Printf("ERROR: Failed to update status: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -639,14 +653,14 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.cfg.Debugf("  → Action: mark_ready")
 		// Server-side check: moderators cannot update status
 		if userRole == "moderator" {
-			http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 			return
 		}
 
 		// Get lead detail to validate prerequisites
 		detail, err := models.GetLeadByID(leadID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -694,13 +708,13 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		if err := models.UpsertSchedulingClassDaysTime(leadID, classDaysMR, classTimeMR); err != nil {
 			log.Printf("ERROR: Failed to save schedule: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to save schedule: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't save the schedule. Please try again.", http.StatusInternalServerError)
 			return
 		}
 		err = models.UpdateLeadStatus(leadID, "ready_to_start")
 		if err != nil {
 			log.Printf("ERROR: Failed to update status: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -712,14 +726,14 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.cfg.Debugf("  → Action: send_to_classes")
 		// Server-side check: moderators cannot send to classes
 		if userRole == "moderator" {
-			http.Error(w, "Forbidden: Moderators cannot send leads to classes", http.StatusForbidden)
+			http.Error(w, "You don't have permission to send leads to classes.", http.StatusForbidden)
 			return
 		}
 
 		// Verify lead is ready (has level, days, time)
 		detail, err := models.GetLeadByID(leadID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -748,7 +762,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(`{"success": false, "error": "Failed to send lead to classes"}`))
 				return
 			}
-			http.Error(w, fmt.Sprintf("Failed to send lead to classes: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't send this lead to classes. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -767,14 +781,14 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.cfg.Debugf("  → Action: cancel")
 		// Server-side check: moderators cannot cancel
 		if userRole == "moderator" {
-			http.Error(w, "Forbidden: Moderators cannot cancel leads", http.StatusForbidden)
+			http.Error(w, "You don't have permission to cancel leads.", http.StatusForbidden)
 			return
 		}
 
 		// Get lead detail for cancel modal
 		detail, err := models.GetLeadByID(leadID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -788,7 +802,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			// Get course payments total
 			totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
 			if err != nil {
-				h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Failed to calculate course payments: %v", err))
+				h.renderDetailWithError(w, r, leadID, "Couldn't calculate course payments. Please try again.")
 				return
 			}
 
@@ -870,7 +884,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			err = models.CancelLead(leadID)
 			if err != nil {
 				log.Printf("ERROR: Failed to cancel lead: %v", err)
-				http.Error(w, fmt.Sprintf("Failed to cancel lead: %v", err), http.StatusInternalServerError)
+				http.Error(w, "Couldn't cancel this lead. Please try again.", http.StatusInternalServerError)
 				return
 			}
 
@@ -940,7 +954,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.cfg.Debugf("  → Action: reopen")
 		// Server-side check: moderators cannot reopen
 		if userRole == "moderator" {
-			http.Error(w, "Forbidden: Moderators cannot reopen leads", http.StatusForbidden)
+			http.Error(w, "You don't have permission to reopen leads.", http.StatusForbidden)
 			return
 		}
 
@@ -948,7 +962,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		err = models.ReopenLead(leadID)
 		if err != nil {
 			log.Printf("ERROR: Failed to reopen lead: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to reopen lead: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't reopen this lead. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -959,7 +973,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	case "delete":
 		h.cfg.Debugf("  → Action: delete")
 		if userRole == "moderator" {
-			http.Error(w, "Forbidden: Moderators cannot delete leads", http.StatusForbidden)
+			http.Error(w, "You don't have permission to delete leads.", http.StatusForbidden)
 			return
 		}
 		// Direct delete is disabled; route to cancel flow so refund modal is enforced.
@@ -983,38 +997,38 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *PreEnrolmentHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Server-side check: moderators cannot update status
 	userRole := middleware.GetUserRole(r)
 	if userRole == "moderator" {
-		http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+		http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 		return
 	}
 
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	status := r.FormValue("status")
 	if status == "" {
-		http.Error(w, "Status is required", http.StatusBadRequest)
+		http.Error(w, "Please select a status.", http.StatusBadRequest)
 		return
 	}
 
 	err = models.UpdateLeadStatus(leadID, status)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1029,20 +1043,20 @@ func (h *PreEnrolmentHandler) UpdateStatus(w http.ResponseWriter, r *http.Reques
 // Does NOT require offer/pricing fields for test booking - can save test info without offer
 func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -1052,7 +1066,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	// Load existing lead first to get current values if form fields are missing
 	existingDetail, err := models.GetLeadByID(leadID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1071,7 +1085,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 
 	if fullName == "" || phone == "" {
 		log.Printf("ERROR: Validation failed for SaveFull: fullName=%q, phone=%q, leadID=%s", fullName, phone, leadID)
-		http.Error(w, "Full name and phone are required", http.StatusBadRequest)
+		http.Error(w, "Full name and phone are required.", http.StatusBadRequest)
 		return
 	}
 
@@ -1116,7 +1130,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			log.Printf("ERROR: Failed to update lead (moderator): %v", err)
-			http.Error(w, fmt.Sprintf("Failed to update lead: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't update this lead. Please try again.", http.StatusInternalServerError)
 			return
 		}
 		h.cfg.Debugf("  ✅ Moderator save successful")
@@ -1664,7 +1678,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		http.Error(w, fmt.Sprintf("Failed to update lead: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't update this lead. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1700,7 +1714,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("ERROR: Failed to sync placement test finance transaction: %v", err)
 			// Check if it's a validation error (future date)
-			errorMsg := fmt.Sprintf("Failed to sync placement test payment: %v", err)
+			errorMsg := "Couldn't sync the placement test payment. Please try again."
 			if err.Error() == "payment date cannot be in the future" {
 				errorMsg = "Payment date cannot be in the future"
 			}
@@ -1746,7 +1760,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
 		if err != nil {
 			log.Printf("ERROR: Failed to get total course paid: %v", err)
-			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Failed to validate course payment: %v", err))
+			h.renderDetailWithError(w, r, leadID, "Couldn't validate the course payment. Please try again.")
 			return
 		}
 		remainingBalance := finalPriceValue - totalCoursePaid
@@ -1772,7 +1786,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("ERROR: Failed to create course payment: %v", err)
 			// Check if it's a validation error (future date)
-			errorMsg := fmt.Sprintf("Failed to create course payment: %v", err)
+			errorMsg := "Couldn't create the course payment. Please try again."
 			if err.Error() == "payment date cannot be in the future" {
 				errorMsg = "Payment date cannot be in the future"
 			}
@@ -1799,26 +1813,26 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 // MarkTested sets status to "tested" and optionally saves test notes/assigned level
 func (h *PreEnrolmentHandler) MarkTested(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Server-side check: moderators cannot update status
 	userRole := middleware.GetUserRole(r)
 	if userRole == "moderator" {
-		http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+		http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 		return
 	}
 
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -1826,7 +1840,7 @@ func (h *PreEnrolmentHandler) MarkTested(w http.ResponseWriter, r *http.Request)
 	if r.FormValue("assigned_level") != "" || r.FormValue("test_notes") != "" {
 		detail, err := models.GetLeadByID(leadID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -1848,7 +1862,7 @@ func (h *PreEnrolmentHandler) MarkTested(w http.ResponseWriter, r *http.Request)
 
 		// Update placement test only
 		if err := models.UpdatePlacementTest(detail.PlacementTest); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to update placement test: %v", err), http.StatusInternalServerError)
+			http.Error(w, "Couldn't update the placement test. Please try again.", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -1856,7 +1870,7 @@ func (h *PreEnrolmentHandler) MarkTested(w http.ResponseWriter, r *http.Request)
 	// Update status
 	err = models.UpdateLeadStatus(leadID, "tested")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1866,26 +1880,26 @@ func (h *PreEnrolmentHandler) MarkTested(w http.ResponseWriter, r *http.Request)
 // MarkOfferSent sets status to "offer_sent" and validates offer fields
 func (h *PreEnrolmentHandler) MarkOfferSent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Server-side check: moderators cannot update status
 	userRole := middleware.GetUserRole(r)
 	if userRole == "moderator" {
-		http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+		http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 		return
 	}
 
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -1893,14 +1907,14 @@ func (h *PreEnrolmentHandler) MarkOfferSent(w http.ResponseWriter, r *http.Reque
 	bundle := r.FormValue("bundle")
 	finalPrice := r.FormValue("final_price")
 	if bundle == "" || finalPrice == "" {
-		http.Error(w, "Bundle and Final Price are required to send offer", http.StatusBadRequest)
+		http.Error(w, "Please enter the bundle and final price.", http.StatusBadRequest)
 		return
 	}
 
 	// Update or create offer
 	detail, err := models.GetLeadByID(leadID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load lead: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1936,14 +1950,14 @@ func (h *PreEnrolmentHandler) MarkOfferSent(w http.ResponseWriter, r *http.Reque
 
 	// Update offer
 	if err := models.UpdateOffer(detail.Offer); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update offer: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't update the offer. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
 	// Update status
 	err = models.UpdateLeadStatus(leadID, "offer_sent")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1953,32 +1967,32 @@ func (h *PreEnrolmentHandler) MarkOfferSent(w http.ResponseWriter, r *http.Reque
 // MarkWaiting sets status to "waiting_for_round"
 func (h *PreEnrolmentHandler) MarkWaiting(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Server-side check: moderators cannot update status
 	userRole := middleware.GetUserRole(r)
 	if userRole == "moderator" {
-		http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+		http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 		return
 	}
 
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	err = models.UpdateLeadStatus(leadID, "waiting_for_round")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1988,32 +2002,32 @@ func (h *PreEnrolmentHandler) MarkWaiting(w http.ResponseWriter, r *http.Request
 // MarkReady sets status to "ready_to_start"
 func (h *PreEnrolmentHandler) MarkReady(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Server-side check: moderators cannot update status
 	userRole := middleware.GetUserRole(r)
 	if userRole == "moderator" {
-		http.Error(w, "Forbidden: Moderators cannot update lead status", http.StatusForbidden)
+		http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 		return
 	}
 
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	err = models.UpdateLeadStatus(leadID, "ready_to_start")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update status: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -2022,26 +2036,26 @@ func (h *PreEnrolmentHandler) MarkReady(w http.ResponseWriter, r *http.Request) 
 
 func (h *PreEnrolmentHandler) BookTest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Server-side check: moderators cannot book tests
 	userRole := middleware.GetUserRole(r)
 	if userRole == "moderator" {
-		http.Error(w, "Forbidden: Moderators cannot book placement tests", http.StatusForbidden)
+		http.Error(w, "You don't have permission to book placement tests.", http.StatusForbidden)
 		return
 	}
 
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
-		http.Error(w, "Invalid lead ID", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -2074,7 +2088,7 @@ func (h *PreEnrolmentHandler) BookTest(w http.ResponseWriter, r *http.Request) {
 	err = models.BookPlacementTest(leadID, testDate, testTime, testType, testNotes)
 	if err != nil {
 		log.Printf("ERROR: Failed to book placement test: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to book placement test: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Couldn't book the placement test. Please try again.", http.StatusInternalServerError)
 		return
 	}
 

@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"fmt"
+	
 	"log"
 	"net/http"
 	"strconv"
@@ -27,7 +27,7 @@ func NewClassesHandler(cfg *config.Config) *ClassesHandler {
 // Moderator gets 403 access-restricted.
 func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -55,12 +55,17 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	flashMessage, flashMessageType := flashFromQuery(r)
+
 	// Get class groups
 	groups, err := models.GetClassGroups()
 	if err != nil {
 		log.Printf("ERROR: Failed to get class groups: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to load classes: %v", err), http.StatusInternalServerError)
-		return
+		if flashMessage == "" {
+			flashMessage = "Couldn't load classes. Please refresh and try again."
+			flashMessageType = "error"
+		}
+		groups = []*models.ClassGroup{}
 	}
 
 	// Get current round
@@ -71,24 +76,31 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for flash messages
-	flashMessage := ""
-	if r.URL.Query().Get("moved") == "1" {
-		flashMessage = "Student moved successfully"
-	}
-	if r.URL.Query().Get("round_started") == "1" {
-		flashMessage = "Classes sent to Mentor Head successfully."
-	}
-	if r.URL.Query().Get("sent") == "1" {
-		flashMessage = "Class sent to mentor head successfully"
-	}
-	if r.URL.Query().Get("returned") == "1" {
-		flashMessage = "Class returned from mentor head"
-	}
-	if r.URL.Query().Get("archived") == "1" {
-		flashMessage = "Class archived from Ops view"
-	}
-	if r.URL.Query().Get("unarchived") == "1" {
-		flashMessage = "Class restored to Ops view"
+	if flashMessage == "" {
+		if r.URL.Query().Get("moved") == "1" {
+			flashMessage = "Student moved successfully"
+			flashMessageType = "success"
+		}
+		if r.URL.Query().Get("round_started") == "1" {
+			flashMessage = "Classes sent to Mentor Head successfully."
+			flashMessageType = "success"
+		}
+		if r.URL.Query().Get("sent") == "1" {
+			flashMessage = "Class sent to mentor head successfully"
+			flashMessageType = "success"
+		}
+		if r.URL.Query().Get("returned") == "1" {
+			flashMessage = "Class returned from mentor head"
+			flashMessageType = "success"
+		}
+		if r.URL.Query().Get("archived") == "1" {
+			flashMessage = "Class archived from Ops view"
+			flashMessageType = "success"
+		}
+		if r.URL.Query().Get("unarchived") == "1" {
+			flashMessage = "Class restored to Ops view"
+			flashMessageType = "success"
+		}
 	}
 
 	// Auto-assign students without group_index
@@ -110,8 +122,11 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	groups, err = models.GetClassGroups()
 	if err != nil {
 		log.Printf("ERROR: Failed to re-fetch class groups: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to load classes: %v", err), http.StatusInternalServerError)
-		return
+		if flashMessage == "" {
+			flashMessage = "Couldn't load classes. Please refresh and try again."
+			flashMessageType = "error"
+		}
+		groups = []*models.ClassGroup{}
 	}
 
 	// Compute available groups for each student (for move dropdown)
@@ -132,6 +147,7 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		"UserRole":          userRole,
 		"IsModerator":       IsModerator(r),
 		"FlashMessage":      flashMessage,
+		"FlashMessageType":  flashMessageType,
 		"IsClassesReadOnly": userRole == "mentor_head",
 	}
 	renderTemplate(w, r, "classes.html", data)
@@ -140,14 +156,14 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 // Move handles moving a student between groups
 func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/classes", "This action isn't available.")
 		return
 	}
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
 
@@ -155,19 +171,19 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 	targetGroupStr := r.FormValue("target_group")
 
 	if leadIDStr == "" || targetGroupStr == "" {
-		http.Error(w, "lead_id and target_group are required", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes", "Please choose a student and a target class.")
 		return
 	}
 
 	leadID, err := uuid.Parse(leadIDStr)
 	if err != nil {
-		http.Error(w, "Invalid lead_id", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes", "We couldn't find that student. Please refresh and try again.")
 		return
 	}
 
 	targetGroup, err := strconv.Atoi(targetGroupStr)
 	if err != nil {
-		http.Error(w, "Invalid target_group", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes", "Please choose a valid target class.")
 		return
 	}
 
@@ -176,7 +192,7 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 		availableGroups, err := models.GetAvailableGroupsForMove(leadID)
 		if err != nil {
 			log.Printf("ERROR: Failed to get available groups: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to get available groups: %v", err), http.StatusInternalServerError)
+			redirectWithError(w, r, "/classes", "Couldn't load available classes. Please try again.")
 			return
 		}
 
@@ -193,7 +209,7 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 	err = models.MoveStudentBetweenGroups(leadID, int32(targetGroup))
 	if err != nil {
 		log.Printf("ERROR: Failed to move student: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to move student: %v", err), http.StatusInternalServerError)
+		redirectWithError(w, r, "/classes", "We couldn't move this student. Please try again.")
 		return
 	}
 
@@ -203,21 +219,21 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 // StartRound handles starting a new round
 func (h *ClassesHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/classes", "This action isn't available.")
 		return
 	}
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
 
 	err := models.StartRound()
 	if err != nil {
 		log.Printf("ERROR: Failed to start round: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to start round: %v", err), http.StatusInternalServerError)
+		redirectWithError(w, r, "/classes", "We couldn't start the round. Please try again.")
 		return
 	}
 
@@ -227,14 +243,14 @@ func (h *ClassesHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 // SendToMentor handles sending a class group to mentor head
 func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/classes", "This action isn't available.")
 		return
 	}
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
 
@@ -247,17 +263,17 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 	// If class_key is provided, use it; otherwise construct from form fields
 	if classKey == "" {
 		if levelStr == "" || classDays == "" || classTime == "" || classNumberStr == "" {
-			http.Error(w, "class_key or (level, class_days, class_time, class_number) required", http.StatusBadRequest)
+			redirectWithError(w, r, "/classes", "Please select the class details before sending.")
 			return
 		}
 		level, err := strconv.Atoi(levelStr)
 		if err != nil {
-			http.Error(w, "Invalid level", http.StatusBadRequest)
+			redirectWithError(w, r, "/classes", "Please choose a valid level.")
 			return
 		}
 		classNumber, err := strconv.Atoi(classNumberStr)
 		if err != nil {
-			http.Error(w, "Invalid class_number", http.StatusBadRequest)
+			redirectWithError(w, r, "/classes", "Please choose a valid class number.")
 			return
 		}
 		classKey = models.GenerateClassKey(int32(level), classDays, classTime, int32(classNumber))
@@ -267,7 +283,7 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 		err = models.SendClassGroupToMentor(classKey, int32(levelInt), classDays, classTime, int32(classNumberInt))
 		if err != nil {
 			log.Printf("ERROR: Failed to send class to mentor: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to send class to mentor: %v", err), http.StatusInternalServerError)
+			redirectWithError(w, r, "/classes", "We couldn't send this class to Mentor Head. Please try again.")
 			return
 		}
 	} else {
@@ -275,23 +291,23 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 		// Format: "L{level}|{days}|{time}|{index}"
 		parts := strings.Split(classKey, "|")
 		if len(parts) != 4 || !strings.HasPrefix(parts[0], "L") {
-			http.Error(w, "Invalid class_key format", http.StatusBadRequest)
+			redirectWithError(w, r, "/classes", "We couldn't read that class reference. Please refresh and try again.")
 			return
 		}
 		level, err := strconv.Atoi(strings.TrimPrefix(parts[0], "L"))
 		if err != nil {
-			http.Error(w, "Invalid level in class_key", http.StatusBadRequest)
+			redirectWithError(w, r, "/classes", "We couldn't read that class level. Please refresh and try again.")
 			return
 		}
 		classNumber, err := strconv.Atoi(parts[3])
 		if err != nil {
-			http.Error(w, "Invalid class_number in class_key", http.StatusBadRequest)
+			redirectWithError(w, r, "/classes", "We couldn't read that class number. Please refresh and try again.")
 			return
 		}
 		err = models.SendClassGroupToMentor(classKey, int32(level), parts[1], parts[2], int32(classNumber))
 		if err != nil {
 			log.Printf("ERROR: Failed to send class to mentor: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to send class to mentor: %v", err), http.StatusInternalServerError)
+			redirectWithError(w, r, "/classes", "We couldn't send this class to Mentor Head. Please try again.")
 			return
 		}
 	}
@@ -303,27 +319,27 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 // Uses POST /classes/return with form field class_key (not path) because classKey can contain "/".
 func (h *ClassesHandler) ReturnFromMentor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/classes", "This action isn't available.")
 		return
 	}
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
 
 	classKey := r.FormValue("class_key")
 	if classKey == "" {
-		http.Error(w, "class_key is required", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes", "Missing class reference. Please refresh and try again.")
 		return
 	}
 
 	err := models.ReturnClassGroupFromMentor(classKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to return class from mentor: %v", err)
-		http.Error(w, "Cannot return this class. If the round already started, please archive or close it instead.", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes", "Cannot return this class. If the round already started, please archive or close it instead.")
 		return
 	}
 
@@ -334,32 +350,32 @@ func (h *ClassesHandler) ReturnFromMentor(w http.ResponseWriter, r *http.Request
 // Only allowed when class is sent_to_mentor and active.
 func (h *ClassesHandler) ArchiveClass(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/classes", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
 
 	classKey := r.FormValue("class_key")
 	if classKey == "" {
-		http.Error(w, "class_key is required", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes", "Missing class reference. Please refresh and try again.")
 		return
 	}
 
 	userIDStr := middleware.GetUserID(r)
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		http.Error(w, "Invalid user", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes", "We couldn't verify your account. Please refresh and try again.")
 		return
 	}
 
 	if err := models.ArchiveClassInOps(classKey, userID); err != nil {
 		log.Printf("ERROR: Failed to archive class: %v", err)
-		http.Error(w, "Only started classes that were sent to Mentor Head can be archived.", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes", "Only started classes that were sent to Mentor Head can be archived.")
 		return
 	}
 
@@ -369,25 +385,25 @@ func (h *ClassesHandler) ArchiveClass(w http.ResponseWriter, r *http.Request) {
 // UnarchiveClass restores a class to the Ops Classes board.
 func (h *ClassesHandler) UnarchiveClass(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/classes/archived", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		redirectWithError(w, r, "/classes/archived", "You don't have permission to do this.")
 		return
 	}
 
 	classKey := r.FormValue("class_key")
 	if classKey == "" {
-		http.Error(w, "class_key is required", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes/archived", "Missing class reference. Please refresh and try again.")
 		return
 	}
 
 	if err := models.UnarchiveClassInOps(classKey); err != nil {
 		log.Printf("ERROR: Failed to unarchive class: %v", err)
-		http.Error(w, "Could not restore this class. Please try again.", http.StatusBadRequest)
+		redirectWithError(w, r, "/classes/archived", "Could not restore this class. Please try again.")
 		return
 	}
 
@@ -397,13 +413,13 @@ func (h *ClassesHandler) UnarchiveClass(w http.ResponseWriter, r *http.Request) 
 // Archived shows archived classes for Ops with basic filters.
 func (h *ClassesHandler) Archived(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		redirectWithError(w, r, "/classes", "This action isn't available.")
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" && userRole != "mentor_head" {
-		http.Error(w, "Forbidden: Admin or Mentor Head access required", http.StatusForbidden)
+		redirectWithError(w, r, "/classes", "You don't have permission to access this page.")
 		return
 	}
 
@@ -421,16 +437,19 @@ func (h *ClassesHandler) Archived(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	flashMessage, flashMessageType := flashFromQuery(r)
 	archived, err := models.GetArchivedOpsClasses(classKeyFilter, fromDate, toDate)
 	if err != nil {
 		log.Printf("ERROR: Failed to load archived classes: %v", err)
-		http.Error(w, "Failed to load archived classes", http.StatusInternalServerError)
-		return
+		if flashMessage == "" {
+			flashMessage = "Couldn't load archived classes. Please refresh and try again."
+			flashMessageType = "error"
+		}
+		archived = []*models.ArchivedOpsClass{}
 	}
-
-	flashMessage := ""
 	if r.URL.Query().Get("unarchived") == "1" {
 		flashMessage = "Class restored to Ops view"
+		flashMessageType = "success"
 	}
 
 	data := map[string]interface{}{
@@ -438,6 +457,7 @@ func (h *ClassesHandler) Archived(w http.ResponseWriter, r *http.Request) {
 		"ContentTemplate": "classes_archived_content",
 		"Archived":        archived,
 		"FlashMessage":    flashMessage,
+		"FlashMessageType": flashMessageType,
 		"UserRole":        userRole,
 		"IsModerator":     IsModerator(r),
 		"ClassKey":        classKeyFilter,

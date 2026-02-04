@@ -5,7 +5,7 @@
 </div>
 
 {{if .FlashMessage}}
-<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+<div style="background-color: {{if eq .FlashMessageType "error"}}#F8D7DA{{else}}#D4EDDA{{end}}; border: 1px solid {{if eq .FlashMessageType "error"}}#F5C6CB{{else}}#C3E6CB{{end}}; color: {{if eq .FlashMessageType "error"}}#721C24{{else}}#155724{{end}}; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
     {{.FlashMessage}}
 </div>
 {{end}}

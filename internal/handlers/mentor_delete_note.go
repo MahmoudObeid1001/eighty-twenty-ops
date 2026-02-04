@@ -16,13 +16,13 @@ import (
 func (h *MentorHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	// Accept both DELETE and POST (HTML forms only support POST)
 	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor" && userRole != "admin" && userRole != "mentor_head" {
-		http.Error(w, "Forbidden: Mentor, Mentor Head, or Admin access required", http.StatusForbidden)
+		http.Error(w, "You don't have permission to do this.", http.StatusForbidden)
 		return
 	}
 
@@ -32,13 +32,13 @@ func (h *MentorHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 		noteIDStr = r.FormValue("note_id")
 	}
 	if noteIDStr == "" {
-		http.Error(w, "note_id is required", http.StatusBadRequest)
+		http.Error(w, "Missing note reference. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
 	noteID, err := uuid.Parse(noteIDStr)
 	if err != nil {
-		http.Error(w, "Invalid note_id", http.StatusBadRequest)
+		http.Error(w, "We couldn't find that note. Please refresh and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -46,11 +46,11 @@ func (h *MentorHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	note, err := models.GetStudentNoteByID(noteID)
 	if err != nil {
 		log.Printf("ERROR: Failed to get note: %v", err)
-		http.Error(w, "Failed to load note", http.StatusInternalServerError)
+		http.Error(w, "Couldn't load this note. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 	if note == nil {
-		http.Error(w, "Note not found", http.StatusNotFound)
+		http.Error(w, "Note not found. Please refresh and try again.", http.StatusNotFound)
 		return
 	}
 
@@ -59,7 +59,7 @@ func (h *MentorHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	if userRole != "mentor_head" && userRole != "admin" {
 		// Regular mentor: must be the creator
 		if !note.CreatedByUserID.Valid || note.CreatedByUserID.String != currentUserID {
-			http.Error(w, "Forbidden: You can only delete your own notes", http.StatusForbidden)
+			http.Error(w, "You can only delete your own notes.", http.StatusForbidden)
 			return
 		}
 	}
@@ -67,7 +67,7 @@ func (h *MentorHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	// Delete the note
 	if err := models.DeleteStudentNote(noteID); err != nil {
 		log.Printf("ERROR: Failed to delete note: %v", err)
-		http.Error(w, "Failed to delete note", http.StatusInternalServerError)
+		http.Error(w, "Couldn't delete this note. Please try again.", http.StatusInternalServerError)
 		return
 	}
 

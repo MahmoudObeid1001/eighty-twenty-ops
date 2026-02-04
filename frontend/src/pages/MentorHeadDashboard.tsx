@@ -17,6 +17,10 @@ export default function MentorHeadDashboard() {
   const [assigning, setAssigning] = useState<string | null>(null)
   const [actioning, setActioning] = useState<string | null>(null)
   const [cardError, setCardError] = useState<Record<string, string>>({}) // per-class_key error (e.g. 409)
+  const [closeConfirm, setCloseConfirm] = useState<{ open: boolean; classKey: string | null }>({
+    open: false,
+    classKey: null,
+  })
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -117,6 +121,37 @@ export default function MentorHeadDashboard() {
       await loadData()
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to close round' })
+    } finally {
+      setActioning(null)
+    }
+  }
+
+  function openCloseConfirm(classKey: string) {
+    setCloseConfirm({ open: true, classKey })
+  }
+
+  function closeCloseConfirm() {
+    setCloseConfirm({ open: false, classKey: null })
+  }
+
+  async function confirmCloseRound() {
+    if (!closeConfirm.classKey) {
+      closeCloseConfirm()
+      return
+    }
+    await handleCloseRound(closeConfirm.classKey)
+    closeCloseConfirm()
+  }
+
+  async function handleReopenRound(classKey: string) {
+    try {
+      setActioning(`${classKey}:reopen`)
+      setMessage(null)
+      await api.reopenRound(classKey)
+      setMessage({ type: 'success', text: 'Class reopened successfully' })
+      await loadData()
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to reopen class' })
     } finally {
       setActioning(null)
     }
@@ -518,7 +553,7 @@ export default function MentorHeadDashboard() {
                           {actioning === `${cls.class_key}:start` ? 'Starting...' : 'Start Round'}
                         </button>
                         <button
-                          onClick={() => handleCloseRound(cls.class_key)}
+                          onClick={() => openCloseConfirm(cls.class_key)}
                           disabled={actioning === `${cls.class_key}:close`}
                           style={{
                             width: '100%',
@@ -612,23 +647,47 @@ export default function MentorHeadDashboard() {
                             <p style={{ color: '#999', fontSize: '11px', fontStyle: 'italic' }}>
                               Closed: {new Date(cls.closed_at).toLocaleDateString()}
                             </p>
+                            <p style={{ color: '#666', fontSize: '12px', marginTop: '6px' }}>
+                              Completed sessions: {cls.completed_sessions_count ?? 0}/8
+                            </p>
                           </div>
-                          <button
-                            onClick={() => navigate(`/mentor-head/class?class_key=${encodeURIComponent(cls.class_key)}`)}
-                            style={{
-                              width: '100%',
-                              padding: '8px',
-                              background: '#f8f9fa',
-                              color: '#007bff',
-                              border: '1px solid #007bff',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '13px',
-                              fontWeight: 500
-                            }}
-                          >
-                            Open Class
-                          </button>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <button
+                              onClick={() => navigate(`/mentor-head/class?class_key=${encodeURIComponent(cls.class_key)}`)}
+                              style={{
+                                width: '100%',
+                                padding: '8px',
+                                background: '#f8f9fa',
+                                color: '#007bff',
+                                border: '1px solid #007bff',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                fontWeight: 500
+                              }}
+                            >
+                              Open Class
+                            </button>
+                            {cls.completed_sessions_count < 8 && (
+                              <button
+                                onClick={() => handleReopenRound(cls.class_key)}
+                                disabled={actioning === `${cls.class_key}:reopen`}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px',
+                                  background: actioning === `${cls.class_key}:reopen` ? '#ccc' : '#28a745',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: actioning === `${cls.class_key}:reopen` ? 'not-allowed' : 'pointer',
+                                  fontSize: '13px',
+                                  fontWeight: 600
+                                }}
+                              >
+                                {actioning === `${cls.class_key}:reopen` ? 'Reopening...' : 'Reopen Class'}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -641,6 +700,67 @@ export default function MentorHeadDashboard() {
       ) : activeTab === 'complaints' ? (
         <MentorHeadComplaints />
       ) : null}
+
+      {closeConfirm.open && (
+        <div
+          onClick={closeCloseConfirm}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'white',
+              padding: '24px',
+              borderRadius: '10px',
+              width: '420px',
+              maxWidth: '90%',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: '12px', color: '#333' }}>Confirm Close</h3>
+            <p style={{ marginTop: 0, marginBottom: '16px', color: '#666', fontSize: '14px' }}>
+              Do you really want to close this class? This will move it to Closed Classes.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                onClick={closeCloseConfirm}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  border: '1px solid #ddd',
+                  background: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmCloseRound}
+                disabled={actioning === `${closeConfirm.classKey}:close`}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: actioning === `${closeConfirm.classKey}:close` ? '#ccc' : '#dc3545',
+                  color: 'white',
+                  cursor: actioning === `${closeConfirm.classKey}:close` ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {actioning === `${closeConfirm.classKey}:close` ? 'Closing...' : 'Yes, Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

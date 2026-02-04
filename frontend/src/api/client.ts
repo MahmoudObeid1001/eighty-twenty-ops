@@ -185,6 +185,7 @@ export interface MentorArchiveGroup {
     class_number: number
     student_count: number
     closed_at: string
+    completed_sessions_count: number
   }>
 }
 
@@ -274,6 +275,12 @@ export const api = {
 
   closeRound: (classKey: string): Promise<{ ok: boolean }> =>
     fetchAPI('/mentor-head/close-round', {
+      method: 'POST',
+      body: JSON.stringify({ class_key: classKey }),
+    }),
+
+  reopenRound: (classKey: string): Promise<{ ok: boolean }> =>
+    fetchAPI('/mentor-head/reopen-round', {
       method: 'POST',
       body: JSON.stringify({ class_key: classKey }),
     }),
@@ -453,6 +460,32 @@ export interface LateJoinerNotification {
   class_key: string
   joined_at_session_number: number
   created_at: string
+}
+
+export interface FollowUpCaseNote {
+  id: string
+  case_id: string
+  note_text: string
+  note_type: string // comment, status_change, resolution, system
+  created_at: string
+  created_by_user_id: string
+  created_by_email?: string
+}
+
+export interface ComplaintListItem {
+  id: string
+  class_key: string
+  student_name: string
+  student_phone: string
+  category: string
+  urgency: string
+  status: string
+  complaint_text: string
+  last_note: string
+  created_at: string
+  resolved: boolean
+  resolved_at?: string
+  notes?: FollowUpCaseNote[]
 }
 
 export interface AbsenceFeedItem {

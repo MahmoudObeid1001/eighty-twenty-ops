@@ -66,7 +66,6 @@ func main() {
 	preEnrolmentHandler := handlers.NewPreEnrolmentHandler(cfg)
 	classesHandler := handlers.NewClassesHandler(cfg)
 	financeHandler := handlers.NewFinanceHandler(cfg)
-	mentorHeadHandler := handlers.NewMentorHeadHandler(cfg)
 	mentorHandler := handlers.NewMentorHandler(cfg)
 	studentSuccessHandler := handlers.NewStudentSuccessHandler(cfg)
 	hrHandler := handlers.NewHRHandler(cfg)
@@ -203,6 +202,15 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/close-round -> apiHandler.CloseRound [mentor_head+admin]")
+
+	mux.HandleFunc("/api/mentor-head/reopen-round", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.ReopenRound)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/reopen-round -> apiHandler.ReopenRound [mentor_head+admin]")
 
 	mux.HandleFunc("/api/class-workspace", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Ensure exact path match (no trailing slash)
@@ -778,49 +786,6 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /mentor-head -> 302 redirect to /app/mentor-head [backward compatibility]")
 
-	mux.HandleFunc("/mentor-head/assign", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		cfg.Debugf("HANDLER: /mentor-head/assign handler for %s %s", r.Method, r.URL.Path)
-		if r.Method == http.MethodPost {
-			cfg.Debugf("  → Calling mentorHeadHandler.AssignMentor")
-			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(mentorHeadHandler.AssignMentor)(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	}))
-	cfg.Debugf("ROUTE REGISTERED: /mentor-head/assign -> mentorHeadHandler.AssignMentor [mentor_head+admin]")
-
-	mux.HandleFunc("/mentor-head/session/cancel", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		cfg.Debugf("HANDLER: /mentor-head/session/cancel handler for %s %s", r.Method, r.URL.Path)
-		if r.Method == http.MethodPost {
-			cfg.Debugf("  → Calling mentorHeadHandler.CancelSession")
-			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(mentorHeadHandler.CancelSession)(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	}))
-	cfg.Debugf("ROUTE REGISTERED: /mentor-head/session/cancel -> mentorHeadHandler.CancelSession [mentor_head+admin]")
-
-	mux.HandleFunc("/mentor-head/close-round", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		cfg.Debugf("HANDLER: /mentor-head/close-round handler for %s %s", r.Method, r.URL.Path)
-		if r.Method == http.MethodPost {
-			cfg.Debugf("  → Calling mentorHeadHandler.CloseRound")
-			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(mentorHeadHandler.CloseRound)(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	}))
-	cfg.Debugf("ROUTE REGISTERED: /mentor-head/close-round -> mentorHeadHandler.CloseRound [mentor_head+admin]")
-
-	mux.HandleFunc("/mentor-head/start-round", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		cfg.Debugf("HANDLER: /mentor-head/start-round handler for %s %s", r.Method, r.URL.Path)
-		if r.Method == http.MethodPost {
-			cfg.Debugf("  → Calling mentorHeadHandler.StartRound")
-			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(mentorHeadHandler.StartRound)(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	}))
-	cfg.Debugf("ROUTE REGISTERED: /mentor-head/start-round -> mentorHeadHandler.StartRound [mentor_head+admin]")
 
 	// /mentor-head/class?class_key=... - redirect to React app (backward compatibility)
 	mux.HandleFunc("/mentor-head/class", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -841,22 +806,6 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /mentor-head/class -> 302 redirect to /app/mentor-head/class [backward compatibility]")
-
-	// POST /mentor-head/return with form field class_key (not path; classKey can contain /)
-	mux.HandleFunc("/mentor-head/return", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		cfg.Debugf("HANDLER: /mentor-head/return handler for %s %s", r.Method, r.URL.Path)
-		if r.URL.Path != "/mentor-head/return" {
-			http.NotFound(w, r)
-			return
-		}
-		if r.Method == http.MethodPost {
-			cfg.Debugf("  → Calling mentorHeadHandler.ReturnClass")
-			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(mentorHeadHandler.ReturnClass)(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	}))
-	cfg.Debugf("ROUTE REGISTERED: /mentor-head/return -> mentorHeadHandler.ReturnClass [mentor_head+admin]")
 
 	// Mentor routes - redirect to React app (backward compatibility)
 	mux.HandleFunc("/mentor", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {

@@ -134,7 +134,7 @@ func RequireRole(allowedRoles []string, secret string) func(http.HandlerFunc) ht
 				}
 			}
 			if !allowed {
-				http.Error(w, "Forbidden: Insufficient permissions", http.StatusForbidden)
+				http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 				return
 			}
 			next(w, r)

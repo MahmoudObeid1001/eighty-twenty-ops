@@ -13,6 +13,8 @@ export default function ClassWorkspace() {
   const [updating, setUpdating] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [confirmSessionId, setConfirmSessionId] = useState<string | null>(null)
+  const [confirmSessionNumber, setConfirmSessionNumber] = useState<number | null>(null)
 
   useEffect(() => {
     if (classKey) {
@@ -59,17 +61,24 @@ export default function ClassWorkspace() {
     }
   }
 
-  async function handleCompleteSession(sessionId: string) {
-    if (!confirm('Are you sure you want to mark this session as completed?')) return
+  function handleCompleteSession(sessionId: string, sessionNumber: number) {
+    setConfirmSessionId(sessionId)
+    setConfirmSessionNumber(sessionNumber)
+  }
+
+  async function confirmCompleteSession() {
+    if (!confirmSessionId) return
     try {
       setLoading(true)
       setActionError(null)
-      await api.completeSession(sessionId, classKey)
+      await api.completeSession(confirmSessionId, classKey)
       await loadClass(true)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to complete session')
     } finally {
       setLoading(false)
+      setConfirmSessionId(null)
+      setConfirmSessionNumber(null)
     }
   }
 
@@ -215,7 +224,7 @@ export default function ClassWorkspace() {
       {selectedSession && selectedSession.status === 'scheduled' && classData.class.round_status !== 'closed' && (
         <div style={{ marginBottom: '24px' }}>
           <button
-            onClick={() => handleCompleteSession(selectedSession.id)}
+            onClick={() => handleCompleteSession(selectedSession.id, selectedSession.session_number)}
             style={{
               padding: '10px 20px',
               background: '#28a745',
@@ -340,6 +349,76 @@ export default function ClassWorkspace() {
           </div>
         </div>
       </div>
+
+      {confirmSessionId && (
+        <div
+          onClick={() => {
+            if (loading) return
+            setConfirmSessionId(null)
+            setConfirmSessionNumber(null)
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 3000,
+            padding: '16px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '420px',
+              maxWidth: '100%',
+              boxShadow: '0 12px 30px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: '8px' }}>Complete session?</h3>
+            <p style={{ marginTop: 0, color: '#555', marginBottom: '20px' }}>
+              You are about to mark session {confirmSessionNumber ?? ''} as completed. This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={() => {
+                  setConfirmSessionId(null)
+                  setConfirmSessionNumber(null)
+                }}
+                disabled={loading}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #ccc',
+                  background: '#fff',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmCompleteSession}
+                disabled={loading}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: '#28a745',
+                  color: 'white',
+                  fontWeight: 600,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Yes, complete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedStudent && (
         <StudentModal

@@ -4,11 +4,10 @@
     <h1>Student Success Dashboard</h1>
 </div>
 
-{{if eq .feedback_submitted "1"}}
-<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Feedback submitted.</div>
-{{end}}
-{{if eq .follow_up_logged "1"}}
-<div style="background-color: #D4EDDA; border: 1px solid #C3E6CB; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">Follow-up logged.</div>
+{{if .FlashMessage}}
+<div style="background-color: {{if eq .FlashMessageType "error"}}#F8D7DA{{else}}#D4EDDA{{end}}; border: 1px solid {{if eq .FlashMessageType "error"}}#F5C6CB{{else}}#C3E6CB{{end}}; color: {{if eq .FlashMessageType "error"}}#721C24{{else}}#155724{{end}}; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+    {{.FlashMessage}}
+</div>
 {{end}}
 
 <h2 style="font-size: 18px; margin-top: 24px; margin-bottom: 12px;">Pending feedback · Session 4</h2>

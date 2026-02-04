@@ -37,6 +37,11 @@
 **Constraint**: CHECK constraint on `class_groups.round_status`  
 **Evidence**: `migrations/027_class_groups_round_status.sql`
 
+### Rule: Reopen closed round only if fewer than 8 sessions completed
+**Who**: Mentor Head/Admin  
+**Rule**: Closed classes can be reopened only when completed sessions < 8.  
+**Evidence**: `internal/handlers/api.go` (`ReopenRound`), `internal/models/repository.go` (`ReopenClosedRound`), `cmd/server/main.go` (`/api/mentor-head/reopen-round`)
+
 ### Rule: 8 sessions per class
 **Implementation**: Each class has 8 `class_sessions` records (session_number 1-8)  
 **Evidence**: `migrations/016_create_class_sessions.sql`  

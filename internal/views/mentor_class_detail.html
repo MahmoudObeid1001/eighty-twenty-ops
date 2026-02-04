@@ -73,6 +73,12 @@
     <h1>Class Workspace</h1>
 </div>
 
+{{if .FlashMessage}}
+<div style="background-color: {{if eq .FlashMessageType "error"}}#F8D7DA{{else}}#D4EDDA{{end}}; border: 1px solid {{if eq .FlashMessageType "error"}}#F5C6CB{{else}}#C3E6CB{{end}}; color: {{if eq .FlashMessageType "error"}}#721C24{{else}}#155724{{end}}; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+    {{.FlashMessage}}
+</div>
+{{end}}
+
 {{if .Class.ClassKey}}
 <p style="margin-bottom: 16px;">{{if .IsMentorHeadView}}<a href="/mentor-head" class="btn btn-secondary">← Back to
         Mentor Head</a>{{else}}<a href="/mentor" class="btn btn-secondary">← Back to My Classes</a>{{end}}</p>

@@ -127,7 +127,7 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 	if templates == nil {
 		log.Printf("ERROR: Templates not initialized after initTemplates() call")
 		log.Printf("ERROR: This should not happen - templates should be initialized or panic should have occurred")
-		http.Error(w, "Templates not initialized. Please check server logs for template initialization errors.", http.StatusInternalServerError)
+		http.Error(w, "We couldn't load this page. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -142,7 +142,6 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 		"finance.html":              "finance_content",
 		"finance_new_expense.html":  "finance_new_expense_content",
 		"access_restricted.html":    "access_restricted_content",
-		"mentor_head.html":          "mentor_head_content",
 		"mentor.html":               "mentor_content",
 		"mentor_class_detail.html":  "mentor_class_detail_content",
 		"student_success.html":      "student_success_content",
@@ -167,7 +166,7 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 	layoutTmpl := templates.Lookup("layout")
 	if layoutTmpl == nil {
 		log.Printf("ERROR: Layout template not found")
-		http.Error(w, "Layout template not found", http.StatusInternalServerError)
+		http.Error(w, "We couldn't load this page layout. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -178,7 +177,7 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 		for _, tmpl := range templates.Templates() {
 			log.Printf("  - %s", tmpl.Name())
 		}
-		http.Error(w, fmt.Sprintf("Content template '%s' not found", contentTemplateName), http.StatusInternalServerError)
+		http.Error(w, "We couldn't load this page. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 	if cfg != nil {
@@ -238,7 +237,7 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 	// Use dataMap (which has ContentTemplate set) instead of original data
 	if err := templates.ExecuteTemplate(w, layoutName, dataMap); err != nil {
 		log.Printf("ERROR: Template execute error: %v", err)
-		http.Error(w, fmt.Sprintf("Template execute error: %v", err), http.StatusInternalServerError)
+		http.Error(w, "We couldn't load this page. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
 	if cfg != nil {

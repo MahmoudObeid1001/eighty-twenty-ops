@@ -56,6 +56,7 @@ flowchart TD
 **Evidence**:
 - `cmd/server/main.go:286-297`
 - `internal/handlers/api.go` - GetStudentSuccessClasses function
+- `internal/handlers/community_officer.go` - banner UX for server-rendered SS dashboard
 
 ### View Absence Feed
 **Route**: `GET /api/student-success/class/absence-feed?class_key={key}`  
@@ -145,6 +146,13 @@ stateDiagram-v2
 **Roles**: student_success, mentor_head, admin  
 **Why**: Mentor Head needs visibility into student issues  
 **Evidence**: `cmd/server/main.go:312-389` - RequireAnyRole checks include both roles
+
+### Rule: Student Success dashboard uses banner UX
+**Scope**: `/student-success` (server-rendered)  
+**Behavior**: Handler redirects with `?error=...` or `?success=...` and template renders a banner  
+**Evidence**:
+- `internal/handlers/community_officer.go`
+- `internal/views/student_success.html`
 
 ### Rule: Case notes for audit trail
 **Purpose**: Track all updates/resolutions for a follow-up case  

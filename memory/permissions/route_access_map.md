@@ -25,6 +25,7 @@
 | `/api/mentor-head/start-round` | POST | mentor_head, admin | `apiHandler.StartRound` | `main.go:183-190` |
 | `/api/mentor-head/classes/start-round` | POST | mentor_head, admin | `apiHandler.StartRound` | `main.go:192-199` |
 | `/api/mentor-head/close-round` | POST | mentor_head, admin | `apiHandler.CloseRound` | `main.go:201-208` |
+| `/api/mentor-head/reopen-round` | POST | mentor_head, admin | `apiHandler.ReopenRound` | `main.go:210-220` |
 | `/api/class-workspace` | GET | mentor, mentor_head, admin, student_success | `apiHandler.GetClassWorkspace` | `main.go:210-222` |
 | `/api/class` | GET | mentor, mentor_head, admin, student_success | `apiHandler.GetClass` | `main.go:224-231` |
 | `/api/notes` | GET | mentor, mentor_head, admin, student_success | `apiHandler.GetNotes` | `main.go:234-244` |
@@ -108,6 +109,10 @@
 - **`moderator`** has read access to pre-enrolment and finances but gets 403 on write operations
 - **`mentor_head`** can access mentor-head dashboard + mentor class workspace (read-only classes board)
 - **`student_success`** has access to absence feeds and follow-ups shared with mentor_head
+
+### Legacy Mentor Head SSR
+- Legacy SSR mentor-head handlers and templates are removed; `/mentor-head` and `/mentor-head/class` remain as redirects to the React app for backward compatibility.
+**Evidence**: `cmd/server/main.go`
 
 ### TODO: Investigate
 - [ ] `moderator` role behavior - gets 403 on `/classes` and `/finance` despite being allowed by middleware *(check handler logic)*
