@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -464,8 +466,13 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	log.Printf("MarkAttendance Payload: SessionID=%s, LeadID=%s, Status=%s, ClassKey=%s, UserID=%s",
 		req.SessionID, req.LeadID, req.Status, req.ClassKey, userIDStr)
 
-	if err := models.MarkAttendance(sessionID, leadID, req.Status, req.Notes, userID); err != nil {
+	enforceDeadline := userRole == "mentor"
+	if err := models.MarkAttendance(sessionID, leadID, req.Status, req.Notes, userID, enforceDeadline); err != nil {
 		log.Printf("ERROR: Failed to mark attendance: %v", err)
+		if errors.Is(err, models.ErrAttendanceDeadlinePassed) {
+			jsonError(w, http.StatusBadRequest, "Attendance deadline has passed (24 hours after session end).")
+			return
+		}
 		jsonError(w, http.StatusInternalServerError, "Failed to mark attendance")
 		return
 	}
@@ -988,14 +995,14 @@ func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request
 	}
 
 	type ArchivedClass struct {
-		ClassKey                string `json:"class_key"`
-		Level                   int32  `json:"level"`
-		Days                    string `json:"days"`
-		Time                    string `json:"time"`
-		ClassNumber             int32  `json:"class_number"`
-		StudentCount            int    `json:"student_count"`
-		ClosedAt                string `json:"closed_at"`
-		CompletedSessionsCount  int32  `json:"completed_sessions_count"`
+		ClassKey               string `json:"class_key"`
+		Level                  int32  `json:"level"`
+		Days                   string `json:"days"`
+		Time                   string `json:"time"`
+		ClassNumber            int32  `json:"class_number"`
+		StudentCount           int    `json:"student_count"`
+		ClosedAt               string `json:"closed_at"`
+		CompletedSessionsCount int32  `json:"completed_sessions_count"`
 	}
 
 	type MentorArchiveGroup struct {
@@ -1013,11 +1020,11 @@ func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request
 
 	for _, c := range classes {
 		archived := ArchivedClass{
-			ClassKey:    c.ClassKey,
-			Level:       c.Level,
-			Days:        c.ClassDays,
-			Time:        c.ClassTime,
-			ClassNumber: c.ClassNumber,
+			ClassKey:               c.ClassKey,
+			Level:                  c.Level,
+			Days:                   c.ClassDays,
+			Time:                   c.ClassTime,
+			ClassNumber:            c.ClassNumber,
 			CompletedSessionsCount: c.CompletedSessions,
 		}
 		if c.RoundClosedAt.Valid {
@@ -1719,6 +1726,146 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"classes": classes})
 }
 
+// GET /api/student-success/placement-tests - returns placement tests scheduled and awaiting results
+func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	if middleware.GetUserRole(r) != "student_success" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
+		return
+	}
+
+	showCompleted := r.URL.Query().Get("show_completed") == "1" || r.URL.Query().Get("show_completed") == "true"
+	rows, err := models.GetPlacementTestsForStudentSuccess(showCompleted)
+	if err != nil {
+		log.Printf("ERROR: Failed to get placement tests: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load placement tests")
+		return
+	}
+
+	type PlacementTestResp struct {
+		LeadID        string `json:"lead_id"`
+		FullName      string `json:"full_name"`
+		Phone         string `json:"phone"`
+		Status        string `json:"status"`
+		TestDate      string `json:"test_date"`
+		TestTime      string `json:"test_time"`
+		TestType      string `json:"test_type"`
+		AssignedLevel *int32 `json:"assigned_level,omitempty"`
+		TestNotes     string `json:"test_notes,omitempty"`
+	}
+
+	out := make([]PlacementTestResp, 0, len(rows))
+	for _, row := range rows {
+		testDate := ""
+		if row.TestDate.Valid {
+			testDate = row.TestDate.Time.Format("2006-01-02")
+		}
+		testTime := ""
+		if row.TestTime.Valid {
+			testTime = row.TestTime.String
+		}
+		testType := ""
+		if row.TestType.Valid {
+			testType = row.TestType.String
+		}
+		var assignedLevel *int32
+		if row.AssignedLevel.Valid {
+			val := row.AssignedLevel.Int32
+			assignedLevel = &val
+		}
+		testNotes := ""
+		if row.TestNotes.Valid {
+			testNotes = row.TestNotes.String
+		}
+		out = append(out, PlacementTestResp{
+			LeadID:        row.LeadID.String(),
+			FullName:      row.FullName,
+			Phone:         row.Phone,
+			Status:        row.Status,
+			TestDate:      testDate,
+			TestTime:      testTime,
+			TestType:      testType,
+			AssignedLevel: assignedLevel,
+			TestNotes:     testNotes,
+		})
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"placement_tests": out})
+}
+
+// POST /api/student-success/placement-tests/complete - record placement test results and mark lead tested
+func (h *APIHandler) CompletePlacementTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	if middleware.GetUserRole(r) != "student_success" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
+		return
+	}
+
+	var req struct {
+		LeadID        string `json:"lead_id"`
+		AssignedLevel int    `json:"assigned_level"`
+		TestNotes     string `json:"test_notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if req.LeadID == "" {
+		jsonError(w, http.StatusBadRequest, "lead_id is required")
+		return
+	}
+	if req.AssignedLevel < 1 || req.AssignedLevel > 8 {
+		jsonError(w, http.StatusBadRequest, "assigned_level must be between 1 and 8")
+		return
+	}
+
+	leadID, err := uuid.Parse(req.LeadID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+
+	detail, err := models.GetLeadByID(leadID)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "Lead not found")
+		return
+	}
+	if detail.PlacementTest == nil || !detail.PlacementTest.TestDate.Valid || !detail.PlacementTest.TestTime.Valid {
+		jsonError(w, http.StatusBadRequest, "Placement test is not scheduled yet")
+		return
+	}
+
+	pt := &models.PlacementTest{
+		LeadID:        leadID,
+		AssignedLevel: sql.NullInt32{Int32: int32(req.AssignedLevel), Valid: true},
+	}
+	if strings.TrimSpace(req.TestNotes) != "" {
+		pt.TestNotes = sql.NullString{String: req.TestNotes, Valid: true}
+	}
+
+	if err := models.UpdatePlacementTest(pt); err != nil {
+		log.Printf("ERROR: Failed to update placement test: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to save placement test")
+		return
+	}
+
+	// Only promote to tested if lead is still before tested stage
+	if detail.Lead.Status == "lead_created" || detail.Lead.Status == "test_booked" {
+		if err := models.UpdateLeadStatus(leadID, "tested"); err != nil {
+			log.Printf("ERROR: Failed to update lead status: %v", err)
+			jsonError(w, http.StatusInternalServerError, "Failed to update lead status")
+			return
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // GET /api/student-success/class?class_key=... - returns class details + students + sessions + attendance
 func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -2202,6 +2349,8 @@ func (h *APIHandler) CompleteSessionByNumber(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	log.Printf("WARNING: Deprecated endpoint used: /api/classes/:id/sessions/:n/complete. Prefer /api/session/complete")
+
 	// Re-use CompleteSession logic
 	userRole := middleware.GetUserRole(r)
 	userIDStr := middleware.GetUserID(r)
@@ -2322,6 +2471,174 @@ func (h *APIHandler) UpdateFeedbackStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+// GET /api/student-success/feedback-collected?class_key=...
+func (h *APIHandler) GetFeedbackCollected(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	role := middleware.GetUserRole(r)
+	if role != "student_success" && role != "mentor_head" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+	classKey := r.URL.Query().Get("class_key")
+	if classKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+	uploads, err := models.GetFeedbackCollectedUploadsByClass(classKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to load feedback uploads: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load feedback uploads")
+		return
+	}
+
+	type UploadResp struct {
+		ID            string  `json:"id"`
+		LeadID        string  `json:"lead_id"`
+		ClassKey      string  `json:"class_key"`
+		SessionNumber *int32  `json:"session_number,omitempty"`
+		FileName      string  `json:"file_name"`
+		FileURL       string  `json:"file_url"`
+		MimeType      *string `json:"mime_type,omitempty"`
+		SizeBytes     *int32  `json:"size_bytes,omitempty"`
+		Note          *string `json:"note,omitempty"`
+		UploadedBy    *string `json:"uploaded_by,omitempty"`
+		UploadedAt    string  `json:"uploaded_at"`
+	}
+
+	out := make([]UploadResp, 0, len(uploads))
+	for _, u := range uploads {
+		var sn *int32
+		if u.SessionNumber.Valid {
+			val := u.SessionNumber.Int32
+			sn = &val
+		}
+		var mt *string
+		if u.MimeType.Valid {
+			val := u.MimeType.String
+			mt = &val
+		}
+		var sz *int32
+		if u.SizeBytes.Valid {
+			val := u.SizeBytes.Int32
+			sz = &val
+		}
+		var note *string
+		if u.Note.Valid {
+			val := u.Note.String
+			note = &val
+		}
+		var uploadedBy *string
+		if u.UploadedByUser.Valid {
+			val := u.UploadedByUser.String
+			uploadedBy = &val
+		}
+		out = append(out, UploadResp{
+			ID:            u.ID.String(),
+			LeadID:        u.LeadID.String(),
+			ClassKey:      u.ClassKey,
+			SessionNumber: sn,
+			FileName:      u.FileName,
+			FileURL:       u.FileURL,
+			MimeType:      mt,
+			SizeBytes:     sz,
+			Note:          note,
+			UploadedBy:    uploadedBy,
+			UploadedAt:    u.UploadedAt.Format(time.RFC3339),
+		})
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"uploads": out})
+}
+
+// POST /api/student-success/feedback-collected (multipart form)
+func (h *APIHandler) UploadFeedbackCollected(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	role := middleware.GetUserRole(r)
+	if role != "student_success" && role != "mentor_head" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	if err := r.ParseMultipartForm(20 << 20); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid multipart form")
+		return
+	}
+
+	classKey := r.FormValue("class_key")
+	leadIDStr := r.FormValue("lead_id")
+	if classKey == "" || leadIDStr == "" {
+		jsonError(w, http.StatusBadRequest, "class_key and lead_id are required")
+		return
+	}
+	leadID, err := uuid.Parse(leadIDStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+	var sessionNumber *int32
+	if snStr := r.FormValue("session_number"); snStr != "" {
+		if snInt, err := strconv.Atoi(snStr); err == nil {
+			snVal := int32(snInt)
+			sessionNumber = &snVal
+		}
+	}
+	note := r.FormValue("note")
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	defer file.Close()
+
+	// Save file under web/static/uploads/feedback_collected
+	workDir, _ := os.Getwd()
+	uploadDir := filepath.Join(workDir, "web", "static", "uploads", "feedback_collected")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		jsonError(w, http.StatusInternalServerError, "Failed to create upload directory")
+		return
+	}
+	ext := filepath.Ext(header.Filename)
+	fileID := uuid.New().String()
+	fileName := fileID + ext
+	dstPath := filepath.Join(uploadDir, fileName)
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "Failed to save file")
+		return
+	}
+	defer dst.Close()
+	size, err := io.Copy(dst, file)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "Failed to write file")
+		return
+	}
+
+	fileURL := "/static/uploads/feedback_collected/" + fileName
+	uploadedByID, _ := uuid.Parse(middleware.GetUserID(r))
+
+	record, err := models.CreateFeedbackCollectedUpload(
+		leadID, classKey, sessionNumber, header.Filename, fileURL, header.Header.Get("Content-Type"), size, note, uploadedByID,
+	)
+	if err != nil {
+		log.Printf("ERROR: Failed to save feedback upload: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to save feedback upload")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"id":        record.ID.String(),
+		"file_url":  record.FileURL,
+		"file_name": record.FileName,
+	})
 }
 
 // ========== COMPLAINTS API ENDPOINTS ==========

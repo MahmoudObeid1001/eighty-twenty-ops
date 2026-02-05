@@ -79,6 +79,12 @@
 </div>
 {{end}}
 
+{{if .OverdueSessions}}
+<div style="background: #dc3545; color: white; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 600;">
+    Attendance missing for session(s) older than 24 hours: {{range $i, $s := .OverdueSessions}}{{if $i}}, {{end}}S{{$s}}{{end}}.
+</div>
+{{end}}
+
 {{if .Class.ClassKey}}
 <p style="margin-bottom: 16px;">{{if .IsMentorHeadView}}<a href="/mentor-head" class="btn btn-secondary">← Back to
         Mentor Head</a>{{else}}<a href="/mentor" class="btn btn-secondary">← Back to My Classes</a>{{end}}</p>

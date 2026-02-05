@@ -65,10 +65,18 @@ stateDiagram-v2
 - `internal/views/classes.html:52, 156-162` (CSS opacity and locked controls)
 - `internal/handlers/classes.go:215` - calls `models.SendClassGroupToMentor`
 
+### Visibility Note: Closed classes
+**Mentor Head dashboard**: Excludes classes with `round_status = 'closed'` even if `sent_to_mentor = true`.  
+**Ops classes board**: Shows closed classes with a **CLOSED** badge and no return action.  
+**Evidence**:
+- `internal/models/repository.go` (`GetClassGroupsSentToMentor`)
+- `internal/views/classes.html` (closed badge + messaging)
+
 ### Related Rule: Send-to-Classes (lead) does NOT join active rounds
 **Scope**: Pre-Enrolment "Send to Classes" action (lead → classes board).  
 **Behavior**: Assigns the lead to a non-started class group for the same level/days/time (or opens a new group if all are full).  
 **Active rounds**: Joining a running class requires the Late Joiner flow; Send-to-Classes should not place students into `round_status = 'active'` groups.  
+**Closed/sent groups**: Send-to-Classes must not assign into **closed** or **sent_to_mentor** groups (ops can only add to ops-owned, not-started groups).  
 **Evidence**: `internal/models/repository.go` (`AssignClassGroup`, `MoveStudentBetweenGroups`), `internal/views/pre_enrolment_detail.html` note.
 
 ### Transition: Mentor Head assigns mentor (SentToMentor → Assigned)

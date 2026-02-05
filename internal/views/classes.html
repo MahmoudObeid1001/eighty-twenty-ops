@@ -70,12 +70,12 @@
                 </div>
                 <div style="text-align: right;">
                     <div
-                        style="font-size: 24px; font-weight: bold; color: {{if eq .Readiness `STARTED` }}#007bff{{else if eq .Readiness `LOCKED` }}#dc3545{{else if eq .Readiness `READY` }}#28a745{{else}}#ffc107{{end}};">
+                        style="font-size: 24px; font-weight: bold; color: {{if eq .RoundStatus `closed`}}#6c757d{{else if eq .Readiness `STARTED` }}#007bff{{else if eq .Readiness `LOCKED` }}#dc3545{{else if eq .Readiness `READY` }}#28a745{{else}}#ffc107{{end}};">
                         {{.StudentCount}}/6
                     </div>
                     <span class="badge"
-                        style="background-color: {{if eq .Readiness `STARTED` }}#007bff{{else if eq .Readiness `LOCKED` }}#dc3545{{else if eq .Readiness `READY` }}#28a745{{else}}#ffc107{{end}}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">
-                        {{.Readiness}}
+                        style="background-color: {{if eq .RoundStatus `closed`}}#6c757d{{else if eq .Readiness `STARTED` }}#007bff{{else if eq .Readiness `LOCKED` }}#dc3545{{else if eq .Readiness `READY` }}#28a745{{else}}#ffc107{{end}}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                        {{if eq .RoundStatus `closed`}}CLOSED{{else}}{{.Readiness}}{{end}}
                     </span>
                 </div>
             </div>
@@ -84,9 +84,13 @@
             {{if .SentToMentor}}
             <div
                 style="margin-bottom: 15px; padding: 10px; background-color: #f0f0f0; border-radius: 4px; text-align: center;">
+                {{if eq .RoundStatus `closed`}}
+                <span style="color: #666; font-size: 14px;">Closed — not visible in Mentor Head</span>
+                {{else}}
                 <span style="color: #666; font-size: 14px;">Sent to Mentor Head</span>
+                {{end}}
                 {{if not $.IsClassesReadOnly}}
-                {{if ne .Readiness `STARTED` }}
+                {{if and (ne .Readiness `STARTED` ) (ne .RoundStatus `closed`) }}
                 <form method="POST" action="/classes/return" style="display: inline-block; margin-left: 10px;">
                     <input type="hidden" name="class_key" value="{{.ClassKey}}">
                     <button type="submit" class="btn btn-secondary"

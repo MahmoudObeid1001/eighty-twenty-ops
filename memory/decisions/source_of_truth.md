@@ -108,7 +108,8 @@
 **Behavior**:
 - After 24 hours passes: Show **red banner reminder** to mentor
 - Once attendance is recorded: Banner disappears
-- No locking requirement (for now)
+- Mentors are blocked from marking attendance after deadline
+- Admin/Student Success can override for corrections
 
 ---
 

@@ -355,7 +355,7 @@
                                 <td>{{if .PaymentMethod.Valid}}{{.PaymentMethod.String}}{{else}}-{{end}}</td>
                                 <td>
                                     {{if .LeadID.Valid}}
-                                    <a href="/pre-enrolment/{{.LeadID.String}}" style="color: #4EC6E0; text-decoration: none;">
+                                    <a href="/pre-enrolment/{{.LeadID.String}}?source=finance" style="color: #4EC6E0; text-decoration: none;">
                                         View Lead
                                     </a>
                                     {{else}}-{{end}}

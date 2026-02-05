@@ -13,7 +13,8 @@
 3. **Migration risk**: Removing columns requres migration + potential data loss
 4. **Schema stability**: Better to have unused fields than to add/remove repeatedly
 
-**Conclusion**: Keep fields. Cost is minimal, benefit of having them available outweighs removal effort.
+**Conclusion**: Keep fields. Cost is minimal, benefit of having them available outweighs removal effort.  
+**Implementation note**: Follow-up queries and updates now ignore soft-deleted rows (deleted_at IS NULL).
 
 ---
 
@@ -106,13 +107,14 @@ User types /app/admin/mentors in browser
 
 ## Q: Finance tables - incomplete documentation?
 
-### Answer: **Yes - finance module needs expansion**
+### Answer: **Partially addressed**
 
 **Evidence**:
 - `migrations/007_finance_tracking.sql`
 - `migrations/008_finance_ledger_sync.sql`
-- These were not fully documented in ERD
 
-**TODO**: Expand memory documentation with finance-specific tables and workflows.
+**Now implemented**:
+- Ledger backfill for placement test and course payments on finance dashboard load  
+  (`EnsureFinanceLedgerSync` in `internal/models/repository.go`)
 
-**Status**: Known gap in current memory system - finance module less documented than other features.
+**Remaining gap**: Finance workflows still need full documentation in memory/ERD.

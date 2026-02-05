@@ -68,14 +68,16 @@
 <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="pre-enrolment-form">
     <input type="hidden" name="status" value="{{.Detail.Lead.Status}}">
 
+    {{if .IsReadOnly}}
+    <div class="form-section" style="border: 1px solid #b3e5fc; background: #e3f2fd;">
+        <strong>Read-only view:</strong>
+        {{if .ReadOnlyReason}}{{.ReadOnlyReason}}{{else}}You can view lead data but cannot edit.{{end}}
+    </div>
+    {{end}}
+
+    <fieldset {{if .IsReadOnly}}disabled{{end}} style="border: 0; padding: 0; margin: 0;">
     <!-- 1. Lead Info -->
     <div class="form-section">
-        <div style="margin-bottom: 10px; font-size: 12px; color: #666;">
-            Role: <strong>{{.UserRole}}</strong> |
-            IsAdmin: <strong>{{.IsAdmin}}</strong> |
-            IsModerator: <strong>{{.IsModerator}}</strong> |
-            Template: <strong>2026-02-04</strong>
-        </div>
         <h2>Lead Info</h2>
         <div class="section-note">Moderator: Fills this section when creating the lead</div>
 
@@ -208,8 +210,8 @@
                 </select>
             </div>
             <div class="form-group">
-                <label for="assigned_level">Assigned Level</label>
-                <select id="assigned_level" name="assigned_level">
+                <label for="assigned_level">Assigned Level{{if eq .UserRole "admin"}} (set by Student Success){{end}}</label>
+                <select id="assigned_level" name="assigned_level" {{if eq .UserRole "admin"}}disabled{{end}}>
                     <option value="">Not tested yet</option>
                     <option value="1" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
                         .Detail.PlacementTest.AssignedLevel.Int32 1}}selected{{end}}{{end}}>Level 1</option>
@@ -228,14 +230,25 @@
                     <option value="8" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if eq
                         .Detail.PlacementTest.AssignedLevel.Int32 8}}selected{{end}}{{end}}>Level 8</option>
                 </select>
+                {{if eq .UserRole "admin"}}
+                <small style="color: #666; display: block; margin-top: 5px;">Student Success records level after the test.</small>
+                {{end}}
             </div>
         </div>
 
         <div class="form-group">
-            <label for="test_notes">Test Notes</label>
-            <textarea id="test_notes" name="test_notes"
-                placeholder="Community Officer: Add test results and observations...">{{if and .Detail.PlacementTest .Detail.PlacementTest.TestNotes.Valid}}{{.Detail.PlacementTest.TestNotes.String}}{{end}}</textarea>
+            <label for="test_notes">Test Notes{{if eq .UserRole "admin"}} (set by Student Success){{end}}</label>
+            <textarea id="test_notes" name="test_notes" {{if eq .UserRole "admin"}}disabled{{end}}
+                placeholder="Student Success: Add test results and observations...">{{if and .Detail.PlacementTest .Detail.PlacementTest.TestNotes.Valid}}{{.Detail.PlacementTest.TestNotes.String}}{{end}}</textarea>
         </div>
+
+        {{if eq .UserRole "admin"}}
+        <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+            <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-secondary">
+                Save Placement Test
+            </button>
+        </div>
+        {{end}}
     </div>
 
     <!-- 3. Offer & Pricing -->
@@ -314,23 +327,26 @@
             </select>
         </div>
 
-        <div id="printed-fields">
+        <div id="printed-fields" style="{{if and .Detail.Booking .Detail.Booking.BookFormat.Valid}}{{if eq .Detail.Booking.BookFormat.String `pdf`}}display: none;{{end}}{{end}}">
             <div class="form-group">
                 <label for="address">Address</label>
                 <input type="text" id="address" name="address"
-                    value="{{if and .Detail.Booking .Detail.Booking.Address.Valid}}{{.Detail.Booking.Address.String}}{{end}}">
+                    value="{{if and .Detail.Booking .Detail.Booking.Address.Valid}}{{.Detail.Booking.Address.String}}{{end}}"
+                    {{if and .Detail.Booking .Detail.Booking.BookFormat.Valid}}{{if eq .Detail.Booking.BookFormat.String `pdf`}}disabled{{end}}{{end}}>
             </div>
 
             <div class="form-group">
                 <label for="city">City</label>
                 <input type="text" id="city" name="city"
-                    value="{{if and .Detail.Booking .Detail.Booking.City.Valid}}{{.Detail.Booking.City.String}}{{end}}">
+                    value="{{if and .Detail.Booking .Detail.Booking.City.Valid}}{{.Detail.Booking.City.String}}{{end}}"
+                    {{if and .Detail.Booking .Detail.Booking.BookFormat.Valid}}{{if eq .Detail.Booking.BookFormat.String `pdf`}}disabled{{end}}{{end}}>
             </div>
 
             <div class="form-group">
                 <label for="delivery_notes">Delivery Notes</label>
                 <textarea id="delivery_notes" name="delivery_notes"
-                    placeholder="Special delivery instructions...">{{if and .Detail.Booking .Detail.Booking.DeliveryNotes.Valid}}{{.Detail.Booking.DeliveryNotes.String}}{{end}}</textarea>
+                    placeholder="Special delivery instructions..."
+                    {{if and .Detail.Booking .Detail.Booking.BookFormat.Valid}}{{if eq .Detail.Booking.BookFormat.String `pdf`}}disabled{{end}}{{end}}>{{if and .Detail.Booking .Detail.Booking.DeliveryNotes.Valid}}{{.Detail.Booking.DeliveryNotes.String}}{{end}}</textarea>
             </div>
         </div>
     </div>
@@ -563,6 +579,9 @@
     {{end}}{{end}}
     {{end}}
 
+    </fieldset>
+
+    {{if not .IsReadOnly}}
     <!-- Action Buttons - All use single form with action parameter -->
     {{if .IsModerator}}
     <div class="action-buttons" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E6E6E6;">
@@ -573,8 +592,10 @@
         <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-primary">Save</button>
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_test_booked"
             class="btn btn-secondary">Mark Test Booked</button>
+        {{if ne .UserRole "admin"}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_tested" class="btn btn-secondary">Mark
             Tested</button>
+        {{end}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
             class="btn btn-secondary">Mark Offer Sent</button>
         <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting"
@@ -820,6 +841,7 @@
         </div>
     </div>
     {{end}}
+    {{end}}
 </form>
 
 <script>
@@ -830,12 +852,40 @@
         const printedFields = document.getElementById('printed-fields');
         const shippingSection = document.getElementById('shipping-section');
 
+        const addressEl = document.getElementById('address');
+        const cityEl = document.getElementById('city');
+        const deliveryNotesEl = document.getElementById('delivery_notes');
+        const shipmentStatusEl = document.getElementById('shipment_status');
+        const shipmentDateEl = document.getElementById('shipment_date');
+
         if (bookFormat === 'printed') {
             if (printedFields) printedFields.style.display = 'block';
             if (shippingSection) shippingSection.style.display = 'block';
+            if (addressEl) addressEl.disabled = false;
+            if (cityEl) cityEl.disabled = false;
+            if (deliveryNotesEl) deliveryNotesEl.disabled = false;
+            if (shipmentStatusEl) shipmentStatusEl.disabled = false;
+            if (shipmentDateEl) shipmentDateEl.disabled = false;
         } else {
             if (printedFields) printedFields.style.display = 'none';
             if (shippingSection) shippingSection.style.display = 'none';
+            if (addressEl) {
+                addressEl.value = '';
+                addressEl.disabled = true;
+            }
+            if (cityEl) {
+                cityEl.value = '';
+                cityEl.disabled = true;
+            }
+            if (deliveryNotesEl) {
+                deliveryNotesEl.value = '';
+                deliveryNotesEl.disabled = true;
+            }
+            if (shipmentStatusEl) shipmentStatusEl.disabled = true;
+            if (shipmentDateEl) {
+                shipmentDateEl.value = '';
+                shipmentDateEl.disabled = true;
+            }
         }
     }
 

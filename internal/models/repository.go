@@ -3,6 +3,7 @@ package models
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -28,6 +29,8 @@ const (
 	StageScheduleSet              = "SCHEDULE_SET"
 	StageReadyToStart             = "READY_TO_START"
 )
+
+var ErrAttendanceDeadlinePassed = errors.New("attendance deadline passed")
 
 // Payment state constants
 const (
@@ -488,6 +491,59 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 	return leads, nil
 }
 
+// GetPlacementTestsForStudentSuccess returns leads with placement tests scheduled.
+// Used by Student Success dashboard to record test results.
+func GetPlacementTestsForStudentSuccess(showCompleted bool) ([]*PlacementTestQueueItem, error) {
+	query := `
+		SELECT
+			l.id, l.full_name, l.phone, l.status,
+			pt.test_date, pt.test_time, pt.test_type, pt.assigned_level, pt.test_notes
+		FROM leads l
+		INNER JOIN placement_tests pt ON pt.lead_id = l.id
+		WHERE pt.test_date IS NOT NULL
+		  AND pt.test_time IS NOT NULL
+		  AND l.status != 'cancelled'
+		  AND l.status != 'in_classes'
+	`
+	if showCompleted {
+		query += " AND pt.assigned_level IS NOT NULL"
+	} else {
+		query += " AND pt.assigned_level IS NULL"
+	}
+	query += `
+		ORDER BY pt.test_date ASC, pt.test_time ASC, l.created_at ASC
+	`
+
+	rows, err := db.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []*PlacementTestQueueItem{}
+	for rows.Next() {
+		item := &PlacementTestQueueItem{}
+		if err := rows.Scan(
+			&item.LeadID,
+			&item.FullName,
+			&item.Phone,
+			&item.Status,
+			&item.TestDate,
+			&item.TestTime,
+			&item.TestType,
+			&item.AssignedLevel,
+			&item.TestNotes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
@@ -678,8 +734,8 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 				test_date = EXCLUDED.test_date,
 				test_time = EXCLUDED.test_time,
 				test_type = EXCLUDED.test_type,
-				assigned_level = EXCLUDED.assigned_level,
-				test_notes = EXCLUDED.test_notes,
+				assigned_level = COALESCE(EXCLUDED.assigned_level, placement_tests.assigned_level),
+				test_notes = COALESCE(EXCLUDED.test_notes, placement_tests.test_notes),
 				run_by_user_id = EXCLUDED.run_by_user_id,
 				placement_test_fee = EXCLUDED.placement_test_fee,
 				placement_test_fee_paid = EXCLUDED.placement_test_fee_paid,
@@ -1082,6 +1138,7 @@ func GetClassGroups() ([]*ClassGroup, error) {
 		AND pt.assigned_level IS NOT NULL
 		AND s.class_days IS NOT NULL
 		AND s.class_time IS NOT NULL
+		AND COALESCE(cg.round_status, 'not_started') != 'closed'
 		ORDER BY pt.assigned_level, s.class_days, s.class_time, COALESCE(s.class_group_index, 1), l.full_name
 	`
 	rows, err := db.DB.Query(query)
@@ -1247,11 +1304,17 @@ func GetClassGroups() ([]*ClassGroup, error) {
 // Returns the group_index assigned
 // Note: Student must already have sent_to_classes=true (this is checked by GetClassGroups)
 func AssignClassGroup(leadID uuid.UUID) (int32, error) {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Get student's level, days, time
 	// Note: We don't check sent_to_classes here because GetClassGroups already filters for it
 	var assignedLevel sql.NullInt32
 	var classDays, classTime sql.NullString
-	err := db.DB.QueryRow(`
+	err = tx.QueryRow(`
 		SELECT pt.assigned_level, s.class_days, s.class_time
 		FROM leads l
 		INNER JOIN placement_tests pt ON l.id = pt.lead_id
@@ -1267,34 +1330,66 @@ func AssignClassGroup(leadID uuid.UUID) (int32, error) {
 		return 0, fmt.Errorf("student not eligible for classes: %w", err)
 	}
 
-	// Find existing groups for this key (level+days+time) that are not locked
-	// Check each group index 1, 2, 3... until we find one with < 6 students
+	// Track group indices that are not eligible due to active/closed/sent_to_mentor
 	activeGroups := map[int32]bool{}
-	activeRows, err := db.DB.Query(`
-		SELECT COALESCE(class_number, 1)
+	blockedGroups := map[int32]bool{}
+	groupRows, err := tx.Query(`
+		SELECT COALESCE(class_number, 1), COALESCE(round_status, 'not_started'), COALESCE(sent_to_mentor, false)
 		FROM class_groups
 		WHERE level = $1
 		  AND class_days = $2
 		  AND class_time = $3
-		  AND COALESCE(round_status, '') = 'active'
 	`, assignedLevel.Int32, classDays.String, classTime.String)
 	if err != nil {
-		return 0, fmt.Errorf("failed to query active class groups: %w", err)
+		return 0, fmt.Errorf("failed to query class groups: %w", err)
 	}
-	for activeRows.Next() {
+	for groupRows.Next() {
 		var idx int32
-		if err := activeRows.Scan(&idx); err == nil {
-			activeGroups[idx] = true
+		var roundStatus string
+		var sentToMentor bool
+		if err := groupRows.Scan(&idx, &roundStatus, &sentToMentor); err == nil {
+			if roundStatus == "active" {
+				activeGroups[idx] = true
+			}
+			if roundStatus == "closed" || sentToMentor {
+				blockedGroups[idx] = true
+			}
 		}
 	}
-	_ = activeRows.Close()
+	_ = groupRows.Close()
 
 	for groupIndex := int32(1); ; groupIndex++ {
-		if activeGroups[groupIndex] {
+		if activeGroups[groupIndex] || blockedGroups[groupIndex] {
 			continue
 		}
+
+		// Advisory lock per (level, days, time, groupIndex) to prevent race conditions
+		lockKey := fmt.Sprintf("%d|%s|%s|%d", assignedLevel.Int32, classDays.String, classTime.String, groupIndex)
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1))`, lockKey); err != nil {
+			return 0, fmt.Errorf("failed to lock class group: %w", err)
+		}
+
+		// Re-check group state after lock
+		var roundStatus sql.NullString
+		var sentToMentor sql.NullBool
+		err := tx.QueryRow(`
+			SELECT COALESCE(round_status, 'not_started'), COALESCE(sent_to_mentor, false)
+			FROM class_groups
+			WHERE level = $1
+			  AND class_days = $2
+			  AND class_time = $3
+			  AND COALESCE(class_number, 1) = $4
+		`, assignedLevel.Int32, classDays.String, classTime.String, groupIndex).Scan(&roundStatus, &sentToMentor)
+		if err == nil {
+			if roundStatus.String == "active" || roundStatus.String == "closed" || sentToMentor.Bool {
+				continue
+			}
+		} else if err != sql.ErrNoRows {
+			return 0, fmt.Errorf("failed to check class group state: %w", err)
+		}
+
 		var count int
-		err := db.DB.QueryRow(`
+		err = tx.QueryRow(`
 			SELECT COUNT(*)
 			FROM leads l
 			INNER JOIN placement_tests pt ON l.id = pt.lead_id
@@ -1306,19 +1401,21 @@ func AssignClassGroup(leadID uuid.UUID) (int32, error) {
 			AND s.class_time = $3
 			AND COALESCE(s.class_group_index, 0) = $4
 		`, assignedLevel.Int32, classDays.String, classTime.String, groupIndex).Scan(&count)
-
 		if err != nil {
 			return 0, fmt.Errorf("failed to check group capacity: %w", err)
 		}
 
 		// If this group has < 6 students, assign here
 		if count < 6 {
-			_, err = db.DB.Exec(`
+			_, err = tx.Exec(`
 				UPDATE scheduling SET class_group_index = $1, updated_at = CURRENT_TIMESTAMP
 				WHERE lead_id = $2
-		`, groupIndex, leadID)
+			`, groupIndex, leadID)
 			if err != nil {
 				return 0, fmt.Errorf("failed to assign class group: %w", err)
+			}
+			if err := tx.Commit(); err != nil {
+				return 0, fmt.Errorf("failed to commit class group assignment: %w", err)
 			}
 			return groupIndex, nil
 		}
@@ -1342,22 +1439,30 @@ func MoveStudentBetweenGroups(leadID uuid.UUID, targetGroupIndex int32) error {
 		return fmt.Errorf("failed to get student details: %w", err)
 	}
 
-	// Disallow moving into an active (started) class group
-	var activeCount int
+	// Disallow moving into active/closed or sent-to-mentor class groups
+	var roundStatus sql.NullString
+	var sentToMentor sql.NullBool
 	err = db.DB.QueryRow(`
-		SELECT COUNT(*)
+		SELECT COALESCE(round_status, 'not_started'), COALESCE(sent_to_mentor, false)
 		FROM class_groups
 		WHERE level = $1
 		  AND class_days = $2
 		  AND class_time = $3
 		  AND COALESCE(class_number, 1) = $4
-		  AND COALESCE(round_status, '') = 'active'
-	`, assignedLevel.Int32, classDays.String, classTime.String, targetGroupIndex).Scan(&activeCount)
-	if err != nil {
+	`, assignedLevel.Int32, classDays.String, classTime.String, targetGroupIndex).Scan(&roundStatus, &sentToMentor)
+	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("failed to check class group status: %w", err)
 	}
-	if activeCount > 0 {
-		return fmt.Errorf("target group is started (active round)")
+	if err == nil {
+		if roundStatus.String == "active" {
+			return fmt.Errorf("target group is started (active round)")
+		}
+		if roundStatus.String == "closed" {
+			return fmt.Errorf("target group is closed")
+		}
+		if sentToMentor.Valid && sentToMentor.Bool {
+			return fmt.Errorf("target group is sent to mentor head")
+		}
 	}
 
 	// Check if target group exists and is not locked
@@ -1521,7 +1626,8 @@ func GetAvailableGroupsForMove(leadID uuid.UUID) ([]int32, error) {
 		AND pt.assigned_level = $1
 		AND s.class_days = $2
 		AND s.class_time = $3
-		AND COALESCE(cg.round_status, 'not_started') != 'active'
+		AND COALESCE(cg.round_status, 'not_started') NOT IN ('active', 'closed')
+		AND COALESCE(cg.sent_to_mentor, false) = false
 		GROUP BY COALESCE(s.class_group_index, 1)
 		ORDER BY COALESCE(s.class_group_index, 1)
 	`, assignedLevel.Int32, classDays.String, classTime.String)
@@ -2347,6 +2453,79 @@ func UpdateLeadCreditsFromPayments(leadID uuid.UUID, bundleLevels sql.NullInt32)
 	return err
 }
 
+// EnsureFinanceLedgerSync backfills missing finance transactions for legacy payment records.
+// Idempotent via ref_key uniqueness.
+func EnsureFinanceLedgerSync() error {
+	now := time.Now()
+
+	// Backfill placement test payments
+	_, err := db.DB.Exec(`
+		INSERT INTO transactions (
+			id, transaction_date, transaction_type, category, amount, payment_method, lead_id,
+			ref_type, ref_id, ref_sub_type, ref_key, created_at, updated_at
+		)
+		SELECT
+			gen_random_uuid(),
+			pt.placement_test_payment_date,
+			'IN',
+			'placement_test',
+			pt.placement_test_fee_paid,
+			pt.placement_test_payment_method,
+			pt.lead_id,
+			'lead',
+			pt.lead_id::text,
+			'placement_test',
+			'lead:' || pt.lead_id::text || ':placement_test',
+			$1,
+			$1
+		FROM placement_tests pt
+		WHERE pt.placement_test_fee_paid IS NOT NULL
+		  AND pt.placement_test_fee_paid > 0
+		  AND pt.placement_test_payment_date IS NOT NULL
+		  AND pt.placement_test_payment_method IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM transactions t
+			WHERE t.ref_key = 'lead:' || pt.lead_id::text || ':placement_test'
+		  )
+	`, now)
+	if err != nil {
+		return fmt.Errorf("failed to backfill placement test transactions: %w", err)
+	}
+
+	// Backfill course payments
+	_, err = db.DB.Exec(`
+		INSERT INTO transactions (
+			id, transaction_date, transaction_type, category, amount, payment_method, lead_id,
+			ref_type, ref_id, ref_sub_type, ref_key, notes, created_at, updated_at
+		)
+		SELECT
+			gen_random_uuid(),
+			lp.payment_date,
+			'IN',
+			'course_payment',
+			lp.amount,
+			lp.payment_method,
+			lp.lead_id,
+			'lead',
+			lp.lead_id::text,
+			'course_payment',
+			'lead:' || lp.lead_id::text || ':course_payment:' || lp.id::text,
+			lp.notes,
+			$1,
+			$1
+		FROM lead_payments lp
+		WHERE NOT EXISTS (
+			SELECT 1 FROM transactions t
+			WHERE t.ref_key = 'lead:' || lp.lead_id::text || ':course_payment:' || lp.id::text
+		)
+	`, now)
+	if err != nil {
+		return fmt.Errorf("failed to backfill course payment transactions: %w", err)
+	}
+
+	return nil
+}
+
 // GetFinanceSummary returns aggregated finance data for today and date range
 func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 	today := time.Now().Format("2006-01-02")
@@ -2933,8 +3112,66 @@ func CancelAndRescheduleSession(sessionID uuid.UUID, newDate time.Time, newTime 
 	return nil
 }
 
-// MarkAttendance upserts attendance record for a student in a session
-func MarkAttendance(sessionID, leadID uuid.UUID, status string, notes string, markedByUserID uuid.UUID) error {
+func parseSessionClock(value string) (time.Time, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, fmt.Errorf("missing time value")
+	}
+	layouts := []string{"15:04:05", "15:04"}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, trimmed); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid time format: %s", value)
+}
+
+// ComputeSessionEndTime builds the scheduled session end datetime from a ClassSession.
+func ComputeSessionEndTime(session *ClassSession) (time.Time, error) {
+	if session == nil {
+		return time.Time{}, fmt.Errorf("session not found")
+	}
+	year, month, day := session.ScheduledDate.Date()
+	var baseTime string
+	useEndTime := false
+	if session.ScheduledEndTime.Valid {
+		baseTime = session.ScheduledEndTime.String
+		useEndTime = true
+	} else if session.ScheduledTime.Valid {
+		baseTime = session.ScheduledTime.String
+	}
+	if baseTime == "" {
+		return time.Time{}, fmt.Errorf("session time is missing")
+	}
+	parsed, err := parseSessionClock(baseTime)
+	if err != nil {
+		return time.Time{}, err
+	}
+	end := time.Date(year, month, day, parsed.Hour(), parsed.Minute(), parsed.Second(), 0, time.Local)
+	if !useEndTime {
+		end = end.Add(2 * time.Hour)
+	}
+	return end, nil
+}
+
+// MarkAttendance upserts attendance record for a student in a session.
+// enforceDeadline blocks updates after 24 hours past the scheduled session end time.
+func MarkAttendance(sessionID, leadID uuid.UUID, status string, notes string, markedByUserID uuid.UUID, enforceDeadline bool) error {
+	if enforceDeadline {
+		session, err := GetSessionByID(sessionID)
+		if err != nil {
+			return err
+		}
+		endTime, err := ComputeSessionEndTime(session)
+		if err != nil {
+			return err
+		}
+		deadline := endTime.Add(24 * time.Hour)
+		if time.Now().After(deadline) {
+			return ErrAttendanceDeadlinePassed
+		}
+	}
+
 	now := time.Now()
 	_, err := db.DB.Exec(`
 		INSERT INTO attendance (id, session_id, lead_id, status, notes, marked_by_user_id, created_at, updated_at)
@@ -3453,7 +3690,8 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 		UPDATE class_groups
 		SET sent_to_mentor = false, returned_at = $1, updated_at = $1,
 		    round_status = 'closed', round_closed_at = $1, round_closed_by = $3,
-		    closed_mentor_user_id = $4
+		    closed_mentor_user_id = $4,
+		    hidden_in_ops = true, hidden_at = $1, hidden_by = $3
 		WHERE class_key = $2
 	`, now, classKey, closedByUserID, closedMentorID)
 	if err != nil {
@@ -3626,6 +3864,70 @@ func GetClassFeedbackRecords(classKey string) ([]*StudentSuccessFeedback, error)
 		results = append(results, f)
 	}
 	return results, rows.Err()
+}
+
+// CreateFeedbackCollectedUpload stores a feedback file uploaded by Student Success or Mentor Head.
+func CreateFeedbackCollectedUpload(leadID uuid.UUID, classKey string, sessionNumber *int32, fileName, fileURL, mimeType string, sizeBytes int64, note string, uploadedBy uuid.UUID) (*FeedbackCollectedUpload, error) {
+	var sn sql.NullInt32
+	if sessionNumber != nil {
+		sn = sql.NullInt32{Int32: *sessionNumber, Valid: true}
+	}
+	var mt sql.NullString
+	if mimeType != "" {
+		mt = sql.NullString{String: mimeType, Valid: true}
+	}
+	var sz sql.NullInt32
+	if sizeBytes > 0 {
+		sz = sql.NullInt32{Int32: int32(sizeBytes), Valid: true}
+	}
+	var noteVal sql.NullString
+	if note != "" {
+		noteVal = sql.NullString{String: note, Valid: true}
+	}
+
+	var out FeedbackCollectedUpload
+	err := db.DB.QueryRow(`
+		INSERT INTO feedback_collected_uploads (
+			lead_id, class_key, session_number, file_name, file_url, mime_type, size_bytes, note, uploaded_by_user_id, uploaded_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+		RETURNING id, lead_id, class_key, session_number, file_name, file_url, mime_type, size_bytes, note, uploaded_by_user_id, uploaded_at
+	`, leadID, classKey, sn, fileName, fileURL, mt, sz, noteVal, uploadedBy).Scan(
+		&out.ID, &out.LeadID, &out.ClassKey, &out.SessionNumber, &out.FileName, &out.FileURL,
+		&out.MimeType, &out.SizeBytes, &out.Note, &out.UploadedByUser, &out.UploadedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert feedback upload: %w", err)
+	}
+	return &out, nil
+}
+
+// GetFeedbackCollectedUploadsByClass returns feedback uploads for a class, newest first.
+func GetFeedbackCollectedUploadsByClass(classKey string) ([]*FeedbackCollectedUpload, error) {
+	rows, err := db.DB.Query(`
+		SELECT f.id, f.lead_id, f.class_key, f.session_number, f.file_name, f.file_url,
+		       f.mime_type, f.size_bytes, f.note, u.email, f.uploaded_at
+		FROM feedback_collected_uploads f
+		LEFT JOIN users u ON f.uploaded_by_user_id = u.id
+		WHERE f.class_key = $1
+		ORDER BY f.uploaded_at DESC
+	`, classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query feedback uploads: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*FeedbackCollectedUpload
+	for rows.Next() {
+		item := &FeedbackCollectedUpload{}
+		if err := rows.Scan(
+			&item.ID, &item.LeadID, &item.ClassKey, &item.SessionNumber, &item.FileName, &item.FileURL,
+			&item.MimeType, &item.SizeBytes, &item.Note, &item.UploadedByUser, &item.UploadedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan feedback upload: %w", err)
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
 
 // GetPendingFeedback returns students who need feedback at session 4 or 8
@@ -4648,7 +4950,7 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 		JOIN leads l ON a.lead_id = l.id
 		LEFT JOIN late_joiners lj ON l.id = lj.lead_id
 		LEFT JOIN users u ON a.marked_by_user_id = u.id
-		LEFT JOIN followups f ON f.class_key = s.class_key AND f.lead_id = l.id AND f.session_number = s.session_number
+		LEFT JOIN followups f ON f.class_key = s.class_key AND f.lead_id = l.id AND f.session_number = s.session_number AND f.deleted_at IS NULL
 		WHERE s.class_key = $1 
 		  AND a.status IN ('ABSENT', 'LATE')
 		  AND (f.resolved IS NULL OR f.resolved = false)
@@ -4756,8 +5058,9 @@ func CreateFollowUp(classKey string, leadID uuid.UUID, sessionNumber int, note s
 	_, err := db.DB.Exec(`
 		INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW())
-		ON CONFLICT (class_key, lead_id, session_number) 
+		ON CONFLICT (class_key, lead_id, session_number)
 		DO UPDATE SET note = $4, status = $5, created_by = $6, updated_at = NOW()
+		WHERE followups.deleted_at IS NULL
 	`, classKey, leadID, sessionNumber, note, standardizedStatus, createdBy)
 	return err
 }
@@ -4767,7 +5070,7 @@ func ResolveFollowUp(id uuid.UUID, resolvedBy uuid.UUID) error {
 	_, err := db.DB.Exec(`
 		UPDATE followups 
 		SET resolved = true, resolved_at = NOW(), resolved_by_user_id = $1, updated_at = NOW()
-		WHERE id = $2
+		WHERE id = $2 AND deleted_at IS NULL
 	`, resolvedBy, id)
 	return err
 }
@@ -4776,7 +5079,7 @@ func ResolveFollowUp(id uuid.UUID, resolvedBy uuid.UUID) error {
 func UpdateFollowUpStatus(id uuid.UUID, status string) error {
 	standardizedStatus := normalizeFollowUpStatus(status)
 	_, err := db.DB.Exec(`
-		UPDATE followups SET status = $1, updated_at = NOW() WHERE id = $2
+		UPDATE followups SET status = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL
 	`, standardizedStatus, id)
 	return err
 }
@@ -4789,13 +5092,13 @@ func UpdateFollowUp(id uuid.UUID, status, note string, resolved bool, userID uui
 		_, err = db.DB.Exec(`
 			UPDATE followups 
 			SET status = $1, note = $2, resolved = true, resolved_at = NOW(), resolved_by_user_id = $3, updated_at = NOW()
-			WHERE id = $4
+			WHERE id = $4 AND deleted_at IS NULL
 		`, standardizedStatus, note, userID, id)
 	} else {
 		_, err = db.DB.Exec(`
 			UPDATE followups 
 			SET status = $1, note = $2, updated_at = NOW()
-			WHERE id = $3
+			WHERE id = $3 AND deleted_at IS NULL
 		`, standardizedStatus, note, id)
 	}
 	return err
@@ -4829,7 +5132,7 @@ func AutoProgressFollowupStatuses() error {
 	_, err := db.DB.Exec(`
 		UPDATE followups
 		SET status = 'NOT_REPLIED', updated_at = CURRENT_TIMESTAMP
-		WHERE status = 'CONTACTED' AND created_at < $1
+		WHERE status = 'CONTACTED' AND created_at < $1 AND deleted_at IS NULL
 	`, now.Add(-24*time.Hour))
 	if err != nil {
 		return fmt.Errorf("failed to progress CONTACTED to NOT_REPLIED: %w", err)
@@ -4839,7 +5142,7 @@ func AutoProgressFollowupStatuses() error {
 	_, err = db.DB.Exec(`
 		UPDATE followups
 		SET status = 'NO_RESPONSE', updated_at = CURRENT_TIMESTAMP
-		WHERE (status = 'NOT_REPLIED' OR status = 'CONTACTED') AND created_at < $1
+		WHERE (status = 'NOT_REPLIED' OR status = 'CONTACTED') AND created_at < $1 AND deleted_at IS NULL
 	`, now.Add(-96*time.Hour))
 	if err != nil {
 		return fmt.Errorf("failed to progress to NO_RESPONSE: %w", err)
@@ -4858,7 +5161,7 @@ func GetFollowUps(classKey string, resolved bool) ([]*FollowUpListItem, error) {
 		JOIN leads l ON f.lead_id = l.id
 		LEFT JOIN class_sessions s ON s.class_key = f.class_key AND s.session_number = f.session_number
 		LEFT JOIN attendance a ON a.session_id = s.id AND a.lead_id = f.lead_id
-		WHERE f.class_key = $1 AND f.resolved = $2 AND f.status = 'NO_RESPONSE'
+		WHERE f.class_key = $1 AND f.resolved = $2 AND f.status = 'NO_RESPONSE' AND f.deleted_at IS NULL
 		ORDER BY f.created_at DESC
 	`, classKey, resolved)
 	if err != nil {
@@ -4895,6 +5198,7 @@ func ResolveAbsence(classKey string, leadID uuid.UUID, sessionNumber int, resolv
 		VALUES ($1, $2, $3, '', 'RESOLVED', $4, NOW(), true, NOW(), $4)
 		ON CONFLICT (class_key, lead_id, session_number) 
 		DO UPDATE SET resolved = true, resolved_at = NOW(), resolved_by_user_id = $4, updated_at = NOW()
+		WHERE followups.deleted_at IS NULL
 	`, classKey, leadID, sessionNumber, resolvedBy)
 	return err
 }

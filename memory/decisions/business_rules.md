@@ -86,6 +86,12 @@
 **Active rounds**: Joining a running class requires the Late Joiner flow.  
 **Evidence**: `internal/models/repository.go` (`SendLeadToClasses`, `AssignClassGroup`, `MoveStudentBetweenGroups`), `internal/views/pre_enrolment_detail.html` note.
 
+### Rule: Ops cannot assign into sent-to-mentor or closed classes
+**Scope**: Send-to-Classes and move operations on Ops classes board.  
+**Behavior**: Assignments and moves must avoid class groups that are `sent_to_mentor = true` or `round_status = 'closed'`.  
+**Reason**: Prevents leaking students into mentor-managed or archived groups.  
+**Evidence**: `internal/models/repository.go` (`AssignClassGroup`, `MoveStudentBetweenGroups`, `GetAvailableGroupsForMove`).
+
 ### Rule: Cancel lead requires refund modal when payments exist
 **Scope**: Pre-Enrolment cancellations  
 **Behavior**: Direct delete is disabled; cancellation must go through the cancel flow and show refund modal if course payments exist.  
@@ -102,6 +108,15 @@
 **Constraint**: CHECK on `placement_tests.assigned_level`  
 **Evidence**: `migrations/003_assigned_level_1_to_8.sql`
 
+### Rule: Placement test booking vs. results ownership
+**Booking**: Ops Admin sets test date/time/type in Pre-Enrolment and saves.  
+**Result**: Student Success records assigned level + test notes after test.  
+**Status**: Saving results sets `leads.status = tested` **only if** lead is still `lead_created` or `test_booked`.  
+**Evidence**:
+- `internal/handlers/pre_enrolment.go` (SaveFull auto-stage test_booked)
+- `internal/models/repository.go` (ComputeStageFromFormCompletion)
+- `internal/handlers/api.go` (CompletePlacementTest)
+
 ---
 
 ## Attendance & Absence
@@ -110,6 +125,12 @@
 **Values**: `present`, `absent_excused`, `absent_unexcused`  
 **Constraint**: CHECK constraint on `attendance.status`  
 **Evidence**: `migrations/017_create_attendance.sql`
+
+### Rule: Attendance deadline (24 hours)
+**Rule**: Mentors can mark attendance up to 24 hours after scheduled session end time  
+**Override**: Admin/Student Success can bypass for corrections  
+**UI**: Mentor class workspace shows a red banner when attendance is missing past 24 hours  
+**Evidence**: `internal/models/repository.go` (MarkAttendance, ComputeSessionEndTime), `internal/handlers/mentor.go`, `internal/views/mentor_class_detail.html`, `frontend/src/pages/ClassWorkspace.tsx`
 
 ### Rule: Unique absence follow-up per session
 **Constraint**: `UNIQUE (class_key, lead_id, session_number)` on `followups` table  
@@ -120,6 +141,12 @@
 **Purpose**: Absence escalations have session_number, complaints don't  
 **Migration**: Made session_number nullable  
 **Evidence**: `migrations/036_make_followups_nullable_for_complaints.sql`
+
+### Rule: Canonical session completion endpoint
+**Canonical**: `POST /api/session/complete`  
+**Legacy**: `POST /api/classes/:id/sessions/:n/complete` (deprecated; logs warning)  
+**Behavior**: Both call the same `CompleteSession` logic for side effects.  
+**Evidence**: `internal/handlers/api.go` (CompleteSession, CompleteSessionByNumber)
 
 ---
 
@@ -143,7 +170,7 @@
 
 ### Rule: Soft delete support (unused)
 **Fields**: `deleted_at`, `deleted_by_user_id`, `delete_reason` on `followups` table  
-**Status**: Schema exists but feature not active (manager role removed)  
+**Status**: Soft-deleted follow-ups are excluded from queries and updates (no UI yet)  
 **Evidence**: `migrations/033_add_complaints_to_followups.sql:14-16`
 
 ### Rule: Late joiner capacity limits (NEW - pending implementation)
@@ -151,6 +178,16 @@
 **Implementation**: NOT yet implemented - no capacity validation exists in current code  
 **Evidence**: User requirement, verified missing from codebase  
 **See**: `memory/flows/late_joiners.md`
+
+---
+
+## Finance
+
+### Rule: Ledger backfill for legacy payments
+**Scope**: Placement test payments + course payments created before finance tracking  
+**Mechanism**: On finance dashboard load, missing `transactions` rows are backfilled from `placement_tests` and `lead_payments`  
+**Idempotent**: Uses `ref_key` uniqueness to avoid duplicates  
+**Evidence**: `internal/models/repository.go` (EnsureFinanceLedgerSync), `internal/handlers/finance.go`
 
 ---
 

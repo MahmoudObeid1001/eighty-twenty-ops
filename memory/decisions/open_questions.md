@@ -108,16 +108,6 @@
 **Evidence**: No CHECK constraints or triggers visible in migrations  
 **Next steps**: Check business logic in handlers
 
-### Q: Attendance deadline?
-**Observation**: Mentors mark attendance during/after sessions  
-**Questions**:
-- Is there a deadline to mark attendance?
-- Can attendance for past sessions be modified?  
-**Evidence**: No timestamp constraints in schema  
-**Next steps**: Check handler validation logic
-
----
-
 ## Complaints
 
 ### Q: Complaint category/urgency values?

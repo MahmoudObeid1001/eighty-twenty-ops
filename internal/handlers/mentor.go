@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -74,14 +75,14 @@ func (h *MentorHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	nextClassTime := nextUpcomingClassTime(classes)
 
 	data := map[string]interface{}{
-		"Title":         "My Classes – Eighty Twenty",
-		"Classes":       classes,
-		"MentorEmail":   mentorEmail,
-		"ClassCount":    classCount,
-		"NextClassTime": nextClassTime,
-		"IsAdmin":       userRole == "admin",
-		"IsModerator":   userRole == "moderator",
-		"FlashMessage":  flashMessage,
+		"Title":            "My Classes – Eighty Twenty",
+		"Classes":          classes,
+		"MentorEmail":      mentorEmail,
+		"ClassCount":       classCount,
+		"NextClassTime":    nextClassTime,
+		"IsAdmin":          userRole == "admin",
+		"IsModerator":      userRole == "moderator",
+		"FlashMessage":     flashMessage,
 		"FlashMessageType": flashMessageType,
 	}
 
@@ -269,6 +270,31 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Attendance deadline banner: sessions older than 24h with missing attendance
+	overdueSessions := []int32{}
+	now := time.Now()
+	for _, session := range sessions {
+		if session.Status == "completed" || session.Status == "cancelled" {
+			continue
+		}
+		endTime, err := models.ComputeSessionEndTime(session)
+		if err != nil {
+			continue
+		}
+		if now.After(endTime.Add(24 * time.Hour)) {
+			hasMissing := false
+			for _, student := range studentsWithData {
+				if _, ok := student.Attendance[session.ID]; !ok {
+					hasMissing = true
+					break
+				}
+			}
+			if hasMissing {
+				overdueSessions = append(overdueSessions, session.SessionNumber)
+			}
+		}
+	}
+
 	data := map[string]interface{}{
 		"Title":            "Class – Eighty Twenty",
 		"Class":            classGroup,
@@ -277,6 +303,7 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 		"SelectedSession":  selectedSession,
 		"CompletedCount":   completedCount,
 		"SelectedStudent":  selectedStudent,
+		"OverdueSessions":  overdueSessions,
 		"IsAdmin":          userRole == "admin",
 		"IsModerator":      userRole == "moderator",
 		"IsMentorHeadView": false,
@@ -360,8 +387,13 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	markedByUserID, _ := uuid.Parse(userIDStr)
-	if err := models.MarkAttendance(sessionID, leadID, status, notes, markedByUserID); err != nil {
+	enforceDeadline := userRole == "mentor"
+	if err := models.MarkAttendance(sessionID, leadID, status, notes, markedByUserID, enforceDeadline); err != nil {
 		log.Printf("ERROR: Failed to mark attendance: %v", err)
+		if errors.Is(err, models.ErrAttendanceDeadlinePassed) {
+			redirectWithError(w, r, mentorClassURL("/mentor/class", r.FormValue("class_key"), r), "Attendance deadline has passed (24 hours after session end). Please contact an admin.")
+			return
+		}
 		redirectWithError(w, r, mentorClassURL("/mentor/class", r.FormValue("class_key"), r), "Couldn't save attendance. Please try again.")
 		return
 	}

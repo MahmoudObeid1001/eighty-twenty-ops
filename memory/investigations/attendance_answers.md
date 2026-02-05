@@ -50,16 +50,18 @@ POST endpoint exists - follow-ups are created via API call, not database trigger
 
 ## Q: Attendance marking deadline?
 
-### Answer: **No deadline enforced in code**
+### Answer: **24-hour deadline enforced for mentors**
 
 **Evidence**:
-- `MarkAttendance` handler has no timestamp validation
-- No CHECK constraint on `attendance.marked_at`
-- No business logic blocking past session attendance
+- `models.MarkAttendance` enforces deadline unless bypassed
+- `ComputeSessionEndTime` + 24h deadline in repo logic
+- `apiHandler.MarkAttendance` and `MentorHandler.MarkAttendance` set `enforceDeadline` for mentor role
 
-**Conclusion**: Mentors can mark attendance for any session at any time. No deadline enforced by system.
+**Behavior**:
+- Mentors can mark attendance up to 24 hours after scheduled session end time
+- Admin/Student Success can bypass deadline (for corrections)
 
-**Best practice** (not enforced): Likely expected to mark during/after session, but system doesn't prevent retroactive marking.
+**Conclusion**: Deadline enforced for mentors; late edits require admin override.
 
 ---
 

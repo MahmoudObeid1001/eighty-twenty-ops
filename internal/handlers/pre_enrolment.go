@@ -109,6 +109,12 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Count tested leads for "New test results" banner
+	testedResultsCount := 0
+	if testedLeads, err := models.GetAllLeads("TESTED", "", "", "", false, ""); err == nil {
+		testedResultsCount = len(testedLeads)
+	}
+
 	userRole := middleware.GetUserRole(r)
 	data := map[string]interface{}{
 		"Title":            "Pre-Enrolment - Eighty Twenty",
@@ -125,6 +131,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"IncludeCancelled": includeCancelled,
 		"FollowUpCount":    followUpCount,
 		"FollowUpFilter":   followUpFilter,
+		"TestedResultsCount": testedResultsCount,
 	}
 	renderTemplate(w, r, "pre_enrolment_list.html", data)
 }
@@ -243,6 +250,12 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
 
 	data, _ := h.buildDetailViewModel(detail, leadID, userRole)
+	isReadOnly, _ := data["IsReadOnly"].(bool)
+	if r.URL.Query().Get("source") == "finance" && detail.Lead.SentToClasses {
+		isReadOnly = true
+		data["ReadOnlyReason"] = "Lead already sent to classes."
+	}
+	data["IsReadOnly"] = isReadOnly
 
 	errorMsg := ""
 	phoneError := ""
@@ -405,6 +418,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"UserRole":               userRole,
 		"IsModerator":            userRole == "moderator",
 		"IsAdmin":                userRole == "admin",
+		"IsReadOnly":             userRole == "student_success",
 		"LateJoiner":             lateJoiner,
 		"ClassCurrentSession":    classCurrentSession,
 		"PlacementTestRemaining": placementTestRemaining,
@@ -517,6 +531,10 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		// Server-side check: moderators cannot update status
 		if userRole == "moderator" {
 			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
+			return
+		}
+		if userRole == "admin" {
+			h.renderDetailWithError(w, r, leadID, "Placement test results are recorded by Student Success. Please use the Student Success dashboard.")
 			return
 		}
 
@@ -1191,6 +1209,15 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if testNotes := r.FormValue("test_notes"); testNotes != "" {
 			pt.TestNotes = sql.NullString{String: testNotes, Valid: true}
 		}
+		// Preserve existing assigned level/notes when fields are not submitted (admin fields disabled)
+		if existingDetail.PlacementTest != nil {
+			if !pt.AssignedLevel.Valid && existingDetail.PlacementTest.AssignedLevel.Valid {
+				pt.AssignedLevel = existingDetail.PlacementTest.AssignedLevel
+			}
+			if !pt.TestNotes.Valid && existingDetail.PlacementTest.TestNotes.Valid {
+				pt.TestNotes = existingDetail.PlacementTest.TestNotes
+			}
+		}
 		// Placement test fee fields
 		if feeStr := r.FormValue("placement_test_fee"); feeStr != "" {
 			if fee, err := strconv.Atoi(feeStr); err == nil {
@@ -1397,17 +1424,32 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	// Booking
 	if r.FormValue("book_format") != "" {
 		booking := &models.Booking{LeadID: leadID}
-		if bookFormat := r.FormValue("book_format"); bookFormat != "" {
+		bookFormat := r.FormValue("book_format")
+		if bookFormat != "" {
 			booking.BookFormat = sql.NullString{String: bookFormat, Valid: true}
 		}
-		if address := r.FormValue("address"); address != "" {
-			booking.Address = sql.NullString{String: address, Valid: true}
-		}
-		if city := r.FormValue("city"); city != "" {
-			booking.City = sql.NullString{String: city, Valid: true}
-		}
-		if deliveryNotes := r.FormValue("delivery_notes"); deliveryNotes != "" {
-			booking.DeliveryNotes = sql.NullString{String: deliveryNotes, Valid: true}
+		if bookFormat == "pdf" {
+			// Clear printed-only fields when PDF is selected.
+			booking.Address = sql.NullString{Valid: false}
+			booking.City = sql.NullString{Valid: false}
+			booking.DeliveryNotes = sql.NullString{Valid: false}
+
+			// Also clear shipping details when PDF is selected.
+			detail.Shipping = &models.Shipping{
+				LeadID:         leadID,
+				ShipmentStatus: sql.NullString{Valid: false},
+				ShipmentDate:   sql.NullTime{Valid: false},
+			}
+		} else {
+			if address := r.FormValue("address"); address != "" {
+				booking.Address = sql.NullString{String: address, Valid: true}
+			}
+			if city := r.FormValue("city"); city != "" {
+				booking.City = sql.NullString{String: city, Valid: true}
+			}
+			if deliveryNotes := r.FormValue("delivery_notes"); deliveryNotes != "" {
+				booking.DeliveryNotes = sql.NullString{String: deliveryNotes, Valid: true}
+			}
 		}
 		detail.Booking = booking
 	}

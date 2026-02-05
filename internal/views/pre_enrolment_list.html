@@ -20,6 +20,13 @@
 </div>
 {{end}}
 
+{{if gt .TestedResultsCount 0}}
+<div style="background-color: #E6F7FF; border: 2px solid #4EC6E0; color: #0052A3; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
+    🧪 {{.TestedResultsCount}} new test result{{if ne .TestedResultsCount 1}}s{{end}} ready to review —
+    <a href="/pre-enrolment?status=TESTED" style="color: #0052A3; text-decoration: underline;">View tested leads</a>
+</div>
+{{end}}
+
 <div style="margin-bottom: 20px;">
     <a href="/pre-enrolment/new" class="btn btn-primary">New Lead</a>
 </div>

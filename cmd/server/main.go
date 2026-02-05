@@ -394,6 +394,32 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/class -> apiHandler.GetStudentSuccessClass [student_success only]")
 
+	mux.HandleFunc("/api/student-success/placement-tests", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/student-success/placement-tests" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"student_success"}, cfg.SessionSecret)(apiHandler.GetStudentSuccessPlacementTests)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/student-success/placement-tests -> apiHandler.GetStudentSuccessPlacementTests [student_success only]")
+
+	mux.HandleFunc("/api/student-success/placement-tests/complete", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/student-success/placement-tests/complete" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"student_success"}, cfg.SessionSecret)(apiHandler.CompletePlacementTest)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/student-success/placement-tests/complete -> apiHandler.CompletePlacementTest [student_success only]")
+
 	mux.HandleFunc("/api/student-success/class/absence-feed", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetAbsenceFeed)(w, r)
 	}))
@@ -424,6 +450,19 @@ func main() {
 		middleware.RequireAnyRole([]string{"student_success", "admin"}, cfg.SessionSecret)(apiHandler.UpdateFeedbackStatus)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/feedback/status -> apiHandler.UpdateFeedbackStatus")
+
+	mux.HandleFunc("/api/student-success/feedback-collected", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetFeedbackCollected)(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.UploadFeedbackCollected)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/student-success/feedback-collected -> apiHandler.GetFeedbackCollected/UploadFeedbackCollected")
 
 	// Complaint routes - Student Success
 	mux.HandleFunc("/api/student-success/complaints", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -534,7 +573,7 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /pre-enrolment/new -> preEnrolmentHandler (NewForm/Create) [admin+moderator]")
 
 	// Routes with path parameters - handle manually (Go stdlib mux doesn't support {id})
-	// /pre-enrolment/{id} - GET allows admin+moderator, POST/Update/Status admin only
+	// /pre-enrolment/{id} - GET allows admin+moderator+student_success (read-only for SS), POST/Update/Status admin only
 	mux.HandleFunc("/pre-enrolment/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /pre-enrolment/ (catch-all) handler for %s %s", r.Method, r.URL.Path)
 		// Explicitly reject /login or any non-pre-enrolment paths
@@ -552,8 +591,8 @@ func main() {
 
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling preEnrolmentHandler.Detail")
-			// GET detail - allow admin + moderator (read-only for moderator)
-			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(preEnrolmentHandler.Detail)(w, r)
+			// GET detail - allow admin + moderator + student_success (read-only)
+			middleware.RequireAnyRole([]string{"admin", "moderator", "student_success"}, cfg.SessionSecret)(preEnrolmentHandler.Detail)(w, r)
 		} else if r.Method == http.MethodPost {
 			// All POST requests to /pre-enrolment/{id} go to Update handler
 			// Update handler reads action parameter and routes accordingly
@@ -584,7 +623,7 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /pre-enrolment -> preEnrolmentHandler.List [admin+moderator]")
 
-	// Classes routes - admin, mentor_head (read-only), moderator (403)
+	// Classes routes - admin, mentor_head (read-only)
 	mux.HandleFunc("/classes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /classes handler for %s %s", r.Method, r.URL.Path)
 		if r.URL.Path != "/classes" {
@@ -594,12 +633,12 @@ func main() {
 		}
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling classesHandler.List")
-			middleware.RequireAnyRole([]string{"admin", "moderator", "mentor_head"}, cfg.SessionSecret)(classesHandler.List)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "mentor_head"}, cfg.SessionSecret)(classesHandler.List)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /classes -> classesHandler.List [GET: admin+mentor_head+moderator; moderator gets 403; mentor_head read-only]")
+	cfg.Debugf("ROUTE REGISTERED: /classes -> classesHandler.List [GET: admin+mentor_head; mentor_head read-only]")
 
 	mux.HandleFunc("/classes/move", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /classes/move handler for %s %s", r.Method, r.URL.Path)
@@ -675,12 +714,12 @@ func main() {
 		}
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling classesHandler.Archived")
-			middleware.RequireAnyRole([]string{"admin", "mentor_head", "moderator"}, cfg.SessionSecret)(classesHandler.Archived)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "mentor_head"}, cfg.SessionSecret)(classesHandler.Archived)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /classes/archived -> classesHandler.Archived [admin+mentor_head+moderator]")
+	cfg.Debugf("ROUTE REGISTERED: /classes/archived -> classesHandler.Archived [admin+mentor_head]")
 
 	// POST /classes/archive
 	mux.HandleFunc("/classes/archive", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -726,12 +765,12 @@ func main() {
 		}
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling financeHandler.Dashboard")
-			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(financeHandler.Dashboard)(w, r)
+			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.Dashboard)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /finance -> financeHandler.Dashboard [GET: admin+moderator; moderator gets 403 access-restricted page]")
+	cfg.Debugf("ROUTE REGISTERED: /finance -> financeHandler.Dashboard [GET: admin only]")
 
 	mux.HandleFunc("/finance/new-expense", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /finance/new-expense handler for %s %s", r.Method, r.URL.Path)
@@ -785,7 +824,6 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /mentor-head -> 302 redirect to /app/mentor-head [backward compatibility]")
-
 
 	// /mentor-head/class?class_key=... - redirect to React app (backward compatibility)
 	mux.HandleFunc("/mentor-head/class", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {

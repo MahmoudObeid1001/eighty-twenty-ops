@@ -47,6 +47,52 @@ flowchart TD
 
 ---
 
+## Placement Test Results Workflow (Student Success)
+
+```mermaid
+flowchart TD
+Start([Ops Admin books test<br/>date/time in Pre-Enrolment]) --> StatusTestBooked[Lead status = test_booked]
+    StatusTestBooked --> SSQueue[SS views Placement Tests queue]
+    SSQueue --> RecordResult[SS records assigned level + notes]
+    RecordResult --> UpdatePlacement[(Upsert placement_tests.assigned_level/test_notes)]
+    UpdatePlacement --> MarkTested[(Update leads.status = tested)]
+MarkTested --> HotLeadBanner[Hot lead banner appears if unpaid]
+
+    StatusTestBooked --> SSNotification[SS sees notification banner for new placement tests]
+```
+
+---
+
+## Evidence
+
+### View Placement Tests Queue
+**Route**: `GET /api/student-success/placement-tests`  
+**Handler**: `apiHandler.GetStudentSuccessPlacementTests`  
+**Returns**: Leads with test date/time set and **no assigned level yet** by default; supports `show_completed=1` to return completed tests  
+**Evidence**:
+- `cmd/server/main.go` - route registration
+- `internal/handlers/api.go` - GetStudentSuccessPlacementTests
+- `internal/models/repository.go` - GetPlacementTestsForStudentSuccess
+
+### Record Placement Test Result
+**Route**: `POST /api/student-success/placement-tests/complete`  
+**Handler**: `apiHandler.CompletePlacementTest`  
+**Behavior**:
+- Saves `assigned_level` + `test_notes` in `placement_tests`
+- Sets `leads.status = tested` **only if** current status is `lead_created` or `test_booked`  
+**Evidence**:
+- `internal/handlers/api.go` - CompletePlacementTest
+- `internal/models/repository.go` - UpdatePlacementTest, UpdateLeadStatus
+
+### Test Booking (Ops Admin)
+**Route**: `POST /pre-enrolment/:id` (Save)  
+**Behavior**:
+- Saves test date/time/type  
+- Auto-sets status to `test_booked` when date + time exist  
+**Evidence**:
+- `internal/handlers/pre_enrolment.go` - SaveFull
+- `internal/models/repository.go` - ComputeStageFromFormCompletion
+
 ## Evidence
 
 ### View Classes List

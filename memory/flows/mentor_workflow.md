@@ -131,6 +131,15 @@ flowchart TD
 - `migrations/016_create_class_sessions.sql`
 - Frontend displays completion counter
 
+### Rule: Attendance deadline enforced
+**Rule**: Mentors can mark attendance up to 24 hours after scheduled session end time  
+**Override**: Admin/Student Success can bypass for corrections  
+**UI**: Mentor class workspace shows red banner for overdue missing attendance  
+**Evidence**:
+- `internal/models/repository.go` (ComputeSessionEndTime, MarkAttendance)
+- `internal/handlers/mentor.go` / `internal/views/mentor_class_detail.html`
+- `frontend/src/pages/ClassWorkspace.tsx`
+
 ### Rule: Mentor UI uses banner UX for server-rendered pages
 **Scope**: `/mentor` and `/mentor/class` (server-rendered)  
 **Behavior**: Handler redirects with `?error=...` or `?success=...` and template renders a banner  
@@ -169,7 +178,6 @@ stateDiagram-v2
 ## Open Questions
 
 - [ ] **Session initialization**: When/how are 8 sessions created for a class? *(check StartRound or class creation logic)*
-- [ ] **Attendance deadline**: Is there a deadline for marking attendance? *(check business rules)*
 - [ ] **Grade tracking**: How are grades stored and displayed? *(migrations/018_create_grades.sql exists but usage unclear)*
 - [ ] **Session editing**: Can a completed session be re-opened? *(check handler validation)*
 - [x] **Late joiner alerts**: Mentors now receive dashboard banner alerts for new late joiners (implemented 2026-02-01).

@@ -62,6 +62,10 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	paymentMethodFilter := r.URL.Query().Get("payment_method")
 	transactionTypeFilter := r.URL.Query().Get("type")
 
+	if err := models.EnsureFinanceLedgerSync(); err != nil {
+		log.Printf("WARNING: Failed to backfill finance ledger: %v", err)
+	}
+
 	// Current cash balance (full history, ignores date filters)
 	currentBalance, err := models.GetCurrentCashBalance()
 	if err != nil {
@@ -189,7 +193,7 @@ func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) 
 	}
 
 	today := time.Now().Format("2006-01-02")
-	
+
 	// Check for error messages
 	errorMsg := ""
 	if msg := r.URL.Query().Get("error"); msg != "" && msg != "future_date" {
@@ -198,12 +202,12 @@ func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) 
 	if r.URL.Query().Get("error") == "future_date" {
 		errorMsg = "Payment date cannot be in the future"
 	}
-	
+
 	data := map[string]interface{}{
 		"Title":    "New Expense - Finance",
-		"Today":     today,
-		"UserRole":  userRole,
-		"Error":     errorMsg,
+		"Today":    today,
+		"UserRole": userRole,
+		"Error":    errorMsg,
 	}
 	renderTemplate(w, r, "finance_new_expense.html", data)
 }

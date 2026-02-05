@@ -36,6 +36,8 @@
 | `/api/mentor-head/evaluations/:mentorId` | PUT | mentor_head | `apiHandler.UpdateMentorEvaluation` | `main.go:270-284` |
 | `/api/student-success/classes` | GET | student_success | `apiHandler.GetStudentSuccessClasses` | `main.go:286-297` |
 | `/api/student-success/class` | GET | student_success | `apiHandler.GetStudentSuccessClass` | `main.go:299-310` |
+| `/api/student-success/placement-tests` | GET | student_success | `apiHandler.GetStudentSuccessPlacementTests` | `main.go` |
+| `/api/student-success/placement-tests/complete` | POST | student_success | `apiHandler.CompletePlacementTest` | `main.go` |
 | `/api/student-success/class/absence-feed` | GET | student_success, mentor_head, admin | `apiHandler.GetAbsenceFeed` | `main.go:312-315` |
 | `/api/student-success/followups` | GET | student_success, mentor_head, admin | `apiHandler.GetFollowUps` | `main.go:317-326` |
 | `/api/student-success/followups` | POST | student_success, mentor_head, admin | `apiHandler.CreateFollowUp` | `main.go:317-326` |
@@ -49,7 +51,7 @@
 | `/api/absence-cases/:id/follow-up` | POST | student_success, mentor_head, admin | `apiHandler.PostFollowUpUpdate` | `main.go:377-389` |
 | `/api/absence-cases/:id/resolve` | POST | student_success, mentor_head, admin | `apiHandler.ResolveFollowUp` | `main.go:377-389` |
 | `/api/classes/:id/sessions` | GET | mentor, mentor_head, admin, student_success | `apiHandler.ListClassSessions` | `main.go:391-406` |
-| `/api/classes/:id/sessions/:n/complete` | POST | mentor, mentor_head, admin, student_success | `apiHandler.CompleteSessionByNumber` | `main.go:391-406` |
+| `/api/classes/:id/sessions/:n/complete` | POST | mentor, mentor_head, admin, student_success | `apiHandler.CompleteSessionByNumber` (deprecated) | `main.go:391-406` |
 | `/api/notifications/late-join` | GET | mentor, mentor_head, student_success | `apiHandler.GetLateJoinNotifications` | `main.go (new)` |
 | `/api/notifications/late-join/:id/acknowledge` | POST | mentor, mentor_head, student_success | `apiHandler.AcknowledgeLateJoinNotification` | `main.go (new)` |
 
@@ -67,12 +69,12 @@
 | `/pre-enrolment/:id` | GET | admin, moderator | `preEnrolmentHandler.Detail` | `main.go:453-482` |
 | `/pre-enrolment/:id` | POST | admin, moderator | `preEnrolmentHandler.Update` | `main.go:453-482` |
 | `/pre-enrolment` | GET | admin, moderator | `preEnrolmentHandler.List` | `main.go:484-500` |
-| `/classes` | GET | admin, moderator, mentor_head | `classesHandler.List` | `main.go:502-517` |
+| `/classes` | GET | admin, mentor_head | `classesHandler.List` | `main.go` |
 | `/classes/move` | POST | admin | `classesHandler.Move` | `main.go:519-533` |
 | `/classes/start-round` | POST | admin | `classesHandler.StartRound` | `main.go:535-549` |
 | `/classes/send` | POST | admin | `classesHandler.SendToMentor` | `main.go:551-565` |
 | `/classes/return` | POST | admin | `classesHandler.ReturnFromMentor` | `main.go:567-581` |
-| `/finance` | GET | admin, moderator | `financeHandler.Dashboard` | `main.go:584-598` |
+| `/finance` | GET | admin | `financeHandler.Dashboard` | `main.go` |
 
 ---
 
@@ -115,5 +117,5 @@
 **Evidence**: `cmd/server/main.go`
 
 ### TODO: Investigate
-- [ ] `moderator` role behavior - gets 403 on `/classes` and `/finance` despite being allowed by middleware *(check handler logic)*
+- [ ] `moderator` role behavior - confirm intended access after router alignment (no `/classes` or `/finance`)
 - [ ] React app session validation - how does `/app/*` ensure roles match? *(check AppLayout.tsx)*

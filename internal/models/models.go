@@ -126,6 +126,18 @@ type LeadListItem struct {
 	RemainingBalance      sql.NullInt32 // For computing payment state
 }
 
+type PlacementTestQueueItem struct {
+	LeadID        uuid.UUID
+	FullName      string
+	Phone         string
+	Status        string
+	TestDate      sql.NullTime
+	TestTime      sql.NullString
+	TestType      sql.NullString
+	AssignedLevel sql.NullInt32
+	TestNotes     sql.NullString
+}
+
 // ClassGroup represents a group of students with same level+days+time
 type ClassGroup struct {
 	Level        int32
@@ -325,6 +337,21 @@ type StudentSuccessFeedback struct {
 	CreatedByUserID  sql.NullString
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+// FeedbackCollectedUpload represents an uploaded feedback file from a student.
+type FeedbackCollectedUpload struct {
+	ID             uuid.UUID
+	LeadID         uuid.UUID
+	ClassKey       string
+	SessionNumber  sql.NullInt32
+	FileName       string
+	FileURL        string
+	MimeType       sql.NullString
+	SizeBytes      sql.NullInt32
+	Note           sql.NullString
+	UploadedByUser sql.NullString
+	UploadedAt     time.Time
 }
 
 // AbsenceFollowUpLog represents a follow-up action logged for an absence

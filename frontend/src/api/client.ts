@@ -4,11 +4,12 @@ const API_BASE = '/api'
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   const url = `${API_BASE}${endpoint}`
   // console.log(`[DEBUG] fetchAPI: ${url}`)
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const response = await fetch(url, {
     ...options,
     credentials: 'include', // Send cookies
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...options.headers,
     },
   })
@@ -169,6 +170,32 @@ export interface StudentSuccessClassDetail {
     midRound: { reached: boolean; complete: boolean }
     endRound: { reached: boolean; complete: boolean }
   }
+}
+
+export interface FeedbackCollectedUpload {
+  id: string
+  lead_id: string
+  class_key: string
+  session_number?: number
+  file_name: string
+  file_url: string
+  mime_type?: string
+  size_bytes?: number
+  note?: string
+  uploaded_by?: string
+  uploaded_at: string
+}
+
+export interface PlacementTestQueueItem {
+  lead_id: string
+  full_name: string
+  phone: string
+  status: string
+  test_date: string
+  test_time: string
+  test_type: string
+  assigned_level?: number
+  test_notes?: string
 }
 
 export interface MentorArchiveGroup {
@@ -340,6 +367,15 @@ export const api = {
   getStudentSuccessClasses: (): Promise<{ classes: StudentSuccessClass[] }> =>
     fetchAPI('/student-success/classes'),
 
+  getStudentSuccessPlacementTests: (showCompleted: boolean = false): Promise<{ placement_tests: PlacementTestQueueItem[] }> =>
+    fetchAPI(`/student-success/placement-tests?show_completed=${showCompleted ? '1' : '0'}`),
+
+  completePlacementTest: (data: { lead_id: string; assigned_level: number; test_notes: string }): Promise<{ ok: boolean }> =>
+    fetchAPI('/student-success/placement-tests/complete', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   getStudentSuccessClass: (classKey: string): Promise<StudentSuccessClassDetail> =>
     fetchAPI(`/student-success/class?class_key=${encodeURIComponent(classKey)}`),
 
@@ -353,6 +389,16 @@ export const api = {
     fetchAPI('/student-success/feedback/status', {
       method: 'POST',
       body: JSON.stringify({ lead_id: leadID, class_key: classKey, session_number: sessionNumber, status }),
+    }),
+
+  getFeedbackCollected: (classKey: string): Promise<{ uploads: FeedbackCollectedUpload[] }> =>
+    fetchAPI(`/student-success/feedback-collected?class_key=${encodeURIComponent(classKey)}`),
+
+  uploadFeedbackCollected: (data: FormData): Promise<{ id: string; file_url: string; file_name: string }> =>
+    fetchAPI('/student-success/feedback-collected', {
+      method: 'POST',
+      body: data,
+      headers: {}, // Let browser set multipart boundary
     }),
 
   markAttendance: (

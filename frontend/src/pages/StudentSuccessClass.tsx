@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, type StudentSuccessClassDetail } from '../api/client'
+import { api, type StudentSuccessClassDetail, type FeedbackCollectedUpload } from '../api/client'
 import StudentModal from '../components/StudentModal'
 
-type Tab = 'students' | 'absence' | 'followups' | 'feedback'
+type Tab = 'students' | 'absence' | 'followups' | 'feedback' | 'feedback_collected'
 
 type StudentRow = StudentSuccessClassDetail['students'][number]
 
@@ -346,6 +346,7 @@ export default function StudentSuccessClass() {
     { id: 'absence', label: 'Absence Feed' },
     { id: 'followups', label: 'Follow-ups' },
     { id: 'feedback', label: 'Feedback Checkpoints' },
+    { id: 'feedback_collected', label: 'Feedback Collected' },
   ]
 
   return (
@@ -451,6 +452,7 @@ export default function StudentSuccessClass() {
       {tab === 'followups' && <FollowUpsTab classKey={classKey} onOpenFollowUp={(item) => setFollowUpModal({ open: true, item })} refreshNonce={refreshNonce} />}
 
       {tab === 'feedback' && <FeedbackCheckpoint classKey={classKey} students={data.feedback} onUpdate={loadClass} />}
+      {tab === 'feedback_collected' && <FeedbackCollectedTab classKey={classKey} students={data.students} />}
 
       {selectedStudent && (
         <StudentModal
@@ -847,6 +849,150 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
       </div>
       {showComplaintModal && <ComplaintModal classKey={classKey} onClose={() => setShowComplaintModal(false)} onSuccess={() => { setShowComplaintModal(false); loadFollowUps(); }} />}
     </>
+  )
+}
+
+function FeedbackCollectedTab({ classKey, students }: { classKey: string; students: Array<{ lead_id: string; full_name: string; phone: string }> }) {
+  const [uploads, setUploads] = useState<FeedbackCollectedUpload[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<Record<string, File | null>>({})
+  const [selectedSession, setSelectedSession] = useState<Record<string, string>>({})
+  const [note, setNote] = useState<Record<string, string>>({})
+  const [uploading, setUploading] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    loadUploads()
+  }, [classKey])
+
+  async function loadUploads() {
+    try {
+      setLoading(true)
+      setError(null)
+      const res = await api.getFeedbackCollected(classKey)
+      setUploads(res.uploads || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load feedback uploads')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleUpload(leadId: string) {
+    const file = selectedFile[leadId]
+    if (!file) return
+
+    setUploading((prev) => ({ ...prev, [leadId]: true }))
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('class_key', classKey)
+      formData.append('lead_id', leadId)
+      if (selectedSession[leadId]) formData.append('session_number', selectedSession[leadId])
+      if (note[leadId]) formData.append('note', note[leadId])
+      formData.append('file', file)
+
+      await api.uploadFeedbackCollected(formData)
+      setSelectedFile((prev) => ({ ...prev, [leadId]: null }))
+      setNote((prev) => ({ ...prev, [leadId]: '' }))
+      setSelectedSession((prev) => ({ ...prev, [leadId]: '' }))
+      await loadUploads()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload feedback')
+    } finally {
+      setUploading((prev) => ({ ...prev, [leadId]: false }))
+    }
+  }
+
+  const uploadsByLead = uploads.reduce((acc: Record<string, FeedbackCollectedUpload[]>, item) => {
+    if (!acc[item.lead_id]) acc[item.lead_id] = []
+    acc[item.lead_id].push(item)
+    return acc
+  }, {})
+
+  if (loading) return <p style={{ padding: '20px' }}>Loading feedback uploads...</p>
+  if (error) return <p style={{ color: 'red', padding: '20px' }}>{error}</p>
+
+  return (
+    <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
+      <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+        <h2 style={{ fontSize: '18px', margin: 0 }}>Feedback Collected</h2>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', background: '#f8f9fa', borderBottom: '1px solid #eee' }}>
+              <th style={{ padding: '12px', width: '20%' }}>Student</th>
+              <th style={{ padding: '12px', width: '40%' }}>Uploads</th>
+              <th style={{ padding: '12px', width: '40%' }}>Add Upload</th>
+            </tr>
+          </thead>
+          <tbody>
+            {students.map((s) => {
+              const list = uploadsByLead[s.lead_id] || []
+              return (
+                <tr key={s.lead_id} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '12px' }}>
+                    <div style={{ fontWeight: 600 }}>{s.full_name}</div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>{s.phone}</div>
+                  </td>
+                  <td style={{ padding: '12px' }}>
+                    {list.length === 0 ? (
+                      <span style={{ fontSize: '12px', color: '#999' }}>No uploads yet</span>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {list.map((u) => (
+                          <div key={u.id} style={{ fontSize: '12px' }}>
+                            <a href={u.file_url} target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'none' }}>
+                              {u.file_name}
+                            </a>
+                            {u.session_number && <span style={{ marginLeft: '6px', color: '#666' }}>S{u.session_number}</span>}
+                            {u.note && <span style={{ marginLeft: '6px', color: '#999' }}>• {u.note}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ padding: '12px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <input
+                        type="file"
+                        onChange={(e) => setSelectedFile((prev) => ({ ...prev, [s.lead_id]: e.target.files ? e.target.files[0] : null }))}
+                      />
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <select
+                          value={selectedSession[s.lead_id] || ''}
+                          onChange={(e) => setSelectedSession((prev) => ({ ...prev, [s.lead_id]: e.target.value }))}
+                          style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '12px' }}
+                        >
+                          <option value="">Session</option>
+                          <option value="4">S4</option>
+                          <option value="8">S8</option>
+                        </select>
+                        <input
+                          type="text"
+                          placeholder="Note (optional)"
+                          value={note[s.lead_id] || ''}
+                          onChange={(e) => setNote((prev) => ({ ...prev, [s.lead_id]: e.target.value }))}
+                          style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '12px' }}
+                        />
+                      </div>
+                      <button
+                        onClick={() => handleUpload(s.lead_id)}
+                        disabled={uploading[s.lead_id] || !selectedFile[s.lead_id]}
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #007bff', background: '#fff', color: '#007bff', cursor: 'pointer', fontSize: '12px', opacity: uploading[s.lead_id] || !selectedFile[s.lead_id] ? 0.6 : 1 }}
+                      >
+                        {uploading[s.lead_id] ? 'Uploading...' : 'Upload'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 

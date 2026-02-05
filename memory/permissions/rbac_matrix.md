@@ -48,13 +48,15 @@
 | Resolve absence | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Submit feedback | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Update feedback status | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| View placement tests queue | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Record placement test results | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | **Complaints** | | | | | | | |
 | Create complaint | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | View complaints list | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Update complaint status | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Resolve complaint | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Finance** | | | | | | | |
-| View dashboard | ✅ | ⚠️ * | ❌ | ❌ | ❌ | ❌ | ❌ |
+| View dashboard | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Community Officer** | | | | | | | |
 | View CO dashboard | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **HR** | | | | | | | |
@@ -69,14 +71,10 @@
 
 ### ⚠️ Moderator Special Cases
 
-**Evidence**: `main.go:441-449`, `main.go:512-517`, `main.go:593-598`
+**Evidence**: `cmd/server/main.go` route definitions, handler checks
 
-- **Allowed by middleware** but **gets 403 in handler logic**
-- Affects: `/pre-enrolment/*` updates, `/classes`, `/finance`
-- **TODO**: Verify handler-level role checks in:
-  - `internal/handlers/pre_enrolment.go` 
-  - `internal/handlers/classes.go`
-  - `internal/handlers/finance.go`
+- Moderator is restricted to Pre-Enrolment only (read-only for certain actions).
+- Moderator no longer has `/classes` or `/finance` access at the router level.
 
 ### Admin Privileges
 

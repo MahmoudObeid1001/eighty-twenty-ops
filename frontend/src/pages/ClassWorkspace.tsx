@@ -87,8 +87,10 @@ export default function ClassWorkspace() {
     const now = new Date()
     return classData.sessions.filter((s) => {
       if (s.status === 'completed') return false
+      if (!s.scheduled_time) return false
 
       const sessionDateTime = new Date(`${s.scheduled_date}T${s.scheduled_time}`)
+      sessionDateTime.setHours(sessionDateTime.getHours() + 2)
       const diffHours = (now.getTime() - sessionDateTime.getTime()) / (1000 * 60 * 60)
 
       if (diffHours > 24) {
