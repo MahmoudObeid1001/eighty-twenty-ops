@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	
 	"log"
 	"net/http"
 	"strconv"
@@ -79,10 +78,6 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if flashMessage == "" {
 		if r.URL.Query().Get("moved") == "1" {
 			flashMessage = "Student moved successfully"
-			flashMessageType = "success"
-		}
-		if r.URL.Query().Get("round_started") == "1" {
-			flashMessage = "Classes sent to Mentor Head successfully."
 			flashMessageType = "success"
 		}
 		if r.URL.Query().Get("sent") == "1" {
@@ -214,30 +209,6 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/classes?moved=1", http.StatusFound)
-}
-
-// StartRound handles starting a new round
-func (h *ClassesHandler) StartRound(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		redirectWithError(w, r, "/classes", "This action isn't available.")
-		return
-	}
-
-	// Admin only
-	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
-		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
-		return
-	}
-
-	err := models.StartRound()
-	if err != nil {
-		log.Printf("ERROR: Failed to start round: %v", err)
-		redirectWithError(w, r, "/classes", "We couldn't start the round. Please try again.")
-		return
-	}
-
-	http.Redirect(w, r, "/classes?round_started=1", http.StatusFound)
 }
 
 // SendToMentor handles sending a class group to mentor head
@@ -453,16 +424,16 @@ func (h *ClassesHandler) Archived(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]interface{}{
-		"Title":           "Archived Classes – Eighty Twenty",
-		"ContentTemplate": "classes_archived_content",
-		"Archived":        archived,
-		"FlashMessage":    flashMessage,
+		"Title":            "Archived Classes – Eighty Twenty",
+		"ContentTemplate":  "classes_archived_content",
+		"Archived":         archived,
+		"FlashMessage":     flashMessage,
 		"FlashMessageType": flashMessageType,
-		"UserRole":        userRole,
-		"IsModerator":     IsModerator(r),
-		"ClassKey":        classKeyFilter,
-		"From":            r.URL.Query().Get("from"),
-		"To":              r.URL.Query().Get("to"),
+		"UserRole":         userRole,
+		"IsModerator":      IsModerator(r),
+		"ClassKey":         classKeyFilter,
+		"From":             r.URL.Query().Get("from"),
+		"To":               r.URL.Query().Get("to"),
 	}
 	renderTemplate(w, r, "classes_archived.html", data)
 }

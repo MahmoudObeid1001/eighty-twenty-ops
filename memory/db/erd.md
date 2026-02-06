@@ -22,6 +22,7 @@ erDiagram
     users ||--o{ followups : "created_by"
     users ||--o{ followups : "deleted_by"
     users ||--o{ late_joiner_notifications : "user_id"
+    users ||--o{ feedback_collected_uploads : "uploaded_by"
     
     leads ||--o| placement_tests : "lead_id"
     leads ||--o| offers : "lead_id"
@@ -31,16 +32,41 @@ erDiagram
     leads ||--o| shipping : "lead_id"
     leads ||--o{ followups : "lead_id"
     leads ||--o{ late_joiner_notifications : "lead_id"
+    leads ||--o{ feedback_collected_uploads : "lead_id"
     
     class_groups ||--o| mentor_assignments : "class_key"
     class_groups ||--o{ class_sessions : "class_key"
     class_groups ||--o{ followups : "class_key"
     class_groups ||--o{ late_joiner_notifications : "class_key"
+    class_groups ||--o{ feedback_collected_uploads : "class_key"
     
     class_sessions ||--o{ attendance : "session_id"
     attendance }o--|| leads : "lead_id"
     
+    leads ||--o{ grades : "lead_id"
+    class_groups ||--o{ grades : "class_key"
+    
+    leads ||--o{ student_notes : "lead_id"
+    class_groups ||--o{ student_notes : "class_key"
+    users ||--o{ student_notes : "created_by"
+    
+    class_groups ||--o{ community_officer_feedback : "class_key"
+    users ||--o{ community_officer_feedback : "created_by"
+    
     followups ||--o{ followup_case_notes : "followup_id"
+    feedback_collected_uploads {
+        uuid id PK
+        uuid lead_id FK
+        text class_key FK
+        int session_number
+        text file_name
+        text file_url
+        text mime_type
+        int size_bytes
+        text note
+        uuid uploaded_by_user_id FK
+        timestamp uploaded_at
+    }
     
     class_sessions {
         uuid id PK
@@ -213,6 +239,40 @@ erDiagram
         timestamp acknowledged_at
         timestamp created_at
     }
+    
+    grades {
+        uuid id PK
+        uuid lead_id FK
+        text class_key FK
+        int session_number "always 8"
+        text grade "A|B|C|F"
+        text notes
+        uuid created_by_user_id FK
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    student_notes {
+        uuid id PK
+        uuid lead_id FK
+        text class_key FK "nullable"
+        int session_number "nullable"
+        text note_text
+        bool is_private
+        uuid created_by_user_id FK
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    community_officer_feedback {
+        uuid id PK
+        text class_key FK
+        int session_number "4 or 8"
+        text feedback_text
+        uuid created_by_user_id FK
+        timestamp created_at
+        timestamp updated_at
+    }
 ```
 
 ---
@@ -237,6 +297,9 @@ erDiagram
 | `followups` | `029_create_followups_table.sql:2-13` | `030_refine_attendance_and_followups.sql`, `033_add_complaints_to_followups.sql` (added type, category, urgency, student_phone, complaint_text, deleted_at, deleted_by_user_id, delete_reason), `036_make_followups_nullable_for_complaints.sql` |
 | `followup_case_notes` | `034_create_followup_case_notes.sql` | - |
 | `late_joiner_notifications` | `044_late_joiner_notifications.sql` | - |
+| `grades` | `018_create_grades.sql` | - |
+| `student_notes` | `019_create_student_notes.sql` | - |
+| `community_officer_feedback` | `020_create_community_officer_feedback.sql` | - |
 
 ---
 
@@ -255,6 +318,8 @@ erDiagram
 - UNIQUE per lead: `placement_tests.lead_id`, `offers.lead_id`, `bookings.lead_id`, `payments.lead_id`, `scheduling.lead_id`, `shipping.lead_id`
 - UNIQUE: `mentor_assignments(class_key)` - One mentor per class
 - UNIQUE: `followups(class_key, lead_id, session_number)` - One follow-up per absence instance
+- UNIQUE: `grades(lead_id, class_key, session_number)` - One grade per student per class per session
+- UNIQUE: `attendance(session_id, lead_id)` - One attendance record per student per session
 
 ### Check Constraints
 **Evidence**: Inline in CREATE TABLE statements
@@ -271,6 +336,8 @@ erDiagram
 - `class_groups.round_status` must be NOT_STARTED, IN_PROGRESS, or CLOSED
 - `followups.status` must be NOT_CONTACTED, CONTACTED, or RESOLVED
 - `followups.type` must be absence_escalation or complaint
+- `grades.grade` must be A, B, C, or F
+- `community_officer_feedback.session_number` must be 4 or 8
 
 ### Performance Indexes
 **Evidence**: `001_init.sql:97-100`, other migrations

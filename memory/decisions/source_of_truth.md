@@ -103,13 +103,31 @@
 
 ### 24-Hour Deadline
 
-**Business Rule**: Mentors must mark attendance within 24 hours after session time
+**Business Rule**: Mentors must mark attendance within 24 hours after session time (Africa/Cairo)
 
 **Behavior**:
 - After 24 hours passes: Show **red banner reminder** to mentor
 - Once attendance is recorded: Banner disappears
 - Mentors are blocked from marking attendance after deadline
-- Admin/Student Success can override for corrections
+- Mentor Head, Admin, and Student Success can override for corrections
+
+### Session Completion Requires Attendance
+
+**Business Rule**: A session cannot be marked completed until attendance is recorded for all applicable students.  
+**Exception**: Late joiners are excluded for sessions before their join session.
+
+### Final Grading Repeat Risk Indicator
+
+**Business Rule**: Students with more than 2 missed sessions must be flagged during final grading.  
+**Purpose**: Align grading UI with repeat criteria (absences > 2).
+
+### Returning Students Credits & Repeat Flag
+
+**Business Rule**: Remaining credits are computed as `levels_purchased_total - levels_consumed` (min 0).  
+**UI**: Pre‑enrolment list shows a **REPEAT** badge if the latest class outcome is `repeated`.  
+**Status**: When remaining credits = 0 after close round, status must be `renewal_pending` (not paid_full).
+
+**Filter**: Pre‑enrolment list includes a Repeat Level filter.
 
 ---
 

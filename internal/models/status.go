@@ -71,6 +71,12 @@ func GetStatusDisplayInfo(status string) StatusDisplayInfo {
 			TextColor:   "#006600",
 			BorderColor: "#28a745",
 		},
+		"cold_lead": {
+			DisplayName: "Cold Lead",
+			BgColor:     "#4A5568",
+			TextColor:   "#FFFFFF",
+			BorderColor: "#4A5568",
+		},
 		"cancelled": {
 			DisplayName: "Cancelled",
 			BgColor:     "#F5F5F5",

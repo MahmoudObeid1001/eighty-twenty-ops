@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"eighty-twenty-ops/internal/middleware"
 	"eighty-twenty-ops/internal/models"
@@ -36,9 +37,9 @@ func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate grade is A/B/C
-	if req.Grade != "A" && req.Grade != "B" && req.Grade != "C" {
-		jsonError(w, http.StatusBadRequest, "Grade must be A, B, or C")
+	// Validate grade is A/B/C/F
+	if req.Grade != "A" && req.Grade != "B" && req.Grade != "C" && req.Grade != "F" {
+		jsonError(w, http.StatusBadRequest, "Grade must be A, B, C, or F")
 		return
 	}
 
@@ -59,8 +60,8 @@ func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
-	} else if userRole != "admin" {
-		jsonError(w, http.StatusForbidden, "Forbidden: Only mentors and admins can create grades")
+	} else if userRole != "mentor_head" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Only mentors and mentor heads can create grades")
 		return
 	}
 
@@ -80,6 +81,50 @@ func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"grade_id": gradeID.String(),
 	})
+}
+
+// DELETE /api/grades?lead_id=...&class_key=... - mentor/mentor head clears grade
+func (h *APIHandler) DeleteGrade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	leadIDRaw := r.URL.Query().Get("lead_id")
+	classKey := r.URL.Query().Get("class_key")
+	if leadIDRaw == "" || classKey == "" {
+		jsonError(w, http.StatusBadRequest, "lead_id and class_key are required")
+		return
+	}
+
+	leadID, err := uuid.Parse(leadIDRaw)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	userIDStr := middleware.GetUserID(r)
+	userID, _ := uuid.Parse(userIDStr)
+
+	if userRole == "mentor" {
+		assignment, err := models.GetMentorAssignment(classKey)
+		if err != nil || assignment == nil || assignment.MentorUserID != userID {
+			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
+			return
+		}
+	} else if userRole != "mentor_head" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Only mentors and mentor heads can delete grades")
+		return
+	}
+
+	if err := models.DeleteGrade(leadID, classKey); err != nil {
+		log.Printf("ERROR: Failed to delete grade: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to delete grade")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // PUT /api/mentor-head/grades/:id - mentor head edits existing grade
@@ -117,9 +162,9 @@ func (h *APIHandler) UpdateGrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate grade is A/B/C
-	if req.Grade != "A" && req.Grade != "B" && req.Grade != "C" {
-		jsonError(w, http.StatusBadRequest, "Grade must be A, B, or C")
+	// Validate grade is A/B/C/F
+	if req.Grade != "A" && req.Grade != "B" && req.Grade != "C" && req.Grade != "F" {
+		jsonError(w, http.StatusBadRequest, "Grade must be A, B, C, or F")
 		return
 	}
 
@@ -172,5 +217,38 @@ func (h *APIHandler) GetGradesForClass(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonResponse(w, http.StatusOK, map[string]interface{}{"grades": grades})
+	type GradeResp struct {
+		ID            string `json:"id"`
+		LeadID        string `json:"lead_id"`
+		ClassKey      string `json:"class_key"`
+		SessionNumber int32  `json:"session_number"`
+		Grade         string `json:"grade"`
+		Notes         string `json:"notes"`
+		CreatedByUser string `json:"created_by_user_id"`
+		CreatedAt     string `json:"created_at"`
+	}
+
+	out := make([]GradeResp, 0, len(grades))
+	for _, g := range grades {
+		notes := ""
+		if g.Notes.Valid {
+			notes = g.Notes.String
+		}
+		createdBy := ""
+		if g.CreatedByUserID.Valid {
+			createdBy = g.CreatedByUserID.String
+		}
+		out = append(out, GradeResp{
+			ID:            g.ID.String(),
+			LeadID:        g.LeadID.String(),
+			ClassKey:      g.ClassKey,
+			SessionNumber: g.SessionNumber,
+			Grade:         g.Grade,
+			Notes:         notes,
+			CreatedByUser: createdBy,
+			CreatedAt:     g.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"grades": out})
 }

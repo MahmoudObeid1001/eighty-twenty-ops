@@ -81,9 +81,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   // Check if we're on a class page (for active state)
   const isClassPage = location.pathname.includes('/class')
-  const backendOrigin = window.location.origin.includes(':3000')
-    ? window.location.origin.replace(':3000', ':3001')
-    : window.location.origin
 
   return (
     <div className="container">
@@ -92,6 +89,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo-sidebar" />
           <span className="brand-name">Eighty Twenty</span>
         </div>
+
+
         <nav style={{ flex: 1 }}>
           <ul>
             {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success') && (
@@ -119,6 +118,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
+            {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success' || role === 'admin' || role === 'moderator') && (
+              <li>
+                <Link to="/students" className={isActive('/students') ? 'active' : ''}>
+                  Students
+                </Link>
+              </li>
+            )}
             {role === 'admin' && (
               <>
                 <li>
@@ -141,7 +147,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </nav>
         <div style={{ padding: '20px', borderTop: '1px solid #8C8C8C', marginTop: 'auto' }}>
           <a
-            href={`${backendOrigin}/logout`}
+            href="/logout"
             className="btn btn-secondary"
             style={{
               width: '100%',

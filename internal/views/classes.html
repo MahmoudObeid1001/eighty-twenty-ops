@@ -131,7 +131,13 @@
                     <li
                         style="padding: 8px 0; border-bottom: 1px solid #F0F0F0; display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <div style="font-weight: 500;">{{.FullName}}</div>
+                            <div style="font-weight: 500;">
+                                {{.FullName}}
+                                {{if .IsReturning}}
+                                <span style="color: #FFD700; font-size: 14px; margin-left: 4px;"
+                                    title="Promoted Student">⭐</span>
+                                {{end}}
+                            </div>
                             <div style="font-size: 12px; color: #666;">{{.Phone}}</div>
                         </div>
                         <div style="display: flex; gap: 8px;">

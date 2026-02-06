@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { api, type StudentSuccessClassDetail, type FeedbackCollectedUpload } from '../api/client'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { api, type StudentSuccessClassDetail } from '../api/client'
+import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import StudentModal from '../components/StudentModal'
 
-type Tab = 'students' | 'absence' | 'followups' | 'feedback' | 'feedback_collected'
+type Tab = 'students' | 'absence' | 'followups' | 'feedback' | 'feedback_collected' | 'final_grading'
 
 type StudentRow = StudentSuccessClassDetail['students'][number]
 
@@ -49,7 +50,7 @@ function ConfirmDialog({ open, title, body, confirmLabel = 'Confirm', cancelLabe
   )
 }
 
-function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string; students: any[]; onUpdate: () => void }) {
+function FeedbackCheckpoint({ classKey, students, onUpdate, canEdit }: { classKey: string; students: any[]; onUpdate: () => void; canEdit: boolean }) {
   const [selected, setSelected] = useState<{ lead_id: string; full_name: string; session_number: number } | null>(null)
   const [feedbackText, setFeedbackText] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -67,6 +68,7 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
   }, [students])
 
   async function handleSubmit() {
+    if (!canEdit) return
     if (!selected || !feedbackText) return
     setIsSubmitting(true)
     setModalError(null)
@@ -89,6 +91,7 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
   }
 
   const handleStatusUpdate = async (leadId: string, session: number, status: 'received' | 'removed') => {
+    if (!canEdit) return
     const key = `${leadId}-${session}`
     setOptimisticStatus((prev) => ({ ...prev, [key]: true }))
     setError(null)
@@ -176,6 +179,10 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
                   <td style={{ padding: '12px' }}>
                     {s4Handled ? (
                       <div style={{ color: '#28a745', fontWeight: 600, fontSize: '11px' }}>✓ COMPLETED</div>
+                    ) : !canEdit ? (
+                      <div style={{ color: '#666', fontWeight: 600, fontSize: '11px' }}>
+                        {s.s4?.status === 'sent' ? 'SENT' : 'PENDING'}
+                      </div>
                     ) : s.s4?.status === 'sent' ? (
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <button
@@ -203,6 +210,10 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
                   <td style={{ padding: '12px' }}>
                     {s8Handled ? (
                       <div style={{ color: '#28a745', fontWeight: 600, fontSize: '11px' }}>✓ COMPLETED</div>
+                    ) : !canEdit ? (
+                      <div style={{ color: '#666', fontWeight: 600, fontSize: '11px' }}>
+                        {s.s8?.status === 'sent' ? 'SENT' : 'PENDING'}
+                      </div>
                     ) : s.s8?.status === 'sent' ? (
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <button
@@ -275,13 +286,38 @@ function FeedbackCheckpoint({ classKey, students, onUpdate }: { classKey: string
 }
 
 export default function StudentSuccessClass() {
-  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const classKey = searchParams.get('class_key') || localStorage.getItem('student_success_class_key') || ''
   const [data, setData] = useState<StudentSuccessClassDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [tab, setTab] = useState<Tab>('students')
+  const [userRole, setUserRole] = useState<string>('')
+
+  const [tab, setTabState] = useState<Tab>(() => {
+    const tabParam = new URLSearchParams(window.location.search).get('tab') as Tab
+    const validTabs: Tab[] = ['students', 'absence', 'followups', 'feedback', 'feedback_collected', 'final_grading']
+    if (tabParam && validTabs.includes(tabParam)) {
+      return tabParam
+    }
+    const savedTab = localStorage.getItem(`student_success_class_tab:${classKey}`) as Tab
+    if (savedTab && validTabs.includes(savedTab)) {
+      return savedTab
+    }
+    return 'students'
+  })
+
+  const setTab = (newTab: Tab) => {
+    setTabState(newTab)
+    if (classKey) {
+      localStorage.setItem(`student_success_class_tab:${classKey}`, newTab)
+      const nextParams = new URLSearchParams(window.location.search)
+      nextParams.set('tab', newTab)
+      setSearchParams(nextParams, { replace: true })
+    }
+  }
+
   const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null)
   const [followUpModal, setFollowUpModal] = useState<{ open: boolean; item: any | null; error?: string }>({
     open: false,
@@ -289,6 +325,9 @@ export default function StudentSuccessClass() {
   })
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({ open: false, title: '' })
   const [refreshNonce, setRefreshNonce] = useState(0)
+
+  const [grades, setGrades] = useState<Record<string, { grade: string; notes: string }>>({})
+  const [submittingGrade, setSubmittingGrade] = useState<string | null>(null)
 
   const triggerRefresh = () => setRefreshNonce((n) => n + 1)
 
@@ -308,17 +347,60 @@ export default function StudentSuccessClass() {
       setError(null)
       setActionError(null)
       const me = await api.getMe()
-      if (me.role !== 'student_success' && me.role !== 'admin') {
-        setError('No access. Student Success or Admin only.')
+      if (me.role !== 'student_success' && me.role !== 'mentor_head' && me.role !== 'admin') {
+        setError('No access. Student Success, Mentor Head, or Admin only.')
         setLoading(false)
         return
       }
+      setUserRole(me.role)
       const res = await api.getStudentSuccessClass(classKey)
       setData(res)
+
+      // Fetch existing grades
+      const gradeRes = await api.getGrades(classKey)
+      const gradeMap: Record<string, { grade: string; notes: string }> = {}
+      gradeRes.grades?.forEach((g) => {
+        gradeMap[g.lead_id] = { grade: g.grade, notes: g.notes }
+      })
+      setGrades(gradeMap)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load class')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleUpdateGrade(leadId: string, grade: string, notes: string) {
+    if (userRole !== 'mentor' && userRole !== 'mentor_head') return
+    if (!grade) return
+    try {
+      setSubmittingGrade(leadId)
+      setActionError(null)
+      await api.createGrade({
+        lead_id: leadId,
+        class_key: classKey,
+        grade,
+        notes,
+      })
+      setGrades((prev) => ({ ...prev, [leadId]: { grade, notes } }))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to save grade')
+    } finally {
+      setSubmittingGrade(null)
+    }
+  }
+
+  async function handleClearGrade(leadId: string) {
+    if (userRole !== 'mentor' && userRole !== 'mentor_head') return
+    try {
+      setSubmittingGrade(leadId)
+      setActionError(null)
+      await api.deleteGrade(leadId, classKey)
+      setGrades((prev) => ({ ...prev, [leadId]: { grade: '', notes: '' } }))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to clear grade')
+    } finally {
+      setSubmittingGrade(null)
     }
   }
 
@@ -329,6 +411,9 @@ export default function StudentSuccessClass() {
       </div>
     )
   }
+
+  const canEditGrades = userRole === 'mentor' || userRole === 'mentor_head'
+  const canEditFeedback = userRole === 'student_success' || userRole === 'admin'
 
   if (error || !data) {
     return (
@@ -341,27 +426,54 @@ export default function StudentSuccessClass() {
   }
 
   const c = data.class
+  const isClosed = c.round_status === 'closed'
   const tabs: { id: Tab; label: string }[] = [
     { id: 'students', label: 'Students' },
     { id: 'absence', label: 'Absence Feed' },
     { id: 'followups', label: 'Follow-ups' },
     { id: 'feedback', label: 'Feedback Checkpoints' },
     { id: 'feedback_collected', label: 'Feedback Collected' },
+    { id: 'final_grading', label: 'Final Grading 🎓' },
   ]
 
   return (
     <>
       <div className="header content-header">
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
-        <h1>
-          Level {c.level} · {c.days} · {c.time} · Class {c.class_number}
-        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <h1>
+            Level {c.level} · {c.days} · {c.time} · Class {c.class_number}
+          </h1>
+          {userRole === 'mentor_head' && (
+            <button
+              onClick={() => navigate('/mentor-head')}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #007bff',
+                background: '#fff',
+                color: '#007bff',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 600,
+              }}
+            >
+              Back to Mentor Head
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px', marginBottom: '16px' }}>
-        <span style={{ padding: '4px 12px', background: '#d4edda', color: '#155724', borderRadius: '12px', fontSize: '12px', fontWeight: 600 }}>
-          ACTIVE · Current Session: {data.completedSessionsCount + 1} · Total: {data.totalSessions}
-        </span>
+        {isClosed ? (
+          <span style={{ padding: '4px 12px', background: '#e9ecef', color: '#6c757d', borderRadius: '12px', fontSize: '12px', fontWeight: 600 }}>
+            ARCHIVED · Completed Sessions: {data.completedSessionsCount}/{data.totalSessions}
+          </span>
+        ) : (
+          <span style={{ padding: '4px 12px', background: '#d4edda', color: '#155724', borderRadius: '12px', fontSize: '12px', fontWeight: 600 }}>
+            ACTIVE · Current Session: {Math.min(data.completedSessionsCount + 1, data.totalSessions)} · Total: {data.totalSessions}
+          </span>
+        )}
       </div>
 
       {actionError && (
@@ -373,7 +485,7 @@ export default function StudentSuccessClass() {
         </div>
       )}
 
-      {data.milestones.midRound.reached && !data.milestones.midRound.complete && (
+      {!isClosed && data.milestones.midRound.reached && !data.milestones.midRound.complete && (
         <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <strong style={{ display: 'block', fontSize: '16px' }}>Mid-Round Feedback Required!</strong>
@@ -385,7 +497,7 @@ export default function StudentSuccessClass() {
         </div>
       )}
 
-      {data.milestones.endRound.reached && !data.milestones.endRound.complete && (
+      {!isClosed && data.milestones.endRound.reached && !data.milestones.endRound.complete && (
         <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <strong style={{ display: 'block', fontSize: '16px' }}>End-of-Round Feedback Required!</strong>
@@ -451,8 +563,73 @@ export default function StudentSuccessClass() {
 
       {tab === 'followups' && <FollowUpsTab classKey={classKey} onOpenFollowUp={(item) => setFollowUpModal({ open: true, item })} refreshNonce={refreshNonce} />}
 
-      {tab === 'feedback' && <FeedbackCheckpoint classKey={classKey} students={data.feedback} onUpdate={loadClass} />}
-      {tab === 'feedback_collected' && <FeedbackCollectedTab classKey={classKey} students={data.students} />}
+      {tab === 'feedback' && <FeedbackCheckpoint classKey={classKey} students={data.feedback} onUpdate={loadClass} canEdit={canEditFeedback} />}
+      {tab === 'feedback_collected' && (
+        <FeedbackCollectedTab classKey={classKey} students={data.students} canEdit={userRole === 'student_success'} />
+      )}
+
+      {tab === 'final_grading' && (
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #dee2e6', padding: '24px' }}>
+          <h2 style={{ fontSize: '20px', marginBottom: '8px' }}>Final Class Grading</h2>
+          <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>
+            Assign final grades for all students. This is required before the round can be closed by the Mentor Head.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {data.students.map((student) => (
+              <div key={student.lead_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: '#f8f9fa', borderRadius: '12px' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '16px' }}>{student.full_name}</div>
+                  <div style={{ fontSize: '12px', color: '#999' }}>{student.phone}</div>
+                </div>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  {submittingGrade === student.lead_id && <span style={{ fontSize: '12px', color: '#007bff' }}>Saving...</span>}
+                  {grades[student.lead_id]?.grade && submittingGrade !== student.lead_id && <span title="Saved" style={{ fontSize: '18px' }}>✅</span>}
+                  <select
+                    value={grades[student.lead_id]?.grade || ''}
+                    disabled={!canEditGrades}
+                    onChange={(e) => {
+                      if (!canEditGrades) return
+                      const nextGrade = e.target.value
+                      setGrades((prev) => ({ ...prev, [student.lead_id]: { ...prev[student.lead_id], grade: nextGrade } }))
+                      if (!nextGrade) {
+                        if (grades[student.lead_id]?.grade) {
+                          handleClearGrade(student.lead_id)
+                        }
+                        return
+                      }
+                      handleUpdateGrade(student.lead_id, nextGrade, grades[student.lead_id]?.notes || '')
+                    }}
+                    style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', fontWeight: 600, cursor: canEditGrades ? 'pointer' : 'not-allowed', background: canEditGrades ? '#fff' : '#f5f5f5' }}
+                  >
+                    <option value="">Select Grade</option>
+                    <option value="A">Grade A</option>
+                    <option value="B">Grade B</option>
+                    <option value="C">Grade C</option>
+                    <option value="F">Grade F</option>
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Add final notes..."
+                    value={grades[student.lead_id]?.notes || ''}
+                    disabled={!canEditGrades || !(grades[student.lead_id]?.grade)}
+                    onChange={(e) => {
+                      if (!canEditGrades) return
+                      setGrades((prev) => ({ ...prev, [student.lead_id]: { ...prev[student.lead_id], notes: e.target.value } }))
+                    }}
+                    onBlur={(e) => {
+                      if (!canEditGrades) return
+                      if (!grades[student.lead_id]?.grade) return
+                      handleUpdateGrade(student.lead_id, grades[student.lead_id]?.grade || '', e.target.value)
+                    }}
+                    style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', width: '240px', background: canEditGrades ? '#fff' : '#f5f5f5' }}
+                  />
+                  {!canEditGrades && <span style={{ fontSize: '12px', color: '#999' }}>Read-only</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {selectedStudent && (
         <StudentModal
@@ -644,87 +821,87 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
   return (
     <>
       <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
-      <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {(['all', 'unresolved', 'absent', 'late'] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} style={{ padding: '4px 12px', borderRadius: '4px', border: '1px solid #dee2e6', background: filter === f ? '#007bff' : '#fff', color: filter === f ? '#fff' : '#666', fontSize: '12px', cursor: 'pointer', textTransform: 'capitalize' }}>
-              {f}
-            </button>
-          ))}
+        <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {(['all', 'unresolved', 'absent', 'late'] as const).map((f) => (
+              <button key={f} onClick={() => setFilter(f)} style={{ padding: '4px 12px', borderRadius: '4px', border: '1px solid #dee2e6', background: filter === f ? '#007bff' : '#fff', color: filter === f ? '#fff' : '#666', fontSize: '12px', cursor: 'pointer', textTransform: 'capitalize' }}>
+                {f}
+              </button>
+            ))}
+          </div>
+          <input type="text" placeholder="Search name or phone..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: '6px 12px', borderRadius: '4px', border: '1px solid #dee2e6', fontSize: '14px', width: '200px' }} />
         </div>
-        <input type="text" placeholder="Search name or phone..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: '6px 12px', borderRadius: '4px', border: '1px solid #dee2e6', fontSize: '14px', width: '200px' }} />
-      </div>
 
-      <div style={{ overflowX: 'auto' }}>
-        {sessionNumbers.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No absences found matching filters.</div>
-        ) : (
-          sessionNumbers.map((sn) => (
-            <div key={sn} style={{ borderBottom: '4px solid #f8f9fa' }}>
-              <div style={{ background: '#f8f9fa', padding: '12px 16px', fontSize: '14px', fontWeight: 600, color: '#333', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Session {sn}</span>
-                <span style={{ fontSize: '11px', color: '#666', fontWeight: 400 }}>{groupedItems[sn].length} absences</span>
-              </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                <thead>
-                  <tr style={{ textAlign: 'left', background: 'white', borderBottom: '1px solid #eee' }}>
-                    <th style={{ padding: '12px', width: '25%' }}>Student</th>
-                    <th style={{ padding: '12px', width: '15%' }}>Status</th>
-                    <th style={{ padding: '12px', width: '25%' }}>Marked At</th>
-                    <th style={{ padding: '12px', width: '20%' }}>Follow-up</th>
-                    <th style={{ padding: '12px', width: '15%' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupedItems[sn].map((item, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                      <td style={{ padding: '12px' }}>
-                        <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {item.studentName}
-                          {item.joinedAtSessionNumber && <span style={{ background: '#6c5ce7', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>Late Join (S{item.joinedAtSessionNumber})</span>}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666' }}>{item.studentPhone}</div>
-                      </td>
-                      <td style={{ padding: '12px' }}>
-                        <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: item.status === 'ABSENT' ? '#f8d7da' : '#fff3cd', color: item.status === 'ABSENT' ? '#721c24' : '#856404' }}>{item.status}</span>
-                        {item.mentorNote && <div style={{ fontSize: '11px', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>"{item.mentorNote}"</div>}
-                      </td>
-                      <td style={{ padding: '12px' }}>
-                        <div style={{ fontSize: '12px', fontWeight: 500 }}>{item.sessionDate}</div>
-                        <div style={{ fontSize: '11px', color: '#999' }}>{new Date(item.markedAt).toLocaleString()}</div>
-                        <div style={{ fontSize: '11px', color: '#999' }}>By: {item.markedBy}</div>
-                      </td>
-                      <td style={{ padding: '12px' }}>
-                        {item.followUp ? (
-                          <div>
-                            <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: item.followUp.status === 'RESOLVED' ? '#d4edda' : '#e2e3e5', color: item.followUp.status === 'RESOLVED' ? '#155724' : '#383d41' }}>{item.followUp.status}</span>
-                            {item.followUp.lastNote && <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>{item.followUp.lastNote}</div>}
-                          </div>
-                        ) : (
-                          <span style={{ fontSize: '11px', color: '#999' }}>No follow-up yet</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '12px' }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <a href={`https://wa.me/${item.studentPhone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Open WhatsApp" style={{ padding: '4px', borderRadius: '4px', background: '#25D366', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', textDecoration: 'none' }}>
-                            W
-                          </a>
-                          <button onClick={() => onOpenFollowUp(item)} title="Add Follow-up Note" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #007bff', background: '#fff', color: '#007bff', fontSize: '11px', cursor: 'pointer' }}>
-                            Follow up
-                          </button>
-                          <button onClick={() => handleMarkResolved(item.followUp?.id, item.studentId, item.sessionNumber)} title="Resolve" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #28a745', background: '#fff', color: '#28a745', fontSize: '11px', cursor: 'pointer' }}>
-                            Resolve
-                          </button>
-                        </div>
-                      </td>
+        <div style={{ overflowX: 'auto' }}>
+          {sessionNumbers.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No absences found matching filters.</div>
+          ) : (
+            sessionNumbers.map((sn) => (
+              <div key={sn} style={{ borderBottom: '4px solid #f8f9fa' }}>
+                <div style={{ background: '#f8f9fa', padding: '12px 16px', fontSize: '14px', fontWeight: 600, color: '#333', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Session {sn}</span>
+                  <span style={{ fontSize: '11px', color: '#666', fontWeight: 400 }}>{groupedItems[sn].length} absences</span>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', background: 'white', borderBottom: '1px solid #eee' }}>
+                      <th style={{ padding: '12px', width: '25%' }}>Student</th>
+                      <th style={{ padding: '12px', width: '15%' }}>Status</th>
+                      <th style={{ padding: '12px', width: '25%' }}>Marked At</th>
+                      <th style={{ padding: '12px', width: '20%' }}>Follow-up</th>
+                      <th style={{ padding: '12px', width: '15%' }}>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))
-        )}
-      </div>
+                  </thead>
+                  <tbody>
+                    {groupedItems[sn].map((item, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {item.studentName}
+                            {item.joinedAtSessionNumber && <span style={{ background: '#6c5ce7', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>Late Join (S{item.joinedAtSessionNumber})</span>}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#666' }}>{item.studentPhone}</div>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: item.status === 'ABSENT' ? '#f8d7da' : '#fff3cd', color: item.status === 'ABSENT' ? '#721c24' : '#856404' }}>{item.status}</span>
+                          {item.mentorNote && <div style={{ fontSize: '11px', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>"{item.mentorNote}"</div>}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ fontSize: '12px', fontWeight: 500 }}>{item.sessionDate}</div>
+                          <div style={{ fontSize: '11px', color: '#999' }}>{new Date(item.markedAt).toLocaleString()}</div>
+                          <div style={{ fontSize: '11px', color: '#999' }}>By: {item.markedBy}</div>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          {item.followUp ? (
+                            <div>
+                              <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: item.followUp.status === 'RESOLVED' ? '#d4edda' : '#e2e3e5', color: item.followUp.status === 'RESOLVED' ? '#155724' : '#383d41' }}>{item.followUp.status}</span>
+                              {item.followUp.lastNote && <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>{item.followUp.lastNote}</div>}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: '#999' }}>No follow-up yet</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <a href={`https://wa.me/${item.studentPhone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Open WhatsApp" style={{ padding: '4px', borderRadius: '4px', background: '#25D366', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', textDecoration: 'none' }}>
+                              W
+                            </a>
+                            <button onClick={() => onOpenFollowUp(item)} title="Add Follow-up Note" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #007bff', background: '#fff', color: '#007bff', fontSize: '11px', cursor: 'pointer' }}>
+                              Follow up
+                            </button>
+                            <button onClick={() => handleMarkResolved(item.followUp?.id, item.studentId, item.sessionNumber)} title="Resolve" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #28a745', background: '#fff', color: '#28a745', fontSize: '11px', cursor: 'pointer' }}>
+                              Resolve
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))
+          )}
+        </div>
       </div>
       <ConfirmDialog
         open={confirmState.open}
@@ -852,150 +1029,6 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
   )
 }
 
-function FeedbackCollectedTab({ classKey, students }: { classKey: string; students: Array<{ lead_id: string; full_name: string; phone: string }> }) {
-  const [uploads, setUploads] = useState<FeedbackCollectedUpload[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedFile, setSelectedFile] = useState<Record<string, File | null>>({})
-  const [selectedSession, setSelectedSession] = useState<Record<string, string>>({})
-  const [note, setNote] = useState<Record<string, string>>({})
-  const [uploading, setUploading] = useState<Record<string, boolean>>({})
-
-  useEffect(() => {
-    loadUploads()
-  }, [classKey])
-
-  async function loadUploads() {
-    try {
-      setLoading(true)
-      setError(null)
-      const res = await api.getFeedbackCollected(classKey)
-      setUploads(res.uploads || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load feedback uploads')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleUpload(leadId: string) {
-    const file = selectedFile[leadId]
-    if (!file) return
-
-    setUploading((prev) => ({ ...prev, [leadId]: true }))
-    setError(null)
-    try {
-      const formData = new FormData()
-      formData.append('class_key', classKey)
-      formData.append('lead_id', leadId)
-      if (selectedSession[leadId]) formData.append('session_number', selectedSession[leadId])
-      if (note[leadId]) formData.append('note', note[leadId])
-      formData.append('file', file)
-
-      await api.uploadFeedbackCollected(formData)
-      setSelectedFile((prev) => ({ ...prev, [leadId]: null }))
-      setNote((prev) => ({ ...prev, [leadId]: '' }))
-      setSelectedSession((prev) => ({ ...prev, [leadId]: '' }))
-      await loadUploads()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload feedback')
-    } finally {
-      setUploading((prev) => ({ ...prev, [leadId]: false }))
-    }
-  }
-
-  const uploadsByLead = uploads.reduce((acc: Record<string, FeedbackCollectedUpload[]>, item) => {
-    if (!acc[item.lead_id]) acc[item.lead_id] = []
-    acc[item.lead_id].push(item)
-    return acc
-  }, {})
-
-  if (loading) return <p style={{ padding: '20px' }}>Loading feedback uploads...</p>
-  if (error) return <p style={{ color: 'red', padding: '20px' }}>{error}</p>
-
-  return (
-    <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
-      <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
-        <h2 style={{ fontSize: '18px', margin: 0 }}>Feedback Collected</h2>
-      </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', background: '#f8f9fa', borderBottom: '1px solid #eee' }}>
-              <th style={{ padding: '12px', width: '20%' }}>Student</th>
-              <th style={{ padding: '12px', width: '40%' }}>Uploads</th>
-              <th style={{ padding: '12px', width: '40%' }}>Add Upload</th>
-            </tr>
-          </thead>
-          <tbody>
-            {students.map((s) => {
-              const list = uploadsByLead[s.lead_id] || []
-              return (
-                <tr key={s.lead_id} style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '12px' }}>
-                    <div style={{ fontWeight: 600 }}>{s.full_name}</div>
-                    <div style={{ fontSize: '12px', color: '#666' }}>{s.phone}</div>
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    {list.length === 0 ? (
-                      <span style={{ fontSize: '12px', color: '#999' }}>No uploads yet</span>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {list.map((u) => (
-                          <div key={u.id} style={{ fontSize: '12px' }}>
-                            <a href={u.file_url} target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'none' }}>
-                              {u.file_name}
-                            </a>
-                            {u.session_number && <span style={{ marginLeft: '6px', color: '#666' }}>S{u.session_number}</span>}
-                            {u.note && <span style={{ marginLeft: '6px', color: '#999' }}>• {u.note}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <input
-                        type="file"
-                        onChange={(e) => setSelectedFile((prev) => ({ ...prev, [s.lead_id]: e.target.files ? e.target.files[0] : null }))}
-                      />
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <select
-                          value={selectedSession[s.lead_id] || ''}
-                          onChange={(e) => setSelectedSession((prev) => ({ ...prev, [s.lead_id]: e.target.value }))}
-                          style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '12px' }}
-                        >
-                          <option value="">Session</option>
-                          <option value="4">S4</option>
-                          <option value="8">S8</option>
-                        </select>
-                        <input
-                          type="text"
-                          placeholder="Note (optional)"
-                          value={note[s.lead_id] || ''}
-                          onChange={(e) => setNote((prev) => ({ ...prev, [s.lead_id]: e.target.value }))}
-                          style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '12px' }}
-                        />
-                      </div>
-                      <button
-                        onClick={() => handleUpload(s.lead_id)}
-                        disabled={uploading[s.lead_id] || !selectedFile[s.lead_id]}
-                        style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #007bff', background: '#fff', color: '#007bff', cursor: 'pointer', fontSize: '12px', opacity: uploading[s.lead_id] || !selectedFile[s.lead_id] ? 0.6 : 1 }}
-                      >
-                        {uploading[s.lead_id] ? 'Uploading...' : 'Upload'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
 function ComplaintModal({ classKey, onClose, onSuccess }: { classKey: string; onClose: () => void; onSuccess: () => void }) {
   const [studentPhone, setStudentPhone] = useState('')
   const [category, setCategory] = useState('mentor_behavior')
@@ -1004,8 +1037,8 @@ function ComplaintModal({ classKey, onClose, onSuccess }: { classKey: string; on
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const categories = [ { value: 'mentor_behavior', label: 'Mentor Behavior' }, { value: 'session_quality', label: 'Session Quality' }, { value: 'technical', label: 'Technical Issues' }, { value: 'scheduling', label: 'Scheduling' }, { value: 'other', label: 'Other' } ]
-  const urgencies = [ { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' } ]
+  const categories = [{ value: 'mentor_behavior', label: 'Mentor Behavior' }, { value: 'session_quality', label: 'Session Quality' }, { value: 'technical', label: 'Technical Issues' }, { value: 'scheduling', label: 'Scheduling' }, { value: 'other', label: 'Other' }]
+  const urgencies = [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]
 
   async function handleSubmit() {
     if (!studentPhone || !complaintText) {
@@ -1040,7 +1073,7 @@ function ComplaintModal({ classKey, onClose, onSuccess }: { classKey: string; on
             Category <span style={{ color: '#dc3545' }}>*</span>
           </label>
           <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}>
-            {categories.map((cat) => ( <option key={cat.value} value={cat.value}> {cat.label} </option> ))}
+            {categories.map((cat) => (<option key={cat.value} value={cat.value}> {cat.label} </option>))}
           </select>
         </div>
         <div style={{ marginBottom: '16px' }}>
@@ -1048,7 +1081,7 @@ function ComplaintModal({ classKey, onClose, onSuccess }: { classKey: string; on
             Urgency <span style={{ color: '#dc3545' }}>*</span>
           </label>
           <select value={urgency} onChange={(e) => setUrgency(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}>
-            {urgencies.map((urg) => ( <option key={urg.value} value={urg.value}> {urg.label} </option> ))}
+            {urgencies.map((urg) => (<option key={urg.value} value={urg.value}> {urg.label} </option>))}
           </select>
         </div>
         <div style={{ marginBottom: '20px' }}>

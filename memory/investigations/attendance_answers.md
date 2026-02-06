@@ -50,7 +50,7 @@ POST endpoint exists - follow-ups are created via API call, not database trigger
 
 ## Q: Attendance marking deadline?
 
-### Answer: **24-hour deadline enforced for mentors**
+### Answer: **24-hour deadline enforced for mentors (Africa/Cairo)**
 
 **Evidence**:
 - `models.MarkAttendance` enforces deadline unless bypassed
@@ -59,7 +59,7 @@ POST endpoint exists - follow-ups are created via API call, not database trigger
 
 **Behavior**:
 - Mentors can mark attendance up to 24 hours after scheduled session end time
-- Admin/Student Success can bypass deadline (for corrections)
+- Mentor Head, Admin, Student Success can bypass deadline (for corrections)
 
 **Conclusion**: Deadline enforced for mentors; late edits require admin override.
 

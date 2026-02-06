@@ -5,23 +5,28 @@
     <h1>Pre-Enrolment</h1>
 </div>
 
-<!-- Toast notification (fixed position, doesn't push content) -->
+<!-- Toast notification -->
 <div id="toast" class="toast" style="display: none;"></div>
 
 {{if .FlashMessage}}
-<div class="flash-message" style="background-color: {{if eq .FlashMessageType "error"}}#F8D7DA{{else}}#D4EDDA{{end}}; border: 1px solid {{if eq .FlashMessageType "error"}}#F5C6CB{{else}}#C3E6CB{{end}}; color: {{if eq .FlashMessageType "error"}}#721C24{{else}}#155724{{end}}; padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;">
+{{$ft := .FlashMessageType}}
+{{$isErr := eq $ft "error"}}
+<div class="flash-message"
+    style="background-color: {{if $isErr}}#F8D7DA{{else}}#D4EDDA{{end}}; border: 1px solid {{if $isErr}}#F5C6CB{{else}}#C3E6CB{{end}}; color: {{if $isErr}}#721C24{{else}}#155724{{end}}; padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;">
     {{.FlashMessage}}
 </div>
 {{end}}
 
 {{if gt .FollowUpCount 0}}
-<div style="background-color: #FFF4E6; border: 2px solid #FFA500; color: #CC6600; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
+<div
+    style="background-color: #FFF4E6; border: 2px solid #FFA500; color: #CC6600; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
     🔥 {{.FollowUpCount}} hot lead{{if ne .FollowUpCount 1}}s{{end}} need follow-up today
 </div>
 {{end}}
 
 {{if gt .TestedResultsCount 0}}
-<div style="background-color: #E6F7FF; border: 2px solid #4EC6E0; color: #0052A3; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
+<div
+    style="background-color: #E6F7FF; border: 2px solid #4EC6E0; color: #0052A3; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
     🧪 {{.TestedResultsCount}} new test result{{if ne .TestedResultsCount 1}}s{{end}} ready to review —
     <a href="/pre-enrolment?status=TESTED" style="color: #0052A3; text-decoration: underline;">View tested leads</a>
 </div>
@@ -35,42 +40,101 @@
 <div class="filter-bar">
     <form method="GET" action="/pre-enrolment" class="filter-form">
         {{if eq .HotFilter "1"}}<input type="hidden" name="hot" value="1">{{end}}
-        <input type="text" name="search" placeholder="Search by name or phone..." id="search" value="{{.SearchFilter}}" class="filter-search">
+        {{if eq .ColdFilter "1"}}<input type="hidden" name="cold" value="1">{{end}}
+        <input type="text" name="search" placeholder="Search by name or phone..." id="search" value="{{.SearchFilter}}"
+            class="filter-search">
+
+        {{$sf := .StatusFilter}}
         <select name="status" id="status-filter" onchange="this.form.submit()" class="filter-select">
-            <option value="" {{if not .StatusFilter}}selected{{end}}>All Statuses</option>
-            <option value="NEW_LEAD" {{if eq .StatusFilter "NEW_LEAD"}}selected{{end}}>New Lead</option>
-            <option value="TEST_BOOKED" {{if eq .StatusFilter "TEST_BOOKED"}}selected{{end}}>Test Booked</option>
-            <option value="TESTED" {{if eq .StatusFilter "TESTED"}}selected{{end}}>Tested</option>
-            <option value="OFFER_SENT" {{if eq .StatusFilter "OFFER_SENT"}}selected{{end}}>Offer Sent</option>
-            <option value="BOOKING_CONFIRMED_PAID_FULL" {{if eq .StatusFilter "BOOKING_CONFIRMED_PAID_FULL"}}selected{{end}}>Booking Confirmed (Paid Full)</option>
-            <option value="BOOKING_CONFIRMED_DEPOSIT" {{if eq .StatusFilter "BOOKING_CONFIRMED_DEPOSIT"}}selected{{end}}>Booking Confirmed (Deposit)</option>
-            <option value="SCHEDULE_SET" {{if eq .StatusFilter "SCHEDULE_SET"}}selected{{end}}>Schedule Set</option>
-            <option value="READY_TO_START" {{if eq .StatusFilter "READY_TO_START"}}selected{{end}}>Ready to Start</option>
-            <option value="cancelled" {{if eq .StatusFilter "cancelled"}}selected{{end}}>Cancelled</option>
+            <option value="" {{if not $sf}}selected{{end}}>All Statuses</option>
+            <option value="NEW_LEAD" {{if eq $sf "NEW_LEAD" }}selected{{end}}>New Lead</option>
+            <option value="TEST_BOOKED" {{if eq $sf "TEST_BOOKED" }}selected{{end}}>Test Booked</option>
+            <option value="TESTED" {{if eq $sf "TESTED" }}selected{{end}}>Tested</option>
+            <option value="OFFER_SENT" {{if eq $sf "OFFER_SENT" }}selected{{end}}>Offer Sent</option>
+            <option value="BOOKING_CONFIRMED_PAID_FULL" {{if eq $sf "BOOKING_CONFIRMED_PAID_FULL" }}selected{{end}}>
+                Booking Confirmed (Paid Full)</option>
+            <option value="BOOKING_CONFIRMED_DEPOSIT" {{if eq $sf "BOOKING_CONFIRMED_DEPOSIT" }}selected{{end}}>Booking
+                Confirmed (Deposit)</option>
+            <option value="SCHEDULE_SET" {{if eq $sf "SCHEDULE_SET" }}selected{{end}}>Schedule Set</option>
+            <option value="READY_TO_START" {{if eq $sf "READY_TO_START" }}selected{{end}}>Ready to Start</option>
+            <option value="waiting_for_round" {{if eq $sf "waiting_for_round" }}selected{{end}}>Waiting for Round
+            </option>
+            <option value="renewal_pending" {{if eq $sf "renewal_pending" }}selected{{end}}>Renewal Pending</option>
+            <option value="COLD_LEAD" {{if eq $sf "COLD_LEAD" }}selected{{end}}>Cold Lead</option>
+            <option value="cancelled" {{if eq $sf "cancelled" }}selected{{end}}>Cancelled</option>
         </select>
+
+        {{$pf := .PaymentFilter}}
         <select name="payment" id="payment-filter" onchange="this.form.submit()" class="filter-select">
-            <option value="" {{if not .PaymentFilter}}selected{{end}}>All Payments</option>
-            <option value="UNPAID" {{if eq .PaymentFilter "UNPAID"}}selected{{end}}>Unpaid</option>
-            <option value="DEPOSIT" {{if eq .PaymentFilter "DEPOSIT"}}selected{{end}}>Deposit</option>
-            <option value="PAID_FULL" {{if eq .PaymentFilter "PAID_FULL"}}selected{{end}}>Paid Full</option>
+            <option value="" {{if not $pf}}selected{{end}}>All Payments</option>
+            <option value="UNPAID" {{if eq $pf "UNPAID" }}selected{{end}}>Unpaid</option>
+            <option value="DEPOSIT" {{if eq $pf "DEPOSIT" }}selected{{end}}>Deposit</option>
+            <option value="PAID_FULL" {{if eq $pf "PAID_FULL" }}selected{{end}}>Paid Full</option>
         </select>
-        <label class="filter-checkbox" style="display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 500;">
-            <input type="checkbox" name="include_cancelled" value="1" {{if .IncludeCancelled}}checked{{end}} onchange="this.form.submit()">
+
+        <label class="filter-checkbox"
+            style="display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 500;">
+            <input type="checkbox" name="include_cancelled" value="1" {{if .IncludeCancelled}}checked{{end}}
+                onchange="this.form.submit()">
             Show cancelled leads
         </label>
-        <label class="filter-checkbox" style="display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 500;">
-            <input type="checkbox" name="follow_up" value="high_priority" {{if eq .FollowUpFilter "high_priority"}}checked{{end}} onchange="this.form.submit()">
+
+        <label class="filter-checkbox"
+            style="display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 500;">
+            <input type="checkbox" name="follow_up" value="high_priority" {{if eq .FollowUpFilter "high_priority"
+                }}checked{{end}} onchange="this.form.submit()">
             High Priority Follow-Up
+        </label>
+
+        <label class="filter-checkbox"
+            style="display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 500;">
+            <input type="checkbox" name="repeat" value="1" {{if eq .RepeatFilter "1"}}checked{{end}}
+                onchange="this.form.submit()">
+            Repeat Level
         </label>
         <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
     </form>
+
+    {{$search := .SearchFilter}}
+    {{$incCan := .IncludeCancelled}}
+    {{$isHP := eq .FollowUpFilter "high_priority"}}
+    {{$isRepeat := eq .RepeatFilter "1"}}
     <div class="quick-filters">
-        <a href="/pre-enrolment?hot=1{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .HotFilter "1"}}active{{end}}" style="{{if eq .HotFilter "1"}}background-color: #FF6B6B; color: white; border-color: #FF6B6B;{{end}}">🔥 Hot Leads</a>
-        <a href="/pre-enrolment?status=NEW_LEAD{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "NEW_LEAD"}}active{{end}}">Needs Test</a>
-        <a href="/pre-enrolment?status=TESTED{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "TESTED"}}active{{end}}">Tested</a>
-        <a href="/pre-enrolment?status=OFFER_SENT{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "OFFER_SENT"}}active{{end}}">Offer Sent</a>
-        <a href="/pre-enrolment?status=SCHEDULE_SET{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "SCHEDULE_SET"}}active{{end}}">Waiting</a>
-        <a href="/pre-enrolment?status=READY_TO_START{{if .SearchFilter}}&search={{.SearchFilter | urlquery}}{{end}}{{if .IncludeCancelled}}&include_cancelled=1{{end}}{{if eq .FollowUpFilter "high_priority"}}&follow_up=high_priority{{end}}" class="quick-filter-btn {{if eq .StatusFilter "READY_TO_START"}}active{{end}}">Ready to Start</a>
+        {{$isHot := eq .HotFilter "1"}}
+        <a href="/pre-enrolment?hot=1{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isHot}}active{{end}}"
+            style="{{if $isHot}}background-color: #FF6B6B; color: white; border-color: #FF6B6B;{{end}}">🔥 Hot Leads</a>
+
+        {{$isNew := eq $sf "NEW_LEAD"}}
+        <a href="/pre-enrolment?status=NEW_LEAD{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isNew}}active{{end}}">Needs Test</a>
+
+        {{$isTested := eq $sf "TESTED"}}
+        <a href="/pre-enrolment?status=TESTED{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isTested}}active{{end}}">Tested</a>
+
+        {{$isPaidFull := eq $sf "BOOKING_CONFIRMED_PAID_FULL"}}
+        <a href="/pre-enrolment?status=BOOKING_CONFIRMED_PAID_FULL{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isPaidFull}}active{{end}}"
+            style="{{if $isPaidFull}}background-color: #B7E4B7; color: #1F6B3B; border-color: #B7E4B7;{{end}}">Paid
+            Full</a>
+
+        {{$isRenewal := eq $sf "RENEWAL_PENDING"}}
+        <a href="/pre-enrolment?status=RENEWAL_PENDING{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isRenewal}}active{{end}}"
+            style="{{if $isRenewal}}background-color: #FFA500; color: white; border-color: #FFA500;{{end}}">Renewal
+            Pending</a>
+
+        {{$isCold := eq .ColdFilter "1"}}
+        <a href="/pre-enrolment?cold=1{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isCold}}active{{end}}"
+            style="{{if $isCold}}background-color: #4A5568; color: white; border-color: #4A5568;{{end}}">Cold
+            Leads</a>
+
+        <a href="/pre-enrolment?repeat=1{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}"
+            class="quick-filter-btn {{if $isRepeat}}active{{end}}"
+            style="{{if $isRepeat}}background-color: #F8D7DA; color: #721c24; border-color: #F8D7DA;{{end}}">Repeat
+            Level</a>
     </div>
 </div>
 
@@ -90,17 +154,50 @@
         </thead>
         <tbody>
             {{range .Leads}}
-            <tr data-lead-id="{{.Lead.ID}}"{{if eq .Lead.Status "cancelled"}} class="row-cancelled"{{end}}>
-                <td>{{.Lead.FullName}}</td>
+            {{$s := .Lead.Status}}
+            {{$isCancelled := eq $s "cancelled"}}
+            <tr data-lead-id="{{.Lead.ID}}" class="{{if $isCancelled}}row-cancelled{{end}}">
+                <td>
+                    {{.Lead.FullName}}
+                    {{if .Lead.IsReturning}}
+                    <span style="color: #FFD700; font-size: 16px; margin-left: 5px;" title="Promoted Student">⭐</span>
+                    {{end}}
+                    {{if and .LastOutcome.Valid (eq .LastOutcome.String "repeated")}}
+                    {{$repeatReason := "Repeat: Missed 3+ sessions"}}
+                    {{if and .LastFinalGrade.Valid (eq .LastFinalGrade.String "F")}}
+                    {{$repeatReason = "Repeat: Grade F"}}
+                    {{end}}
+                    <span
+                        style="background: #f8d7da; color: #721c24; padding: 2px 6px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px;"
+                        title="{{$repeatReason}}">REPEAT</span>
+                    {{end}}
+                </td>
                 <td>{{.Lead.Phone}}</td>
                 <td>
-                    {{$stage := ""}}
-                    {{if eq .Lead.Status "lead_created"}}{{$stage = "NEW_LEAD"}}{{else if eq .Lead.Status "test_booked"}}{{$stage = "TEST_BOOKED"}}{{else if eq .Lead.Status "tested"}}{{$stage = "TESTED"}}{{else if eq .Lead.Status "offer_sent"}}{{$stage = "OFFER_SENT"}}{{else if eq .Lead.Status "paid_full"}}{{$stage = "BOOKING_CONFIRMED_PAID_FULL"}}{{else if eq .Lead.Status "deposit_paid"}}{{$stage = "BOOKING_CONFIRMED_DEPOSIT"}}{{else if eq .Lead.Status "schedule_assigned"}}{{$stage = "SCHEDULE_SET"}}{{else if eq .Lead.Status "waiting_for_round"}}{{$stage = "SCHEDULE_SET"}}{{else if eq .Lead.Status "ready_to_start"}}{{$stage = "READY_TO_START"}}{{else if eq .Lead.Status "cancelled"}}{{$stage = "CANCELLED"}}{{else}}{{$stage = .Lead.Status}}{{end}}
-                    <span class="badge {{.Lead.Status}}{{if eq .Lead.Status "cancelled"}} badge-cancelled{{end}}">{{$stage}}</span>
-                    {{if and .FollowUpDue (ne .Lead.Status "cancelled")}}
-                    <span class="badge" style="background-color: {{if eq .HotLevel "HOT"}}#FF6B6B{{else if eq .HotLevel "WARM"}}#FFA500{{else}}#8C8C8C{{end}}; color: white; margin-left: 5px;">
-                        {{.HotLevel}} – No Payment
-                    </span>
+                    {{$stage := "UNKNOWN"}}
+                    {{if eq $s "lead_created"}}{{$stage = "NEW_LEAD"}}
+                    {{else if eq $s "test_booked"}}{{$stage = "TEST_BOOKED"}}
+                    {{else if eq $s "tested"}}{{$stage = "TESTED"}}
+                    {{else if eq $s "offer_sent"}}{{$stage = "OFFER_SENT"}}
+                    {{else if eq $s "paid_full"}}{{$stage = "BOOKING_CONFIRMED_PAID_FULL"}}
+                    {{else if eq $s "deposit_paid"}}{{$stage = "BOOKING_CONFIRMED_DEPOSIT"}}
+                    {{else if eq $s "schedule_assigned"}}{{$stage = "SCHEDULE_SET"}}
+                    {{else if eq $s "waiting_for_round"}}{{$stage = "WAITING_FOR_ROUND"}}
+                    {{else if eq $s "renewal_pending"}}{{$stage = "RENEWAL_PENDING"}}
+                    {{else if eq $s "ready_to_start"}}{{$stage = "READY_TO_START"}}
+                    {{else if eq $s "cold_lead"}}{{$stage = "COLD_LEAD"}}
+                    {{else if eq $s "cancelled"}}{{$stage = "CANCELLED"}}
+                    {{else}}{{$stage = $s}}{{end}}
+
+                    <span class="badge {{$s}} {{if $isCancelled}}badge-cancelled{{end}}">{{$stage}}</span>
+
+                    {{if and .FollowUpDue (not $isCancelled)}}
+                    {{$hl := .HotLevel}}
+                    {{$bg := "#8C8C8C"}}
+                    {{if eq $hl "HOT"}}{{$bg = "#FF6B6B"}}
+                    {{else if eq $hl "WARM"}}{{$bg = "#FFA500"}}{{end}}
+                    <span class="badge" style="background-color: {{$bg}}; color: white; margin-left: 5px;">{{$hl}} – No
+                        Payment</span>
                     {{end}}
                 </td>
                 <td>{{if .AssignedLevel.Valid}}Level {{.AssignedLevel.Int32}}{{else}}-{{end}}</td>
@@ -109,13 +206,15 @@
                 <td class="action-column">
                     <div class="action-buttons-row">
                         <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
-                        {{if and (not $.IsModerator) (eq .Lead.Status "ready_to_start") (not .Lead.SentToClasses) .AssignedLevel.Valid}}
-                        <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form" data-lead-id="{{.Lead.ID}}">
+                        {{if and (not $.IsModerator) (eq $s "ready_to_start") (not .Lead.SentToClasses)
+                        .AssignedLevel.Valid}}
+                        <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form"
+                            data-lead-id="{{.Lead.ID}}">
                             <input type="hidden" name="action" value="send_to_classes">
                             <button type="submit" class="btn btn-success btn-small">Send to Classes</button>
                         </form>
                         {{end}}
-                        {{if and (not $.IsModerator) (ne .Lead.Status "cancelled")}}
+                        {{if and (not $.IsModerator) (not $isCancelled)}}
                         <a href="/pre-enrolment/{{.Lead.ID}}?action=cancel" class="btn btn-danger btn-small">Cancel</a>
                         {{end}}
                     </div>
@@ -123,7 +222,8 @@
             </tr>
             {{else}}
             <tr>
-                <td colspan="7" style="text-align: center; padding: 40px; color: #8C8C8C;">No leads found. <a href="/pre-enrolment/new">Create your first lead</a></td>
+                <td colspan="7" style="text-align: center; padding: 40px; color: #8C8C8C;">No leads found. <a
+                        href="/pre-enrolment/new">Create your first lead</a></td>
             </tr>
             {{end}}
         </tbody>
@@ -131,134 +231,101 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Submit form when Enter is pressed in search input
-    const searchInput = document.getElementById('search');
-    const filterForm = searchInput ? searchInput.closest('form') : null;
-    
-    if (searchInput && filterForm) {
-        searchInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                filterForm.submit();
-            }
-        });
-    }
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('search');
+        const filterForm = searchInput ? searchInput.closest('form') : null;
+        if (searchInput && filterForm) {
+            searchInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    filterForm.submit();
+                }
+            });
+        }
 
-    // Intercept Send to Classes form submissions
-    const sendToClassesForms = document.querySelectorAll('.send-to-classes-form');
-    sendToClassesForms.forEach(function(form) {
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const button = form.querySelector('button[type="submit"]');
-            if (!button) return;
-            
-            const originalText = button.textContent;
-            button.disabled = true;
-            button.textContent = 'Sending...';
-            
-            // Get URL as string - ensure it's a string, not an element
-            let url = form.getAttribute('action');
-            if (!url) {
-                // Fallback to form.action property, but ensure it's a string
-                url = String(form.action || '');
-            }
-            // Validate URL is a non-empty string
-            if (!url || typeof url !== 'string' || url.trim() === '' || url.includes('[object')) {
-                console.error('Invalid send-to-classes URL', url, 'form:', form, 'action attr:', form.getAttribute('action'), 'action prop:', form.action);
-                button.disabled = false;
-                button.textContent = originalText;
-                showToast('Invalid form configuration. Please refresh the page.', 'error');
-                return;
-            }
-            
-            const formData = new FormData(form);
-            const leadID = form.dataset.leadId;
-            
-            // Construct URL explicitly from leadID to avoid any form.action issues
-            if (!leadID || typeof leadID !== 'string') {
-                console.error('Invalid leadID', leadID);
-                button.disabled = false;
-                button.textContent = originalText;
-                showToast('Invalid lead ID. Please refresh the page.', 'error');
-                return;
-            }
-            
-            // Use explicitly constructed URL
-            const explicitUrl = '/pre-enrolment/' + leadID;
-            
-            fetch(explicitUrl, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(function(response) {
-                if (response.ok) {
-                    return response.json();
-                } else {
-                    throw new Error('Request failed');
-                }
-            })
-            .then(function(data) {
-                if (data.success) {
-                    // Find the row and fade it out
-                    const row = form.closest('tr[data-lead-id="' + leadID + '"]');
-                    if (row) {
-                        row.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
-                        row.style.opacity = '0';
-                        row.style.transform = 'translateX(-20px)';
-                        
-                        setTimeout(function() {
-                            row.remove();
-                            
-                            // Check if table is now empty
-                            const tbody = document.querySelector('tbody');
-                            if (tbody && tbody.children.length === 0) {
-                                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #8C8C8C;">No leads found. <a href="/pre-enrolment/new">Create your first lead</a></td></tr>';
+        const sendToClassesForms = document.querySelectorAll('.send-to-classes-form');
+        sendToClassesForms.forEach(function (form) {
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                const button = form.querySelector('button[type="submit"]');
+                if (!button) return;
+
+                const originalText = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Sending...';
+
+                const leadID = form.dataset.leadId;
+                const explicitUrl = '/pre-enrolment/' + leadID;
+                const formData = new FormData(form);
+
+                fetch(explicitUrl, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                    .then(function (response) {
+                        if (response.ok) return response.json();
+                        throw new Error('Request failed');
+                    })
+                    .then(function (data) {
+                        if (data.success) {
+                            const row = form.closest('tr[data-lead-id="' + leadID + '"]');
+                            if (row) {
+                                row.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+                                row.style.opacity = '0';
+                                row.style.transform = 'translateX(-20px)';
+                                setTimeout(function () {
+                                    row.remove();
+                                    const tbody = document.querySelector('tbody');
+                                    if (tbody && tbody.children.length === 0) {
+                                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #8C8C8C;">No leads found. <a href="/pre-enrolment/new">Create your first lead</a></td></tr>';
+                                    }
+                                }, 300);
                             }
-                        }, 300);
-                    }
-                    
-                    // Show toast notification
-                    showToast(data.message || 'Lead sent to classes board successfully');
-                } else {
-                    throw new Error(data.error || 'Failed to send lead');
-                }
-            })
-            .catch(function(error) {
-                console.error('Error:', error);
-                button.disabled = false;
-                button.textContent = originalText;
-                showToast('An error occurred. Please try again.', 'error');
+                            showToast(data.message || 'Lead sent to classes board successfully');
+                        } else {
+                            throw new Error(data.error || 'Failed to send lead');
+                        }
+                    })
+                    .catch(function (error) {
+                        console.error('Error:', error);
+                        button.disabled = false;
+                        button.textContent = originalText;
+                        showToast('An error occurred. Please try again.', 'error');
+                    });
             });
         });
     });
-});
 
-function showToast(message, type) {
-    type = type || 'success';
-    const toast = document.getElementById('toast');
-    if (!toast) return;
-    
-    toast.textContent = message;
-    toast.className = 'toast toast-' + type;
-    toast.style.display = 'block';
-    
-    // Trigger animation
-    setTimeout(function() {
-        toast.classList.add('toast-show');
-    }, 10);
-    
-    // Hide after 3 seconds
-    setTimeout(function() {
-        toast.classList.remove('toast-show');
-        setTimeout(function() {
-            toast.style.display = 'none';
-        }, 300);
-    }, 3000);
-}
+    function showToast(message, type) {
+        type = type || 'success';
+        const toast = document.getElementById('toast');
+        if (!toast) return;
+        toast.textContent = message;
+        toast.className = 'toast toast-' + type;
+        toast.style.display = 'block';
+        setTimeout(function () { toast.classList.add('toast-show'); }, 10);
+        setTimeout(function () {
+            toast.classList.remove('toast-show');
+            setTimeout(function () { toast.style.display = 'none'; }, 300);
+        }, 3000);
+    }
 </script>
+
+<style>
+    .badge.waiting_for_round {
+        background-color: #4EC6E0;
+        color: white;
+    }
+
+    .badge.renewal_pending {
+        background-color: #FFA500;
+        color: white;
+    }
+
+    .badge.cold_lead {
+        background-color: #4A5568;
+        color: white;
+    }
+</style>
 {{end}}

@@ -49,6 +49,17 @@ export interface Class {
   student_count: number
 }
 
+export interface MentorReminder {
+  type: 'attendance' | 'grading'
+  class_key: string
+  level: number
+  class_days: string
+  class_time: string
+  class_number: number
+  session_number: number
+  message: string
+}
+
 export interface Mentor {
   id: string
   email: string
@@ -68,6 +79,7 @@ export interface MentorHeadClass {
   class_number: number
   student_count: number
   readiness: string
+  all_graded?: boolean
   mentor_user_id?: string
   mentor_email?: string
   sent_to_mentor: boolean
@@ -224,10 +236,23 @@ export type SubmitFeedbackRequest = {
   follow_up_required: boolean
 }
 
+export interface Grade {
+  id: string
+  lead_id: string
+  class_key: string
+  session_number: number
+  grade: string
+  notes: string
+  created_by_user_id: string
+  created_at: string
+}
+
 export const api = {
   getMe: (): Promise<User> => fetchAPI('/me'),
 
   getMentorClasses: (): Promise<Class[]> => fetchAPI('/mentor/classes'),
+
+  getMentorReminders: (): Promise<{ reminders: MentorReminder[] }> => fetchAPI('/mentor/reminders'),
 
   getMentors: (): Promise<Mentor[]> => fetchAPI('/mentor-head/mentors'),
 
@@ -401,6 +426,11 @@ export const api = {
       headers: {}, // Let browser set multipart boundary
     }),
 
+  deleteFeedbackCollected: (uploadId: string): Promise<{ ok: boolean }> =>
+    fetchAPI(`/student-success/feedback-collected/${encodeURIComponent(uploadId)}`, {
+      method: 'DELETE',
+    }),
+
   markAttendance: (
     sessionId: string,
     leadId: string,
@@ -497,6 +527,97 @@ export const api = {
     fetchAPI(`/notifications/late-join/${encodeURIComponent(notificationId)}/acknowledge`, {
       method: 'POST',
     }),
+
+  // Student Profile API (Milestone 4)
+  searchStudents: (query: string): Promise<StudentSearchResult[]> =>
+    fetchAPI(`/students/search?q=${encodeURIComponent(query)}`),
+
+  getStudentProfile: (studentId: string): Promise<UniversalStudentProfile> =>
+    fetchAPI(`/students/${encodeURIComponent(studentId)}/profile`),
+
+  getStudentHistory: (studentId: string): Promise<AcademicHistoryItem[]> =>
+    fetchAPI(`/students/${encodeURIComponent(studentId)}/history`),
+
+  getStudentCurrentStatus: (studentId: string): Promise<CurrentClassStatus | null> =>
+    fetchAPI(`/students/${encodeURIComponent(studentId)}/current-status`),
+
+  getStudentNotes: (studentId: string): Promise<TimelineItem[]> =>
+    fetchAPI(`/students/${encodeURIComponent(studentId)}/notes`),
+
+  getGrades: (classKey: string): Promise<{ grades: Grade[] }> =>
+    fetchAPI(`/grades?class_key=${encodeURIComponent(classKey)}`),
+
+  createGrade: (data: { lead_id: string; class_key: string; grade: string; notes: string }): Promise<{ ok: boolean; grade_id: string }> =>
+    fetchAPI('/grades', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  deleteGrade: (leadId: string, classKey: string): Promise<{ ok: boolean }> =>
+    fetchAPI(`/grades?lead_id=${encodeURIComponent(leadId)}&class_key=${encodeURIComponent(classKey)}`, {
+      method: 'DELETE',
+    }),
+}
+
+// Student Profile Types (Milestone 4)
+export interface StudentSearchResult {
+  lead_id: string
+  full_name: string
+  phone: string
+  current_level: number
+  status: string
+}
+
+export interface UniversalStudentProfile {
+  lead_id: string
+  full_name: string
+  phone: string
+  current_level: number
+  remaining_credits: number
+  status: string
+  is_returning: boolean
+}
+
+export interface AcademicHistoryItem {
+  id: string
+  level: number
+  class_days: string
+  class_time: string
+  mentor_name: string
+  final_grade: string
+  outcome: string
+  enrolled_at: string
+  completed_at: string | null
+}
+
+export interface CurrentClassStatus {
+  class_key: string
+  level: number
+  class_days: string
+  class_time: string
+  mentor_name: string
+  current_session: number
+  attendance_stats: {
+    present: number
+    absent: number
+    late: number
+    total: number
+  }
+  session_details: Array<{
+    session_number: number
+    status: string
+    date: string
+  }>
+}
+
+export interface TimelineItem {
+  id: string
+  type: 'note' | 'followup'
+  text: string
+  class_key: string
+  session: number
+  is_private: boolean
+  created_by: string
+  created_at: string
 }
 
 export interface LateJoinerNotification {

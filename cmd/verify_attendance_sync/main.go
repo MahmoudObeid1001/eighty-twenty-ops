@@ -69,7 +69,7 @@ func main() {
 	}
 
 	fmt.Printf("\nMarking %s...\n", newStatus)
-	err = models.MarkAttendance(session.ID, student.LeadID, newStatus, "Verify script", uID)
+	err = models.MarkAttendance(session.ID, student.LeadID, newStatus, "Verify script", uID, false)
 	if err != nil {
 		log.Fatal("MarkAttendance failed:", err)
 	}

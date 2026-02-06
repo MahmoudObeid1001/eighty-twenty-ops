@@ -40,14 +40,18 @@
 | Complete session | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
 | Add/delete notes | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
 | View student details | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| Final grading (edit) | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Student Success** | | | | | | | |
 | View classes list | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| View class detail | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| View class detail | ✅ | ❌ | ✅ (read-only) | ❌ | ❌ | ❌ | ✅ |
 | View absence feed | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Create follow-up | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Resolve absence | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Submit feedback | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Update feedback status | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Upload feedback collected | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Remove feedback collected | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| View feedback collected | ✅ | ❌ | ✅ (read-only) | ❌ | ❌ | ❌ | ✅ |
 | View placement tests queue | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Record placement test results | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | **Complaints** | | | | | | | |
@@ -89,6 +93,7 @@
 **Evidence**: `main.go:312-389`
 
 Both roles share access to:
+- Student Success class detail (`/api/student-success/class`) for viewing tabs (mentor_head read-only)
 - Absence feed (`/api/student-success/class/absence-feed`)
 - Follow-ups (`/api/student-success/followups`)
 - Resolve absence (`/api/student-success/resolve-absence`)

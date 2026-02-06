@@ -26,6 +26,8 @@ type Lead struct {
 	LevelsPurchasedTotal sql.NullInt32  // Total levels purchased (from bundles)
 	LevelsConsumed       sql.NullInt32  // Levels consumed (when rounds start)
 	BundleType           sql.NullString // none, single, bundle2, bundle3, bundle4
+	RemainingCredits     sql.NullInt32  // Remaining class credits (after-class pipeline)
+	IsReturning          bool           // Flag for returning students (after-class pipeline)
 	HighPriorityFollowUp bool           // Set by mentor_head on round close for students with no remaining credits
 	HighPriorityAbsence  bool           // Set automatically if 3+ absences
 	HighPriorityReason   sql.NullString // Reason for high priority
@@ -114,6 +116,8 @@ type LeadDetail struct {
 type LeadListItem struct {
 	Lead                  *Lead
 	AssignedLevel         sql.NullInt32
+	LastOutcome           sql.NullString // latest class_enrollments.outcome (promoted/repeated)
+	LastFinalGrade        sql.NullString // latest class_enrollments.final_grade
 	PaymentStatus         string
 	PaymentState          string // UNPAID, DEPOSIT, PAID_FULL
 	NextAction            string
@@ -179,11 +183,24 @@ type ClassGroupWorkflow struct {
 	RoundClosedBy      sql.NullString // user UUID
 }
 
+// MentorReminder represents a reminder for a mentor to complete an action
+type MentorReminder struct {
+	Type          string `json:"type"` // "attendance" or "grading"
+	ClassKey      string `json:"class_key"`
+	Level         int32  `json:"level"`
+	ClassDays     string `json:"class_days"`
+	ClassTime     string `json:"class_time"`
+	ClassNumber   int32  `json:"class_number"`
+	SessionNumber int32  `json:"session_number"` // For attendance reminders
+	Message       string `json:"message"`
+}
+
 // ClassStudent represents a student in a class group
 type ClassStudent struct {
 	LeadID                uuid.UUID     `json:"lead_id"`
 	FullName              string        `json:"full_name"`
 	Phone                 string        `json:"phone"`
+	IsReturning           bool          `json:"is_returning"` // Flag for returning/promoted students
 	GroupIndex            sql.NullInt32 `json:"group_index"`
 	AvailableGroups       []int32       `json:"available_groups"`         // Available group indices for move (computed in handler)
 	JoinedAtSessionNumber sql.NullInt32 `json:"joined_at_session_number"` // NEW: For late joiners
@@ -518,4 +535,19 @@ type EligibleClass struct {
 	ClassTime         string `json:"class_time"`
 	CurrentSession    int32  `json:"current_session"`
 	CurrentEnrollment int32  `json:"current_enrollment"`
+}
+
+// ClassEnrollment represents a historical class enrollment record
+type ClassEnrollment struct {
+	ID          uuid.UUID
+	LeadID      uuid.UUID
+	ClassKey    string
+	Level       int32
+	ClassDays   string
+	ClassTime   string
+	MentorName  sql.NullString
+	FinalGrade  sql.NullString // A, B, C, F
+	Outcome     sql.NullString // promoted, repeated
+	EnrolledAt  time.Time
+	CompletedAt sql.NullTime
 }

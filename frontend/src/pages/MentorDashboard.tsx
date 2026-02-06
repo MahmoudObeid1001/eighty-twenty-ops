@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, User, Class } from '../api/client'
+import MentorReminderBanner from '../components/MentorReminderBanner'
 
 export default function MentorDashboard() {
   const [user, setUser] = useState<User | null>(null)
@@ -54,6 +55,8 @@ export default function MentorDashboard() {
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
         <h1>Welcome, {user?.email || 'Mentor'}</h1>
       </div>
+
+      <MentorReminderBanner />
 
       {classes.length === 0 ? (
         <div style={{ padding: '40px', textAlign: 'center', background: 'white', borderRadius: '8px' }}>

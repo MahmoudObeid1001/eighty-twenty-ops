@@ -4,8 +4,10 @@
 
 **Evidence Sources**:
 - `frontend/src/pages/StudentSuccessDashboard.tsx` - Student Success UI
+- `frontend/src/pages/StudentSuccessClass.tsx` - Feedback collected tab UI
 - `internal/handlers/api.go` - API handlers
 - `migrations/029_create_followups_table.sql` - followups table
+- `migrations/040_create_feedback_collected_uploads.sql` - feedback uploads table
 - `cmd/server/main.go` - Route definitions
 
 ---
@@ -63,6 +65,42 @@ MarkTested --> HotLeadBanner[Hot lead banner appears if unpaid]
 
 ---
 
+## Feedback Collected Uploads (Student Success only; Mentor Head read-only)
+
+```mermaid
+flowchart TD
+    Start([Open class workspace]) --> FeedbackTab[Open Feedback Collected tab]
+    FeedbackTab --> SelectStudent[Pick student row]
+    SelectStudent --> ChooseFile[Choose file + optional session/note]
+    ChooseFile --> UploadFile[Upload]
+    UploadFile --> StoreFile[(Save file to /static/uploads/feedback_collected)]
+    StoreFile --> SaveRecord[(Insert feedback_collected_uploads)]
+    SaveRecord --> RefreshList[Refresh uploads list]
+
+    RefreshList --> RemoveAction{Need to remove upload?}
+    RemoveAction --> DeleteClick[Click Remove]
+    DeleteClick --> DeleteFile[(Delete file from disk)]
+    DeleteFile --> DeleteRow[(Delete feedback_collected_uploads row)]
+    DeleteRow --> RefreshList
+```
+
+---
+
+## Mentor Head Read-Only Class Review (Active + Closed)
+
+```mermaid
+flowchart TD
+    Start([Mentor Head dashboard]) --> OpenClass[Open class detail]
+    OpenClass --> ViewTabs[View Students / Absence / Follow-ups / Feedback / Feedback Collected / Final Grading]
+    ViewTabs --> ArchiveView[Closed classes allowed (read-only review)]
+```
+
+**Notes**
+- Mentor Head primarily reviews classes via the Class Workspace (Sessions & Attendance + Final Grading + Feedback Collected).
+- Closed classes are allowed for Mentor Head; student roster is sourced from archived enrollments.
+
+---
+
 ## Evidence
 
 ### View Placement Tests Queue
@@ -83,6 +121,33 @@ MarkTested --> HotLeadBanner[Hot lead banner appears if unpaid]
 **Evidence**:
 - `internal/handlers/api.go` - CompletePlacementTest
 - `internal/models/repository.go` - UpdatePlacementTest, UpdateLeadStatus
+
+### Feedback Collected Uploads
+**Routes**:
+- `GET /api/student-success/feedback-collected?class_key=...` (list uploads)
+- `POST /api/student-success/feedback-collected` (upload)
+- `DELETE /api/student-success/feedback-collected/:id` (remove)
+**Handlers**: `GetFeedbackCollected`, `UploadFeedbackCollected`, `DeleteFeedbackCollected`  
+**Permissions**:
+- View: student_success, mentor_head, admin
+- Upload/Delete: student_success only
+**Database**: `feedback_collected_uploads`  
+**Evidence**:
+- `cmd/server/main.go` - route registrations
+- `internal/handlers/api.go` - feedback collected handlers
+- `internal/models/repository.go` - Create/Get/Delete feedback uploads
+- `migrations/040_create_feedback_collected_uploads.sql`
+
+### Mentor Head Read-Only Class Detail
+**Route**: `GET /api/student-success/class?class_key=...`  
+**Permissions**: student_success, mentor_head, admin  
+**Behavior**:
+- Mentor Head can view active and closed classes
+- Closed classes use archived enrollments for the student list  
+**Evidence**:
+- `cmd/server/main.go` - route registration
+- `internal/handlers/api.go` - GetStudentSuccessClass
+- `internal/models/repository.go` - GetStudentSuccessClassDetail
 
 ### Test Booking (Ops Admin)
 **Route**: `POST /pre-enrolment/:id` (Save)  
@@ -199,6 +264,10 @@ stateDiagram-v2
 **Evidence**:
 - `internal/handlers/community_officer.go`
 - `internal/views/student_success.html`
+
+### Rule: Dashboard tab persistence
+**Rule**: The Student Success class view preserves the active tab (Students, Absence, Follow-ups, etc.) on page refresh using URL synchronization.  
+**Evidence**: `frontend/src/pages/StudentSuccessClass.tsx`
 
 ### Rule: Case notes for audit trail
 **Purpose**: Track all updates/resolutions for a follow-up case  

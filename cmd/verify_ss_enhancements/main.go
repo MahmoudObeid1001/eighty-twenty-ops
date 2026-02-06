@@ -30,7 +30,7 @@ func main() {
 	}
 	fmt.Printf("Verifying with ClassKey: %s\n", classKey)
 
-	cg, students, sessions, missedSessions, feedbackRecords, completedCount, err := models.GetStudentSuccessClassDetail(classKey)
+	cg, students, sessions, missedSessions, feedbackRecords, completedCount, err := models.GetStudentSuccessClassDetail(classKey, false)
 	if err != nil {
 		log.Fatalf("Error getting detail: %v", err)
 	}

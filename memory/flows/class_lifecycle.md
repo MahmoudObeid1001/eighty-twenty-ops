@@ -16,7 +16,7 @@
 stateDiagram-v2
     [*] --> Created: Admin creates class group
     
-    Created --> SentToMentor: Admin sends to mentor head
+    Created --> SentToMentor: Admin manually sends (click button)
     SentToMentor --> Assigned: Mentor Head assigns mentor
     Assigned --> RoundNotStarted: Class has mentor
     
@@ -66,6 +66,8 @@ stateDiagram-v2
 - `internal/handlers/classes.go:215` - calls `models.SendClassGroupToMentor`
 
 ### Visibility Note: Closed classes
+**Important Rule**: The transition to `SentToMentor` is **strictly manual**. The `StartRound` action (incrementing round number) does **NOT** automatically send classes to the Mentor Head, regardless of student count. This ensures Ops Admin retains control over which classes are visible to mentors.
+
 **Mentor Head dashboard**: Excludes classes with `round_status = 'closed'` even if `sent_to_mentor = true`.  
 **Ops classes board**: Shows closed classes with a **CLOSED** badge and no return action.  
 **Evidence**:
@@ -113,15 +115,38 @@ stateDiagram-v2
 - `migrations/016_create_class_sessions.sql`
 - `migrations/017_create_attendance.sql`
 
+### Mentor Reminder System
+**Purpose**: Persistent reminders for mentors to complete critical tasks  
+**Triggers**:
+- **Attendance Reminder**: Session marked completed but attendance incomplete
+- **Grading Reminder**: All 8 sessions completed but grades missing  
+**Behavior**: 
+- Appears on mentor dashboard login
+- Auto-dismisses after 10 seconds
+- Reappears on next login if task still incomplete
+- Click to navigate directly to class workspace  
+**Route**: `GET /api/mentor/reminders`  
+**Evidence**: `internal/models/repository.go` (GetMentorReminders), `internal/handlers/api.go`, `frontend/src/components/MentorReminderBanner.tsx`
+
 ### Transition: Mentor Head closes round (AllSessionsComplete → RoundClosed)
 **Route**: `POST /api/mentor-head/close-round`  
 **Handler**: `apiHandler.CloseRound`  
 **Database**: Updates `class_groups.round_status = 'CLOSED'`, sets `closed_at` timestamp, sets `closed_by_mentor_user_id`  
+**Prerequisite**: All students must have a grade recorded for session 8; otherwise, an error is returned and the round remains open.  
 **Evidence**:
 - `cmd/server/main.go:201-208`
 - `internal/handlers/api.go` - CloseRound function
+- `internal/models/repository.go` - CloseRound validation logic
 - `migrations/027_class_groups_round_status.sql:5-7` - Added closed_at, closed_by_mentor_user_id
 - `migrations/032_add_closed_mentor_user_id.sql`
+
+**Outcome Side Effects**:
+- Writes `class_enrollments.outcome` = `promoted` or `repeated`
+- Sets lead status to `waiting_for_round` or `renewal_pending` based on remaining credits
+- Updates `leads.remaining_credits` from `levels_purchased_total - levels_consumed`
+
+**Ops Visibility**:
+- Pre‑enrolment list can filter Repeat Level and shows REPEAT badge from latest class outcome
 
 ### Archived Classes Filter (Mentor Head)
 **Route**: `GET /api/mentor-head/archive`  

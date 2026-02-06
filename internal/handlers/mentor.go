@@ -633,6 +633,10 @@ func (h *MentorHandler) CompleteSession(w http.ResponseWriter, r *http.Request) 
 
 	if err := models.CompleteSession(sessionID, actualDate, actualTime); err != nil {
 		log.Printf("ERROR: Failed to complete session: %v", err)
+		if errors.Is(err, models.ErrAttendanceIncomplete) {
+			redirectWithError(w, r, mentorClassURL("/mentor/class", r.FormValue("class_key"), r), "Please mark attendance for all students before completing the session.")
+			return
+		}
 		redirectWithError(w, r, mentorClassURL("/mentor/class", r.FormValue("class_key"), r), "Couldn't complete the session. Please try again.")
 		return
 	}

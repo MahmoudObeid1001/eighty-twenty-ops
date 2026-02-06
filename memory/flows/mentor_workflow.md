@@ -132,13 +132,59 @@ flowchart TD
 - Frontend displays completion counter
 
 ### Rule: Attendance deadline enforced
-**Rule**: Mentors can mark attendance up to 24 hours after scheduled session end time  
-**Override**: Admin/Student Success can bypass for corrections  
+**Rule**: Mentors can mark attendance up to 24 hours after scheduled session end time (Africa/Cairo)  
+**Override**: Mentor Head, Admin, and Student Success can bypass for corrections  
 **UI**: Mentor class workspace shows red banner for overdue missing attendance  
 **Evidence**:
 - `internal/models/repository.go` (ComputeSessionEndTime, MarkAttendance)
 - `internal/handlers/mentor.go` / `internal/views/mentor_class_detail.html`
 - `frontend/src/pages/ClassWorkspace.tsx`
+
+### Rule: Mentor Task Reminders
+**Rule**: Mentors see persistent banner alerts on their dashboard for incomplete critical tasks.  
+**Trigger 1 (Attendance)**: Class session is completed but attendance hasn't been marked for all students.  
+**Trigger 2 (Grading)**: Session 8 is completed but one or more students are missing their final grade.  
+**Behavior**: Auto-dismisses after 10s; reappears on refresh; clickable to go straight to class workspace.  
+**Evidence**: `internal/models/repository.go` (`GetMentorReminders`), `frontend/src/components/MentorReminderBanner.tsx`
+
+### Rule: Attendance required before session completion
+**Rule**: Sessions cannot be completed unless attendance is recorded for all applicable students  
+**Excludes**: Late joiners for sessions before their join session  
+**Evidence**: `internal/models/repository.go` (`CompleteSession`)
+
+### Rule: Final grading highlights repeat risk
+**Rule**: Students with more than 2 missed sessions must be highlighted during final grading  
+**Reason**: 3+ absences triggers repeat outcome in round close rules  
+**Evidence**: `internal/models/repository.go` (`CloseRound`), `frontend/src/pages/ClassWorkspace.tsx`
+
+### Rule: Final grading edit roles
+**Rule**: Only mentors and mentor heads can edit final grades. Student Success is read-only.  
+**Evidence**:
+- `internal/handlers/grades.go` (CreateGrade permission checks)
+- `cmd/server/main.go` (`/api/grades` POST role gating)
+- `frontend/src/pages/ClassWorkspace.tsx` (edit controls)
+- `frontend/src/pages/StudentSuccessClass.tsx` (read-only controls)
+
+### Rule: Close round requires final grading
+**Rule**: Mentor Head cannot close the round until all students have final grades (session 8 grade).  
+**Evidence**:
+- `internal/handlers/api.go` (CloseRound grade checks)
+- `internal/models/repository.go` (`CloseRound`) - validates grades for session 8 exist for all students.
+- `frontend/src/pages/MentorHeadDashboard.tsx` (Close Round disabled until grades complete)
+
+### Rule: Clearing a grade
+**Rule**: Mentors and mentor heads can clear a final grade (delete session 8 grade) by selecting the default option.  
+**Evidence**:
+- `internal/handlers/grades.go` (DeleteGrade)
+- `cmd/server/main.go` (`/api/grades` DELETE)
+- `frontend/src/pages/ClassWorkspace.tsx` (grade clear UX)
+
+### Rule: Mentor Head can view feedback collected in class workspace
+**Rule**: Mentor Head has a read-only Feedback Collected tab in class workspace.  
+**Evidence**:
+- `frontend/src/pages/ClassWorkspace.tsx`
+- `frontend/src/components/FeedbackCollectedTab.tsx`
+- `cmd/server/main.go` (`/api/student-success/feedback-collected` role gating)
 
 ### Rule: Mentor UI uses banner UX for server-rendered pages
 **Scope**: `/mentor` and `/mentor/class` (server-rendered)  

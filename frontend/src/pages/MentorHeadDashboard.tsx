@@ -554,19 +554,20 @@ export default function MentorHeadDashboard() {
                         </button>
                         <button
                           onClick={() => openCloseConfirm(cls.class_key)}
-                          disabled={actioning === `${cls.class_key}:close`}
+                          disabled={actioning === `${cls.class_key}:close` || cls.all_graded === false}
                           style={{
                             width: '100%',
                             padding: '6px',
-                            background: actioning === `${cls.class_key}:close` ? '#ccc' : '#ffc107',
+                            background: actioning === `${cls.class_key}:close` || cls.all_graded === false ? '#ccc' : '#ffc107',
                             color: '#333',
                             border: 'none',
                             borderRadius: '4px',
-                            cursor: actioning === `${cls.class_key}:close` ? 'not-allowed' : 'pointer',
+                            cursor: actioning === `${cls.class_key}:close` || cls.all_graded === false ? 'not-allowed' : 'pointer',
                             fontSize: '12px',
                           }}
+                          title={cls.all_graded === false ? 'Complete final grading before closing the round' : ''}
                         >
-                          {actioning === `${cls.class_key}:close` ? 'Closing...' : 'Close Round'}
+                          {actioning === `${cls.class_key}:close` ? 'Closing...' : cls.all_graded === false ? 'Close Round (Grades Required)' : 'Close Round'}
                         </button>
                         <button
                           onClick={() => handleReturnClass(cls.class_key)}

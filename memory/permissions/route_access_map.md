@@ -12,7 +12,7 @@
 |-------|--------|---------------|---------|----------|
 | `/api/me` | ANY | Authenticated | `api Handler.GetMe` | `main.go:98-101` |
 | `/api/attendance` | POST | Authenticated | `apiHandler.MarkAttendance` | `main.go:104-107` |
-| `/api/session/complete` | POST | Authenticated | `apiHandler.CompleteSession` | `main.go:109-112` |
+| `/api/session/complete` | POST | mentor, mentor_head, admin, student_success | `apiHandler.CompleteSession` | `main.go:109-112` |
 | `/api/mentor/classes` | GET | mentor, admin, student_success | `apiHandler.GetMentorClasses` | `main.go:114-117` |
 | `/api/mentor-head/mentors` | GET | mentor_head, admin | `apiHandler.GetMentors` | `main.go:119-122` |
 | `/api/mentor-head/classes` | GET | mentor_head, admin | `apiHandler.GetMentorHeadClasses` | `main.go:124-127` |

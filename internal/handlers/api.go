@@ -457,7 +457,7 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
-	} else if userRole != "admin" && userRole != "student_success" {
+	} else if userRole != "admin" && userRole != "student_success" && userRole != "mentor_head" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -521,7 +521,7 @@ func (h *APIHandler) CompleteSession(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
-	} else if userRole != "admin" && userRole != "student_success" {
+	} else if userRole != "admin" && userRole != "student_success" && userRole != "mentor_head" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -529,6 +529,10 @@ func (h *APIHandler) CompleteSession(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	if err := models.CompleteSession(sessionID, now, now.Format("15:04")); err != nil {
 		log.Printf("ERROR: Failed to complete session: %v", err)
+		if errors.Is(err, models.ErrAttendanceIncomplete) {
+			jsonError(w, http.StatusBadRequest, "Please mark attendance for all students before completing the session.")
+			return
+		}
 		jsonError(w, http.StatusInternalServerError, "Failed to complete session")
 		return
 	}
@@ -885,6 +889,7 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 		ClassNumber  int32   `json:"class_number"`
 		StudentCount int     `json:"student_count"`
 		Readiness    string  `json:"readiness"`
+		AllGraded    bool    `json:"all_graded"`
 		MentorUserID *string `json:"mentor_user_id,omitempty"`
 		MentorEmail  string  `json:"mentor_email,omitempty"`
 		SentToMentor bool    `json:"sent_to_mentor"`
@@ -923,6 +928,24 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 				cr.Readiness = "READY"
 			} else {
 				cr.Readiness = "NOT READY"
+			}
+
+			grades, err := models.GetGradesByClassKey(c.ClassKey)
+			if err == nil {
+				gradedLeadIDs := make(map[uuid.UUID]bool)
+				for _, g := range grades {
+					if g.SessionNumber == 8 {
+						gradedLeadIDs[g.LeadID] = true
+					}
+				}
+				allGraded := true
+				for _, s := range students {
+					if !gradedLeadIDs[s.LeadID] {
+						allGraded = false
+						break
+					}
+				}
+				cr.AllGraded = allGraded
 			}
 		}
 
@@ -1031,10 +1054,9 @@ func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request
 			archived.ClosedAt = c.RoundClosedAt.Time.Format(time.RFC3339)
 		}
 
-		// Get student count
-		students, err := models.GetStudentsInClassGroup(c.ClassKey)
-		if err == nil {
-			archived.StudentCount = len(students)
+		// Get student count (use historical enrollments for closed classes)
+		if count, err := models.CountClassEnrollments(c.ClassKey); err == nil {
+			archived.StudentCount = count
 		}
 
 		mentorID := ""
@@ -1437,6 +1459,38 @@ func (h *APIHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 	}
 
 	closedByID, _ := uuid.Parse(middleware.GetUserID(r))
+
+	// Safety check: ensure all students in this class have been graded
+	students, err := models.GetStudentsInClassGroup(req.ClassKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to get students for class %s: %v", req.ClassKey, err)
+		jsonError(w, http.StatusInternalServerError, "Failed to verify student grades")
+		return
+	}
+
+	grades, err := models.GetGradesByClassKey(req.ClassKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to get grades for class %s: %v", req.ClassKey, err)
+		jsonError(w, http.StatusInternalServerError, "Failed to verify student grades")
+		return
+	}
+
+	// Session 8 is the final grade session
+	gradedLeadIDs := make(map[uuid.UUID]bool)
+	for _, g := range grades {
+		if g.SessionNumber == 8 {
+			gradedLeadIDs[g.LeadID] = true
+		}
+	}
+
+	for _, s := range students {
+		// Only check students who are currently in the class (scheduling table)
+		if !gradedLeadIDs[s.LeadID] {
+			jsonError(w, http.StatusBadRequest, "Cannot close round: All students must be graded")
+			return
+		}
+	}
+
 	if err := models.CloseRound(req.ClassKey, closedByID); err != nil {
 		log.Printf("ERROR: Failed to close round: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to close round")
@@ -1684,7 +1738,8 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	if middleware.GetUserRole(r) != "student_success" {
+	role := middleware.GetUserRole(r)
+	if role != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
 		return
 	}
@@ -1724,6 +1779,38 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 		})
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"classes": classes})
+}
+
+// GET /api/mentor/reminders - returns active reminders for mentor
+func (h *APIHandler) GetMentorReminders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor" && userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor or Admin access required")
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	reminders, err := models.GetMentorReminders(userID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get mentor reminders: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to get reminders")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"reminders": reminders,
+	})
 }
 
 // GET /api/student-success/placement-tests - returns placement tests scheduled and awaiting results
@@ -1872,8 +1959,15 @@ func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Reque
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	if middleware.GetUserRole(r) != "student_success" {
-		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
+	role := middleware.GetUserRole(r)
+	allowClosed := false
+	switch role {
+	case "student_success":
+		allowClosed = false
+	case "mentor_head", "admin":
+		allowClosed = true
+	default:
+		jsonError(w, http.StatusForbidden, "Forbidden: Student Success or Mentor Head access required")
 		return
 	}
 
@@ -1887,7 +1981,7 @@ func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	cg, students, sessions, missedSessions, feedbackRecords, completedCount, err := models.GetStudentSuccessClassDetail(classKey)
+	cg, students, sessions, missedSessions, feedbackRecords, completedCount, err := models.GetStudentSuccessClassDetail(classKey, allowClosed)
 	if err != nil {
 		if strings.Contains(err.Error(), "not active") {
 			jsonError(w, http.StatusBadRequest, "Class is not active")
@@ -2370,6 +2464,10 @@ func (h *APIHandler) CompleteSessionByNumber(w http.ResponseWriter, r *http.Requ
 	now := time.Now()
 	if err := models.CompleteSession(targetSession.ID, now, now.Format("15:04")); err != nil {
 		log.Printf("ERROR: Failed to complete session %v: %v", targetSession.ID, err)
+		if errors.Is(err, models.ErrAttendanceIncomplete) {
+			jsonError(w, http.StatusBadRequest, "Please mark attendance for all students before completing the session.")
+			return
+		}
 		jsonError(w, http.StatusInternalServerError, "Failed to complete session")
 		return
 	}
@@ -2561,7 +2659,7 @@ func (h *APIHandler) UploadFeedbackCollected(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "mentor_head" && role != "admin" {
+	if role != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden")
 		return
 	}
@@ -2639,6 +2737,65 @@ func (h *APIHandler) UploadFeedbackCollected(w http.ResponseWriter, r *http.Requ
 		"file_url":  record.FileURL,
 		"file_name": record.FileName,
 	})
+}
+
+// DELETE /api/student-success/feedback-collected/:id
+func (h *APIHandler) DeleteFeedbackCollected(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	role := middleware.GetUserRole(r)
+	if role != "student_success" && role != "mentor_head" && role != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 4 {
+		jsonError(w, http.StatusBadRequest, "Invalid upload id")
+		return
+	}
+	uploadID, err := uuid.Parse(pathParts[3])
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid upload id")
+		return
+	}
+
+	record, err := models.GetFeedbackCollectedUploadByID(uploadID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			jsonError(w, http.StatusNotFound, "Upload not found")
+			return
+		}
+		log.Printf("ERROR: Failed to load feedback upload: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load upload")
+		return
+	}
+
+	if record.FileURL != "" {
+		workDir, _ := os.Getwd()
+		if strings.HasPrefix(record.FileURL, "/static/") {
+			relPath := strings.TrimPrefix(record.FileURL, "/static/")
+			targetPath := filepath.Clean(filepath.Join(workDir, "web", "static", relPath))
+			allowedRoot := filepath.Clean(filepath.Join(workDir, "web", "static", "uploads", "feedback_collected"))
+			if strings.HasPrefix(targetPath, allowedRoot) {
+				if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
+					log.Printf("WARNING: Failed to delete feedback file %s: %v", targetPath, err)
+				}
+			} else {
+				log.Printf("WARNING: Refused to delete feedback file outside uploads: %s", targetPath)
+			}
+		}
+	}
+
+	if err := models.DeleteFeedbackCollectedUpload(uploadID); err != nil {
+		log.Printf("ERROR: Failed to delete feedback upload: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to delete upload")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // ========== COMPLAINTS API ENDPOINTS ==========

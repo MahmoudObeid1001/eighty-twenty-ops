@@ -35,12 +35,22 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	statusFilter := r.URL.Query().Get("status")
 	searchFilter := r.URL.Query().Get("search")
 	paymentFilter := r.URL.Query().Get("payment")
-	hotFilter := r.URL.Query().Get("hot")            // Changed from "filter" to "hot"
+	hotFilter := r.URL.Query().Get("hot") // Changed from "filter" to "hot"
+	returningFilter := r.URL.Query().Get("returning")
 	followUpFilter := r.URL.Query().Get("follow_up") // Milestone 2: high_priority follow-up filter
+	coldFilter := r.URL.Query().Get("cold")
+	repeatFilter := r.URL.Query().Get("repeat")
 	includeCancelled := r.URL.Query().Get("include_cancelled") == "1" || r.URL.Query().Get("include_cancelled") == "true"
 	// When explicitly filtering by status=cancelled, include cancelled even if checkbox off
 	if statusFilter == "cancelled" {
 		includeCancelled = true
+	}
+	// Normalize "ALL" filters to empty (no filter)
+	if strings.EqualFold(statusFilter, "all") {
+		statusFilter = ""
+	}
+	if strings.EqualFold(paymentFilter, "all") {
+		paymentFilter = ""
 	}
 
 	// Check for flash messages in query params (separate from filter status)
@@ -69,6 +79,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 			"offer_sent":  "Offer sent successfully!",
 			"waiting":     "Lead moved to waiting list!",
 			"ready":       "Lead marked as ready to start!",
+			"cold":        "Lead sent to cold leads.",
 		}
 		if msg, ok := statusMessages[statusFlashParam]; ok {
 			flashMessage = msg
@@ -76,10 +87,10 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.cfg.Debugf("List: statusFilter=%q, searchFilter=%q, paymentFilter=%q, hotFilter=%q, followUpFilter=%q, includeCancelled=%v", statusFilter, searchFilter, paymentFilter, hotFilter, followUpFilter, includeCancelled)
+	h.cfg.Debugf("List: statusFilter=%q, searchFilter=%q, paymentFilter=%q, hotFilter=%q, followUpFilter=%q, includeCancelled=%v, returningFilter=%q, coldFilter=%q, repeatFilter=%q", statusFilter, searchFilter, paymentFilter, hotFilter, followUpFilter, includeCancelled, returningFilter, coldFilter, repeatFilter)
 
 	// Get filtered leads
-	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter)
+	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter, returningFilter, coldFilter, repeatFilter)
 	if err != nil {
 		log.Printf("ERROR: Failed to load leads: %v", err)
 		if flashMessage == "" {
@@ -99,7 +110,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		followUpCount = len(leads)
 	} else {
 		// Get all leads to count hot leads accurately (exclude cancelled)
-		allLeads, err := models.GetAllLeads("", "", "", "", false, "")
+		allLeads, err := models.GetAllLeads("", "", "", "", false, "", "", "", "")
 		if err == nil {
 			for _, lead := range allLeads {
 				if lead.FollowUpDue {
@@ -111,26 +122,29 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	// Count tested leads for "New test results" banner
 	testedResultsCount := 0
-	if testedLeads, err := models.GetAllLeads("TESTED", "", "", "", false, ""); err == nil {
+	if testedLeads, err := models.GetAllLeads("TESTED", "", "", "", false, "", "", "", ""); err == nil {
 		testedResultsCount = len(testedLeads)
 	}
 
 	userRole := middleware.GetUserRole(r)
 	data := map[string]interface{}{
-		"Title":            "Pre-Enrolment - Eighty Twenty",
-		"Leads":            leads,
-		"UserRole":         userRole,
-		"IsModerator":      IsModerator(r),
-		"IsAdmin":          IsAdmin(r),
-		"FlashMessage":     flashMessage,
-		"FlashMessageType": flashMessageType,
-		"StatusFilter":     statusFilter,
-		"SearchFilter":     searchFilter,
-		"PaymentFilter":    paymentFilter,
-		"HotFilter":        hotFilter,
-		"IncludeCancelled": includeCancelled,
-		"FollowUpCount":    followUpCount,
-		"FollowUpFilter":   followUpFilter,
+		"Title":              "Pre-Enrolment - Eighty Twenty",
+		"Leads":              leads,
+		"UserRole":           userRole,
+		"IsModerator":        IsModerator(r),
+		"IsAdmin":            IsAdmin(r),
+		"FlashMessage":       flashMessage,
+		"FlashMessageType":   flashMessageType,
+		"StatusFilter":       statusFilter,
+		"SearchFilter":       searchFilter,
+		"PaymentFilter":      paymentFilter,
+		"HotFilter":          hotFilter,
+		"ReturningFilter":    returningFilter,
+		"ColdFilter":         coldFilter,
+		"RepeatFilter":       repeatFilter,
+		"IncludeCancelled":   includeCancelled,
+		"FollowUpCount":      followUpCount,
+		"FollowUpFilter":     followUpFilter,
 		"TestedResultsCount": testedResultsCount,
 	}
 	renderTemplate(w, r, "pre_enrolment_list.html", data)
@@ -248,6 +262,34 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
+
+	if userRole == "admin" && detail.Lead.Status == "paid_full" {
+		needsSchedule := detail.Scheduling == nil || !detail.Scheduling.ClassDays.Valid || !detail.Scheduling.ClassTime.Valid
+		if needsSchedule {
+			classDays, classTime, classKey, ok, err := models.GetLatestEnrollmentSchedule(leadID)
+			if err != nil {
+				log.Printf("WARNING: Failed to load latest enrollment schedule for lead %s: %v", leadID, err)
+			} else if ok {
+				if detail.Scheduling == nil {
+					detail.Scheduling = &models.Scheduling{LeadID: leadID}
+				}
+				if !detail.Scheduling.ClassDays.Valid {
+					detail.Scheduling.ClassDays = sql.NullString{String: classDays, Valid: true}
+				}
+				if !detail.Scheduling.ClassTime.Valid {
+					detail.Scheduling.ClassTime = sql.NullString{String: classTime, Valid: true}
+				}
+				if !detail.Scheduling.ClassGroupIndex.Valid && classKey != "" {
+					parts := strings.Split(classKey, "|")
+					if len(parts) >= 4 {
+						if idx, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+							detail.Scheduling.ClassGroupIndex = sql.NullInt32{Int32: int32(idx), Valid: true}
+						}
+					}
+				}
+			}
+		}
+	}
 
 	data, _ := h.buildDetailViewModel(detail, leadID, userRole)
 	isReadOnly, _ := data["IsReadOnly"].(bool)
@@ -412,6 +454,8 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		}
 	}
 
+	coldEligible := detail.Lead.Status == "offer_sent" && time.Since(detail.Lead.UpdatedAt) >= 7*24*time.Hour
+
 	data := map[string]interface{}{
 		"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
 		"Detail":                 detail,
@@ -419,6 +463,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"IsModerator":            userRole == "moderator",
 		"IsAdmin":                userRole == "admin",
 		"IsReadOnly":             userRole == "student_success",
+		"ColdEligible":           coldEligible,
 		"LateJoiner":             lateJoiner,
 		"ClassCurrentSession":    classCurrentSession,
 		"PlacementTestRemaining": placementTestRemaining,
@@ -646,6 +691,37 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		h.cfg.Debugf("  ✅ Status updated to offer_sent, redirecting to list")
 		http.Redirect(w, r, "/pre-enrolment?status_flash=offer_sent", http.StatusFound)
+		return
+
+	case "mark_cold_lead":
+		h.cfg.Debugf("  → Action: mark_cold_lead")
+		if userRole == "moderator" {
+			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
+			return
+		}
+
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if detail.Lead.Status != "offer_sent" {
+			h.renderDetailWithError(w, r, leadID, "Cold leads can only be set for offers that haven't been accepted.")
+			return
+		}
+		if time.Since(detail.Lead.UpdatedAt) < 7*24*time.Hour {
+			h.renderDetailWithError(w, r, leadID, "Cold leads can only be sent after 7 days with no response.")
+			return
+		}
+
+		if err := models.UpdateLeadStatus(leadID, "cold_lead"); err != nil {
+			log.Printf("ERROR: Failed to update status: %v", err)
+			http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
+			return
+		}
+
+		h.cfg.Debugf("  ✅ Status updated to cold_lead, redirecting to list")
+		http.Redirect(w, r, "/pre-enrolment?status_flash=cold", http.StatusFound)
 		return
 
 	case "move_waiting":
@@ -1663,18 +1739,23 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	} else if offerWasExplicitlyChanged {
 		h.cfg.Debugf("  📊 Stage computation: Offer WAS explicitly changed, including in status upgrade, leadID=%s", leadID)
 	}
-	newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
+	if currentStatus == "cold_lead" {
+		detail.Lead.Status = currentStatus
+		h.cfg.Debugf("  🧊 Cold lead: preserving status, skipping auto-stage, leadID=%s", leadID)
+	} else {
+		newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
 
-	// Validation: If stage reaches OFFER_SENT or later, final_price must be valid
-	if newStage == models.StageOfferSent || newStage == models.StageBookingConfirmedPaidFull || newStage == models.StageBookingConfirmedDeposit {
-		if detail.Offer == nil || !detail.Offer.FinalPrice.Valid || detail.Offer.FinalPrice.Int32 <= 0 {
-			h.renderDetailWithError(w, r, leadID, "Final price is required when sending an offer. Please fill in the Offer & Pricing section.")
-			return
+		// Validation: If stage reaches OFFER_SENT or later, final_price must be valid
+		if newStage == models.StageOfferSent || newStage == models.StageBookingConfirmedPaidFull || newStage == models.StageBookingConfirmedDeposit {
+			if detail.Offer == nil || !detail.Offer.FinalPrice.Valid || detail.Offer.FinalPrice.Int32 <= 0 {
+				h.renderDetailWithError(w, r, leadID, "Final price is required when sending an offer. Please fill in the Offer & Pricing section.")
+				return
+			}
 		}
-	}
 
-	detail.Lead.Status = dbStatus
-	h.cfg.Debugf("  📊 Auto-stage: computed stage=%s, dbStatus=%s (was %s)", newStage, dbStatus, currentStatus)
+		detail.Lead.Status = dbStatus
+		h.cfg.Debugf("  📊 Auto-stage: computed stage=%s, dbStatus=%s (was %s)", newStage, dbStatus, currentStatus)
+	}
 
 	// Log offer final price before saving
 	if detail.Offer != nil {

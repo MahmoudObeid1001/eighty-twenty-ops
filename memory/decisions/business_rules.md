@@ -47,6 +47,54 @@
 **Evidence**: `migrations/016_create_class_sessions.sql`  
 **Created**: When `StartClassRound` is called (`internal/models/repository.go:3829`)
 
+### Rule: Credit consumption on session 1 completion
+**Trigger**: When session 1 is marked as completed  
+**Effect**: All students in the class have `leads.levels_consumed` incremented by 1  
+**Purpose**: Tracks how many levels a student has consumed (affects refund eligibility and renewal)  
+**Evidence**: `internal/models/repository.go` (`CompleteSession` function lines 3040-3060)
+
+### Rule: Close round outcome logic
+**Trigger**: Mentor Head closes a round  
+**Decision Tree**:  
+- If absences > 2 OR grade = 'F': Outcome = REPEAT (student must repeat level)  
+- Otherwise: Outcome = PROMOTE (student advances to next level)  
+**Side Effects**:  
+- Students with no remaining credits get `high_priority_follow_up = true`  
+- Class returned to Operations (`sent_to_mentor = false`)  
+**Guards**: Cannot close round if any student is missing a session 8 grade.  
+**Evidence**: `internal/models/repository.go` (`CloseRound` function), `docs/MILESTONE_2_IMPLEMENTATION_SUMMARY.md:159-163`
+
+### Rule: Remaining credits are computed
+**Rule**: Remaining credits = `levels_purchased_total - levels_consumed` (min 0)  
+**Storage**: `leads.remaining_credits` is updated on round close for returning flow  
+**Evidence**: `internal/models/repository.go` (`PromoteStudent`)
+
+### Rule: Repeat Level filter and badge
+**UI**: Pre‑enrolment list has a **Repeat Level** filter and shows a **REPEAT** badge for latest outcome = `repeated`  
+**Tooltip**: Shows repeat reason (grade F vs missed 3+ sessions) based on latest enrollment grade  
+**Evidence**: `internal/views/pre_enrolment_list.html`, `internal/models/repository.go` (GetAllLeads with last outcome/grade)
+
+### Rule: Grade entry at session 8
+**Timing**: Grades can only be entered at session 8 (final session)  
+**Values**: A, B, C, F (CHECK constraint)  
+**Storage**: `grades` table with `session_number = 8`  
+**Uniqueness**: One grade per student per class (UNIQUE constraint on lead_id, class_key, session_number)  
+**Evidence**: `migrations/046_after_class_pipeline.sql`, `internal/models/repository.go` (`CloseRound` function)
+
+### Rule: Student notes persistence
+**Scope**: Notes added by mentors/mentor heads/student success  
+**Visibility**: All notes visible to all authorized roles (mentor, mentor_head, admin, student_success)  
+**Persistence**: Notes persist across sessions and rounds  
+**Optional Fields**: Can be linked to specific class_key and session_number  
+**Privacy**: `is_private` flag controls visibility (implementation TBD)  
+**Evidence**: `migrations/019_create_student_notes.sql`, `internal/models/repository.go` (`AddStudentNote`, `GetStudentNotes`)
+
+### Rule: Community officer feedback timing
+**Collection Points**: Sessions 4 and 8 only  
+**Purpose**: Mid-round (session 4) and end-of-round (session 8) feedback collection  
+**Storage**: `community_officer_feedback` table  
+**Evidence**: `migrations/020_create_community_officer_feedback.sql`, `docs/MILESTONE_2_IMPLEMENTATION_SUMMARY.md:170-176`
+
 ### Rule: Class roster computed via implicit JOIN with status filter
 **Implementation**: NO dedicated enrollment table. Students belong to a class when their `scheduling` + `placement_tests` match the class fields (level, days, time, number) **AND** `leads.status = 'in_classes'`  
 **Evidence**: `internal/models/repository.go:3797-3815` (`GetStudentsInClassGroup`)  
@@ -62,6 +110,11 @@
 **Values**: true (sent to mentor head), false (with ops)  
 **Evidence**: `migrations/005_class_groups_workflow.sql:8`
 
+### Rule: Manual Mentor Head Visibility
+**Rule**: Transition to `sent_to_mentor = true` is strictly manual via Ops Admin dashboard.
+**Explicitly Excluded**: The `StartRound` action does NOT automatically trigger this transition.
+**Evidence**: `internal/handlers/classes.go` (SendToMentor), `memory/flows/class_lifecycle.md`
+
 ### Rule: Class metadata stored in class_key
 **Format**: `{level}-{days}-{time}-{number}` (e.g., "3-TuTh-5:00PM-1")  
 **Evidence**: Database uses class_key as TEXT primary key in `class_groups`
@@ -74,6 +127,31 @@
 **Pipeline**: lead_created → test_booked → tested → offer_sent → booking_confirmed → paid_full/deposit_paid → waiting_for_round → schedule_assigned → ready_to_start → in_classes  
 **Constraint**: CHECK constraint on `leads.status`  
 **Evidence**: `migrations/001_init.sql:19-22`, `migrations/004_classes_board.sql:3-6`
+
+### Rule: Pre-Enrolment dashboard status filters (Milestone 3)
+**Filters**: All lead statuses are available as dropdown filters and quick filter buttons in the pre-enrolment dashboard
+**New Statuses**: "Waiting for Round" and "Renewal Pending" added in Milestone 3
+**Badge Colors**:
+- `waiting_for_round`: Light blue (#4EC6E0)
+- `renewal_pending`: Orange (#FFA500)
+**Evidence**: `internal/views/pre_enrolment_list.html` (dropdown options, quick filter buttons, CSS)
+
+### Rule: Promoted student visual indicator (Milestone 3)
+**Trigger**: When `leads.is_returning = true`
+**Display**: Gold star (⭐) badge appears next to student name in:
+- Pre-enrolment list
+- Pre-enrolment detail header (gradient badge: "⭐ Promoted Student")
+- Classes board student list
+**Purpose**: Visually identify students who have completed a previous level and are returning for the next level
+**Evidence**: `internal/views/pre_enrolment_list.html`, `internal/views/pre_enrolment_detail.html`, `internal/views/classes.html`
+
+### Rule: Renewal student banner (Milestone 3)
+**Trigger**: When lead status is `renewal_pending`
+**Display**: Green informational banner in the "Offer & Pricing" section
+**Message**: "✓ Renewal Student: This student has completed a previous level. Set a new offer to sell additional levels."
+**Purpose**: Guide ops admin to create a new offer for returning students
+**Evidence**: `internal/views/pre_enrolment_detail.html`
+
 
 ### Rule: Waiting list returns lead to pre-enrolment feed
 **Scope**: Any action that sets `status = waiting_for_round`  
@@ -127,10 +205,19 @@
 **Evidence**: `migrations/017_create_attendance.sql`
 
 ### Rule: Attendance deadline (24 hours)
-**Rule**: Mentors can mark attendance up to 24 hours after scheduled session end time  
-**Override**: Admin/Student Success can bypass for corrections  
+**Rule**: Mentors can mark attendance up to 24 hours after scheduled session end time (computed in **Africa/Cairo** time)  
+**Override**: Admin, Mentor Head, and Student Success can bypass for corrections by setting `enforceDeadline = false`  
+**Implementation**: `MarkAttendance()` function accepts `enforceDeadline bool` parameter  
+- When `true`: Blocks updates after 24 hours past scheduled session end time  
+- When `false`: Allows updates at any time (for admin corrections)  
 **UI**: Mentor class workspace shows a red banner when attendance is missing past 24 hours  
-**Evidence**: `internal/models/repository.go` (MarkAttendance, ComputeSessionEndTime), `internal/handlers/mentor.go`, `internal/views/mentor_class_detail.html`, `frontend/src/pages/ClassWorkspace.tsx`
+**Evidence**: `internal/models/repository.go:3159` (MarkAttendance signature with enforceDeadline parameter), `internal/handlers/mentor.go`, `internal/views/mentor_class_detail.html`, `frontend/src/pages/ClassWorkspace.tsx`
+
+### Rule: Attendance required before completing session
+**Rule**: A session cannot be marked completed unless attendance is recorded for all applicable students  
+**Excludes**: Late joiners for sessions before their `joined_at_session_number`  
+**Effect**: `CompleteSession` returns an error and blocks completion  
+**Evidence**: `internal/models/repository.go` (`CompleteSession` validation)
 
 ### Rule: Unique absence follow-up per session
 **Constraint**: `UNIQUE (class_key, lead_id, session_number)` on `followups` table  
@@ -189,6 +276,16 @@
 **Idempotent**: Uses `ref_key` uniqueness to avoid duplicates  
 **Evidence**: `internal/models/repository.go` (EnsureFinanceLedgerSync), `internal/handlers/finance.go`
 
+### Rule: Session-based refund calculation
+**Trigger**: When calculating refund for a cancelled lead  
+**Logic**: Uses session completion markers (`completed_at`), NOT wall-clock time  
+- **Before session 1 completed**: 100% of course paid is refundable  
+- **After session 1 completed, before session 2**: 50% of course paid is refundable  
+- **After session 2 completed**: 0% refundable (no refund available)  
+**Implementation**: `GetRefundableAmount()` checks `class_sessions.completed_at IS NOT NULL` for sessions 1 and 2  
+**UI Impact**: Cancel modal shows calculated refund amount and blocks higher refund requests  
+**Evidence**: `internal/models/repository.go:3394-3447` (GetRefundableAmount function), `docs/MILESTONE_2_IMPLEMENTATION_SUMMARY.md:115-128`
+
 ---
 
 ## Permissions & Access
@@ -213,6 +310,14 @@
 **Allowed**: mentor, mentor_head, admin, student_success  
 **Purpose**: Different roles need class data for different reasons  
 **Evidence**: `cmd/server/main.go:217`
+
+### Rule: Mentor schedule conflict detection
+**Scope**: Mentor assignment to classes  
+**Validation**: System checks for overlapping sessions when assigning mentor  
+**Conflict Definition**: Same mentor cannot be assigned to sessions with overlapping date/time  
+**Implementation**: `CheckMentorScheduleConflict()` queries existing sessions for the mentor  
+**Effect**: Assignment rejected with error message if conflict detected  
+**Evidence**: `internal/models/repository.go:3499-3518` (CheckMentorScheduleConflict), `docs/MILESTONE_2_IMPLEMENTATION_SUMMARY.md:136-139`
 
 ---
 
@@ -266,6 +371,57 @@
 **Fields**: `closed_at`, `closed_by_mentor_user_id` on `class_groups`  
 **Purpose**: Track when round closed and who closed it  
 **Evidence**: `migrations/027_class_groups_round_status.sql:5-7`
+
+---
+
+## Universal Student Profile (Milestone 4)
+
+### Rule: Global student search
+**Access**: All roles (admin, moderator, mentor_head, mentor, student_success)  
+**Search Criteria**: Name (partial, case-insensitive) or phone (exact match)  
+**Minimum Query**: 2 characters required  
+**Result Limit**: Maximum 20 results  
+**Debounce**: 300ms delay to avoid excessive API calls  
+**Evidence**: `internal/handlers/student_profile.go`, `frontend/src/components/StudentSearch.tsx`
+
+### Rule: Student profile visibility
+**Access**: All roles can view full student profiles (read-only)  
+**Profile Data**: Name, phone, level, status, remaining credits, is_returning flag  
+**Evidence**: `internal/handlers/student_profile.go` (`GetStudentProfile`), `cmd/server/main.go` (route registration)
+
+### Rule: Academic history source
+**Source**: `class_enrollments` table (historical snapshot)  
+**Created**: When a round is closed via `CloseRound` function  
+**Data**: Level, schedule, mentor, grade, outcome, enrollment/completion dates  
+**Evidence**: `migrations/046_after_class_pipeline.sql`, `internal/models/student_profile_repository.go` (`GetAcademicHistory`)
+
+### Rule: Current status visibility
+**Condition**: Only shown if student status is `in_classes`  
+**Data**: Current class info, attendance stats (present/absent/late), session-by-session breakdown  
+**Calculation**: Aggregated from `attendance` table  
+**Evidence**: `internal/models/student_profile_repository.go` (`GetCurrentClassStatus`)
+
+### Rule: Notes timeline aggregation
+**Sources**: Combines `student_notes` and `followups` tables  
+**Order**: Chronological (newest first)  
+**Privacy**: Private notes visible to all roles (as per current system design)  
+**Context**: Includes class_key and session_number when applicable  
+**Evidence**: `internal/models/student_profile_repository.go` (`GetStudentNotesTimeline`)
+
+### Rule: Promoted student badge
+**Display**: Star badge (⭐) shown for students with `is_returning = true`  
+**Location**: Profile header, pre-enrolment lists, class rosters  
+**Purpose**: Visual indicator for promoted students from previous rounds  
+**Evidence**: `frontend/src/components/StudentProfileModal.tsx`, `templates/pre_enrolment_list.html`
+
+---
+
+## UI/UX & State Management
+
+### Rule: Dashboard tab persistence
+**Rule**: Dashboards (Mentor, Student Success) preserve the active tab on page refresh.  
+**Mechanism**: Tab state is initialized lazily from URL `tab` parameter or `localStorage` on mount.  
+**Evidence**: `frontend/src/pages/ClassWorkspace.tsx`, `frontend/src/pages/StudentSuccessClass.tsx`
 
 ---
 
