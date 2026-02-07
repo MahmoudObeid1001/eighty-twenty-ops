@@ -123,9 +123,10 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 	// 3. If offer final price exists (or bundle selected + final price) -> at least OFFER_SENT
 	if detail.Offer != nil && detail.Offer.FinalPrice.Valid && detail.Offer.FinalPrice.Int32 > 0 {
 		stagesBeforeOfferSent := map[string]bool{
-			StageNewLead:    true,
-			StageTestBooked: true,
-			StageTested:     true,
+			StageNewLead:        true,
+			StageTestBooked:     true,
+			StageTested:         true,
+			StageRenewalPending: true, // Allow renewal_pending → offer_sent when offer is saved
 		}
 		if stagesBeforeOfferSent[currentStage] {
 			currentStage = StageOfferSent
@@ -332,7 +333,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		LEFT JOIN payments p ON l.id = p.lead_id
 		LEFT JOIN offers o ON l.id = o.lead_id
 		LEFT JOIN LATERAL (
-			SELECT outcome
+			SELECT outcome, final_grade
 			FROM class_enrollments ce
 			WHERE ce.lead_id = l.id
 			ORDER BY COALESCE(ce.completed_at, ce.enrolled_at) DESC
@@ -513,6 +514,64 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 	return leads, nil
 }
 
+func GetLatestClassOutcome(leadID uuid.UUID) (*LastClassOutcome, error) {
+	out := &LastClassOutcome{}
+	err := db.DB.QueryRow(`
+		SELECT outcome, final_grade, completed_at
+		FROM class_enrollments
+		WHERE lead_id = $1
+		ORDER BY COALESCE(completed_at, enrolled_at) DESC
+		LIMIT 1
+	`, leadID).Scan(&out.Outcome, &out.FinalGrade, &out.CompletedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest class outcome: %w", err)
+	}
+	return out, nil
+}
+
+func GetLatestClassSchedule(leadID uuid.UUID) (sql.NullString, sql.NullString, error) {
+	var classDays sql.NullString
+	var classTime sql.NullString
+	err := db.DB.QueryRow(`
+		SELECT class_days, class_time
+		FROM class_enrollments
+		WHERE lead_id = $1
+		ORDER BY COALESCE(completed_at, enrolled_at) DESC
+		LIMIT 1
+	`, leadID).Scan(&classDays, &classTime)
+	if err == sql.ErrNoRows {
+		return sql.NullString{}, sql.NullString{}, nil
+	}
+	if err != nil {
+		return sql.NullString{}, sql.NullString{}, fmt.Errorf("failed to get latest class schedule: %w", err)
+	}
+	return classDays, classTime, nil
+}
+
+func GetLatestClassEnrollment(leadID uuid.UUID) (*ClassEnrollment, error) {
+	out := &ClassEnrollment{}
+	err := db.DB.QueryRow(`
+		SELECT id, lead_id, class_key, level, class_days, 
+               TO_CHAR(class_time, 'HH24:MI') as class_time, 
+               mentor_name, final_grade, outcome, enrolled_at, completed_at
+		FROM class_enrollments
+		WHERE lead_id = $1
+		ORDER BY COALESCE(completed_at, enrolled_at) DESC
+		LIMIT 1
+	`, leadID).Scan(&out.ID, &out.LeadID, &out.ClassKey, &out.Level, &out.ClassDays, &out.ClassTime,
+		&out.MentorName, &out.FinalGrade, &out.Outcome, &out.EnrolledAt, &out.CompletedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest class enrollment: %w", err)
+	}
+	return out, nil
+}
+
 // GetPlacementTestsForStudentSuccess returns leads with placement tests scheduled.
 // Used by Student Success dashboard to record test results.
 func GetPlacementTestsForStudentSuccess(showCompleted bool) ([]*PlacementTestQueueItem, error) {
@@ -570,11 +629,14 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT id, full_name, phone, source, notes, status, sent_to_classes, high_priority_follow_up, created_by_user_id, created_at, updated_at
+		SELECT id, full_name, phone, source, notes, status, sent_to_classes,
+		       levels_purchased_total, levels_consumed, remaining_credits,
+		       is_returning, high_priority_follow_up, created_by_user_id, created_at, updated_at
 		FROM leads WHERE id = $1
 	`, id).Scan(
 		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status,
-		&lead.SentToClasses, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.CreatedAt, &lead.UpdatedAt,
+		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
+		&lead.IsReturning, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.CreatedAt, &lead.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get lead: %w", err)
@@ -1145,7 +1207,9 @@ func GetClassGroups() ([]*ClassGroup, error) {
 	// Include students in 'active' rounds so they don't disappear from the board
 	query := `
 		SELECT l.id, l.full_name, l.phone, pt.assigned_level, s.class_days, s.class_time, s.class_group_index,
-		       COALESCE(cg.round_status, 'not_started')
+		       COALESCE(cg.round_status, 'not_started'),
+		       COALESCE(l.is_returning, false),
+		       GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc
 		FROM leads l
 		INNER JOIN placement_tests pt ON l.id = pt.lead_id
 		INNER JOIN scheduling s ON l.id = s.lead_id
@@ -1178,8 +1242,10 @@ func GetClassGroups() ([]*ClassGroup, error) {
 		var classDays, classTime sql.NullString
 		var groupIndex sql.NullInt32
 		var roundStatus string
+		var isReturning bool
+		var remainingCredits int32
 
-		err := rows.Scan(&leadID, &fullName, &phone, &assignedLevel, &classDays, &classTime, &groupIndex, &roundStatus)
+		err := rows.Scan(&leadID, &fullName, &phone, &assignedLevel, &classDays, &classTime, &groupIndex, &roundStatus, &isReturning, &remainingCredits)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan student: %w", err)
 		}
@@ -1213,10 +1279,12 @@ func GetClassGroups() ([]*ClassGroup, error) {
 		}
 
 		group.Students = append(group.Students, &ClassStudent{
-			LeadID:     leadID,
-			FullName:   fullName,
-			Phone:      phone,
-			GroupIndex: groupIndex,
+			LeadID:           leadID,
+			FullName:         fullName,
+			Phone:            phone,
+			IsReturning:      isReturning,
+			RemainingCredits: remainingCredits,
+			GroupIndex:       groupIndex,
 		})
 		group.StudentCount++
 	}
@@ -1582,6 +1650,187 @@ func GetAvailableGroupsForMove(leadID uuid.UUID) ([]int32, error) {
 	return availableGroups, rows.Err()
 }
 
+// GetMoveOptionsForLead returns available class options across the same level.
+// Includes a "new_same" option for opening a new class with the same days/time.
+func GetMoveOptionsForLead(leadID uuid.UUID) ([]MoveClassOption, error) {
+	// Get student's level, days, time, and current group
+	var assignedLevel sql.NullInt32
+	var classDays, classTime sql.NullString
+	var currentGroup sql.NullInt32
+	err := db.DB.QueryRow(`
+		SELECT pt.assigned_level, s.class_days, s.class_time, s.class_group_index
+		FROM leads l
+		INNER JOIN placement_tests pt ON l.id = pt.lead_id
+		INNER JOIN scheduling s ON l.id = s.lead_id
+		WHERE l.id = $1
+	`, leadID).Scan(&assignedLevel, &classDays, &classTime, &currentGroup)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get student details: %w", err)
+	}
+	if !assignedLevel.Valid || !classDays.Valid || !classTime.Valid {
+		return nil, nil
+	}
+
+	currentClassNumber := int32(1)
+	if currentGroup.Valid {
+		currentClassNumber = currentGroup.Int32
+	}
+
+	// Base option: create new class with same days/time
+	options := []MoveClassOption{{
+		Value: "new_same",
+		Label: "Create New Class (same days/time)",
+	}}
+
+	// Available classes for this level (not sent/active/closed) with capacity < 6
+	rows, err := db.DB.Query(`
+		WITH counts AS (
+			SELECT pt.assigned_level AS level,
+			       s.class_days AS class_days,
+			       s.class_time::text AS class_time,
+			       COALESCE(s.class_group_index, 1) AS class_number,
+			       COUNT(*) AS student_count
+			FROM leads l
+			INNER JOIN placement_tests pt ON l.id = pt.lead_id
+			INNER JOIN scheduling s ON l.id = s.lead_id
+			WHERE l.status = 'ready_to_start'
+			  AND l.sent_to_classes = true
+			GROUP BY pt.assigned_level, s.class_days, s.class_time::text, COALESCE(s.class_group_index, 1)
+		)
+		SELECT cg.class_key, cg.class_days, cg.class_time, cg.class_number, COALESCE(c.student_count, 0)
+		FROM class_groups cg
+		LEFT JOIN counts c ON c.level = cg.level
+		  AND c.class_days = cg.class_days
+		  AND c.class_time = cg.class_time
+		  AND c.class_number = cg.class_number
+		WHERE cg.level = $1
+		  AND COALESCE(cg.sent_to_mentor, false) = false
+		  AND COALESCE(cg.round_status, 'not_started') NOT IN ('active', 'closed')
+		ORDER BY cg.class_days, cg.class_time, cg.class_number
+	`, assignedLevel.Int32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query available classes: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var classKey, days, timeStr string
+		var classNumber int32
+		var count int
+		if err := rows.Scan(&classKey, &days, &timeStr, &classNumber, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan class option: %w", err)
+		}
+		if count >= 6 {
+			continue
+		}
+		// Skip current class
+		if days == classDays.String && timeStr == classTime.String && classNumber == currentClassNumber {
+			continue
+		}
+		options = append(options, MoveClassOption{
+			Value: fmt.Sprintf("class_key:%s", classKey),
+			Label: fmt.Sprintf("%s @ %s (Class #%d)", days, timeStr, classNumber),
+		})
+	}
+
+	return options, rows.Err()
+}
+
+// MoveStudentToClassKey moves a student to a specific class group (possibly different days/time).
+func MoveStudentToClassKey(leadID uuid.UUID, classKey string) error {
+	// Get target class group details
+	var level int32
+	var classDays, classTime string
+	var classNumber int32
+	var sentToMentor bool
+	var roundStatus sql.NullString
+	err := db.DB.QueryRow(`
+		SELECT level, class_days, class_time, class_number, sent_to_mentor, round_status
+		FROM class_groups
+		WHERE class_key = $1
+	`, classKey).Scan(&level, &classDays, &classTime, &classNumber, &sentToMentor, &roundStatus)
+	if err == sql.ErrNoRows {
+		parsedLevel, parsedDays, parsedTime, parsedNumber, parseErr := parseClassKey(classKey)
+		if parseErr != nil {
+			return fmt.Errorf("target class not found")
+		}
+		now := time.Now()
+		_, insertErr := db.DB.Exec(`
+			INSERT INTO class_groups (class_key, level, class_days, class_time, class_number, sent_to_mentor, updated_at)
+			VALUES ($1, $2, $3, $4, $5, false, $6)
+			ON CONFLICT (class_key) DO NOTHING
+		`, classKey, parsedLevel, parsedDays, parsedTime, parsedNumber, now)
+		if insertErr != nil {
+			return fmt.Errorf("failed to create target class: %w", insertErr)
+		}
+		level = parsedLevel
+		classDays = parsedDays
+		classTime = parsedTime
+		classNumber = parsedNumber
+		sentToMentor = false
+		roundStatus = sql.NullString{String: "not_started", Valid: true}
+		err = nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to load target class: %w", err)
+	}
+	if sentToMentor || (roundStatus.Valid && (roundStatus.String == "active" || roundStatus.String == "closed")) {
+		return fmt.Errorf("target class not available")
+	}
+
+	// Capacity check
+	var count int
+	err = db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM leads l
+		INNER JOIN placement_tests pt ON l.id = pt.lead_id
+		INNER JOIN scheduling s ON l.id = s.lead_id
+		WHERE l.status = 'ready_to_start'
+		  AND l.sent_to_classes = true
+		  AND pt.assigned_level = $1
+		  AND s.class_days = $2
+		  AND s.class_time = $3
+		  AND COALESCE(s.class_group_index, 1) = $4
+	`, level, classDays, classTime, classNumber).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check target class capacity: %w", err)
+	}
+	if count >= 6 {
+		return fmt.Errorf("target class is locked (6 students)")
+	}
+
+	_, err = db.DB.Exec(`
+		UPDATE scheduling
+		SET class_days = $1,
+		    class_time = $2,
+		    class_group_index = $3,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE lead_id = $4
+	`, classDays, classTime, classNumber, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to move student to class: %w", err)
+	}
+
+	return nil
+}
+
+func parseClassKey(classKey string) (int32, string, string, int32, error) {
+	parts := strings.Split(classKey, "|")
+	if len(parts) != 4 {
+		return 0, "", "", 0, fmt.Errorf("invalid class key")
+	}
+	levelStr := strings.TrimPrefix(parts[0], "L")
+	levelInt, err := strconv.Atoi(levelStr)
+	if err != nil {
+		return 0, "", "", 0, fmt.Errorf("invalid class level")
+	}
+	numberInt, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return 0, "", "", 0, fmt.Errorf("invalid class number")
+	}
+	return int32(levelInt), parts[1], parts[2], int32(numberInt), nil
+}
+
 // SendLeadToClasses marks a lead as sent to classes board
 func SendLeadToClasses(leadID uuid.UUID) error {
 	_, err := db.DB.Exec(`
@@ -1930,7 +2179,7 @@ func UpdateLeadStatusFromPayment(leadID uuid.UUID) error {
 	if err == sql.ErrNoRows || !finalPrice.Valid || finalPrice.Int32 <= 0 {
 		return nil
 	}
-	totalCoursePaid, err := GetTotalCoursePaid(leadID)
+	totalCoursePaid, err := GetTotalCoursePaidCurrentCycle(leadID)
 	if err != nil {
 		return fmt.Errorf("failed to get total course paid: %w", err)
 	}
@@ -1996,6 +2245,68 @@ func GetTotalCoursePaid(leadID uuid.UUID) (int32, error) {
 	return netTotal, nil
 }
 
+// GetTotalCoursePaidCurrentCycle returns the net course payments since the last class completion.
+// Used for returning students so old-level payments don't leak into the new offer.
+func GetTotalCoursePaidCurrentCycle(leadID uuid.UUID) (int32, error) {
+	var cycleStart sql.NullTime
+	err := db.DB.QueryRow(`
+		SELECT MAX(completed_at)
+		FROM class_enrollments
+		WHERE lead_id = $1
+	`, leadID).Scan(&cycleStart)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get cycle start: %w", err)
+	}
+
+	// If no prior class completion, fall back to all payments.
+	if !cycleStart.Valid {
+		return GetTotalCoursePaid(leadID)
+	}
+
+	// Sum all course payments from lead_payments table since cycle start.
+	var totalPayments sql.NullInt32
+	err = db.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM lead_payments
+		WHERE lead_id = $1
+		  AND created_at >= $2
+	`, leadID, cycleStart.Time).Scan(&totalPayments)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get current-cycle payments: %w", err)
+	}
+
+	paymentsTotal := int32(0)
+	if totalPayments.Valid {
+		paymentsTotal = totalPayments.Int32
+	}
+
+	// Sum all refunds for this lead since cycle start.
+	var totalRefunds sql.NullInt32
+	err = db.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE lead_id = $1
+		  AND transaction_type = 'OUT'
+		  AND category = 'refund'
+		  AND transaction_date >= $2::date
+	`, leadID, cycleStart.Time).Scan(&totalRefunds)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get current-cycle refunds: %w", err)
+	}
+
+	refundsTotal := int32(0)
+	if totalRefunds.Valid {
+		refundsTotal = totalRefunds.Int32
+	}
+
+	netTotal := paymentsTotal - refundsTotal
+	if netTotal < 0 {
+		netTotal = 0
+	}
+
+	return netTotal, nil
+}
+
 // GetLeadPayments returns all course payments for a lead
 func GetLeadPayments(leadID uuid.UUID) ([]*LeadPayment, error) {
 	rows, err := db.DB.Query(`
@@ -2006,6 +2317,68 @@ func GetLeadPayments(leadID uuid.UUID) ([]*LeadPayment, error) {
 	`, leadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query lead payments: %w", err)
+	}
+	defer rows.Close()
+
+	var payments []*LeadPayment
+	for rows.Next() {
+		p := &LeadPayment{}
+		var notes sql.NullString
+		err := rows.Scan(
+			&p.ID, &p.LeadID, &p.Kind, &p.Amount, &p.PaymentMethod,
+			&p.PaymentDate, &notes, &p.CreatedAt, &p.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan lead payment: %w", err)
+		}
+		p.Notes = notes
+		payments = append(payments, p)
+	}
+
+	return payments, rows.Err()
+}
+
+func GetLeadPaymentsSince(leadID uuid.UUID, since time.Time) ([]*LeadPayment, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, lead_id, kind, amount, payment_method, payment_date, notes, created_at, updated_at
+		FROM lead_payments
+		WHERE lead_id = $1
+		  AND created_at >= $2
+		ORDER BY payment_date DESC, created_at DESC
+	`, leadID, since)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query lead payments since: %w", err)
+	}
+	defer rows.Close()
+
+	var payments []*LeadPayment
+	for rows.Next() {
+		p := &LeadPayment{}
+		var notes sql.NullString
+		err := rows.Scan(
+			&p.ID, &p.LeadID, &p.Kind, &p.Amount, &p.PaymentMethod,
+			&p.PaymentDate, &notes, &p.CreatedAt, &p.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan lead payment: %w", err)
+		}
+		p.Notes = notes
+		payments = append(payments, p)
+	}
+
+	return payments, rows.Err()
+}
+
+func GetLeadPaymentsBefore(leadID uuid.UUID, before time.Time) ([]*LeadPayment, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, lead_id, kind, amount, payment_method, payment_date, notes, created_at, updated_at
+		FROM lead_payments
+		WHERE lead_id = $1
+		  AND created_at < $2
+		ORDER BY payment_date DESC, created_at DESC
+	`, leadID, before)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query lead payments before: %w", err)
 	}
 	defer rows.Close()
 
@@ -3752,12 +4125,19 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		creditsRemaining = 0
 	}
 
+	newCredits := creditsRemaining
+	if outcome == "promoted" && newCredits > 0 {
+		newCredits -= 1
+	}
+
+	// Status is based on credits BEFORE the promotion deduction.
+	// If the student had any credits when they finished, they should wait for a round.
 	newStatus := "renewal_pending"
 	if creditsRemaining > 0 {
 		newStatus = "waiting_for_round"
 	}
 
-	highPriorityFollowUp := creditsRemaining <= 0
+	highPriorityFollowUp := newStatus == "renewal_pending"
 
 	// 7. Set returning flag and remaining credits snapshot
 	_, err = tx.Exec(`
@@ -3768,9 +4148,20 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		    high_priority_follow_up = $5,
 		    updated_at = $3
 		WHERE id = $4
-	`, creditsRemaining, newStatus, now, leadID, highPriorityFollowUp)
+	`, newCredits, newStatus, now, leadID, highPriorityFollowUp)
 	if err != nil {
 		return fmt.Errorf("failed to update lead status: %w", err)
+	}
+
+	// 7b. Clear current offer/payment snapshots for returning cycle.
+	// History remains in lead_payments/transactions.
+	_, err = tx.Exec(`DELETE FROM payments WHERE lead_id = $1`, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to clear payment snapshot: %w", err)
+	}
+	_, err = tx.Exec(`DELETE FROM offers WHERE lead_id = $1`, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to clear offer snapshot: %w", err)
 	}
 
 	// 8. Promote level (only if outcome = 'promoted')
@@ -3785,9 +4176,11 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 	}
 
 	// 9. Detach schedule (CRITICAL: prevents ghost-joining)
+	// We keep class_days and class_time as preferences for the next round,
+	// but clear class_group_index to remove them from any specific class.
 	_, err = tx.Exec(`
 		UPDATE scheduling 
-		SET class_days = NULL, class_time = NULL, class_group_index = NULL, updated_at = $1
+		SET class_group_index = NULL, updated_at = $1
 		WHERE lead_id = $2
 	`, now, leadID)
 	if err != nil {

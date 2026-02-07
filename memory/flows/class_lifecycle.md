@@ -142,8 +142,15 @@ stateDiagram-v2
 
 **Outcome Side Effects**:
 - Writes `class_enrollments.outcome` = `promoted` or `repeated`
-- Sets lead status to `waiting_for_round` or `renewal_pending` based on remaining credits
-- Updates `leads.remaining_credits` from `levels_purchased_total - levels_consumed`
+- Sets lead status to `waiting_for_round` or `renewal_pending` based on credits **before** the promotion deduction
+- Updates `leads.remaining_credits` from `levels_purchased_total - levels_consumed`, then subtracts 1 if outcome is promoted
+- Clears current Offer/Payment snapshots for returning students (next cycle starts clean)
+- Marks the start of a new payment cycle at the latest class completion (used to calculate current‑cycle balance)
+- Returns to Ops with default schedule prefilled from previous class (returning students)
+
+**Renewal Flow**:
+- `renewal_pending` students auto-transition to `offer_sent` when Ops Admin saves an offer
+- This provides visual feedback that the offer has been sent and allows filtering by status
 
 **Ops Visibility**:
 - Pre‑enrolment list can filter Repeat Level and shows REPEAT badge from latest class outcome

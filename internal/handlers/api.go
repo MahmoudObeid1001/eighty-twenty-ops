@@ -1752,20 +1752,22 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 	}
 
 	type ClassResp struct {
-		ClassKey        string `json:"class_key"`
-		Level           int    `json:"level"`
-		Days            string `json:"days"`
-		Time            string `json:"time"`
-		ClassNumber     int    `json:"class_number"`
-		MentorEmail     string `json:"mentor_email"`
-		MentorName      string `json:"mentor_name"`
-		MentorUserID    string `json:"mentor_user_id,omitempty"`
-		StudentCount    int    `json:"student_count"`
-		HasHighPriority bool   `json:"has_high_priority"`
+		ClassKey         string `json:"class_key"`
+		Level            int    `json:"level"`
+		Days             string `json:"days"`
+		Time             string `json:"time"`
+		ClassNumber      int    `json:"class_number"`
+		MentorEmail      string `json:"mentor_email"`
+		MentorName       string `json:"mentor_name"`
+		MentorUserID     string `json:"mentor_user_id,omitempty"`
+		StudentCount     int    `json:"student_count"`
+		HasHighPriority  bool   `json:"has_high_priority"`
+		MidRoundRequired bool   `json:"mid_round_required"`
+		EndRoundRequired bool   `json:"end_round_required"`
 	}
 	classes := make([]ClassResp, 0, len(rows))
 	for _, row := range rows {
-		classes = append(classes, ClassResp{
+		cr := ClassResp{
 			ClassKey:        row.ClassKey,
 			Level:           row.Level,
 			Days:            row.ClassDays,
@@ -1776,7 +1778,51 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 			MentorUserID:    row.MentorUserID,
 			StudentCount:    row.StudentCount,
 			HasHighPriority: row.HasHighPriority,
-		})
+		}
+
+		students, err := models.GetStudentsInClassGroup(row.ClassKey)
+		if err == nil {
+			studentIDs := make(map[uuid.UUID]bool, len(students))
+			for _, s := range students {
+				studentIDs[s.LeadID] = true
+			}
+
+			feedbackRecords, _ := models.GetClassFeedbackRecords(row.ClassKey)
+			hasS4 := make(map[uuid.UUID]bool)
+			hasS8 := make(map[uuid.UUID]bool)
+			for _, f := range feedbackRecords {
+				if f.SessionNumber == 4 {
+					hasS4[f.LeadID] = true
+				} else if f.SessionNumber == 8 {
+					hasS8[f.LeadID] = true
+				}
+			}
+
+			allS4 := true
+			allS8 := true
+			for leadID := range studentIDs {
+				if !hasS4[leadID] {
+					allS4 = false
+				}
+				if !hasS8[leadID] {
+					allS8 = false
+				}
+			}
+
+			sessions, err := models.GetClassSessions(row.ClassKey)
+			if err == nil {
+				completedCount := 0
+				for _, s := range sessions {
+					if s.Status == "completed" {
+						completedCount++
+					}
+				}
+				cr.MidRoundRequired = completedCount >= 4 && !allS4
+				cr.EndRoundRequired = completedCount >= 8 && !allS8
+			}
+		}
+
+		classes = append(classes, cr)
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"classes": classes})
 }

@@ -130,6 +130,12 @@ type LeadListItem struct {
 	RemainingBalance      sql.NullInt32 // For computing payment state
 }
 
+type LastClassOutcome struct {
+	Outcome     sql.NullString
+	FinalGrade  sql.NullString
+	CompletedAt sql.NullTime
+}
+
 type PlacementTestQueueItem struct {
 	LeadID        uuid.UUID
 	FullName      string
@@ -197,13 +203,20 @@ type MentorReminder struct {
 
 // ClassStudent represents a student in a class group
 type ClassStudent struct {
-	LeadID                uuid.UUID     `json:"lead_id"`
-	FullName              string        `json:"full_name"`
-	Phone                 string        `json:"phone"`
-	IsReturning           bool          `json:"is_returning"` // Flag for returning/promoted students
-	GroupIndex            sql.NullInt32 `json:"group_index"`
-	AvailableGroups       []int32       `json:"available_groups"`         // Available group indices for move (computed in handler)
-	JoinedAtSessionNumber sql.NullInt32 `json:"joined_at_session_number"` // NEW: For late joiners
+	LeadID                uuid.UUID         `json:"lead_id"`
+	FullName              string            `json:"full_name"`
+	Phone                 string            `json:"phone"`
+	IsReturning           bool              `json:"is_returning"` // Flag for returning/promoted students
+	RemainingCredits      int32             `json:"remaining_credits"`
+	GroupIndex            sql.NullInt32     `json:"group_index"`
+	AvailableGroups       []int32           `json:"available_groups"`         // Available group indices for move (computed in handler)
+	AvailableClassOptions []MoveClassOption `json:"available_class_options"`  // Available class options for move (computed in handler)
+	JoinedAtSessionNumber sql.NullInt32     `json:"joined_at_session_number"` // NEW: For late joiners
+}
+
+type MoveClassOption struct {
+	Value string
+	Label string
 }
 
 // Transaction represents a financial transaction (IN or OUT)

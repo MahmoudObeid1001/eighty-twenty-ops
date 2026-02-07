@@ -147,6 +147,7 @@
                 <th>Phone</th>
                 <th>Status</th>
                 <th>Assigned Level</th>
+                <th>Credits Left</th>
                 <th>Payment</th>
                 <th>Next Action</th>
                 <th>Action</th>
@@ -170,6 +171,11 @@
                     <span
                         style="background: #f8d7da; color: #721c24; padding: 2px 6px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px;"
                         title="{{$repeatReason}}">REPEAT</span>
+                    {{end}}
+                    {{if and .LastOutcome.Valid (eq .LastOutcome.String "promoted")}}
+                    <span
+                        style="background: #d4edda; color: #155724; padding: 2px 6px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px;"
+                        title="Promoted to next level">PROMOTED</span>
                     {{end}}
                 </td>
                 <td>{{.Lead.Phone}}</td>
@@ -201,6 +207,11 @@
                     {{end}}
                 </td>
                 <td>{{if .AssignedLevel.Valid}}Level {{.AssignedLevel.Int32}}{{else}}-{{end}}</td>
+                <td>
+                    {{if .Lead.IsReturning}}
+                    {{if .Lead.RemainingCredits.Valid}}{{.Lead.RemainingCredits.Int32}}{{else}}0{{end}}
+                    {{else}}-{{end}}
+                </td>
                 <td>{{.PaymentState}}</td>
                 <td>{{.NextAction}}</td>
                 <td class="action-column">

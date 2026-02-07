@@ -133,6 +133,8 @@ export default function StudentSuccessDashboard() {
   }
 
   const groups = groupByMentor(classes)
+  const midRoundClasses = classes.filter((c) => c.mid_round_required)
+  const endRoundClasses = classes.filter((c) => c.end_round_required)
 
   return (
     <div>
@@ -140,6 +142,46 @@ export default function StudentSuccessDashboard() {
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
         <h1>Student Success Dashboard</h1>
       </div>
+
+      {midRoundClasses.length > 0 && (
+        <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
+          <strong style={{ display: 'block', fontSize: '16px' }}>Mid-Round Feedback Required!</strong>
+          <div style={{ fontSize: '14px', marginTop: '4px' }}>
+            {midRoundClasses.length} class{midRoundClasses.length !== 1 ? 'es' : ''} reached Session 4 and still need mid-round feedback.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
+            {midRoundClasses.map((cls) => (
+              <button
+                key={cls.class_key}
+                onClick={() => navigate(`/student-success/class?class_key=${encodeURIComponent(cls.class_key)}&tab=feedback`)}
+                style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #856404', background: '#fff', color: '#856404', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                Level {cls.level} · Class {cls.class_number} · Go to Feedbacks
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {endRoundClasses.length > 0 && (
+        <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
+          <strong style={{ display: 'block', fontSize: '16px' }}>End-of-Round Feedback Required!</strong>
+          <div style={{ fontSize: '14px', marginTop: '4px' }}>
+            {endRoundClasses.length} class{endRoundClasses.length !== 1 ? 'es' : ''} reached Session 8 and still need final feedback.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
+            {endRoundClasses.map((cls) => (
+              <button
+                key={cls.class_key}
+                onClick={() => navigate(`/student-success/class?class_key=${encodeURIComponent(cls.class_key)}&tab=feedback`)}
+                style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #856404', background: '#fff', color: '#856404', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                Level {cls.level} · Class {cls.class_number} · Go to Feedbacks
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {pendingPlacementCount > 0 && (
         <div style={{ background: '#E6F7FF', border: '2px solid #4EC6E0', color: '#0052A3', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
@@ -242,6 +284,38 @@ export default function StudentSuccessDashboard() {
                               >
                                 ACTIVE
                               </span>
+                              {cls.mid_round_required && (
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '4px 10px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    background: '#fff3cd',
+                                    color: '#856404',
+                                    marginRight: '8px',
+                                  }}
+                                >
+                                  MID FEEDBACK DUE
+                                </span>
+                              )}
+                              {cls.end_round_required && (
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '4px 10px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    background: '#ffe8a1',
+                                    color: '#856404',
+                                    marginRight: '8px',
+                                  }}
+                                >
+                                  FINAL FEEDBACK DUE
+                                </span>
+                              )}
                               {cls.has_high_priority && (
                                 <span
                                   style={{

@@ -5,9 +5,15 @@
         <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
         <h1 style="margin: 0;">Pre-Enrolment Detail</h1>
         {{if .Detail.Lead.IsReturning}}
+        {{if eq .LastOutcome "repeated"}}
+        <span
+            style="background: #f8d7da; color: #721c24; padding: 6px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; border: 1px solid #f5c6cb;">Repeat
+            Student</span>
+        {{else}}
         <span
             style="background: linear-gradient(135deg, #FFD700, #FFA500); color: white; padding: 6px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; box-shadow: 0 2px 4px rgba(255,215,0,0.3);">⭐
-            Promoted Student</span>
+            Returning Student</span>
+        {{end}}
         {{end}}
     </div>
     <!-- Unified Status Banner (top-right) -->
@@ -16,6 +22,22 @@
         {{.StatusDisplayName}}
     </div>
 </div>
+
+{{if .Detail.Lead.IsReturning}}
+<div
+    style="background-color: #F0F8FF; border: 1px solid #B3D7FF; border-left: 4px solid #4EA1FF; padding: 12px 15px; margin-bottom: 15px; border-radius: 4px;">
+    <strong>Returning Summary:</strong>
+    Credits remaining: <strong>{{.CreditsRemaining}}</strong>
+    {{if .LastOutcome}}
+    • Last outcome:
+    <strong>{{if eq .LastOutcome "repeated"}}Repeat{{else if eq .LastOutcome
+        "promoted"}}Promoted{{else}}{{.LastOutcome}}{{end}}</strong>
+    {{end}}
+    {{if .LastFinalGrade}}
+    • Grade: <strong>{{.LastFinalGrade}}</strong>
+    {{end}}
+</div>
+{{end}}
 
 {{if .IsModerator}}
 <div
@@ -266,7 +288,9 @@
         </div>
 
         <!-- 3. Offer & Pricing -->
-        <div class="form-section">
+        <div class="form-section" {{if
+            .IsWaitingForRound}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"
+            {{end}}>
             <h2>Offer & Pricing</h2>
             {{if eq .Detail.Lead.Status "renewal_pending"}}
             <div
@@ -275,12 +299,20 @@
                 additional levels.
             </div>
             {{end}}
+            {{if .IsWaitingForRound}}
+            <div
+                style="background-color: #E8F5E9; border: 1px solid #4CAF50; border-left: 4px solid #4CAF50; padding: 15px; margin-bottom: 15px; border-radius: 4px;">
+                <strong>✓ Already Paid:</strong> This student already paid for their next level via their previous
+                bundle. No new offer needed.
+            </div>
+            {{end}}
             <div class="section-note">Admin: Sets pricing and sends offer</div>
 
             <div class="form-row">
                 <div class="form-group">
                     <label for="bundle">Bundle Selected</label>
-                    <select id="bundle" name="bundle" onchange="updateBundlePricing()">
+                    <select id="bundle" name="bundle" onchange="updateBundlePricing()" {{if
+                        .IsWaitingForRound}}disabled{{end}}>
                         <option value="" {{if or (not .Detail.Offer) (not
                             .Detail.Offer.BundleLevels.Valid)}}selected{{end}}>-- Select bundle --</option>
                         <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
@@ -311,13 +343,14 @@
                     <label for="discount">Discount (Amount or %)</label>
                     <input type="text" id="discount" name="discount"
                         value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{if .Detail.Offer.DiscountType.Valid}}{{if eq .Detail.Offer.DiscountType.String `percent` }}%{{end}}{{end}}{{end}}"
-                        placeholder="e.g., 500 or 10%" onchange="updateFinalPrice()">
+                        placeholder="e.g., 500 or 10%" onchange="updateFinalPrice()" {{if
+                        .IsWaitingForRound}}disabled{{end}}>
                 </div>
                 <div class="form-group">
                     <label for="final_price">Final Price</label>
                     <input type="number" id="final_price" name="final_price"
                         value="{{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}{{.Detail.Offer.FinalPrice.Int32}}{{end}}"
-                        step="1" onchange="updateFinalPrice()">
+                        step="1" onchange="updateFinalPrice()" {{if .IsWaitingForRound}}disabled{{end}}>
                     <small style="color: #666; display: block; margin-top: 5px;">Auto-calculated: Base - Discount
                         (editable)</small>
                 </div>
@@ -377,7 +410,9 @@
         </div>
 
         <!-- 5. Course Payment -->
-        <div class="form-section">
+        <div class="form-section" {{if
+            .IsWaitingForRound}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"
+            {{end}}>
             <h2>Course Payment</h2>
             <div class="section-note">Admin: Add new course payment (supports multiple payments: deposit + top-ups)
             </div>
@@ -413,9 +448,13 @@
                     </tr>
                     {{end}}
                 </table>
+                {{if .Detail.Lead.IsReturning}}
+                <small style="color: #666; display: block; margin-top: 8px;">Note: Totals reflect the current cycle only
+                    (payments after the last class completion).</small>
+                {{end}}
             </div>
 
-            {{if eq .FinalPrice 0}}
+            {{if and (eq .FinalPrice 0) (not .IsWaitingForRound)}}
             <div
                 style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
                 <strong>⚠️ Set offer first:</strong> You must set the offer final price in the "Offer & Pricing" section
@@ -492,7 +531,7 @@
 
             {{if .LeadPayments}}
             <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
-                <h3 style="margin-top: 0; font-size: 16px;">Payment History</h3>
+                <h3 style="margin-top: 0; font-size: 16px;">Payment History (Current Cycle)</h3>
                 <table style="width: 100%; font-size: 14px;">
                     <thead>
                         <tr style="background: #F5F5F5;">
@@ -524,18 +563,53 @@
                 </table>
             </div>
             {{end}}
+
+            {{if .PreviousLeadPayments}}
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px dashed #E6E6E6;">
+                <h3 style="margin-top: 0; font-size: 16px; color: #666;">Previous Cycle Payments</h3>
+                <table style="width: 100%; font-size: 14px;">
+                    <thead>
+                        <tr style="background: #F9F9F9;">
+                            <th style="padding: 8px; text-align: left;">Type</th>
+                            <th style="padding: 8px; text-align: left;">Date</th>
+                            <th style="padding: 8px; text-align: left;">Amount</th>
+                            <th style="padding: 8px; text-align: left;">Method</th>
+                            <th style="padding: 8px; text-align: left;">Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .PreviousLeadPayments}}
+                        <tr>
+                            <td style="padding: 8px;">
+                                {{if eq .Kind `deposit` }}<span
+                                    style="background: #E3F2FD; color: #1976D2; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Deposit</span>{{else
+                                if eq .Kind `full_payment` }}<span
+                                    style="background: #E8F5E9; color: #388E3C; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Full</span>{{else
+                                if eq .Kind `top_up` }}<span
+                                    style="background: #FFF3E0; color: #F57C00; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: 500;">Top-up</span>{{else}}{{.Kind}}{{end}}
+                            </td>
+                            <td style="padding: 8px;">{{.PaymentDate.Format "2006-01-02"}}</td>
+                            <td style="padding: 8px; font-weight: 600;">{{.Amount}} EGP</td>
+                            <td style="padding: 8px;">{{.PaymentMethod}}</td>
+                            <td style="padding: 8px;">{{if .Notes.Valid}}{{.Notes.String}}{{else}}-{{end}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{end}}
         </div>
 
         <!-- 6. Round / Schedule -->
-        <div class="form-section" {{if not
-            .IsFullyPaid}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"
+        <div class="form-section" {{if and (not .IsFullyPaid) (not
+            .IsWaitingForRound)}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"
             {{end}}>
             <h2>Round / Schedule</h2>
             <div class="section-note">Admin: Assigns schedule when student is ready. Both fields required to mark as
                 ready.
             </div>
 
-            {{if not .IsFullyPaid}}
+            {{if and (not .IsFullyPaid) (not .IsWaitingForRound)}}
             <div
                 style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
                 <strong>🔒 Locked until course is fully paid.</strong> Course must be fully paid before setting
@@ -546,7 +620,8 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="class_days">Class Days *</label>
-                    <select id="class_days" name="class_days" {{if not .IsFullyPaid}}disabled{{end}}>
+                    <select id="class_days" name="class_days" {{if and (not .IsFullyPaid) (not
+                        .IsWaitingForRound)}}disabled{{end}}>
                         <option value="">Select class days</option>
                         <option value="Sun/Wed" {{if and .Detail.Scheduling .Detail.Scheduling.ClassDays.Valid}}{{if eq
                             .Detail.Scheduling.ClassDays.String `Sun/Wed` }}selected{{end}}{{end}}>Sun/Wed</option>
@@ -561,7 +636,8 @@
                 </div>
                 <div class="form-group">
                     <label for="class_time">Class Time *</label>
-                    <select id="class_time" name="class_time" {{if not .IsFullyPaid}}disabled{{end}}>
+                    <select id="class_time" name="class_time" {{if and (not .IsFullyPaid) (not
+                        .IsWaitingForRound)}}disabled{{end}}>
                         <option value="">Select class time</option>
                         <option value="07:30" {{if and .Detail.Scheduling .Detail.Scheduling.ClassTime.Valid}}{{if eq
                             .Detail.Scheduling.ClassTime.String "07:30" }}selected{{end}}{{end}}>07:30</option>
@@ -593,11 +669,12 @@
                 <div class="form-group">
                     <label for="shipment_status">Shipment Status</label>
                     <select id="shipment_status" name="shipment_status">
-                        <option value="pending" {{if or (not .Detail.Shipping.ShipmentStatus.Valid) (eq
-                            .Detail.Shipping.ShipmentStatus.String `pending`)}}selected{{end}}>Pending</option>
-                        <option value="sent" {{if and .Detail.Shipping.ShipmentStatus.Valid (eq
+                        <option value="pending" {{if or (not .Detail.Shipping) (not
+                            .Detail.Shipping.ShipmentStatus.Valid) (eq .Detail.Shipping.ShipmentStatus.String
+                            `pending`)}}selected{{end}}>Pending</option>
+                        <option value="sent" {{if and .Detail.Shipping .Detail.Shipping.ShipmentStatus.Valid (eq
                             .Detail.Shipping.ShipmentStatus.String `sent`)}}selected{{end}}>Sent</option>
-                        <option value="delivered" {{if and .Detail.Shipping.ShipmentStatus.Valid (eq
+                        <option value="delivered" {{if and .Detail.Shipping .Detail.Shipping.ShipmentStatus.Valid (eq
                             .Detail.Shipping.ShipmentStatus.String `delivered`)}}selected{{end}}>Delivered</option>
                     </select>
                 </div>
@@ -631,8 +708,8 @@
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
             class="btn btn-secondary">Mark Offer Sent</button>
         {{if and .IsAdmin .ColdEligible}}
-        <button type="submit" form="pre-enrolment-form" name="action" value="mark_cold_lead"
-            class="btn btn-secondary" style="background-color: #4A5568; border-color: #4A5568; color: white;">Send
+        <button type="submit" form="pre-enrolment-form" name="action" value="mark_cold_lead" class="btn btn-secondary"
+            style="background-color: #4A5568; border-color: #4A5568; color: white;">Send
             to Cold Leads</button>
         {{end}}
         <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting"

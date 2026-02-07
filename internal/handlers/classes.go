@@ -124,13 +124,43 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		groups = []*models.ClassGroup{}
 	}
 
-	// Compute available groups for each student (for move dropdown)
+	// Build available options by level from current groups (for move dropdown)
+	optionsByLevel := map[int32][]models.MoveClassOption{}
+	for _, group := range groups {
+		if group.Readiness == "STARTED" || group.Readiness == "LOCKED" || group.SentToMentor {
+			continue
+		}
+		opts := optionsByLevel[group.Level]
+		opts = append(opts, models.MoveClassOption{
+			Value: "class_key:" + group.ClassKey,
+			Label: group.ClassDays + " @ " + group.ClassTime + " (Class #" + strconv.Itoa(int(group.GroupIndex)) + ")",
+		})
+		optionsByLevel[group.Level] = opts
+	}
+
+	// Compute available groups/options for each student (for move dropdown)
 	for _, group := range groups {
 		for _, student := range group.Students {
 			availableGroups, err := models.GetAvailableGroupsForMove(student.LeadID)
 			if err == nil {
 				// Store as a simple slice of ints for template
 				student.AvailableGroups = availableGroups
+			}
+			// Always include "create new with same days/time"
+			student.AvailableClassOptions = []models.MoveClassOption{{
+				Value: "new_same",
+				Label: "Create New Class (same days/time)",
+			}}
+			// Append available classes for this level
+			level := group.Level
+			if opts, ok := optionsByLevel[level]; ok {
+				for _, opt := range opts {
+					// Remove current class from suggestions.
+					if opt.Value == "class_key:"+group.ClassKey {
+						continue
+					}
+					student.AvailableClassOptions = append(student.AvailableClassOptions, opt)
+				}
 			}
 		}
 	}
@@ -176,32 +206,37 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetGroup, err := strconv.Atoi(targetGroupStr)
-	if err != nil {
-		redirectWithError(w, r, "/classes", "Please choose a valid target class.")
-		return
-	}
-
-	// If target_group is 0, create new group (find next available index)
-	if targetGroup == 0 {
-		availableGroups, err := models.GetAvailableGroupsForMove(leadID)
+	if strings.HasPrefix(targetGroupStr, "class_key:") {
+		classKey := strings.TrimPrefix(targetGroupStr, "class_key:")
+		err = models.MoveStudentToClassKey(leadID, classKey)
+	} else {
+		targetGroup, err := strconv.Atoi(targetGroupStr)
 		if err != nil {
-			log.Printf("ERROR: Failed to get available groups: %v", err)
-			redirectWithError(w, r, "/classes", "Couldn't load available classes. Please try again.")
+			redirectWithError(w, r, "/classes", "Please choose a valid target class.")
 			return
 		}
 
-		// Find next group index (max + 1)
-		maxIndex := int32(0)
-		for _, idx := range availableGroups {
-			if idx > maxIndex {
-				maxIndex = idx
+		// If target_group is 0 or new_same, create new group (find next available index)
+		if targetGroupStr == "new_same" || targetGroup == 0 {
+			availableGroups, err := models.GetAvailableGroupsForMove(leadID)
+			if err != nil {
+				log.Printf("ERROR: Failed to get available groups: %v", err)
+				redirectWithError(w, r, "/classes", "Couldn't load available classes. Please try again.")
+				return
 			}
-		}
-		targetGroup = int(maxIndex + 1)
-	}
 
-	err = models.MoveStudentBetweenGroups(leadID, int32(targetGroup))
+			// Find next group index (max + 1)
+			maxIndex := int32(0)
+			for _, idx := range availableGroups {
+				if idx > maxIndex {
+					maxIndex = idx
+				}
+			}
+			targetGroup = int(maxIndex + 1)
+		}
+
+		err = models.MoveStudentBetweenGroups(leadID, int32(targetGroup))
+	}
 	if err != nil {
 		log.Printf("ERROR: Failed to move student: %v", err)
 		redirectWithError(w, r, "/classes", "We couldn't move this student. Please try again.")

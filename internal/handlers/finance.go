@@ -328,7 +328,21 @@ func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
+	// Get lead to check if returning (for cycle-aware payment calculation)
+	leadDetail, err := models.GetLeadByID(leadID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get lead detail: %v", err)
+		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "We couldn't validate this refund. Please try again.")
+		return
+	}
+
+	// Get total course paid (current cycle only for returning students)
+	var totalCoursePaid int32
+	if leadDetail.Lead.IsReturning {
+		totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
+	} else {
+		totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
+	}
 	if err != nil {
 		log.Printf("ERROR: Failed to get total course paid: %v", err)
 		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "We couldn't validate this refund. Please try again.")

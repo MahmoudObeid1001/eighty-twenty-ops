@@ -409,17 +409,63 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	models.ComputeLeadFlags(tempItem)
 
 	today := time.Now().Format("2006-01-02")
-	leadPayments, err := models.GetLeadPayments(leadID)
-	if err != nil {
-		log.Printf("ERROR: Failed to get lead payments: %v", err)
-		leadPayments = []*models.LeadPayment{}
+	leadPayments := []*models.LeadPayment{}
+	previousPayments := []*models.LeadPayment{}
+	var cycleStart *time.Time
+	if detail.Lead.IsReturning {
+		if cs, err := models.GetLatestClassOutcome(leadID); err == nil && cs != nil && cs.CompletedAt.Valid {
+			cycleStart = &cs.CompletedAt.Time
+		}
+	}
+	if cycleStart != nil {
+		if current, err := models.GetLeadPaymentsSince(leadID, *cycleStart); err == nil {
+			leadPayments = current
+		} else {
+			log.Printf("ERROR: Failed to get current-cycle payments: %v", err)
+		}
+		if prev, err := models.GetLeadPaymentsBefore(leadID, *cycleStart); err == nil {
+			previousPayments = prev
+		} else {
+			log.Printf("ERROR: Failed to get previous payments: %v", err)
+		}
+
+		// Schedule Fallback Logic:
+		// For returning students, if their current scheduling preferences are empty,
+		// default them to the values from their latest class enrollment.
+		if detail.Lead.IsReturning && detail.Scheduling != nil && (!detail.Scheduling.ClassDays.Valid || !detail.Scheduling.ClassTime.Valid) {
+			if latest, err := models.GetLatestClassEnrollment(leadID); err == nil && latest != nil {
+				if !detail.Scheduling.ClassDays.Valid && latest.ClassDays != "" {
+					detail.Scheduling.ClassDays = sql.NullString{String: latest.ClassDays, Valid: true}
+				}
+				if !detail.Scheduling.ClassTime.Valid && latest.ClassTime != "" {
+					timeStr := latest.ClassTime
+					if len(timeStr) > 5 {
+						timeStr = timeStr[:5]
+					}
+					detail.Scheduling.ClassTime = sql.NullString{String: timeStr, Valid: true}
+				}
+			}
+		}
+	} else {
+		lp, err := models.GetLeadPayments(leadID)
+		if err != nil {
+			log.Printf("ERROR: Failed to get lead payments: %v", err)
+		} else {
+			leadPayments = lp
+		}
 	}
 
 	var finalPriceValue int32 = 0
 	if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
 		finalPriceValue = detail.Offer.FinalPrice.Int32
 	}
-	totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
+	var err error
+	totalCoursePaid := int32(0)
+	if detail.Lead.IsReturning {
+		totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
+	} else {
+		totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
+	}
 	if err != nil {
 		log.Printf("ERROR: Failed to get total course paid: %v", err)
 		totalCoursePaid = 0
@@ -431,7 +477,12 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			remainingBalance = 0
 		}
 	}
-	isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
+	// For returning students:
+	// - waiting_for_round: Already paid via previous bundle, no payment needed
+	// - renewal_pending: Need to pay for new offer
+	hasCredits := detail.Lead.RemainingCredits.Valid && detail.Lead.RemainingCredits.Int32 > 0
+	isWaitingForRound := detail.Lead.Status == "waiting_for_round"
+	isFullyPaid := (finalPriceValue > 0 && totalCoursePaid >= finalPriceValue) || hasCredits || isWaitingForRound
 
 	pipelineStatuses := map[string]bool{
 		"lead_created": true, "test_booked": true, "tested": true, "offer_sent": true,
@@ -456,6 +507,47 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 
 	coldEligible := detail.Lead.Status == "offer_sent" && time.Since(detail.Lead.UpdatedAt) >= 7*24*time.Hour
 
+	creditsRemaining := int32(0)
+	if detail.Lead.LevelsPurchasedTotal.Valid {
+		creditsRemaining = detail.Lead.LevelsPurchasedTotal.Int32
+	}
+	if detail.Lead.LevelsConsumed.Valid {
+		creditsRemaining -= detail.Lead.LevelsConsumed.Int32
+	}
+	if creditsRemaining < 0 {
+		creditsRemaining = 0
+	}
+
+	lastOutcome, lastGrade := "", ""
+	if latest, err := models.GetLatestClassOutcome(leadID); err == nil && latest != nil {
+		if latest.Outcome.Valid {
+			lastOutcome = latest.Outcome.String
+		}
+		if latest.FinalGrade.Valid {
+			lastGrade = latest.FinalGrade.String
+		}
+	}
+
+	// Prefill schedule for returning students from latest class_enrollments if schedule is empty.
+	if detail.Lead.IsReturning {
+		missingDays := detail.Scheduling == nil || !detail.Scheduling.ClassDays.Valid
+		missingTime := detail.Scheduling == nil || !detail.Scheduling.ClassTime.Valid
+		if missingDays || missingTime {
+			classDays, classTime, err := models.GetLatestClassSchedule(leadID)
+			if err == nil && (classDays.Valid || classTime.Valid) {
+				if detail.Scheduling == nil {
+					detail.Scheduling = &models.Scheduling{}
+				}
+				if missingDays && classDays.Valid {
+					detail.Scheduling.ClassDays = classDays
+				}
+				if missingTime && classTime.Valid {
+					detail.Scheduling.ClassTime = sql.NullString{String: normalizeClassTime(classTime.String), Valid: true}
+				}
+			}
+		}
+	}
+
 	data := map[string]interface{}{
 		"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
 		"Detail":                 detail,
@@ -473,14 +565,19 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"DaysSinceLastProgress":  tempItem.DaysSinceLastProgress,
 		"Today":                  today,
 		"LeadPayments":           leadPayments,
+		"PreviousLeadPayments":   previousPayments,
 		"FinalPrice":             finalPriceValue,
 		"TotalCoursePaid":        totalCoursePaid,
 		"RemainingBalance":       remainingBalance,
 		"IsFullyPaid":            isFullyPaid,
+		"IsWaitingForRound":      detail.Lead.Status == "waiting_for_round",
 		"StatusDisplayName":      statusInfo.DisplayName,
 		"StatusBgColor":          statusInfo.BgColor,
 		"StatusTextColor":        statusInfo.TextColor,
 		"StatusBorderColor":      statusInfo.BorderColor,
+		"CreditsRemaining":       creditsRemaining,
+		"LastOutcome":            lastOutcome,
+		"LastFinalGrade":         lastGrade,
 		"Error":                  "",
 		"PhoneError":             "",
 		"ExistingLeadID":         nil,
@@ -503,6 +600,14 @@ func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *ht
 	data["Error"] = errMsg
 	data["SuccessMessage"] = ""
 	renderTemplate(w, r, "pre_enrolment_detail.html", data)
+}
+
+func normalizeClassTime(raw string) string {
+	// Expected formats: "HH:MM" or "HH:MM:SS"
+	if len(raw) >= 5 {
+		return raw[:5]
+	}
+	return raw
 }
 
 func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -764,13 +869,35 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			finalPriceValue = detail.Offer.FinalPrice.Int32
 		}
 
-		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
+		var totalCoursePaid int32
+		if detail.Lead.IsReturning {
+			totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
+		} else {
+			totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
+		}
 		if err != nil {
 			log.Printf("ERROR: Failed to get total course paid: %v", err)
 			totalCoursePaid = 0
 		}
 
-		isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
+		// For returning students:
+		// - waiting_for_round: Already paid via previous bundle, no payment needed
+		// - renewal_pending: Need to pay for new offer
+		// The credit was already consumed during promotion, so remaining_credits will be 0
+		currentStatus := detail.Lead.Status
+		isWaitingForRound := currentStatus == "waiting_for_round"
+		hasCredits := detail.Lead.RemainingCredits.Valid && detail.Lead.RemainingCredits.Int32 > 0
+		isFullyPaid := (finalPriceValue > 0 && totalCoursePaid >= finalPriceValue) || hasCredits || isWaitingForRound
+
+		log.Printf("💳 PAYMENT CHECK for lead %s: status=%s, finalPrice=%d, totalPaid=%d, remainingCredits=%d, hasCredits=%v, isWaitingForRound=%v, isFullyPaid=%v",
+			leadID, currentStatus, finalPriceValue, totalCoursePaid,
+			func() int32 {
+				if detail.Lead.RemainingCredits.Valid {
+					return detail.Lead.RemainingCredits.Int32
+				}
+				return 0
+			}(), hasCredits, isWaitingForRound, isFullyPaid)
+
 		if !isFullyPaid {
 			h.renderDetailWithError(w, r, leadID, "Cannot mark READY_TO_START before full payment. Course must be fully paid first.")
 			return
@@ -893,8 +1020,13 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			refundDateStr := r.FormValue("refund_date")
 			refundNotes := r.FormValue("refund_notes")
 
-			// Get course payments total
-			totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
+			// Get course payments total (current cycle only for returning students)
+			var totalCoursePaid int32
+			if detail.Lead.IsReturning {
+				totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
+			} else {
+				totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
+			}
 			if err != nil {
 				h.renderDetailWithError(w, r, leadID, "Couldn't calculate course payments. Please try again.")
 				return
@@ -999,7 +1131,12 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Calculate course paid total
-		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
+		var totalCoursePaid int32
+		if detail.Lead.IsReturning {
+			totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
+		} else {
+			totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
+		}
 		if err != nil {
 			log.Printf("ERROR: Failed to get total course paid: %v", err)
 			totalCoursePaid = 0
@@ -1186,9 +1323,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	// Parse form values
 	detail := &models.LeadDetail{
 		Lead: &models.Lead{
-			ID:       leadID,
-			FullName: fullName,
-			Phone:    phone,
+			ID:                   leadID,
+			FullName:             fullName,
+			Phone:                phone,
+			IsReturning:          existingDetail.Lead.IsReturning,
+			LevelsPurchasedTotal: existingDetail.Lead.LevelsPurchasedTotal,
+			LevelsConsumed:       existingDetail.Lead.LevelsConsumed,
+			RemainingCredits:     existingDetail.Lead.RemainingCredits,
 		},
 	}
 
@@ -1590,25 +1731,91 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	classDays := r.FormValue("class_days")
 	classTime := r.FormValue("class_time")
 
+	creditsRemainingSchedule := int32(0)
+	if existingDetail.Lead.LevelsPurchasedTotal.Valid {
+		creditsRemainingSchedule = existingDetail.Lead.LevelsPurchasedTotal.Int32
+	}
+	if existingDetail.Lead.LevelsConsumed.Valid {
+		creditsRemainingSchedule -= existingDetail.Lead.LevelsConsumed.Int32
+	}
+	if creditsRemainingSchedule < 0 {
+		creditsRemainingSchedule = 0
+	}
+
+	scheduleLocked := false
+	if existingDetail.Lead.IsReturning {
+		scheduleLocked = creditsRemainingSchedule <= 0
+	} else {
+		scheduleLocked = existingDetail.Lead.Status != "waiting_for_round"
+	}
+
+	scheduleChange := classDays != "" || classTime != ""
+	// If schedule is locked and values are only defaults, don't treat as a schedule change.
+	if scheduleLocked && scheduleChange {
+		existingDays := ""
+		existingTime := ""
+		if existingDetail.Scheduling != nil && existingDetail.Scheduling.ClassDays.Valid {
+			existingDays = existingDetail.Scheduling.ClassDays.String
+		}
+		if existingDetail.Scheduling != nil && existingDetail.Scheduling.ClassTime.Valid {
+			existingTime = normalizeClassTime(existingDetail.Scheduling.ClassTime.String)
+		}
+		// If existing schedule is empty, fall back to last class schedule defaults.
+		if existingDays == "" && existingTime == "" && existingDetail.Lead.IsReturning {
+			if lastDays, lastTime, err := models.GetLatestClassSchedule(leadID); err == nil {
+				if lastDays.Valid {
+					existingDays = lastDays.String
+				}
+				if lastTime.Valid {
+					existingTime = normalizeClassTime(lastTime.String)
+				}
+			}
+		}
+		if classDays == existingDays && normalizeClassTime(classTime) == existingTime {
+			classDays = ""
+			classTime = ""
+			scheduleChange = false
+		}
+	}
+
 	// If user is setting schedule (either field provided), validate payment first
-	if classDays != "" || classTime != "" {
+	if scheduleChange {
 		// Check if fully paid before allowing schedule updates
 		var finalPriceValue int32 = 0
 		if existingDetail.Offer != nil && existingDetail.Offer.FinalPrice.Valid {
 			finalPriceValue = existingDetail.Offer.FinalPrice.Int32
 		}
 
-		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
-		if err != nil {
-			log.Printf("ERROR: Failed to get total course paid: %v", err)
-			totalCoursePaid = 0
+		// Allow returning students with remaining credits to set schedule even if not fully paid.
+		creditsRemaining := int32(0)
+		if existingDetail.Lead.LevelsPurchasedTotal.Valid {
+			creditsRemaining = existingDetail.Lead.LevelsPurchasedTotal.Int32
+		}
+		if existingDetail.Lead.LevelsConsumed.Valid {
+			creditsRemaining -= existingDetail.Lead.LevelsConsumed.Int32
+		}
+		if creditsRemaining < 0 {
+			creditsRemaining = 0
 		}
 
-		isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
+		if !(detail.Lead.IsReturning && creditsRemaining > 0) {
+			var totalCoursePaid int32
+			if detail.Lead.IsReturning {
+				totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
+			} else {
+				totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
+			}
+			if err != nil {
+				log.Printf("ERROR: Failed to get total course paid: %v", err)
+				totalCoursePaid = 0
+			}
 
-		if !isFullyPaid {
-			h.renderDetailWithError(w, r, leadID, "Cannot schedule before full payment. Course must be fully paid before setting class days and time.")
-			return
+			isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
+
+			if !isFullyPaid {
+				h.renderDetailWithError(w, r, leadID, "Cannot schedule before full payment. Course must be fully paid before setting class days and time.")
+				return
+			}
 		}
 
 		// Both fields must be present when setting NEW schedule
@@ -1742,6 +1949,14 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	if currentStatus == "cold_lead" {
 		detail.Lead.Status = currentStatus
 		h.cfg.Debugf("  🧊 Cold lead: preserving status, skipping auto-stage, leadID=%s", leadID)
+	} else if currentStatus == "renewal_pending" && offerWasExplicitlyChanged {
+		// Allow renewal_pending → offer_sent when offer is saved
+		newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
+		detail.Lead.Status = dbStatus
+		h.cfg.Debugf("  ♻️ Renewal offer changed: computed stage=%s, dbStatus=%s (was %s)", newStage, dbStatus, currentStatus)
+	} else if currentStatus == "renewal_pending" || currentStatus == "waiting_for_round" || detail.Lead.IsReturning {
+		detail.Lead.Status = currentStatus
+		h.cfg.Debugf("  ♻️ Returning lead: preserving status, skipping auto-stage, leadID=%s", leadID)
 	} else {
 		newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
 
@@ -1880,7 +2095,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		totalCoursePaid, err := models.GetTotalCoursePaid(leadID)
+		// Get total course paid (current cycle only for returning students)
+		var totalCoursePaid int32
+		if existingDetail.Lead.IsReturning {
+			totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
+		} else {
+			totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
+		}
 		if err != nil {
 			log.Printf("ERROR: Failed to get total course paid: %v", err)
 			h.renderDetailWithError(w, r, leadID, "Couldn't validate the course payment. Please try again.")

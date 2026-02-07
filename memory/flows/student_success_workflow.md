@@ -86,6 +86,19 @@ flowchart TD
 
 ---
 
+## Dashboard Feedback Notifications
+
+**Rule**: Mid-round and end-round feedback banners are shown on the Student Success dashboard (not inside class tabs).  
+**Behavior**:
+- Mid-round banner shows when Session 4 reached and not all S4 feedback is submitted.
+- End-round banner shows when Session 8 reached and not all S8 feedback is submitted.
+- Each banner links to the class feedback tab.  
+**Evidence**:
+- `frontend/src/pages/StudentSuccessDashboard.tsx`
+- `internal/handlers/api.go` (GetStudentSuccessClasses computes milestone flags)
+
+---
+
 ## Mentor Head Read-Only Class Review (Active + Closed)
 
 ```mermaid

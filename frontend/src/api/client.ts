@@ -152,6 +152,8 @@ export interface StudentSuccessClass {
   mentor_user_id?: string
   student_count: number
   has_high_priority?: boolean
+  mid_round_required?: boolean
+  end_round_required?: boolean
 }
 
 export interface StudentSuccessClassDetail {

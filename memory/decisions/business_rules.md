@@ -69,10 +69,93 @@
 **Storage**: `leads.remaining_credits` is updated on round close for returning flow  
 **Evidence**: `internal/models/repository.go` (`PromoteStudent`)
 
+### Rule: Post‑class status uses pre‑deduction credits
+**Rule**: `waiting_for_round` vs `renewal_pending` is decided using credits **before** the promotion deduction.  
+**Example**: Student finishes with 1 credit → status `waiting_for_round`, remaining_credits becomes 0 after promotion.  
+**Reason**: Students who still had credit at class end should appear in the Ops “waiting for round” flow even if the final credit is consumed by promotion.  
+**Evidence**: `internal/models/repository.go` (`PromoteStudent`)
+
+### Rule: Returning flow resets offer/payment snapshots
+**Rule**: When a round is closed and a student becomes `is_returning = true`, the **current** Offer and Payment snapshot records are cleared so the next cycle starts clean.  
+**Reason**: Prevents old “paid in full” data from leaking into the next pre‑enrolment cycle and auto‑staging the lead incorrectly.  
+**History**: Course payment history remains in `lead_payments` (multi‑payment ledger) and `transactions`.  
+**Evidence**: `internal/models/repository.go` (`PromoteStudent`), `internal/models/repository.go` (`GetLeadPayments`)
+
+### Rule: Current-cycle payments only
+**Rule**: Remaining balance and "paid in full" for returning students are computed from **current‑cycle** payments only.  
+**Definition**: Current cycle starts at the latest class close time (`class_enrollments.completed_at`) for that lead.  
+**Reason**: Prevents previous‑level payments from being deducted from a new offer.  
+**Implementation**: All payment validation points check `is_returning` flag and use `GetTotalCoursePaidCurrentCycle` instead of `GetTotalCoursePaid`:
+- Pre-enrolment detail page summary (remaining balance display)
+- Add payment validation (prevents exceeding new offer price)
+- Cancel flow refund validation (validates against current cycle only)
+- Finance refund handler (validates against current cycle only)  
+**Evidence**: `internal/models/repository.go` (`GetTotalCoursePaidCurrentCycle`), `internal/handlers/pre_enrolment.go` (lines 446-450, 954-965, 1963-1974), `internal/handlers/finance.go` (lines 331-348)
+
+### Rule: Returning status is not auto‑staged
+**Rule**: For `renewal_pending` or `waiting_for_round` leads, auto‑stage logic must **not** downgrade or re‑classify to NEW_LEAD/PAID_FULL based on old form data.  
+**Reason**: Returning leads are a separate cycle; status changes should be explicit actions (offer/payment steps).  
+**Evidence**: `internal/handlers/pre_enrolment.go` (auto‑stage guard for returning leads)
+
+### Rule: Renewal offer auto-transition
+**Rule**: When an offer is saved for a `renewal_pending` student, status auto-transitions to `offer_sent`.  
+**Reason**: Provides clear visual feedback that Ops Admin has completed their work; allows filtering students waiting for offers vs waiting for payment.  
+**Behavior**: Mirrors new student workflow (tested → offer_sent → paid); `is_returning` flag is preserved.  
+**Evidence**: `internal/models/repository.go` (`ComputeStageFromFormCompletion` line 129)
+
 ### Rule: Repeat Level filter and badge
 **UI**: Pre‑enrolment list has a **Repeat Level** filter and shows a **REPEAT** badge for latest outcome = `repeated`  
 **Tooltip**: Shows repeat reason (grade F vs missed 3+ sessions) based on latest enrollment grade  
 **Evidence**: `internal/views/pre_enrolment_list.html`, `internal/models/repository.go` (GetAllLeads with last outcome/grade)
+
+### Rule: Returning student visibility (Ops)
+**UI**: Pre‑enrolment list/detail shows remaining credits and last outcome (promoted vs repeated) for returning students.  
+**Purpose**: Ops can immediately see how many levels are left and whether the student should repeat.  
+**Evidence**: `internal/views/pre_enrolment_list.html`, `internal/views/pre_enrolment_detail.html`, `internal/models/repository.go` (`GetAllLeads`, `GetLeadByID`)
+
+### Rule: Returning schedule defaults
+**Rule**: Returning students (waiting_for_round / renewal_pending) default their class days/time to the **previous class schedule** (latest class_enrollments), editable by Ops.  
+**Reason**: Ensures continuity and avoids empty schedule when returning.  
+**Evidence**: `internal/handlers/pre_enrolment.go` (detail view defaults), `internal/models/repository.go` (latest class_enrollments schedule)
+
+### Rule: Scheduling allowed with remaining credits
+**Rule**: Returning students with `remaining_credits > 0` can set class days/time even if the current cycle is not fully paid.  
+**Reason**: Prepaid levels from the previous bundle should allow immediate scheduling for the next round.  
+**Evidence**: `internal/handlers/pre_enrolment.go` (schedule gate)
+
+### Rule: Locked schedule does not block Save
+**Rule**: If schedule fields are locked (not fully paid and no remaining credits), Save should not fail. Defaults may be displayed but are not applied.  
+**Reason**: Ops must be able to save offer changes without being forced to schedule.  
+**Evidence**: `internal/handlers/pre_enrolment.go` (schedule guard), `internal/views/pre_enrolment_detail.html` (locked inputs)
+
+### Rule: Move dropdown options
+**Rule**: “Move to” includes (1) Create new class with same days/time, (2) any available class for the level that is not sent/active/closed and not locked (6 students).  
+**Reason**: Ops can move students across times/days or open a new group on the same schedule.  
+**Evidence**: `internal/models/repository.go` (`GetMoveOptionsForLead`, `MoveStudentToClassKey`), `internal/views/classes.html`
+
+### Rule: Move auto-creates missing class group
+**Rule**: If a move target exists in scheduling but not in `class_groups`, the system creates a `class_groups` record on demand before moving.  
+**Reason**: Avoids “target class not found” when classes exist only via scheduling.  
+**Evidence**: `internal/models/repository.go` (`MoveStudentToClassKey`)
+
+### Rule: Waiting for Round payment bypass
+**Behavior**: Students with `waiting_for_round` status bypass the "paid in full" validation when being marked `ready_to_start`.  
+**Reason**: These students finish their previous level with credits (e.g., 1 level bundle), so they've already "paid" for the next level upfront.  
+**Evidence**: `internal/handlers/pre_enrolment.go:MarkReady` (bypass logic)
+
+### Rule: Waiting for Round UI logic
+**Behavior**: For `waiting_for_round` students:
+- **Round / Schedule**: Locked warning is hidden and fields are unlocked (interactive).
+- **Offer & Pricing**: Blocked (dimmed) with an "Already Paid" banner; no new offer needed.
+- **Course Payment**: Blocked (dimmed); no new payment needed for this cycle.  
+**Reason**: Since they already have credits, the pre-enrolment workflow only requires setting their new schedule. No financial actions are needed.  
+**Evidence**: `internal/views/pre_enrolment_detail.html` (IsWaitingForRound conditions)
+
+### Rule: Schedule preference persistence
+**Rule**: When a student is promoted/detached from a class, their `class_days` and `class_time` are preserved in the `scheduling` table.  
+**Behavior**: Only `class_group_index` is cleared to remove them from a specific class instance. The days/time remain as defaults for the next pre-enrolment round.  
+**Reason**: Students usually prefer the same schedule; this minimizes data entry for Ops Admin.  
+**Evidence**: `internal/models/repository.go:PromoteStudent`
 
 ### Rule: Grade entry at session 8
 **Timing**: Grades can only be entered at session 8 (final session)  

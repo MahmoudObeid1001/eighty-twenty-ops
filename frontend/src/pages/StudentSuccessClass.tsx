@@ -333,6 +333,10 @@ export default function StudentSuccessClass() {
 
   useEffect(() => {
     if (classKey) {
+      const tabParam = searchParams.get('tab')
+      if (tabParam && (tabParam === 'students' || tabParam === 'absence' || tabParam === 'followups' || tabParam === 'feedback' || tabParam === 'feedback_collected' || tabParam === 'final_grading')) {
+        setTab(tabParam as Tab)
+      }
       localStorage.setItem('student_success_class_key', classKey)
       loadClass()
     } else {
@@ -485,29 +489,7 @@ export default function StudentSuccessClass() {
         </div>
       )}
 
-      {!isClosed && data.milestones.midRound.reached && !data.milestones.midRound.complete && (
-        <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <strong style={{ display: 'block', fontSize: '16px' }}>Mid-Round Feedback Required!</strong>
-            <span style={{ fontSize: '14px' }}>Session 4 reached. Please send feedback to all students.</span>
-          </div>
-          <button onClick={() => setTab('feedback')} style={{ background: '#856404', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
-            Go to Feedbacks
-          </button>
-        </div>
-      )}
-
-      {!isClosed && data.milestones.endRound.reached && !data.milestones.endRound.complete && (
-        <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <strong style={{ display: 'block', fontSize: '16px' }}>End-of-Round Feedback Required!</strong>
-            <span style={{ fontSize: '14px' }}>Session 8 reached. Please send final feedback to all students.</span>
-          </div>
-          <button onClick={() => setTab('feedback')} style={{ background: '#856404', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
-            Go to Feedbacks
-          </button>
-        </div>
-      )}
+      {/* Feedback notifications moved to dashboard */}
 
       <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
         {tabs.map((t) => (
