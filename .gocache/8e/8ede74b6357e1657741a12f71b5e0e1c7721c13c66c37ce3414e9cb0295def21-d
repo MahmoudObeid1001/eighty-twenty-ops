@@ -1,8 +1,0 @@
-./compliance.go
-./errors.go
-./feedback_helpers.go
-./models.go
-./repository.go
-./status.go
-./student_profile.go
-./student_profile_repository.go
