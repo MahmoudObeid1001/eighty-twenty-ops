@@ -125,6 +125,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
+            {(role === 'student_success' || role === 'mentor_head' || role === 'admin') && (
+              <li>
+                <Link
+                  to="/reports"
+                  className={isActive('/reports') ? 'active' : ''}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <BarChartIcon />
+                  Reports
+                </Link>
+              </li>
+            )}
             {role === 'admin' && (
               <>
                 <li>
@@ -168,5 +180,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
         {children}
       </main>
     </div>
+  )
+}
+
+function BarChartIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 20V10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M10 20V4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M16 20V13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M22 20V7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   )
 }

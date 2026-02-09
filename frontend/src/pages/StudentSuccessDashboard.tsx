@@ -135,6 +135,7 @@ export default function StudentSuccessDashboard() {
   const groups = groupByMentor(classes)
   const midRoundClasses = classes.filter((c) => c.mid_round_required)
   const endRoundClasses = classes.filter((c) => c.end_round_required)
+  const complianceDueClasses = classes.filter((c) => c.compliance_required)
 
   return (
     <div>
@@ -177,6 +178,26 @@ export default function StudentSuccessDashboard() {
                 style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #856404', background: '#fff', color: '#856404', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
               >
                 Level {cls.level} · Class {cls.class_number} · Go to Feedbacks
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {complianceDueClasses.length > 0 && (
+        <div style={{ background: '#fde2e2', border: '1px solid #f5b5b5', color: '#8a1f1f', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
+          <strong style={{ display: 'block', fontSize: '16px' }}>Compliance Checklist Required!</strong>
+          <div style={{ fontSize: '14px', marginTop: '4px' }}>
+            {complianceDueClasses.length} class{complianceDueClasses.length !== 1 ? 'es' : ''} finished Session 8 and still have incomplete compliance checks.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
+            {complianceDueClasses.map((cls) => (
+              <button
+                key={cls.class_key}
+                onClick={() => navigate(`/student-success/class?class_key=${encodeURIComponent(cls.class_key)}&open_compliance=1`)}
+                style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #8a1f1f', background: '#fff', color: '#8a1f1f', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                Level {cls.level} · Class {cls.class_number} · Complete Checklist ({cls.compliance_done ?? 0}/{cls.compliance_total ?? 8})
               </button>
             ))}
           </div>
@@ -236,40 +257,55 @@ export default function StudentSuccessDashboard() {
       </div>
 
       <div>
-          {activeTab === 'classes' && (
-            <>
-              {groups.length === 0 ? (
-                <div style={{ padding: '24px', background: '#f9f9f9', borderRadius: '8px', textAlign: 'center' }}>
-                  <p>No active classes.</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                  {groups.map((grp) => (
-                    <div key={grp.mentor_id ?? 'unassigned'}>
-                      <h2 style={{ fontSize: '16px', marginBottom: '12px', color: '#333' }}>
-                        {grp.mentor_email ?? grp.mentor_name ?? 'Unassigned'}
-                      </h2>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                        {grp.classes.map((cls) => (
-                          <div
-                            key={cls.class_key}
-                            style={{
-                              padding: '16px',
-                              borderRadius: '6px',
-                              border: cls.has_high_priority ? '1px solid #dc3545' : '1px solid #eee',
-                              background: cls.has_high_priority ? '#fffafa' : '#fff',
-                            }}
-                          >
-                            <div style={{ marginBottom: '12px' }}>
-                              <h3 style={{ fontSize: '16px', marginBottom: '6px' }}>
-                                Level {cls.level} · Class {cls.class_number}
-                              </h3>
-                              <p style={{ color: '#666', fontSize: '13px', marginBottom: '4px' }}>
-                                {cls.days} · {cls.time}
-                              </p>
-                              <p style={{ color: '#666', fontSize: '13px', marginBottom: '8px' }}>
-                                {cls.student_count} student{cls.student_count !== 1 ? 's' : ''}
-                              </p>
+        {activeTab === 'classes' && (
+          <>
+            {groups.length === 0 ? (
+              <div style={{ padding: '24px', background: '#f9f9f9', borderRadius: '8px', textAlign: 'center' }}>
+                <p>No active classes.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {groups.map((grp) => (
+                  <div key={grp.mentor_id ?? 'unassigned'}>
+                    <h2 style={{ fontSize: '16px', marginBottom: '12px', color: '#333' }}>
+                      {grp.mentor_email ?? grp.mentor_name ?? 'Unassigned'}
+                    </h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                      {grp.classes.map((cls) => (
+                        <div
+                          key={cls.class_key}
+                          style={{
+                            padding: '16px',
+                            borderRadius: '6px',
+                            border: cls.has_high_priority ? '1px solid #dc3545' : '1px solid #eee',
+                            background: cls.has_high_priority ? '#fffafa' : '#fff',
+                          }}
+                        >
+                          <div style={{ marginBottom: '12px' }}>
+                            <h3 style={{ fontSize: '16px', marginBottom: '6px' }}>
+                              Level {cls.level} · Class {cls.class_number}
+                            </h3>
+                            <p style={{ color: '#666', fontSize: '13px', marginBottom: '4px' }}>
+                              {cls.days} · {cls.time}
+                            </p>
+                            <p style={{ color: '#666', fontSize: '13px', marginBottom: '8px' }}>
+                              {cls.student_count} student{cls.student_count !== 1 ? 's' : ''}
+                            </p>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '4px 10px',
+                                borderRadius: '12px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                background: '#d4edda',
+                                color: '#155724',
+                                marginRight: '8px',
+                              }}
+                            >
+                              ACTIVE
+                            </span>
+                            {cls.mid_round_required && (
                               <span
                                 style={{
                                   display: 'inline-block',
@@ -277,163 +313,165 @@ export default function StudentSuccessDashboard() {
                                   borderRadius: '12px',
                                   fontSize: '12px',
                                   fontWeight: 600,
-                                  background: '#d4edda',
-                                  color: '#155724',
+                                  background: '#fff3cd',
+                                  color: '#856404',
                                   marginRight: '8px',
                                 }}
                               >
-                                ACTIVE
+                                MID FEEDBACK DUE
                               </span>
-                              {cls.mid_round_required && (
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    padding: '4px 10px',
-                                    borderRadius: '12px',
-                                    fontSize: '12px',
-                                    fontWeight: 600,
-                                    background: '#fff3cd',
-                                    color: '#856404',
-                                    marginRight: '8px',
-                                  }}
-                                >
-                                  MID FEEDBACK DUE
-                                </span>
-                              )}
-                              {cls.end_round_required && (
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    padding: '4px 10px',
-                                    borderRadius: '12px',
-                                    fontSize: '12px',
-                                    fontWeight: 600,
-                                    background: '#ffe8a1',
-                                    color: '#856404',
-                                    marginRight: '8px',
-                                  }}
-                                >
-                                  FINAL FEEDBACK DUE
-                                </span>
-                              )}
-                              {cls.has_high_priority && (
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    padding: '4px 10px',
-                                    borderRadius: '12px',
-                                    fontSize: '12px',
-                                    fontWeight: 600,
-                                    background: '#f8d7da',
-                                    color: '#721c24',
-                                  }}
-                                >
-                                  🚩 AT RISK
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => navigate(`/student-success/class?class_key=${encodeURIComponent(cls.class_key)}`)}
-                              style={{
-                                width: '100%',
-                                padding: '8px',
-                                background: '#007bff',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '13px',
-                              }}
-                            >
-                              Open Class
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {activeTab === 'placement_tests' && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div />
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#333' }}>
-                  <input
-                    type="checkbox"
-                    checked={showCompletedTests}
-                    onChange={(e) => setShowCompletedTests(e.target.checked)}
-                  />
-                  Show completed tests
-                </label>
-              </div>
-              {placementError && (
-                <div style={{ padding: '12px 16px', background: '#f8d7da', color: '#721c24', borderRadius: '8px', marginBottom: '16px' }}>
-                  <strong>Error:</strong> {placementError}
-                </div>
-              )}
-
-              {placementLoading ? (
-                <div style={{ padding: '24px', textAlign: 'center' }}>Loading placement tests...</div>
-              ) : placementTests.length === 0 ? (
-                <div style={{ padding: '24px', background: '#f9f9f9', borderRadius: '8px', textAlign: 'center' }}>
-                  <p>{showCompletedTests ? 'No completed placement tests.' : 'No placement tests waiting.'}</p>
-                </div>
-              ) : (
-                <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                    <thead>
-                      <tr style={{ textAlign: 'left', background: '#f8f9fa' }}>
-                        <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Lead</th>
-                        <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Test Date</th>
-                        <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Test Time</th>
-                        <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Type</th>
-                        <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {placementTests.map((item) => (
-                        <tr key={item.lead_id} style={{ borderBottom: '1px solid #eee' }}>
-                          <td style={{ padding: '12px' }}>
-                            <div style={{ fontWeight: 600 }}>{item.full_name}</div>
-                            <div style={{ fontSize: '12px', color: '#666' }}>{item.phone}</div>
-                          </td>
-                          <td style={{ padding: '12px' }}>{item.test_date || '-'}</td>
-                          <td style={{ padding: '12px' }}>{item.test_time || '-'}</td>
-                          <td style={{ padding: '12px' }}>{item.test_type || '-'}</td>
-                          <td style={{ padding: '12px' }}>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              <button
-                                onClick={() => {
-                                  setResultModal({ open: true, item, error: undefined })
-                                  setAssignedLevel(item.assigned_level ?? '')
-                                  setTestNotes(item.test_notes ?? '')
+                            )}
+                            {cls.end_round_required && (
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  background: '#ffe8a1',
+                                  color: '#856404',
+                                  marginRight: '8px',
                                 }}
-                                style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #007bff', background: '#fff', color: '#007bff', cursor: 'pointer', fontSize: '12px' }}
                               >
-                                Record Result
-                              </button>
-                              <a
-                                href={`/pre-enrolment/${item.lead_id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #6c757d', background: '#fff', color: '#6c757d', cursor: 'pointer', fontSize: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                                FINAL FEEDBACK DUE
+                              </span>
+                            )}
+                            {cls.compliance_required && (
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  background: '#fde2e2',
+                                  color: '#8a1f1f',
+                                  marginRight: '8px',
+                                }}
                               >
-                                Open Lead
-                              </a>
-                            </div>
-                          </td>
-                        </tr>
+                                COMPLIANCE DUE ({cls.compliance_done ?? 0}/{cls.compliance_total ?? 8})
+                              </span>
+                            )}
+                            {cls.has_high_priority && (
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  background: '#f8d7da',
+                                  color: '#721c24',
+                                }}
+                                title={cls.high_priority_reason}
+                              >
+                                🚩 AT RISK
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => navigate(`/student-success/class?class_key=${encodeURIComponent(cls.class_key)}`)}
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: '#007bff',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                            }}
+                          >
+                            Open Class
+                          </button>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'placement_tests' && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div />
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#333' }}>
+                <input
+                  type="checkbox"
+                  checked={showCompletedTests}
+                  onChange={(e) => setShowCompletedTests(e.target.checked)}
+                />
+                Show completed tests
+              </label>
+            </div>
+            {placementError && (
+              <div style={{ padding: '12px 16px', background: '#f8d7da', color: '#721c24', borderRadius: '8px', marginBottom: '16px' }}>
+                <strong>Error:</strong> {placementError}
+              </div>
+            )}
+
+            {placementLoading ? (
+              <div style={{ padding: '24px', textAlign: 'center' }}>Loading placement tests...</div>
+            ) : placementTests.length === 0 ? (
+              <div style={{ padding: '24px', background: '#f9f9f9', borderRadius: '8px', textAlign: 'center' }}>
+                <p>{showCompletedTests ? 'No completed placement tests.' : 'No placement tests waiting.'}</p>
+              </div>
+            ) : (
+              <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', background: '#f8f9fa' }}>
+                      <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Lead</th>
+                      <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Test Date</th>
+                      <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Test Time</th>
+                      <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Type</th>
+                      <th style={{ padding: '12px', borderBottom: '1px solid #eee' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {placementTests.map((item) => (
+                      <tr key={item.lead_id} style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ fontWeight: 600 }}>{item.full_name}</div>
+                          <div style={{ fontSize: '12px', color: '#666' }}>{item.phone}</div>
+                        </td>
+                        <td style={{ padding: '12px' }}>{item.test_date || '-'}</td>
+                        <td style={{ padding: '12px' }}>{item.test_time || '-'}</td>
+                        <td style={{ padding: '12px' }}>{item.test_type || '-'}</td>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => {
+                                setResultModal({ open: true, item, error: undefined })
+                                setAssignedLevel(item.assigned_level ?? '')
+                                setTestNotes(item.test_notes ?? '')
+                              }}
+                              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #007bff', background: '#fff', color: '#007bff', cursor: 'pointer', fontSize: '12px' }}
+                            >
+                              Record Result
+                            </button>
+                            <a
+                              href={`/pre-enrolment/${item.lead_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #6c757d', background: '#fff', color: '#6c757d', cursor: 'pointer', fontSize: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                            >
+                              Open Lead
+                            </a>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {resultModal.open && resultModal.item && (

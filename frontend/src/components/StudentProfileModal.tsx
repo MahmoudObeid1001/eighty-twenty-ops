@@ -359,7 +359,7 @@ function NotesTimelineTab({ notes }: { notes: TimelineItem[] }) {
                 <div
                     key={note.id}
                     style={{
-                        borderLeft: '3px solid ' + (note.type === 'note' ? '#007bff' : '#28a745'),
+                        borderLeft: '3px solid ' + getTimelineColor(note.type),
                         padding: '16px',
                         marginBottom: '16px',
                         background: '#f8f9fa',
@@ -371,13 +371,13 @@ function NotesTimelineTab({ notes }: { notes: TimelineItem[] }) {
                             <span style={{
                                 padding: '2px 8px',
                                 borderRadius: '4px',
-                                background: note.type === 'note' ? '#007bff' : '#28a745',
+                                background: getTimelineColor(note.type),
                                 color: 'white',
                                 fontSize: '11px',
                                 fontWeight: 600,
                                 textTransform: 'uppercase',
                             }}>
-                                {note.type}
+                                {formatTimelineType(note.type)}
                             </span>
                             {note.is_private && (
                                 <span style={{
@@ -409,4 +409,15 @@ function NotesTimelineTab({ notes }: { notes: TimelineItem[] }) {
             ))}
         </div>
     )
+}
+
+function getTimelineColor(type: TimelineItem['type']): string {
+    if (type === 'note') return '#007bff'
+    if (type === 'followup') return '#28a745'
+    return '#6f42c1'
+}
+
+function formatTimelineType(type: TimelineItem['type']): string {
+    if (type === 'grade_note') return 'final grade note'
+    return type
 }

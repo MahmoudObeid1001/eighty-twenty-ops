@@ -26,21 +26,22 @@
                     {{if eq .UserRole "admin"}}
                     <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
                     <li><a href="/app/students">Students</a></li>
+                    <li><a href="/app/reports">Reports</a></li>
                     <li><a href="/classes">Classes</a></li>
                     <li><a href="/finance">Finance</a></li>
                     <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a>
-                    </li>
-                    <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a>
                     </li>
                     {{else if eq .UserRole "moderator"}}
                     <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
                     {{else if eq .UserRole "mentor_head"}}
                     <li><a href="/app/mentor-head">Learning</a></li>
                     <li><a href="/app/mentor-head">Classes</a></li>
+                    <li><a href="/app/reports">Reports</a></li>
                     {{else if eq .UserRole "mentor"}}
                     <li><a href="/app/mentor">Learning</a></li>
                     {{else if eq .UserRole "student_success"}}
                     <li><a href="/app/student-success">Learning</a></li>
+                    <li><a href="/app/reports">Reports</a></li>
                     {{else if eq .UserRole "hr"}}
                     <li><a href="/learning">Learning</a></li>
                     {{else}}
@@ -48,10 +49,9 @@
                     {{if not .IsModerator}}
                     <li><a href="/classes">Classes</a></li>
                     <li><a href="/finance">Finance</a></li>
+                    <li><a href="/app/reports">Reports</a></li>
                     {{end}}
                     <li><a href="#" class="disabled">Learning <span style="font-size: 11px;">(coming soon)</span></a>
-                    </li>
-                    <li><a href="#" class="disabled">Reports <span style="font-size: 11px;">(coming soon)</span></a>
                     </li>
                     {{end}}
                 </ul>

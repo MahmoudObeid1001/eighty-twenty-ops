@@ -1,0 +1,14 @@
+./api.go
+./auth.go
+./classes.go
+./community_officer.go
+./finance.go
+./flash.go
+./grades.go
+./hr.go
+./mentor.go
+./mentor_delete_note.go
+./pre_enrolment.go
+./role.go
+./student_profile.go
+./templates.go

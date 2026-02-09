@@ -50,6 +50,11 @@
 | `/api/mentor-head/complaints/:id/resolve` | POST | mentor_head, admin | `apiHandler.ResolveComplaintHandler` | `main.go:360-375` |
 | `/api/absence-cases/:id/follow-up` | POST | student_success, mentor_head, admin | `apiHandler.PostFollowUpUpdate` | `main.go:377-389` |
 | `/api/absence-cases/:id/resolve` | POST | student_success, mentor_head, admin | `apiHandler.ResolveFollowUp` | `main.go:377-389` |
+| `/api/compliance/check` | POST | student_success | `apiHandler.UpsertComplianceCheck` | `main.go` |
+| `/api/compliance/class/:class_key` | GET | student_success | `apiHandler.GetComplianceByClass` | `main.go` |
+| `/api/reports/mentors` | GET | student_success, mentor_head, admin, manager | `apiHandler.GetMentorReports` | `main.go` |
+| `/api/reports/mentors/checklist` | GET | student_success, mentor_head, admin, manager | `apiHandler.GetMentorReportChecklist` | `main.go` |
+| `/api/reports/mentors/exclude` | POST | mentor_head, admin | `apiHandler.ExcludeMentorReportRow` | `main.go` |
 | `/api/classes/:id/sessions` | GET | mentor, mentor_head, admin, student_success | `apiHandler.ListClassSessions` | `main.go:391-406` |
 | `/api/classes/:id/sessions/:n/complete` | POST | mentor, mentor_head, admin, student_success | `apiHandler.CompleteSessionByNumber` (deprecated) | `main.go:391-406` |
 | `/api/notifications/late-join` | GET | mentor, mentor_head, student_success | `apiHandler.GetLateJoinNotifications` | `main.go (new)` |
@@ -95,6 +100,7 @@
 | `/app/hr/mentors` | `HRMentorsPage` | hr | `App.tsx`, `AppLayout.tsx` |
 | `/app/pre-enrolment` | `PreEnrolmentDashboard` | student_success | `App.tsx`, `AppLayout.tsx` |
 | `/app/student-success` | `StudentSuccessDashboard` | student_success | `App.tsx`, `AppLayout.tsx` |
+| `/app/reports` | `ReportsPage` | student_success, mentor_head, admin | `App.tsx`, `AppLayout.tsx` |
 | `/app/admin/mentors` | `AdminMentorsPage` | admin | `App.tsx`, `AppLayout.tsx` |
 
 ---

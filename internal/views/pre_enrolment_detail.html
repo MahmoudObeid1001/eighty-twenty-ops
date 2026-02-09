@@ -712,8 +712,14 @@
             style="background-color: #4A5568; border-color: #4A5568; color: white;">Send
             to Cold Leads</button>
         {{end}}
+        {{if .CanMoveWaiting}}
         <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting"
             class="btn btn-secondary">Move to Waiting List</button>
+        {{else}}
+        <button type="button" class="btn btn-secondary" disabled
+            title="Only returning students with prepaid entitlement can enter waiting flow.">Move to Waiting
+            List</button>
+        {{end}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_ready" class="btn btn-secondary">Mark
             Ready to Start</button>
     </div>
@@ -829,12 +835,6 @@
             <p style="color: #666;">Cancelling this lead will mark it as cancelled. If the lead has course payments, a
                 refund must be created.</p>
 
-            {{if .Error}}
-            <div
-                style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin: 20px 0; border-radius: 4px; color: #721C24;">
-                <strong>Error:</strong> {{.Error}}
-            </div>
-            {{end}}
 
             <div style="margin: 20px 0; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
                 <h3 style="margin-top: 0; font-size: 16px;">Payment Summary</h3>
@@ -845,10 +845,27 @@
                         <td style="padding: 8px; color: #666; font-size: 12px;">(Not refundable)</td>
                     </tr>
                     <tr>
-                        <td style="padding: 8px;"><strong>Course Paid Total:</strong></td>
-                        <td style="padding: 8px; text-align: right; font-weight: 600;">{{.TotalCoursePaid}} EGP</td>
+                        <td style="padding: 8px;"><strong>Course Paid (Current Cycle):</strong></td>
+                        <td style="padding: 8px; text-align: right;">{{.TotalCoursePaid}} EGP</td>
                         <td style="padding: 8px;"></td>
                     </tr>
+                    {{if gt .UnusedCreditsValue 0}}
+                    <tr>
+                        <td style="padding: 8px;"><strong>Unused Credits Value:</strong></td>
+                        <td style="padding: 8px; text-align: right; color: #FFA500; font-weight: 600;">
+                            {{.UnusedCreditsValue}} EGP</td>
+                        <td style="padding: 8px; color: #666; font-size: 12px;">({{.RemainingCreditsCount}}
+                            levels)</td>
+                    </tr>
+                    {{end}}
+                    {{if gt .TotalRefundableAmount 0}}
+                    <tr style="border-top: 2px solid #ddd;">
+                        <td style="padding: 8px;"><strong>Total Refundable:</strong></td>
+                        <td style="padding: 8px; text-align: right; font-weight: 700; font-size: 16px; color: #dc3545;">
+                            {{.TotalRefundableAmount}} EGP</td>
+                        <td style="padding: 8px;"></td>
+                    </tr>
+                    {{end}}
                     {{if gt .RemainingBalance 0}}
                     <tr>
                         <td style="padding: 8px;"><strong>Remaining Balance:</strong></td>
@@ -859,16 +876,17 @@
                 </table>
             </div>
 
-            {{if gt .TotalCoursePaid 0}}
+            {{if gt .TotalRefundableAmount 0}}
             <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
                 <input type="hidden" name="action" value="cancel">
 
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label for="refund_amount">Refund Amount (EGP) *</label>
-                    <input type="number" id="refund_amount" name="refund_amount" min="1" max="{{.TotalCoursePaid}}"
-                        value="{{.TotalCoursePaid}}" step="1" required>
-                    <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalCoursePaid}} EGP
-                        (total course paid)</small>
+                    <input type="number" id="refund_amount" name="refund_amount" min="1"
+                        max="{{.TotalRefundableAmount}}" value="{{.TotalRefundableAmount}}" step="1" required>
+                    <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalRefundableAmount}} EGP
+                        {{if gt .UnusedCreditsValue 0}}({{.TotalCoursePaid}} current cycle + {{.UnusedCreditsValue}}
+                        unused credits){{end}}</small>
                 </div>
 
                 <div class="form-group" style="margin-bottom: 15px;">

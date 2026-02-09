@@ -61,6 +61,27 @@ Start([Ops Admin books test<br/>date/time in Pre-Enrolment]) --> StatusTestBooke
 MarkTested --> HotLeadBanner[Hot lead banner appears if unpaid]
 
     StatusTestBooked --> SSNotification[SS sees notification banner for new placement tests]
+
+    ClassEnd([Class reaches Session 8]) --> ComplianceDue{Compliance complete?}
+    ComplianceDue -->|No| ComplianceBanner[SS sees compliance due banner]
+    ComplianceBanner --> OpenComplianceClass[Open class with compliance modal]
+    ComplianceDue -->|Yes| NoBanner[No compliance banner]
+```
+
+## Mentor Compliance Workflow (Student Success only)
+
+```mermaid
+flowchart TD
+    Start([Open class workspace]) --> ClickCompliance[Open Compliance modal]
+    ClickCompliance --> LoadGrid[Load sessions 1..8 for class]
+    LoadGrid --> FillChecks[Mark reminders / delay / absence]
+    FillChecks --> SaveSession[Save session check]
+    SaveSession --> Upsert[(Upsert mentor_session_checks by class_session_id)]
+    Upsert --> Reports[Unified Reports page aggregates mentor metrics]
+    Reports --> MentorRows[Mentor summary rows]
+    MentorRows --> ClassRows[Per-mentor active class breakdown rows]
+    Reports --> ClickMentor[Click mentor row]
+    ClickMentor --> DetailModal[Open checklist details modal]
 ```
 
 ---
@@ -162,6 +183,28 @@ flowchart TD
 - `internal/handlers/api.go` - GetStudentSuccessClass
 - `internal/models/repository.go` - GetStudentSuccessClassDetail
 
+### Mentor Compliance APIs
+**Routes**:
+- `POST /api/compliance/check` (upsert one session check)
+- `GET /api/compliance/class/:class_key` (8-session grid payload)
+- `GET /api/reports/mentors` (mentor-level aggregates)
+**Permissions**:
+- Compliance write/read: student_success only
+- Reports: student_success, mentor_head, admin, manager
+**Evidence**:
+- `cmd/server/main.go`
+- `internal/handlers/api.go`
+- `internal/models/compliance.go`
+
+### Compliance Due Banner (Student Success dashboard)
+**Source**: `GET /api/student-success/classes` includes `compliance_required`, `compliance_done`, `compliance_total` per class.  
+**Rule**: Banner appears for classes where Session 8 is completed and checklist isn't complete.  
+**Navigation**: Banner action opens `/student-success/class?class_key=...&open_compliance=1`.  
+**Evidence**:
+- `internal/handlers/api.go` (`GetStudentSuccessClasses`)
+- `frontend/src/pages/StudentSuccessDashboard.tsx`
+- `frontend/src/pages/StudentSuccessClass.tsx`
+
 ### Test Booking (Ops Admin)
 **Route**: `POST /pre-enrolment/:id` (Save)  
 **Behavior**:
@@ -234,6 +277,25 @@ flowchart TD
 
 ---
 
+## Escalation & "At Risk" Logic
+
+**Rule**: A class is marked **🚩 AT RISK** on the dashboard if any student in that class has a high priority flag.
+
+```mermaid
+flowchart TD
+    Absence[3+ Absences in same level] --> SetPriority[leads.high_priority = TRUE]
+    SetPriority --> SetReason[leads.high_priority_reason = 'Student has missed 3+ sessions...']
+    SetReason --> Dashboard[Class shows 'AT RISK' on SS Dashboard]
+```
+
+**Trigger**:
+- High priority is automatically set via `UpdateAbsencePriority` in `internal/models/repository.go` whenever attendance is marked.
+
+**Visibility**:
+- SS Dashboard shows the badge for all active classes with one or more high-priority students.
+
+---
+
 ## Follow-Up Status Lifecycle
 
 ```mermaid
@@ -293,7 +355,7 @@ stateDiagram-v2
 ## Open Questions
 
 - [ ] **Automatic follow-up creation**: Is follow-up created automatically when absence is marked, or does SS manually create it? *(check handler logic)*
-- [ ] **Escalation rules**: Are there escalation rules (e.g., 3+ absences → alert)? *(check business logic)*
+- [x] **Escalation rules**: Are there escalation rules (e.g., 3+ absences → alert)? **YES**: 3+ absences triggers `high_priority` flag and "AT RISK" dashboard badge.
 - [ ] **Re-open resolved case**: Can a resolved follow-up be re-opened? *(check UI/handler validation)*
 - [ ] **Notification system**: Does SS get notified of new absences? *(check for notification mechanism)*
 - [x] **Late joiner alerts**: Student Success now receives dashboard banner alerts for new late joiners to help awareness (implemented 2026-02-01).

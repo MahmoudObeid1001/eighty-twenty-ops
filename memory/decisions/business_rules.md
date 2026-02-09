@@ -64,6 +64,11 @@
 **Guards**: Cannot close round if any student is missing a session 8 grade.  
 **Evidence**: `internal/models/repository.go` (`CloseRound` function), `docs/MILESTONE_2_IMPLEMENTATION_SUMMARY.md:159-163`
 
+### Rule: Close-round grade validation uses active class roster only
+**Behavior**: The close-round guard checks grades only for students who are actually in the running class roster (`leads.status = 'in_classes'`) for that `class_key`.  
+**Reason**: Prevents false "missing final grade" errors from non-class leads that share schedule/level metadata but are not active class members.  
+**Evidence**: `internal/models/repository.go` (`CloseRound` query), `internal/models/repository.go` (`GetStudentsInClassGroup`)
+
 ### Rule: Remaining credits are computed
 **Rule**: Remaining credits = `levels_purchased_total - levels_consumed` (min 0)  
 **Storage**: `leads.remaining_credits` is updated on round close for returning flow  
@@ -138,10 +143,29 @@
 **Reason**: Avoids “target class not found” when classes exist only via scheduling.  
 **Evidence**: `internal/models/repository.go` (`MoveStudentToClassKey`)
 
+### Rule: 'At Risk' status for classes
+**Trigger**: A class is marked "AT RISK" on the Student Success dashboard if any student in the class has `leads.high_priority = true`.
+**Automation**: High priority is set automatically when a student misses 3+ sessions in their current level.
+**Storage**: `leads.high_priority` (boolean) and `leads.high_priority_reason` (text).
+**Evidence**: `internal/models/repository.go` (`UpdateAbsencePriority`), `frontend/src/pages/StudentSuccessDashboard.tsx`.
+
 ### Rule: Waiting for Round payment bypass
 **Behavior**: Students with `waiting_for_round` status bypass the "paid in full" validation when being marked `ready_to_start`.  
 **Reason**: These students finish their previous level with credits (e.g., 1 level bundle), so they've already "paid" for the next level upfront.  
 **Evidence**: `internal/handlers/pre_enrolment.go:MarkReady` (bypass logic)
+
+### Rule: Waiting-for-round appears as PAID_FULL in Ops list
+**Behavior**: Returning students with remaining credits in waiting flow (`waiting_for_round`, `schedule_assigned`, `ready_to_start`) are shown as `PAID_FULL` in pre-enrolment payment column/filter even if current-cycle payment snapshot is empty.  
+**Reason**: Their entitlement is prepaid credit, not a new cycle payment yet.  
+**Evidence**: `internal/models/repository.go` (`GetAllLeads`)
+
+### Rule: Waiting list action is credit-gated
+**Behavior**: `Move to Waiting List` is only allowed when lead is returning and has prepaid entitlement for next round.  
+**Blocked cases**:
+- Non-returning leads.
+- Returning leads with zero remaining credits unless they are already in waiting flow (`waiting_for_round` / `schedule_assigned` / `ready_to_start`).  
+**Reason**: Prevents status-hopping from `renewal_pending` into `waiting_for_round` and bypassing payment checks.  
+**Evidence**: `internal/handlers/pre_enrolment.go` (`move_waiting` action, `MarkWaiting`)
 
 ### Rule: Waiting for Round UI logic
 **Behavior**: For `waiting_for_round` students:
@@ -150,6 +174,78 @@
 - **Course Payment**: Blocked (dimmed); no new payment needed for this cycle.  
 **Reason**: Since they already have credits, the pre-enrolment workflow only requires setting their new schedule. No financial actions are needed.  
 **Evidence**: `internal/views/pre_enrolment_detail.html` (IsWaitingForRound conditions)
+
+### Rule: Mentor compliance checks per session
+**Scope**: Student Success only compliance auditing for each class session.  
+**Storage**: `mentor_session_checks` (one row per `class_session_id`, enforced by UNIQUE).  
+**Fields**: reminder_1d, reminder_1h, reminder_tasks, delay_minutes, is_absent, checked_by_user_id.  
+**Behavior**: API upserts record per session; report engine aggregates by mentor.  
+**Permissions**: Compliance modal/actions are available only to role `student_success`.  
+**Evidence**:
+- `internal/db/migrations/050_mentor_compliance.sql`
+- `internal/models/compliance.go`
+- `internal/handlers/api.go`
+
+### Rule: Compliance completion banner at Session 8
+**Trigger**: Student Success dashboard shows a banner when a class has reached 8 completed sessions but compliance checklist is incomplete.  
+**Condition**: `completed_sessions >= 8` and `compliance_done < compliance_total` (session checks).  
+**Action**: Banner links directly to class page with compliance modal auto-open (`open_compliance=1`).  
+**Evidence**:
+- `internal/handlers/api.go` (`GetStudentSuccessClasses`)
+- `frontend/src/pages/StudentSuccessDashboard.tsx`
+- `frontend/src/pages/StudentSuccessClass.tsx`
+
+### Rule: Mentor reports aggregation
+**API**: `GET /api/reports/mentors?mentor_id=<optional>` (single unified report)  
+**Metrics per mentor**:
+- Compliance Score = reminders sent / (checks * 3) * 100
+- Punctuality = average `delay_minutes`
+- Reliability = total `is_absent`
+- Complaints = `followups.type='complaint'` (excluding soft-deleted)
+**Scope**: If `round_status` is omitted, backend defaults to `active` so counts reflect running classes only.
+**Evidence**:
+- `internal/models/compliance.go` (`GetMentorComplianceReports`)
+- `internal/handlers/api.go` (`GetMentorReports`)
+
+### Rule: Mentor reports include per-class breakdown
+**API**: `GET /api/reports/mentors/classes?mentor_id=<optional>`  
+**Scope**: Defaults to `active` when `round_status` is omitted.  
+**Behavior**: Returns class-level metrics (compliance, avg delay, absences, complaints) for each mentor class so payout/review can be done class-by-class.  
+**UI**: Reports page shows mentor summary row, then nested active-class rows under each mentor.  
+**Evidence**:
+- `internal/models/compliance.go` (`GetMentorClassComplianceReports`)
+- `internal/handlers/api.go` (`GetMentorClassReports`)
+- `frontend/src/pages/ReportsPage.tsx`
+
+### Rule: Mentor row click opens checklist details
+**Behavior**: Clicking mentor name in reports opens a modal showing per-session checklist details captured by Student Success, grouped by class for readability.  
+**Data source**: `GET /api/reports/mentors/checklist?mentor_id=...`  
+**Scope**: If `round_status` is omitted, backend defaults to `active` so checklist rows match the unified report.
+**Class drill-down**: Clicking a class row in the nested class table opens the same modal filtered to that class only.
+**Evidence**:
+- `frontend/src/pages/ReportsPage.tsx`
+- `internal/handlers/api.go` (`GetMentorReportChecklist`)
+- `internal/models/compliance.go` (`GetMentorComplianceChecklist`)
+
+### Rule: Compliance schedule day label uses class slot (not calendar weekday)
+**Behavior**: For classes with dual-day schedules (e.g., `Sat/Tues`), session labels alternate by session number: odd→first day, even→second day.  
+**Reason**: Stored dates may not always reflect instructional slot day; report must show schedule slot semantics.  
+**Evidence**:
+- `frontend/src/components/ComplianceModal.tsx`
+- `frontend/src/pages/ReportsPage.tsx`
+
+### Rule: Reports row removal is a soft exclusion
+**Behavior**: Removing a mentor row from reports does not delete class, mentor, or compliance data.  
+**Mechanism**: Insert/upsert into `mentor_report_exclusions` keyed by `(mentor_user_id, round_status)`; reports query excludes matching rows.  
+**Scope**: Exclusion is per report mode:
+- `active` for Mid-Round report
+- `closed` for End-Round report  
+**Unified report behavior**: mentor is hidden only when excluded for both `active` and `closed`.  
+**Permissions**: Admin and Mentor Head only.  
+**Evidence**:
+- `internal/db/migrations/051_mentor_report_exclusions.sql`
+- `internal/models/compliance.go` (`ExcludeMentorFromReports`, `GetMentorComplianceReports`)
+- `internal/handlers/api.go` (`ExcludeMentorReportRow`)
 
 ### Rule: Schedule preference persistence
 **Rule**: When a student is promoted/detached from a class, their `class_days` and `class_time` are preserved in the `scheduling` table.  
@@ -163,6 +259,15 @@
 **Storage**: `grades` table with `session_number = 8`  
 **Uniqueness**: One grade per student per class (UNIQUE constraint on lead_id, class_key, session_number)  
 **Evidence**: `migrations/046_after_class_pipeline.sql`, `internal/models/repository.go` (`CloseRound` function)
+
+### Rule: Final grading notes are class-scoped and journey-visible
+**Persistence**: Final grading notes are saved in `grades.notes` and persist in DB for that student+class record.  
+**Visibility**:
+- Shown in class grading context (`GET /api/grades?class_key=...`).
+- Also shown in student journey timeline as `type='grade_note'` via `GET /api/students/:id/notes` (Students tab).  
+**Carry-forward model**: Notes are not duplicated into `student_notes`; timeline composes data from `student_notes`, `followups`, and `grades` for cross-level visibility.  
+**Implication**: Next mentor can see previous mentor final grading notes from the student record view.  
+**Evidence**: `internal/db/migrations/018_create_grades.sql`, `internal/handlers/grades.go`, `internal/models/student_profile_repository.go` (`GetStudentNotesTimeline`), `frontend/src/components/StudentProfileModal.tsx`
 
 ### Rule: Student notes persistence
 **Scope**: Notes added by mentors/mentor heads/student success  
@@ -257,6 +362,24 @@
 **Scope**: Pre-Enrolment cancellations  
 **Behavior**: Direct delete is disabled; cancellation must go through the cancel flow and show refund modal if course payments exist.  
 **Evidence**: `internal/handlers/pre_enrolment.go` (cancel action), `internal/views/pre_enrolment_detail.html` cancel modal; list action routes to `?action=cancel`.
+
+### Rule: Returning student cancellation includes unused credits refund
+**Scope**: Pre-Enrolment cancellations for ANY student with `remaining_credits > 0` (includes `IsReturning`, `renewal_pending`, `waiting_for_round`)  
+**Calculation**: `TotalRefundableAmount = current_cycle_payments + (remaining_credits × price_per_level)`  
+**Price Source**: Original bundle purchase price from `offers.final_price` ÷ `levels_purchased_total`  
+**Behavior**: Even if current-cycle payments = 0, the refund modal appears if unused credits exist  
+**Modal Display**: Shows breakdown of current cycle payments, unused credits value, and total refundable amount  
+**Evidence**: `internal/models/repository.go` (`CalculateUnusedCreditsRefund`), `internal/handlers/pre_enrolment.go` (cancel flow checks `hasRemainingCredits`), `internal/views/pre_enrolment_detail.html` (cancel modal)
+
+### Rule: Bundle dropout refunds charge consumed levels at default price
+**Scope**: Pre-Enrolment cancellations for students with multi-level bundles (2+ levels) who drop out after completing some levels  
+**Calculation**: Refund = `Total Paid - (Consumed Levels × SINGLE_LEVEL_PRICE)`  
+**Default Price**: 1,300 EGP per level  
+**Rationale**: Students who buy multi-level bundles receive a discount for upfront commitment. If they drop out before completing all levels, we cancel the discounted deal and charge the consumed levels at the standard single-level price (1,300 EGP). They get refunded the difference.  
+**Example**: Student paid 3,300 EGP for 3 levels (1,100 EGP/level discounted), completed 1 level. Refund = 3,300 - (1 × 1,300) = 2,000 EGP.  
+**Exception**: Students who purchased a single level (1-level bundle) get refunded exactly what they paid.  
+**Remaining Credits**: Calculated dynamically as `levels_purchased_total - levels_consumed` to ensure accuracy.  
+**Evidence**: `internal/models/repository.go` (`CalculateUnusedCreditsRefund` with `SINGLE_LEVEL_PRICE_EGP = 1300`)
 
 ### Rule: One-to-one relationships for lead data
 **Tables**: placement_tests, offers, bookings, payments, scheduling, shipping all have UNIQUE `lead_id`  

@@ -367,6 +367,75 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 			placementTestPaid = detail.PlacementTest.PlacementTestFeePaid.Int32
 		}
 		data["PlacementTestPaid"] = placementTestPaid
+
+		// Check if student has remaining credits (covers IsReturning, renewal_pending, waiting_for_round)
+		hasRemainingCredits := detail.Lead.RemainingCredits.Valid && detail.Lead.RemainingCredits.Int32 > 0
+
+		// Calculate course paid total (current cycle for students with remaining credits)
+		var totalCoursePaid int32
+		var err error
+		if hasRemainingCredits || detail.Lead.IsReturning {
+			totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
+		} else {
+			totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
+		}
+		if err != nil {
+			log.Printf("ERROR: Failed to get total course paid: %v", err)
+			totalCoursePaid = 0
+		}
+		data["TotalCoursePaid"] = totalCoursePaid
+
+		// Calculate unused credits value for students with remaining credits
+		var unusedCreditsValue int32 = 0
+		var calculatedRemainingCredits int32 = 0
+		if hasRemainingCredits {
+			// Calculate dynamic remaining credits for display
+			if detail.Lead.LevelsPurchasedTotal.Valid && detail.Lead.LevelsConsumed.Valid {
+				calculatedRemainingCredits = detail.Lead.LevelsPurchasedTotal.Int32 - detail.Lead.LevelsConsumed.Int32
+				if calculatedRemainingCredits < 0 {
+					calculatedRemainingCredits = 0
+				}
+			}
+			unusedCreditsValue, err = models.CalculateUnusedCreditsRefund(leadID)
+			if err != nil {
+				log.Printf("ERROR: Failed to calculate unused credits refund: %v", err)
+				unusedCreditsValue = 0
+			}
+		}
+		data["UnusedCreditsValue"] = unusedCreditsValue
+		data["RemainingCreditsCount"] = calculatedRemainingCredits
+
+		// Total refundable amount = current cycle payments + unused credits value
+		totalRefundableAmount := totalCoursePaid + unusedCreditsValue
+		data["TotalRefundableAmount"] = totalRefundableAmount
+
+		// Get offer final price for remaining balance calculation
+		var remainingBalance int32 = 0
+		if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
+			remainingBalance = detail.Offer.FinalPrice.Int32 - totalCoursePaid
+			if remainingBalance < 0 {
+				remainingBalance = 0
+			}
+		}
+		data["RemainingBalance"] = remainingBalance
+
+		// Get lead payments for display
+		leadPayments, err := models.GetLeadPayments(leadID)
+		if err != nil {
+			log.Printf("ERROR: Failed to get lead payments: %v", err)
+			leadPayments = []*models.LeadPayment{}
+		}
+		data["LeadPayments"] = leadPayments
+
+		// Calculate final price
+		var finalPriceValue int32 = 0
+		if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
+			finalPriceValue = detail.Offer.FinalPrice.Int32
+		}
+		data["FinalPrice"] = finalPriceValue
+
+		today := time.Now().Format("2006-01-02")
+		data["Today"] = today
 	}
 	renderTemplate(w, r, "pre_enrolment_detail.html", data)
 }
@@ -571,6 +640,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"RemainingBalance":       remainingBalance,
 		"IsFullyPaid":            isFullyPaid,
 		"IsWaitingForRound":      detail.Lead.Status == "waiting_for_round",
+		"CanMoveWaiting":         canUseWaitingFlow(detail),
 		"StatusDisplayName":      statusInfo.DisplayName,
 		"StatusBgColor":          statusInfo.BgColor,
 		"StatusTextColor":        statusInfo.TextColor,
@@ -608,6 +678,12 @@ func normalizeClassTime(raw string) string {
 		return raw[:5]
 	}
 	return raw
+}
+
+func canUseWaitingFlow(detail *models.LeadDetail) bool {
+	hasCredits := detail.Lead.RemainingCredits.Valid && detail.Lead.RemainingCredits.Int32 > 0
+	alreadyInWaitingFlow := detail.Lead.Status == "waiting_for_round" || detail.Lead.Status == "schedule_assigned" || detail.Lead.Status == "ready_to_start"
+	return detail.Lead.IsReturning && (hasCredits || alreadyInWaitingFlow)
 }
 
 func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -742,7 +818,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		finalPrice := r.FormValue("final_price")
 		if bundle == "" || finalPrice == "" {
 			log.Printf("ERROR: Validation failed for mark_offer_sent: bundle=%q, final_price=%q", bundle, finalPrice)
-			http.Error(w, "Please enter the bundle and final price.", http.StatusBadRequest)
+			h.renderDetailWithError(w, r, leadID, "Cannot mark Offer Sent yet. Please set both Bundle Selected and Final Price in Offer & Pricing, then click Mark Offer Sent.")
 			return
 		}
 
@@ -836,7 +912,18 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// WAITING allowed regardless of course payments. No refund; payments stay.
+		// Guard: waiting_for_round is only valid for returning students who still have
+		// prepaid entitlement for the next round. It must not be used to bypass renewal payment.
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if !canUseWaitingFlow(detail) {
+			h.renderDetailWithError(w, r, leadID, "Cannot move to waiting list: this lead has no prepaid credits for the next round. Use offer/payment flow.")
+			return
+		}
+
 		err = models.UpdateLeadStatus(leadID, "waiting_for_round")
 		if err != nil {
 			log.Printf("ERROR: Failed to update status: %v", err)
@@ -1020,9 +1107,12 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			refundDateStr := r.FormValue("refund_date")
 			refundNotes := r.FormValue("refund_notes")
 
-			// Get course payments total (current cycle only for returning students)
+			// Check if student has remaining credits (covers IsReturning, renewal_pending, waiting_for_round)
+			hasRemainingCredits := detail.Lead.RemainingCredits.Valid && detail.Lead.RemainingCredits.Int32 > 0
+
+			// Get course payments total (current cycle only for students with remaining credits)
 			var totalCoursePaid int32
-			if detail.Lead.IsReturning {
+			if hasRemainingCredits || detail.Lead.IsReturning {
 				totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
 			} else {
 				totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
@@ -1032,8 +1122,29 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// If there are course payments, refund is required
-			if totalCoursePaid > 0 {
+			// Calculate unused credits value for students with remaining credits
+			var unusedCreditsValue int32 = 0
+			var calculatedRemainingCredits int32 = 0
+			if hasRemainingCredits {
+				// Calculate dynamic remaining credits for display
+				if detail.Lead.LevelsPurchasedTotal.Valid && detail.Lead.LevelsConsumed.Valid {
+					calculatedRemainingCredits = detail.Lead.LevelsPurchasedTotal.Int32 - detail.Lead.LevelsConsumed.Int32
+					if calculatedRemainingCredits < 0 {
+						calculatedRemainingCredits = 0
+					}
+				}
+				unusedCreditsValue, err = models.CalculateUnusedCreditsRefund(leadID)
+				if err != nil {
+					log.Printf("ERROR: Failed to calculate unused credits refund: %v", err)
+					unusedCreditsValue = 0
+				}
+			}
+
+			// Total refundable amount = current cycle payments + unused credits value
+			totalRefundableAmount := totalCoursePaid + unusedCreditsValue
+
+			// If there are refundable amounts, refund is required
+			if totalRefundableAmount > 0 {
 				// Validate refund amount
 				if refundAmountStr == "" {
 					// Show modal again with error - redirect to detail page with action=cancel and error
@@ -1047,8 +1158,8 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				if int32(refundAmount) > totalCoursePaid {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds&max=%d", leadID.String(), totalCoursePaid), http.StatusFound)
+				if int32(refundAmount) > totalRefundableAmount {
+					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds&max=%d", leadID.String(), totalRefundableAmount), http.StatusFound)
 					return
 				}
 
@@ -1130,9 +1241,12 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			placementTestPaid = detail.PlacementTest.PlacementTestFeePaid.Int32
 		}
 
-		// Calculate course paid total
+		// Check if student has remaining credits (covers IsReturning, renewal_pending, waiting_for_round)
+		hasRemainingCredits := detail.Lead.RemainingCredits.Valid && detail.Lead.RemainingCredits.Int32 > 0
+
+		// Calculate course paid total (current cycle for students with remaining credits)
 		var totalCoursePaid int32
-		if detail.Lead.IsReturning {
+		if hasRemainingCredits || detail.Lead.IsReturning {
 			totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)
 		} else {
 			totalCoursePaid, err = models.GetTotalCoursePaid(leadID)
@@ -1141,6 +1255,27 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			log.Printf("ERROR: Failed to get total course paid: %v", err)
 			totalCoursePaid = 0
 		}
+
+		// Calculate unused credits value for students with remaining credits
+		var unusedCreditsValue int32 = 0
+		var calculatedRemainingCredits int32 = 0
+		if hasRemainingCredits {
+			// Calculate dynamic remaining credits for display
+			if detail.Lead.LevelsPurchasedTotal.Valid && detail.Lead.LevelsConsumed.Valid {
+				calculatedRemainingCredits = detail.Lead.LevelsPurchasedTotal.Int32 - detail.Lead.LevelsConsumed.Int32
+				if calculatedRemainingCredits < 0 {
+					calculatedRemainingCredits = 0
+				}
+			}
+			unusedCreditsValue, err = models.CalculateUnusedCreditsRefund(leadID)
+			if err != nil {
+				log.Printf("ERROR: Failed to calculate unused credits refund: %v", err)
+				unusedCreditsValue = 0
+			}
+		}
+
+		// Total refundable amount = current cycle payments + unused credits value
+		totalRefundableAmount := totalCoursePaid + unusedCreditsValue
 
 		// Get offer final price for remaining balance calculation
 		var remainingBalance int32 = 0
@@ -1166,17 +1301,20 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		today := time.Now().Format("2006-01-02")
 		data := map[string]interface{}{
-			"Title":             fmt.Sprintf("Cancel Lead - %s", detail.Lead.FullName),
-			"Detail":            detail,
-			"UserRole":          userRole,
-			"IsModerator":       false,
-			"ShowCancelModal":   true,
-			"PlacementTestPaid": placementTestPaid,
-			"TotalCoursePaid":   totalCoursePaid,
-			"RemainingBalance":  remainingBalance,
-			"FinalPrice":        finalPriceValue,
-			"LeadPayments":      leadPayments,
-			"Today":             today,
+			"Title":                 fmt.Sprintf("Cancel Lead - %s", detail.Lead.FullName),
+			"Detail":                detail,
+			"UserRole":              userRole,
+			"IsModerator":           false,
+			"ShowCancelModal":       true,
+			"PlacementTestPaid":     placementTestPaid,
+			"TotalCoursePaid":       totalCoursePaid,
+			"UnusedCreditsValue":    unusedCreditsValue,
+			"RemainingCreditsCount": calculatedRemainingCredits,
+			"TotalRefundableAmount": totalRefundableAmount,
+			"RemainingBalance":      remainingBalance,
+			"FinalPrice":            finalPriceValue,
+			"LeadPayments":          leadPayments,
+			"Today":                 today,
 		}
 		renderTemplate(w, r, "pre_enrolment_detail.html", data)
 		return
@@ -2251,7 +2389,7 @@ func (h *PreEnrolmentHandler) MarkOfferSent(w http.ResponseWriter, r *http.Reque
 	bundle := r.FormValue("bundle")
 	finalPrice := r.FormValue("final_price")
 	if bundle == "" || finalPrice == "" {
-		http.Error(w, "Please enter the bundle and final price.", http.StatusBadRequest)
+		h.renderDetailWithError(w, r, leadID, "Cannot mark Offer Sent yet. Please set both Bundle Selected and Final Price in Offer & Pricing, then click Mark Offer Sent.")
 		return
 	}
 
@@ -2331,6 +2469,16 @@ func (h *PreEnrolmentHandler) MarkWaiting(w http.ResponseWriter, r *http.Request
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
 		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
+		return
+	}
+
+	detail, err := models.GetLeadByID(leadID)
+	if err != nil {
+		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+		return
+	}
+	if !canUseWaitingFlow(detail) {
+		h.renderDetailWithError(w, r, leadID, "Cannot move to waiting list: this lead has no prepaid credits for the next round. Use offer/payment flow.")
 		return
 	}
 

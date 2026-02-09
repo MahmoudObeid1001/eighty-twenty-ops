@@ -152,8 +152,12 @@ export interface StudentSuccessClass {
   mentor_user_id?: string
   student_count: number
   has_high_priority?: boolean
+  high_priority_reason?: string
   mid_round_required?: boolean
   end_round_required?: boolean
+  compliance_required?: boolean
+  compliance_done?: number
+  compliance_total?: number
 }
 
 export interface StudentSuccessClassDetail {
@@ -247,6 +251,73 @@ export interface Grade {
   notes: string
   created_by_user_id: string
   created_at: string
+}
+
+export interface ComplianceCheck {
+  id: string
+  class_session_id: string
+  checked_by_user_id: string
+  checked_by_email?: string
+  reminder_1d: boolean
+  reminder_1h: boolean
+  reminder_tasks: boolean
+  delay_minutes: number
+  is_absent: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ComplianceClassSession {
+  session_number: number
+  class_session_id?: string
+  status?: string
+  scheduled_date?: string
+  scheduled_time?: string
+  check?: ComplianceCheck
+}
+
+export interface MentorReportItem {
+  mentor_id: string
+  mentor_email: string
+  classes_count: number
+  sessions_count: number
+  checks_count: number
+  compliance_score: number
+  avg_delay_minutes: number
+  absence_count: number
+  complaints_count: number
+}
+
+export interface MentorReportChecklistItem {
+  class_key: string
+  class_days: string
+  class_time: string
+  session_number: number
+  scheduled_date: string
+  scheduled_time: string
+  session_status: string
+  reminder_1d: boolean
+  reminder_1h: boolean
+  reminder_tasks: boolean
+  delay_minutes: number
+  is_absent: boolean
+  checked_by?: string
+}
+
+export interface MentorClassReportItem {
+  mentor_id: string
+  mentor_email: string
+  class_key: string
+  level: number
+  class_days: string
+  class_time: string
+  class_number: number
+  sessions_count: number
+  checks_count: number
+  compliance_score: number
+  avg_delay_minutes: number
+  absence_count: number
+  complaints_count: number
 }
 
 export const api = {
@@ -558,6 +629,51 @@ export const api = {
     fetchAPI(`/grades?lead_id=${encodeURIComponent(leadId)}&class_key=${encodeURIComponent(classKey)}`, {
       method: 'DELETE',
     }),
+
+  upsertComplianceCheck: (data: {
+    class_session_id: string
+    reminder_1d: boolean
+    reminder_1h: boolean
+    reminder_tasks: boolean
+    delay_minutes: number
+    is_absent: boolean
+  }): Promise<{ success: boolean; check: ComplianceCheck }> =>
+    fetchAPI('/compliance/check', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getComplianceByClass: (classKey: string): Promise<{ class_key: string; sessions: ComplianceClassSession[] }> =>
+    fetchAPI(`/compliance/class/${encodeURIComponent(classKey)}`),
+
+  getMentorReports: (params: { round_status?: 'active' | 'closed'; mentor_id?: string } = {}): Promise<{ items: MentorReportItem[] }> => {
+    const qs = new URLSearchParams()
+    if (params.round_status) qs.set('round_status', params.round_status)
+    if (params.mentor_id) qs.set('mentor_id', params.mentor_id)
+    const query = qs.toString()
+    return fetchAPI(`/reports/mentors${query ? `?${query}` : ''}`)
+  },
+
+  getMentorReportChecklist: (params: { mentor_id: string; round_status?: 'active' | 'closed' }): Promise<{ items: MentorReportChecklistItem[] }> => {
+    const qs = new URLSearchParams()
+    qs.set('mentor_id', params.mentor_id)
+    if (params.round_status) qs.set('round_status', params.round_status)
+    return fetchAPI(`/reports/mentors/checklist?${qs.toString()}`)
+  },
+
+  getMentorClassReports: (params: { round_status?: 'active' | 'closed'; mentor_id?: string } = {}): Promise<{ items: MentorClassReportItem[] }> => {
+    const qs = new URLSearchParams()
+    if (params.round_status) qs.set('round_status', params.round_status)
+    if (params.mentor_id) qs.set('mentor_id', params.mentor_id)
+    const query = qs.toString()
+    return fetchAPI(`/reports/mentors/classes${query ? `?${query}` : ''}`)
+  },
+
+  excludeMentorReportRow: (data: { mentor_id: string; round_status?: 'all' | 'active' | 'closed'; reason?: string }): Promise<{ success: boolean }> =>
+    fetchAPI('/reports/mentors/exclude', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 }
 
 // Student Profile Types (Milestone 4)
@@ -613,7 +729,7 @@ export interface CurrentClassStatus {
 
 export interface TimelineItem {
   id: string
-  type: 'note' | 'followup'
+  type: 'note' | 'followup' | 'grade_note'
   text: string
   class_key: string
   session: number

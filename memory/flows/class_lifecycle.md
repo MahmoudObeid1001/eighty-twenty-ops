@@ -133,6 +133,7 @@ stateDiagram-v2
 **Handler**: `apiHandler.CloseRound`  
 **Database**: Updates `class_groups.round_status = 'CLOSED'`, sets `closed_at` timestamp, sets `closed_by_mentor_user_id`  
 **Prerequisite**: All students must have a grade recorded for session 8; otherwise, an error is returned and the round remains open.  
+**Roster Scope**: Grade completeness is checked against the active class roster (`in_classes`) for that class key, not against unrelated leads sharing the same schedule metadata.
 **Evidence**:
 - `cmd/server/main.go:201-208`
 - `internal/handlers/api.go` - CloseRound function
@@ -151,6 +152,7 @@ stateDiagram-v2
 **Renewal Flow**:
 - `renewal_pending` students auto-transition to `offer_sent` when Ops Admin saves an offer
 - This provides visual feedback that the offer has been sent and allows filtering by status
+- Manual `Move to Waiting List` is blocked for leads without prepaid entitlement (prevents bypass from `renewal_pending` to `ready_to_start`)
 
 **Ops Visibility**:
 - Pre‑enrolment list can filter Repeat Level and shows REPEAT badge from latest class outcome

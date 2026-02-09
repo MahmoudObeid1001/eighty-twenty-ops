@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { api, ClassDetail, Student } from '../api/client'
 import StudentModal from '../components/StudentModal'
 import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
+import ComplianceModal from '../components/ComplianceModal'
 
 export default function ClassWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -42,6 +43,7 @@ export default function ClassWorkspace() {
   const [grades, setGrades] = useState<Record<string, { grade: string; notes: string }>>({})
   const [submittingGrade, setSubmittingGrade] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('')
+  const [complianceOpen, setComplianceOpen] = useState(false)
 
   useEffect(() => {
     if (classKey) {
@@ -181,6 +183,7 @@ export default function ClassWorkspace() {
 
   const canEditGrades = userRole === 'mentor' || userRole === 'mentor_head'
   const canViewFeedbackCollected = userRole === 'mentor_head' || userRole === 'admin'
+  const canOpenCompliance = userRole === 'student_success'
 
   if (loading && !classData) {
     return (
@@ -337,6 +340,24 @@ export default function ClassWorkspace() {
             }}
           >
             Feedback Collected
+          </button>
+        )}
+        {canOpenCompliance && (
+          <button
+            onClick={() => setComplianceOpen(true)}
+            style={{
+              marginLeft: 'auto',
+              padding: '8px 12px',
+              borderRadius: '8px',
+              border: '1px solid #198754',
+              background: '#e9f7ef',
+              color: '#198754',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Open mentor compliance checklist"
+          >
+            Compliance
           </button>
         )}
       </div>
@@ -719,6 +740,9 @@ export default function ClassWorkspace() {
           }
           onClose={() => setSelectedStudent(null)}
         />
+      )}
+      {canOpenCompliance && (
+        <ComplianceModal open={complianceOpen} classKey={classKey} onClose={() => setComplianceOpen(false)} />
       )}
     </>
   )

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type StudentSuccessClassDetail } from '../api/client'
 import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import StudentModal from '../components/StudentModal'
+import ComplianceModal from '../components/ComplianceModal'
 
 type Tab = 'students' | 'absence' | 'followups' | 'feedback' | 'feedback_collected' | 'final_grading'
 
@@ -294,6 +295,7 @@ export default function StudentSuccessClass() {
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('')
+  const [complianceOpen, setComplianceOpen] = useState(false)
 
   const [tab, setTabState] = useState<Tab>(() => {
     const tabParam = new URLSearchParams(window.location.search).get('tab') as Tab
@@ -360,6 +362,13 @@ export default function StudentSuccessClass() {
       const res = await api.getStudentSuccessClass(classKey)
       setData(res)
 
+      if (me.role === 'student_success' && searchParams.get('open_compliance') === '1') {
+        setComplianceOpen(true)
+        const nextParams = new URLSearchParams(window.location.search)
+        nextParams.delete('open_compliance')
+        setSearchParams(nextParams, { replace: true })
+      }
+
       // Fetch existing grades
       const gradeRes = await api.getGrades(classKey)
       const gradeMap: Record<string, { grade: string; notes: string }> = {}
@@ -418,6 +427,7 @@ export default function StudentSuccessClass() {
 
   const canEditGrades = userRole === 'mentor' || userRole === 'mentor_head'
   const canEditFeedback = userRole === 'student_success' || userRole === 'admin'
+  const canOpenCompliance = userRole === 'student_success'
 
   if (error || !data) {
     return (
@@ -501,6 +511,14 @@ export default function StudentSuccessClass() {
             {t.label}
           </button>
         ))}
+        {canOpenCompliance && (
+          <button
+            onClick={() => setComplianceOpen(true)}
+            style={{ marginLeft: 'auto', padding: '8px 16px', border: '1px solid #198754', background: '#e9f7ef', color: '#198754', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}
+          >
+            Compliance
+          </button>
+        )}
       </div>
 
       {tab === 'students' && (
@@ -730,6 +748,9 @@ export default function StudentSuccessClass() {
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog({ open: false, title: '' })}
       />
+      {canOpenCompliance && (
+        <ComplianceModal open={complianceOpen} classKey={classKey} onClose={() => setComplianceOpen(false)} />
+      )}
     </>
   )
 }

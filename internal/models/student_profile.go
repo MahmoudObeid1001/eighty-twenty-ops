@@ -71,7 +71,7 @@ type SessionAttendance struct {
 // TimelineItem represents a note or followup in the student timeline
 type TimelineItem struct {
 	ID        uuid.UUID `json:"id"`
-	Type      string    `json:"type"` // "note" or "followup"
+	Type      string    `json:"type"` // "note", "followup", or "grade_note"
 	Text      string    `json:"text"`
 	ClassKey  string    `json:"class_key"`  // nullable
 	Session   int32     `json:"session"`    // nullable

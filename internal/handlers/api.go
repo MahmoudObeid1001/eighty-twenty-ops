@@ -1486,13 +1486,17 @@ func (h *APIHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 	for _, s := range students {
 		// Only check students who are currently in the class (scheduling table)
 		if !gradedLeadIDs[s.LeadID] {
-			jsonError(w, http.StatusBadRequest, "Cannot close round: All students must be graded")
+			jsonError(w, http.StatusBadRequest, fmt.Sprintf("Cannot close round: %s is missing final grade", s.FullName))
 			return
 		}
 	}
 
 	if err := models.CloseRound(req.ClassKey, closedByID); err != nil {
 		log.Printf("ERROR: Failed to close round: %v", err)
+		if strings.Contains(strings.ToLower(err.Error()), "cannot close round") {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		jsonError(w, http.StatusInternalServerError, "Failed to close round")
 		return
 	}
@@ -1752,32 +1756,37 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 	}
 
 	type ClassResp struct {
-		ClassKey         string `json:"class_key"`
-		Level            int    `json:"level"`
-		Days             string `json:"days"`
-		Time             string `json:"time"`
-		ClassNumber      int    `json:"class_number"`
-		MentorEmail      string `json:"mentor_email"`
-		MentorName       string `json:"mentor_name"`
-		MentorUserID     string `json:"mentor_user_id,omitempty"`
-		StudentCount     int    `json:"student_count"`
-		HasHighPriority  bool   `json:"has_high_priority"`
-		MidRoundRequired bool   `json:"mid_round_required"`
-		EndRoundRequired bool   `json:"end_round_required"`
+		ClassKey           string `json:"class_key"`
+		Level              int    `json:"level"`
+		Days               string `json:"days"`
+		Time               string `json:"time"`
+		ClassNumber        int    `json:"class_number"`
+		MentorEmail        string `json:"mentor_email"`
+		MentorName         string `json:"mentor_name"`
+		MentorUserID       string `json:"mentor_user_id,omitempty"`
+		StudentCount       int    `json:"student_count"`
+		HasHighPriority    bool   `json:"has_high_priority"`
+		HighPriorityReason string `json:"high_priority_reason,omitempty"`
+		MidRoundRequired   bool   `json:"mid_round_required"`
+		EndRoundRequired   bool   `json:"end_round_required"`
+		ComplianceRequired bool   `json:"compliance_required"`
+		ComplianceDone     int    `json:"compliance_done"`
+		ComplianceTotal    int    `json:"compliance_total"`
 	}
 	classes := make([]ClassResp, 0, len(rows))
 	for _, row := range rows {
 		cr := ClassResp{
-			ClassKey:        row.ClassKey,
-			Level:           row.Level,
-			Days:            row.ClassDays,
-			Time:            row.ClassTime,
-			ClassNumber:     row.ClassNumber,
-			MentorEmail:     row.MentorEmail,
-			MentorName:      row.MentorName,
-			MentorUserID:    row.MentorUserID,
-			StudentCount:    row.StudentCount,
-			HasHighPriority: row.HasHighPriority,
+			ClassKey:           row.ClassKey,
+			Level:              row.Level,
+			Days:               row.ClassDays,
+			Time:               row.ClassTime,
+			ClassNumber:        row.ClassNumber,
+			MentorEmail:        row.MentorEmail,
+			MentorName:         row.MentorName,
+			MentorUserID:       row.MentorUserID,
+			StudentCount:       row.StudentCount,
+			HasHighPriority:    row.HasHighPriority,
+			HighPriorityReason: row.HighPriorityReason,
 		}
 
 		students, err := models.GetStudentsInClassGroup(row.ClassKey)
@@ -1812,13 +1821,38 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 			sessions, err := models.GetClassSessions(row.ClassKey)
 			if err == nil {
 				completedCount := 0
+				totalSessions := 0
 				for _, s := range sessions {
+					totalSessions++
 					if s.Status == "completed" {
 						completedCount++
 					}
 				}
 				cr.MidRoundRequired = completedCount >= 4 && !allS4
 				cr.EndRoundRequired = completedCount >= 8 && !allS8
+				if completedCount >= 8 {
+					complianceRows, compErr := models.GetComplianceByClassKey(row.ClassKey)
+					if compErr == nil {
+						done := 0
+						total := 0
+						for _, item := range complianceRows {
+							// count only sessions that exist for this class
+							if item.ClassSessionID == nil {
+								continue
+							}
+							total++
+							if item.Check != nil {
+								done++
+							}
+						}
+						if total == 0 {
+							total = totalSessions
+						}
+						cr.ComplianceDone = done
+						cr.ComplianceTotal = total
+						cr.ComplianceRequired = done < total
+					}
+				}
 			}
 		}
 
@@ -3259,4 +3293,286 @@ func (h *APIHandler) AcknowledgeLateJoinNotification(w http.ResponseWriter, r *h
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// POST /api/compliance/check - upsert compliance check for a class session
+func (h *APIHandler) UpsertComplianceCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		ClassSessionID string `json:"class_session_id"`
+		Reminder1D     bool   `json:"reminder_1d"`
+		Reminder1H     bool   `json:"reminder_1h"`
+		ReminderTasks  bool   `json:"reminder_tasks"`
+		DelayMinutes   int    `json:"delay_minutes"`
+		IsAbsent       bool   `json:"is_absent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.ClassSessionID) == "" {
+		jsonError(w, http.StatusBadRequest, "class_session_id is required")
+		return
+	}
+	classSessionID, err := uuid.Parse(req.ClassSessionID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid class_session_id")
+		return
+	}
+	if req.DelayMinutes < 0 {
+		jsonError(w, http.StatusBadRequest, "delay_minutes must be >= 0")
+		return
+	}
+
+	userIDStr := middleware.GetUserID(r)
+	checkedByUserID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	row, err := models.UpsertMentorSessionCheck(
+		classSessionID,
+		checkedByUserID,
+		req.Reminder1D,
+		req.Reminder1H,
+		req.ReminderTasks,
+		req.DelayMinutes,
+		req.IsAbsent,
+	)
+	if err != nil {
+		log.Printf("ERROR: Failed to upsert compliance check: %v", err)
+		if strings.Contains(strings.ToLower(err.Error()), "foreign key") {
+			jsonError(w, http.StatusBadRequest, "Invalid class_session_id")
+			return
+		}
+		jsonError(w, http.StatusInternalServerError, "Failed to save compliance check")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"check":   row,
+	})
+}
+
+// GET /api/compliance/class/:class_key - returns compliance data for all 8 sessions of class
+func (h *APIHandler) GetComplianceByClass(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	prefix := "/api/compliance/class/"
+	if !strings.HasPrefix(r.URL.Path, prefix) || len(r.URL.Path) <= len(prefix) {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+
+	encoded := strings.TrimPrefix(r.URL.Path, prefix)
+	classKey, err := url.PathUnescape(encoded)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid class_key")
+		return
+	}
+	classKey = strings.TrimSpace(classKey)
+	if classKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+
+	sessions, err := models.GetComplianceByClassKey(classKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to load class compliance: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load class compliance")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"class_key": classKey,
+		"sessions":  sessions,
+	})
+}
+
+// GET /api/reports/mentors?round_status=active|closed&mentor_id=<uuid>
+func (h *APIHandler) GetMentorReports(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	roundStatus := strings.TrimSpace(r.URL.Query().Get("round_status"))
+	if roundStatus == "" {
+		// Unified report is now the live/running view.
+		roundStatus = "active"
+	}
+	if roundStatus != "" && roundStatus != "active" && roundStatus != "closed" {
+		jsonError(w, http.StatusBadRequest, "round_status must be active or closed")
+		return
+	}
+
+	var mentorID *uuid.UUID
+	mentorIDStr := strings.TrimSpace(r.URL.Query().Get("mentor_id"))
+	if mentorIDStr != "" {
+		id, err := uuid.Parse(mentorIDStr)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid mentor_id")
+			return
+		}
+		mentorID = &id
+	}
+
+	rows, err := models.GetMentorComplianceReports(roundStatus, mentorID)
+	if err != nil {
+		log.Printf("ERROR: Failed to load mentor reports: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load mentor reports")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"items": rows,
+		"filters": map[string]interface{}{
+			"round_status": roundStatus,
+			"mentor_id":    mentorIDStr,
+		},
+	})
+}
+
+// POST /api/reports/mentors/exclude
+func (h *APIHandler) ExcludeMentorReportRow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		MentorID    string `json:"mentor_id"`
+		RoundStatus string `json:"round_status"`
+		Reason      string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.MentorID) == "" {
+		jsonError(w, http.StatusBadRequest, "mentor_id is required")
+		return
+	}
+	if req.RoundStatus != "" && req.RoundStatus != "all" && req.RoundStatus != "active" && req.RoundStatus != "closed" {
+		jsonError(w, http.StatusBadRequest, "round_status must be all, active, or closed")
+		return
+	}
+
+	mentorID, err := uuid.Parse(req.MentorID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid mentor_id")
+		return
+	}
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var opErr error
+	if req.RoundStatus == "" || req.RoundStatus == "all" {
+		opErr = models.ExcludeMentorFromReportsAll(mentorID, userID, req.Reason)
+	} else {
+		opErr = models.ExcludeMentorFromReports(mentorID, req.RoundStatus, userID, req.Reason)
+	}
+	if opErr != nil {
+		log.Printf("ERROR: Failed to exclude mentor row: %v", opErr)
+		jsonError(w, http.StatusInternalServerError, "Failed to remove mentor row")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// GET /api/reports/mentors/checklist?mentor_id=<uuid>&round_status=active|closed(optional)
+func (h *APIHandler) GetMentorReportChecklist(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	mentorIDStr := strings.TrimSpace(r.URL.Query().Get("mentor_id"))
+	if mentorIDStr == "" {
+		jsonError(w, http.StatusBadRequest, "mentor_id is required")
+		return
+	}
+	mentorID, err := uuid.Parse(mentorIDStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid mentor_id")
+		return
+	}
+
+	roundStatus := strings.TrimSpace(r.URL.Query().Get("round_status"))
+	if roundStatus == "" {
+		// Keep checklist aligned with the unified report scope.
+		roundStatus = "active"
+	}
+	if roundStatus != "" && roundStatus != "active" && roundStatus != "closed" {
+		jsonError(w, http.StatusBadRequest, "round_status must be active or closed")
+		return
+	}
+
+	rows, err := models.GetMentorComplianceChecklist(mentorID, roundStatus)
+	if err != nil {
+		log.Printf("ERROR: Failed to load mentor checklist details: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load mentor checklist details")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"items": rows,
+	})
+}
+
+// GET /api/reports/mentors/classes?round_status=active|closed(optional)&mentor_id=<uuid>(optional)
+func (h *APIHandler) GetMentorClassReports(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	roundStatus := strings.TrimSpace(r.URL.Query().Get("round_status"))
+	if roundStatus == "" {
+		roundStatus = "active"
+	}
+	if roundStatus != "active" && roundStatus != "closed" {
+		jsonError(w, http.StatusBadRequest, "round_status must be active or closed")
+		return
+	}
+
+	var mentorID *uuid.UUID
+	mentorIDStr := strings.TrimSpace(r.URL.Query().Get("mentor_id"))
+	if mentorIDStr != "" {
+		id, err := uuid.Parse(mentorIDStr)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid mentor_id")
+			return
+		}
+		mentorID = &id
+	}
+
+	rows, err := models.GetMentorClassComplianceReports(roundStatus, mentorID)
+	if err != nil {
+		log.Printf("ERROR: Failed to load mentor class reports: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load mentor class reports")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"items": rows,
+		"filters": map[string]interface{}{
+			"round_status": roundStatus,
+			"mentor_id":    mentorIDStr,
+		},
+	})
 }

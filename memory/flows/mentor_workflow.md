@@ -165,6 +165,13 @@ flowchart TD
 - `frontend/src/pages/ClassWorkspace.tsx` (edit controls)
 - `frontend/src/pages/StudentSuccessClass.tsx` (read-only controls)
 
+### Rule: Final grading notes are visible in student record timeline
+**Rule**: Notes entered with session 8 grades are visible later in the Students tab timeline across levels/classes.  
+**Mechanism**: Student timeline API unions `grades.notes` as `grade_note` items.  
+**Evidence**:
+- `internal/models/student_profile_repository.go` (`GetStudentNotesTimeline`)
+- `frontend/src/components/StudentProfileModal.tsx`
+
 ### Rule: Close round requires final grading
 **Rule**: Mentor Head cannot close the round until all students have final grades (session 8 grade).  
 **Evidence**:

@@ -284,7 +284,7 @@ func GetCurrentClassStatus(leadID uuid.UUID) (*CurrentClassStatus, error) {
 	return currentStatus, nil
 }
 
-// GetStudentNotesTimeline returns a timeline of notes and followups for a student
+// GetStudentNotesTimeline returns a timeline of notes, followups, and final grading notes for a student
 func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 	rows, err := db.DB.Query(`
 		SELECT 
@@ -314,6 +314,22 @@ func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 		FROM followups f
 		LEFT JOIN users u ON f.created_by::uuid = u.id
 		WHERE f.lead_id = $1
+
+		UNION ALL
+
+		SELECT
+			g.id,
+			'grade_note' as type,
+			COALESCE(g.notes, '') as text,
+			COALESCE(g.class_key, '') as class_key,
+			COALESCE(g.session_number, 8) as session,
+			false as is_private,
+			COALESCE(u.email, '') as created_by,
+			g.updated_at as created_at
+		FROM grades g
+		LEFT JOIN users u ON g.created_by_user_id = u.id
+		WHERE g.lead_id = $1
+		  AND COALESCE(TRIM(g.notes), '') <> ''
 
 		ORDER BY created_at DESC
 	`, leadID)

@@ -455,6 +455,14 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 
 		// Compute payment state
 		paymentState := GetPaymentState(amountPaid, finalPrice)
+		// Returning students in waiting flow already have prepaid entitlement (credits).
+		// Show them as paid-full for Ops list/payment filter even when current-cycle payment snapshot is empty.
+		if lead.IsReturning && lead.RemainingCredits.Valid && lead.RemainingCredits.Int32 > 0 {
+			switch lead.Status {
+			case "waiting_for_round", "schedule_assigned", "ready_to_start":
+				paymentState = PaymentStatePaidFull
+			}
+		}
 
 		item := &LeadListItem{
 			Lead:             lead,
@@ -1804,6 +1812,8 @@ func MoveStudentToClassKey(leadID uuid.UUID, classKey string) error {
 		SET class_days = $1,
 		    class_time = $2,
 		    class_group_index = $3,
+		    high_priority = false,
+		    high_priority_reason = '',
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE lead_id = $4
 	`, classDays, classTime, classNumber, leadID)
@@ -1834,7 +1844,11 @@ func parseClassKey(classKey string) (int32, string, string, int32, error) {
 // SendLeadToClasses marks a lead as sent to classes board
 func SendLeadToClasses(leadID uuid.UUID) error {
 	_, err := db.DB.Exec(`
-		UPDATE leads SET sent_to_classes = true, updated_at = CURRENT_TIMESTAMP
+		UPDATE leads 
+		SET sent_to_classes = true, 
+		    high_priority = false, 
+		    high_priority_reason = '', 
+		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1
 	`, leadID)
 	if err != nil {
@@ -2243,6 +2257,85 @@ func GetTotalCoursePaid(leadID uuid.UUID) (int32, error) {
 	}
 
 	return netTotal, nil
+}
+
+// CalculateUnusedCreditsRefund calculates the refund value of unused credits for returning students.
+// Business Rule: When students drop out from a multi-level bundle, we charge the consumed levels
+// at the default single-level price (1,300 EGP), not the discounted bundle price.
+// Refund = Total Paid - (Consumed Levels × Default Price)
+// This is fair because they're backing out of the discounted deal.
+func CalculateUnusedCreditsRefund(leadID uuid.UUID) (int32, error) {
+	const SINGLE_LEVEL_PRICE_EGP int32 = 1300 // Standard price for one level
+
+	var remainingCredits sql.NullInt32
+	var levelsPurchased sql.NullInt32
+	var levelsConsumed sql.NullInt32
+
+	// Get remaining credits (calculated dynamically) and original levels purchased
+	err := db.DB.QueryRow(`
+		SELECT 
+			GREATEST(COALESCE(levels_purchased_total, 0) - COALESCE(levels_consumed, 0), 0) AS remaining_credits,
+			levels_purchased_total,
+			COALESCE(levels_consumed, 0) AS levels_consumed
+		FROM leads
+		WHERE id = $1
+	`, leadID).Scan(&remainingCredits, &levelsPurchased, &levelsConsumed)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get lead credits: %w", err)
+	}
+
+	// If no remaining credits, no refund
+	if !remainingCredits.Valid || remainingCredits.Int32 <= 0 {
+		return 0, nil
+	}
+
+	// If no original purchase data, we can't calculate
+	if !levelsPurchased.Valid || levelsPurchased.Int32 <= 0 {
+		return 0, nil
+	}
+
+	// Get the original offer final price (what they actually paid)
+	var finalPrice sql.NullInt32
+	err = db.DB.QueryRow(`
+		SELECT final_price
+		FROM offers
+		WHERE lead_id = $1
+	`, leadID).Scan(&finalPrice)
+	if err != nil {
+		// If no offer found, try to calculate from total payments
+		var totalPaid int32
+		totalPaid, err = GetTotalCoursePaid(leadID)
+		if err != nil || totalPaid == 0 {
+			return 0, fmt.Errorf("failed to get offer price and no payment history: %w", err)
+		}
+		finalPrice = sql.NullInt32{Int32: totalPaid, Valid: true}
+	}
+
+	if !finalPrice.Valid || finalPrice.Int32 <= 0 {
+		return 0, nil
+	}
+
+	// For multi-level bundles (2+ levels): charge consumed levels at default price, refund the rest
+	// For single-level purchases: refund what they paid (no consumed levels to charge)
+	var unusedCreditsValue int32
+	if levelsPurchased.Int32 > 1 {
+		// Multi-level bundle dropout logic:
+		// They paid a discounted price for the bundle but are backing out.
+		// Charge consumed levels at default price (no discount).
+		// Refund = Total Paid - (Consumed Levels × Default Price)
+		consumedValue := levelsConsumed.Int32 * SINGLE_LEVEL_PRICE_EGP
+		unusedCreditsValue = finalPrice.Int32 - consumedValue
+
+		// Safety check: refund cannot be negative
+		if unusedCreditsValue < 0 {
+			unusedCreditsValue = 0
+		}
+	} else {
+		// Single-level purchase: refund what they paid (they haven't consumed it yet if they have credits)
+		unusedCreditsValue = finalPrice.Int32
+	}
+
+	return unusedCreditsValue, nil
 }
 
 // GetTotalCoursePaidCurrentCycle returns the net course payments since the last class completion.
@@ -4146,6 +4239,8 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		    status = $2,
 		    is_returning = true,
 		    high_priority_follow_up = $5,
+		    high_priority = false,
+		    high_priority_reason = '',
 		    updated_at = $3
 		WHERE id = $4
 	`, newCredits, newStatus, now, leadID, highPriorityFollowUp)
@@ -4216,10 +4311,13 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 		return fmt.Errorf("failed to get current mentor assignment: %w", err)
 	}
 
-	// Get all students in the class
+	// Get all active class students in the class.
+	// IMPORTANT: Keep this roster rule aligned with GetStudentsInClassGroup(),
+	// otherwise close-round validation can include non-class students.
 	rows, err := tx.Query(`
 		SELECT s.lead_id
 		FROM scheduling s
+		INNER JOIN leads l ON l.id = s.lead_id
 		INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
@@ -4228,6 +4326,7 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE cg.class_key = $1
+		  AND l.status = 'in_classes'
 	`, classKey)
 	if err != nil {
 		return fmt.Errorf("failed to query students: %w", err)
@@ -4919,16 +5018,17 @@ func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 
 // StudentSuccessClassRow represents a class in the Student Success dashboard
 type StudentSuccessClassRow struct {
-	ClassKey        string `json:"class_key"`
-	Level           int    `json:"level"`
-	ClassDays       string `json:"class_days"`
-	ClassTime       string `json:"class_time"`
-	ClassNumber     int    `json:"class_number"`
-	MentorEmail     string `json:"mentor_email"`
-	MentorName      string `json:"mentor_name"`
-	MentorUserID    string `json:"mentor_user_id"`
-	StudentCount    int    `json:"student_count"`
-	HasHighPriority bool   `json:"has_high_priority"`
+	ClassKey           string `json:"class_key"`
+	Level              int    `json:"level"`
+	ClassDays          string `json:"class_days"`
+	ClassTime          string `json:"class_time"`
+	ClassNumber        int    `json:"class_number"`
+	MentorEmail        string `json:"mentor_email"`
+	MentorName         string `json:"mentor_name"`
+	MentorUserID       string `json:"mentor_user_id"`
+	StudentCount       int    `json:"student_count"`
+	HasHighPriority    bool   `json:"has_high_priority"`
+	HighPriorityReason string `json:"high_priority_reason"`
 }
 
 // GetActiveClassesForStudentSuccess returns all classes where round_status = 'IN_PROGRESS'.
@@ -4945,8 +5045,47 @@ func GetActiveClassesForStudentSuccess() ([]StudentSuccessClassRow, error) {
 				     AND s.class_days = cg.class_days
 				     AND s.class_time::text = cg.class_time
 				     AND COALESCE(s.class_group_index, 1) = COALESCE(cg.class_number, 1)
-				     AND l.high_priority = TRUE
-			   ) as has_high_priority
+				     AND (
+					     -- Manual flag (not the automated absence one)
+					     (l.high_priority = TRUE AND l.high_priority_reason NOT LIKE '%3+ sessions%')
+					     OR
+					     -- Actual absences in THIS class
+					     (
+						     SELECT COUNT(*) 
+						     FROM attendance a 
+						     JOIN class_sessions cs ON a.session_id = cs.id 
+						     WHERE a.lead_id = l.id 
+						       AND cs.class_key = cg.class_key 
+						       AND a.status = 'ABSENT'
+						 ) >= 3
+					 )
+			   ) as has_high_priority,
+			   (
+			       SELECT COALESCE(STRING_AGG(DISTINCT 
+				       CASE 
+					       WHEN l.high_priority = TRUE AND l.high_priority_reason NOT LIKE '%3+ sessions%' THEN l.high_priority_reason
+					       ELSE l.full_name || ': 3+ absences'
+				       END, '; '), '')
+			       FROM leads l
+				   INNER JOIN scheduling s ON s.lead_id = l.id
+				   INNER JOIN placement_tests pt ON pt.lead_id = l.id
+				   WHERE pt.assigned_level = cg.level
+				     AND s.class_days = cg.class_days
+				     AND s.class_time::text = cg.class_time
+				     AND COALESCE(s.class_group_index, 1) = COALESCE(cg.class_number, 1)
+				     AND (
+					     (l.high_priority = TRUE AND l.high_priority_reason NOT LIKE '%3+ sessions%')
+					     OR
+					     (
+						     SELECT COUNT(*) 
+						     FROM attendance a 
+						     JOIN class_sessions cs ON a.session_id = cs.id 
+						     WHERE a.lead_id = l.id 
+						       AND cs.class_key = cg.class_key 
+						       AND a.status = 'ABSENT'
+						 ) >= 3
+					 )
+			   ) as high_priority_reason
 		FROM class_groups cg
 		LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
 		LEFT JOIN users u ON u.id = ma.mentor_user_id
@@ -4963,7 +5102,7 @@ func GetActiveClassesForStudentSuccess() ([]StudentSuccessClassRow, error) {
 	for rows.Next() {
 		var r StudentSuccessClassRow
 		if err := rows.Scan(&r.ClassKey, &r.Level, &r.ClassDays, &r.ClassTime, &r.ClassNumber,
-			&r.MentorEmail, &r.MentorName, &r.MentorUserID, &r.HasHighPriority); err != nil {
+			&r.MentorEmail, &r.MentorName, &r.MentorUserID, &r.HasHighPriority, &r.HighPriorityReason); err != nil {
 			return nil, fmt.Errorf("failed to scan: %w", err)
 		}
 		students, _ := GetStudentsInClassGroup(r.ClassKey)
