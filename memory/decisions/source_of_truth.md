@@ -153,6 +153,7 @@
 
 **Business Rule**: Cancel flow refund checks must use computed remaining credits (`levels_purchased_total - levels_consumed`), not stale cached values.  
 **Required behavior**: If computed remaining credits > 0, cancellation must enforce refund modal/validation for unused credits value.
+**Cycle Scope Rule**: In cancel flow, unused-credit valuation for returning students must be derived from pre-cycle carryover entitlement (latest payment before current cycle start), while current-cycle paid cash is calculated separately via current-cycle payment totals. This avoids cross-cycle mixing.
 
 ---
 

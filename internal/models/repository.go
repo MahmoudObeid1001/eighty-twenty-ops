@@ -2336,122 +2336,136 @@ func GetTotalCoursePaid(leadID uuid.UUID) (int32, error) {
 	return netTotal, nil
 }
 
-// CalculateUnusedCreditsRefund calculates the refund value of unused credits for returning students.
-// Business Rule: When students drop out from a multi-level bundle, we charge the consumed levels
-// at the default single-level price (1,300 EGP), not the discounted bundle price.
-// Refund = Total Paid - (Consumed Levels × Default Price)
-// This is fair because they're backing out of the discounted deal.
-//
-// CRITICAL FIX: For returning students, the offers table is cleared when the round closes.
-// This function now uses class_enrollments history as a fallback to prevent leakage.
-func CalculateUnusedCreditsRefund(leadID uuid.UUID) (int32, error) {
-	const SINGLE_LEVEL_PRICE_EGP int32 = 1300 // Standard price for one level
+type UnusedCreditsRefundBreakdown struct {
+	UnusedCreditsValue int32
+	RemainingCredits   int32
+	ConsumedLevels     int32
+	ConsumedValue      int32
+	OriginalPaidValue  int32
+	BundleLevels       int32
+}
 
-	var remainingCredits sql.NullInt32
-	var levelsPurchased sql.NullInt32
-	var levelsConsumed sql.NullInt32
+func inferBundleLevelsFromPaidAmount(amount int32) int32 {
+	switch {
+	case amount <= 0:
+		return 0
+	case amount <= 1300:
+		return 1
+	case amount <= 2400:
+		return 2
+	case amount <= 3300:
+		return 3
+	default:
+		return 4
+	}
+}
+
+// GetUnusedCreditsRefundBreakdown calculates unused-credit refund from carryover entitlement.
+// It is cycle-scoped: for returning students, only the latest pre-cycle payment (before current cycle start)
+// is used for unused-credit valuation to avoid mixing with current-cycle cash flow.
+func GetUnusedCreditsRefundBreakdown(leadID uuid.UUID) (*UnusedCreditsRefundBreakdown, error) {
+	const singleLevelPriceEGP int32 = 1300
+
+	breakdown := &UnusedCreditsRefundBreakdown{}
+
+	var remainingCredits int32
 	var isReturning bool
-
-	// Get remaining credits (calculated dynamically) and original levels purchased
 	err := db.DB.QueryRow(`
-		SELECT 
+		SELECT
 			GREATEST(COALESCE(levels_purchased_total, 0) - COALESCE(levels_consumed, 0), 0) AS remaining_credits,
-			levels_purchased_total,
-			COALESCE(levels_consumed, 0) AS levels_consumed,
 			COALESCE(is_returning, false) AS is_returning
 		FROM leads
 		WHERE id = $1
-	`, leadID).Scan(&remainingCredits, &levelsPurchased, &levelsConsumed, &isReturning)
+	`, leadID).Scan(&remainingCredits, &isReturning)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get lead credits: %w", err)
+		return nil, fmt.Errorf("failed to load lead credits: %w", err)
 	}
 
-	// If no remaining credits, no refund
-	if !remainingCredits.Valid || remainingCredits.Int32 <= 0 {
-		return 0, nil
+	breakdown.RemainingCredits = remainingCredits
+	if remainingCredits <= 0 {
+		return breakdown, nil
 	}
 
-	// If no original purchase data, we can't calculate
-	if !levelsPurchased.Valid || levelsPurchased.Int32 <= 0 {
-		return 0, nil
+	// Unused-credit valuation is only for returning carryover credits.
+	if !isReturning {
+		return breakdown, nil
 	}
 
-	// Strategy 1: Try current offers table (for non-returning students or recent offers)
-	var finalPrice sql.NullInt32
+	var cycleStart sql.NullTime
 	err = db.DB.QueryRow(`
-		SELECT final_price
-		FROM offers
+		SELECT MAX(completed_at)
+		FROM class_enrollments
 		WHERE lead_id = $1
-	`, leadID).Scan(&finalPrice)
+	`, leadID).Scan(&cycleStart)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current cycle start: %w", err)
+	}
+	if !cycleStart.Valid {
+		return nil, fmt.Errorf("cannot value unused credits without a prior completed class")
+	}
 
-	if err == nil && finalPrice.Valid && finalPrice.Int32 > 0 {
-		log.Printf("💰 Refund calculation for lead %s: using current offers table (final_price=%d)", leadID, finalPrice.Int32)
-	} else {
-		// Strategy 2: Try class_enrollments history (for returning students with cleared offers)
-		err = db.DB.QueryRow(`
-			SELECT final_price
-			FROM class_enrollments
-			WHERE lead_id = $1
-			ORDER BY completed_at DESC
-			LIMIT 1
-		`, leadID).Scan(&finalPrice)
-
-		if err == nil && finalPrice.Valid && finalPrice.Int32 > 0 {
-			log.Printf("💰 Refund calculation for lead %s: using class_enrollments history (final_price=%d, is_returning=%v)",
-				leadID, finalPrice.Int32, isReturning)
-		} else {
-			// Strategy 3: Fallback to standard price calculation
-			// This handles edge cases where no historical data exists
-			pricePerLevel := SINGLE_LEVEL_PRICE_EGP
-			if levelsPurchased.Int32 > 0 {
-				// Try to get total paid to calculate average price per level
-				totalPaid, err := GetTotalCoursePaid(leadID)
-				if err == nil && totalPaid > 0 {
-					pricePerLevel = totalPaid / levelsPurchased.Int32
-					log.Printf("💰 Refund calculation for lead %s: using calculated price per level from total payments (price_per_level=%d, total_paid=%d, levels_purchased=%d)",
-						leadID, pricePerLevel, totalPaid, levelsPurchased.Int32)
-				} else {
-					log.Printf("💰 Refund calculation for lead %s: using fallback standard price (price_per_level=%d)",
-						leadID, SINGLE_LEVEL_PRICE_EGP)
-				}
-			}
-
-			// Calculate final price based on original bundle
-			finalPrice = sql.NullInt32{Int32: pricePerLevel * levelsPurchased.Int32, Valid: true}
+	var paidAmount int32
+	err = db.DB.QueryRow(`
+		SELECT amount
+		FROM lead_payments
+		WHERE lead_id = $1
+		  AND created_at < $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, leadID, cycleStart.Time).Scan(&paidAmount)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("cannot value unused credits: no pre-cycle payment found")
 		}
+		return nil, fmt.Errorf("failed to get pre-cycle payment: %w", err)
 	}
 
-	if !finalPrice.Valid || finalPrice.Int32 <= 0 {
-		log.Printf("🚨 LEAKAGE ALERT: Lead %s has %d remaining credits but could not determine original price",
-			leadID, remainingCredits.Int32)
-		return 0, nil
+	if paidAmount <= 0 {
+		return nil, fmt.Errorf("cannot value unused credits: invalid pre-cycle payment amount")
 	}
 
-	// For multi-level bundles (2+ levels): charge consumed levels at default price, refund the rest
-	// For single-level purchases: refund what they paid (no consumed levels to charge)
-	var unusedCreditsValue int32
-	if levelsPurchased.Int32 > 1 {
-		// Multi-level bundle dropout logic:
-		// They paid a discounted price for the bundle but are backing out.
-		// Charge consumed levels at default price (no discount).
-		// Refund = Total Paid - (Consumed Levels × Default Price)
-		consumedValue := levelsConsumed.Int32 * SINGLE_LEVEL_PRICE_EGP
-		unusedCreditsValue = finalPrice.Int32 - consumedValue
-
-		// Safety check: refund cannot be negative
-		if unusedCreditsValue < 0 {
-			unusedCreditsValue = 0
-		}
-
-		log.Printf("💰 Multi-level bundle refund: lead=%s, final_price=%d, consumed=%d, consumed_value=%d, refund=%d",
-			leadID, finalPrice.Int32, levelsConsumed.Int32, consumedValue, unusedCreditsValue)
-	} else {
-		// Single-level purchase: refund what they paid (they haven't consumed it yet if they have credits)
-		unusedCreditsValue = finalPrice.Int32
-		log.Printf("💰 Single-level refund: lead=%s, refund=%d", leadID, unusedCreditsValue)
+	bundleLevels := inferBundleLevelsFromPaidAmount(paidAmount)
+	if bundleLevels < remainingCredits {
+		// If paid amount is heavily discounted, don't allow negative consumed count.
+		bundleLevels = remainingCredits
 	}
 
-	return unusedCreditsValue, nil
+	consumedLevels := bundleLevels - remainingCredits
+	if consumedLevels < 0 {
+		consumedLevels = 0
+	}
+
+	consumedValue := consumedLevels * singleLevelPriceEGP
+	unusedCreditsValue := paidAmount - consumedValue
+	if unusedCreditsValue < 0 {
+		unusedCreditsValue = 0
+	}
+
+	// Safety ceiling: unused-credit value should not exceed standard value of remaining levels.
+	maxUnusedByStandard := remainingCredits * singleLevelPriceEGP
+	if unusedCreditsValue > maxUnusedByStandard {
+		unusedCreditsValue = maxUnusedByStandard
+	}
+
+	breakdown.BundleLevels = bundleLevels
+	breakdown.ConsumedLevels = consumedLevels
+	breakdown.ConsumedValue = consumedValue
+	breakdown.OriginalPaidValue = paidAmount
+	breakdown.UnusedCreditsValue = unusedCreditsValue
+
+	log.Printf("💰 Carryover refund: lead=%s paid=%d bundle_levels=%d remaining=%d consumed=%d unused=%d",
+		leadID, paidAmount, bundleLevels, remainingCredits, consumedLevels, unusedCreditsValue)
+
+	return breakdown, nil
+}
+
+// CalculateUnusedCreditsRefund returns only the unused-credits value.
+func CalculateUnusedCreditsRefund(leadID uuid.UUID) (int32, error) {
+	breakdown, err := GetUnusedCreditsRefundBreakdown(leadID)
+	if err != nil {
+		return 0, err
+	}
+	return breakdown.UnusedCreditsValue, nil
 }
 
 // GetTotalCoursePaidCurrentCycle returns the net course payments since the last class completion.

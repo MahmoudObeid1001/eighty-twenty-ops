@@ -434,16 +434,20 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 					calculatedRemainingCredits = 0
 				}
 			}
-			if detail.Lead.LevelsConsumed.Valid && detail.Lead.LevelsConsumed.Int32 > 0 {
-				consumedLevelsForRefund = detail.Lead.LevelsConsumed.Int32
-				consumedValueForRefund = consumedLevelsForRefund * 1300
+			breakdown, refundErr := models.GetUnusedCreditsRefundBreakdown(leadID)
+			if refundErr != nil {
+				log.Printf("ERROR: Failed to calculate unused credits refund: %v", refundErr)
+				h.renderDetailWithError(w, r, leadID, "System error: Cannot calculate unused credits refund safely. Please contact support.")
+				return
 			}
-			unusedCreditsValue, err = models.CalculateUnusedCreditsRefund(leadID)
-			if err != nil {
-				log.Printf("ERROR: Failed to calculate unused credits refund: %v", err)
-				unusedCreditsValue = 0
+			unusedCreditsValue = breakdown.UnusedCreditsValue
+			if breakdown.RemainingCredits > 0 {
+				calculatedRemainingCredits = breakdown.RemainingCredits
 			}
-			originalPaidForRefund = consumedValueForRefund + unusedCreditsValue
+			consumedLevelsForRefund = breakdown.ConsumedLevels
+			consumedValueForRefund = breakdown.ConsumedValue
+			originalPaidForRefund = breakdown.OriginalPaidValue
+
 		}
 		data["UnusedCreditsValue"] = unusedCreditsValue
 		data["RemainingCreditsCount"] = calculatedRemainingCredits
@@ -1264,10 +1268,15 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 						calculatedRemainingCredits = 0
 					}
 				}
-				unusedCreditsValue, err = models.CalculateUnusedCreditsRefund(leadID)
-				if err != nil {
-					log.Printf("ERROR: Failed to calculate unused credits refund: %v", err)
-					unusedCreditsValue = 0
+				breakdown, refundErr := models.GetUnusedCreditsRefundBreakdown(leadID)
+				if refundErr != nil {
+					log.Printf("ERROR: Failed to calculate unused credits refund: %v", refundErr)
+					h.renderDetailWithError(w, r, leadID, "System error: Cannot calculate unused credits refund safely. Please contact support.")
+					return
+				}
+				unusedCreditsValue = breakdown.UnusedCreditsValue
+				if breakdown.RemainingCredits > 0 {
+					calculatedRemainingCredits = breakdown.RemainingCredits
 				}
 			}
 
@@ -1410,16 +1419,19 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 					calculatedRemainingCredits = 0
 				}
 			}
-			if detail.Lead.LevelsConsumed.Valid && detail.Lead.LevelsConsumed.Int32 > 0 {
-				consumedLevelsForRefund = detail.Lead.LevelsConsumed.Int32
-				consumedValueForRefund = consumedLevelsForRefund * 1300
+			breakdown, refundErr := models.GetUnusedCreditsRefundBreakdown(leadID)
+			if refundErr != nil {
+				log.Printf("ERROR: Failed to calculate unused credits refund: %v", refundErr)
+				h.renderDetailWithError(w, r, leadID, "System error: Cannot calculate unused credits refund safely. Please contact support.")
+				return
 			}
-			unusedCreditsValue, err = models.CalculateUnusedCreditsRefund(leadID)
-			if err != nil {
-				log.Printf("ERROR: Failed to calculate unused credits refund: %v", err)
-				unusedCreditsValue = 0
+			unusedCreditsValue = breakdown.UnusedCreditsValue
+			if breakdown.RemainingCredits > 0 {
+				calculatedRemainingCredits = breakdown.RemainingCredits
 			}
-			originalPaidForRefund = consumedValueForRefund + unusedCreditsValue
+			consumedLevelsForRefund = breakdown.ConsumedLevels
+			consumedValueForRefund = breakdown.ConsumedValue
+			originalPaidForRefund = breakdown.OriginalPaidValue
 		}
 
 		// Total refundable amount = current cycle payments + unused credits value
