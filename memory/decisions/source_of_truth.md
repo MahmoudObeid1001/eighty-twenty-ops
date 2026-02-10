@@ -116,6 +116,25 @@
 **Business Rule**: A session cannot be marked completed until attendance is recorded for all applicable students.  
 **Exception**: Late joiners are excluded for sessions before their join session.
 
+### Late Joiner Eligibility (Sent-Not-Started Exception)
+
+**Business Rule**: Late Joiner can target classes that are either:
+- `round_status = 'active'` (normal case), or
+- `sent_to_mentor = true` and `round_status = 'not_started'` (pre-start exception).
+
+**Capacity Rule**: Keep the same late-join capacity gate (4-5 current students).
+
+**Notification Rule**:
+- If late join happens into a not-started sent class, show a notification banner to **Mentor Head only**.
+- Banner must be dismissible via close `X` (acknowledge/dismiss action).
+
+**State Invariant**:
+- After a successful late join, lead lifecycle state is authoritative:
+  - `leads.status` must remain `in_classes`
+  - `leads.sent_to_classes` must remain `true`
+- Generic Pre-Enrolment `Save` must not downgrade or reset these fields.
+- Revert is only through explicit `Undo Late Join`.
+
 ### Final Grading Repeat Risk Indicator
 
 **Business Rule**: Students with more than 2 missed sessions must be flagged during final grading.  
@@ -124,10 +143,16 @@
 ### Returning Students Credits & Repeat Flag
 
 **Business Rule**: Remaining credits are computed as `levels_purchased_total - levels_consumed` (min 0).  
+**Implementation Invariant**: For returning students, `levels_consumed` is cumulative across cycles, so when a new bundle is purchased, `levels_purchased_total` must be stored as a cumulative target: `levels_consumed_at_purchase + bundle_levels_bought`.  
 **UI**: Pre‑enrolment list shows a **REPEAT** badge if the latest class outcome is `repeated`.  
 **Status**: When remaining credits = 0 after close round, status must be `renewal_pending` (not paid_full).
 
 **Filter**: Pre‑enrolment list includes a Repeat Level filter.
+
+### Cancellation Refund Guard (Returning Students)
+
+**Business Rule**: Cancel flow refund checks must use computed remaining credits (`levels_purchased_total - levels_consumed`), not stale cached values.  
+**Required behavior**: If computed remaining credits > 0, cancellation must enforce refund modal/validation for unused credits value.
 
 ---
 
@@ -186,6 +211,15 @@
 - Mentor can view for their class
 
 **Purpose**: Student card needs "last level grade" + progress signal
+
+### Grade Notes Sync Rule
+
+**Business Rule**: Final grading notes entered in the grading portal must also appear in the student's global notes feed.
+
+**Required behavior**:
+- Saving/updating a final grade note updates `grades.notes` and mirrors it to `student_notes`.
+- Clearing a final grade note removes the mirrored note from `student_notes`.
+- The mirrored note is mentor-facing (not private) and tied to the same class/session context.
 
 ---
 

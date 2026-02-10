@@ -181,6 +181,14 @@ export default function ClassWorkspace() {
     return completedCount >= 8 || (classData.sessions.length > 0 && classData.sessions.every(s => s.status === 'completed'))
   }, [classData])
 
+  useEffect(() => {
+    // Keep UI consistent with lock rule: grading tab is inaccessible
+    // until all sessions are completed.
+    if (!allSessionsCompleted && activeTab === 'grades') {
+      setActiveTab('sessions')
+    }
+  }, [allSessionsCompleted, activeTab])
+
   const canEditGrades = userRole === 'mentor' || userRole === 'mentor_head'
   const canViewFeedbackCollected = userRole === 'mentor_head' || userRole === 'admin'
   const canOpenCompliance = userRole === 'student_success'
@@ -364,22 +372,6 @@ export default function ClassWorkspace() {
 
       {activeTab === 'sessions' && (
         <>
-          {!allSessionsCompleted && (
-            <div style={{
-              background: '#e7f3ff',
-              color: '#0056b3',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              marginBottom: '24px',
-              fontSize: '14px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <span style={{ fontSize: '18px' }}>ℹ️</span>
-              <span>Final Grading will be unlocked once all sessions are completed (e.g. Session 8 finished).</span>
-            </div>
-          )}
           <div style={{ marginBottom: '24px' }}>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', background: '#f8f9fa', padding: '12px', borderRadius: '12px' }}>
               {classData.sessions.map((s) => {
@@ -590,12 +582,25 @@ export default function ClassWorkspace() {
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {/*
+                      Interaction gate:
+                      - UI remains interactive for mentors/MH unless class is archived/closed.
+                      - "all sessions completed" is enforced on save attempts, not via dead-looking disabled inputs.
+                    */}
+                    {(() => {
+                      const canInteractGradeFields = !isSaving && classData.class.round_status !== 'closed' && canEditGrades
+                      return (
+                        <>
                     <select
                       value={currentGrade.grade}
-                      disabled={isSaving || classData.class.round_status === 'closed' || !canEditGrades}
+                      disabled={!canInteractGradeFields}
                       onChange={(e) => {
                         if (!canEditGrades) return
                         const nextGrade = e.target.value
+                        if (!allSessionsCompleted) {
+                          setActionError("Final Grading is locked until all sessions are completed (e.g. Session 8 finished).")
+                          return
+                        }
                         setGrades({ ...grades, [student.lead_id]: { ...currentGrade, grade: nextGrade } })
                         if (!nextGrade) {
                           if (currentGrade.grade) {
@@ -625,10 +630,14 @@ export default function ClassWorkspace() {
                       type="text"
                       placeholder="Add final notes..."
                       value={currentGrade.notes}
-                      disabled={isSaving || classData.class.round_status === 'closed' || !canEditGrades || !currentGrade.grade}
+                      disabled={!canInteractGradeFields || !currentGrade.grade}
                       onBlur={(e) => {
                         if (!canEditGrades) return
                         if (!currentGrade.grade) return
+                        if (!allSessionsCompleted) {
+                          setActionError("Final Grading is locked until all sessions are completed (e.g. Session 8 finished).")
+                          return
+                        }
                         handleUpdateGrade(student.lead_id, currentGrade.grade, e.target.value)
                       }}
                       onChange={(e) => {
@@ -647,6 +656,9 @@ export default function ClassWorkspace() {
 
                     {isSaving && <span style={{ fontSize: '12px', color: '#666' }}>Saving...</span>}
                     {!canEditGrades && <span style={{ fontSize: '12px', color: '#999' }}>Read-only</span>}
+                        </>
+                      )
+                    })()}
                   </div>
                 </div>
               )

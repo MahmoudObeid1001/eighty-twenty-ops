@@ -47,7 +47,7 @@
 </div>
 {{end}}
 
-{{if .Error}}
+{{if and .Error (not .ShowCancelModal)}}
 <div
     style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #721C24;">
     <strong>Error:</strong> {{.Error}}
@@ -288,9 +288,7 @@
         </div>
 
         <!-- 3. Offer & Pricing -->
-        <div class="form-section" {{if
-            .IsWaitingForRound}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"
-            {{end}}>
+        <div class="form-section">
             <h2>Offer & Pricing</h2>
             {{if eq .Detail.Lead.Status "renewal_pending"}}
             <div
@@ -306,62 +304,20 @@
                 bundle. No new offer needed.
             </div>
             {{end}}
-            <div class="section-note">Admin: Sets pricing and sends offer</div>
-
-            <div class="form-row">
-                <div class="form-group">
-                    <label for="bundle">Bundle Selected</label>
-                    <select id="bundle" name="bundle" onchange="updateBundlePricing()" {{if
-                        .IsWaitingForRound}}disabled{{end}}>
-                        <option value="" {{if or (not .Detail.Offer) (not
-                            .Detail.Offer.BundleLevels.Valid)}}selected{{end}}>-- Select bundle --</option>
-                        <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
-                            .Detail.Offer.BundleLevels.Int32 1}}selected{{end}}{{end}}>Bundle 1 (1 level = 1300 EGP)
-                        </option>
-                        <option value="2" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
-                            .Detail.Offer.BundleLevels.Int32 2}}selected{{end}}{{end}}>Bundle 2 (2 levels = 2400 EGP)
-                        </option>
-                        <option value="3" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
-                            .Detail.Offer.BundleLevels.Int32 3}}selected{{end}}{{end}}>Bundle 3 (3 levels = 3300 EGP)
-                        </option>
-                        <option value="4" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid}}{{if eq
-                            .Detail.Offer.BundleLevels.Int32 4}}selected{{end}}{{end}}>Bundle 4 (4 levels = 4000 EGP)
-                        </option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="base_price">Base Price</label>
-                    <input type="number" id="base_price" name="base_price"
-                        value="{{if and .Detail.Offer .Detail.Offer.BasePrice.Valid}}{{.Detail.Offer.BasePrice.Int32}}{{end}}"
-                        step="1" readonly style="background-color: #F5F5F5;">
-                    <small style="color: #666; display: block; margin-top: 5px;">Auto-calculated from bundle</small>
-                </div>
-            </div>
-
-            <div class="form-row">
-                <div class="form-group">
-                    <label for="discount">Discount (Amount or %)</label>
-                    <input type="text" id="discount" name="discount"
-                        value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{if .Detail.Offer.DiscountType.Valid}}{{if eq .Detail.Offer.DiscountType.String `percent` }}%{{end}}{{end}}{{end}}"
-                        placeholder="e.g., 500 or 10%" onchange="updateFinalPrice()" {{if
-                        .IsWaitingForRound}}disabled{{end}}>
-                </div>
-                <div class="form-group">
-                    <label for="final_price">Final Price</label>
-                    <input type="number" id="final_price" name="final_price"
-                        value="{{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}{{.Detail.Offer.FinalPrice.Int32}}{{end}}"
-                        step="1" onchange="updateFinalPrice()" {{if .IsWaitingForRound}}disabled{{end}}>
-                    <small style="color: #666; display: block; margin-top: 5px;">Auto-calculated: Base - Discount
-                        (editable)</small>
-                </div>
-            </div>
+            <div class="section-note">Click "Packages Sent", then add a short follow-up note.</div>
 
             <div class="form-group">
-                <label>Status</label>
-                <span class="status-indicator {{.Detail.Lead.Status}}"
-                    style="opacity: 0.7; font-size: 12px;">{{.StatusDisplayName}}</span>
-                <small style="color: #666; display: block; margin-top: 5px;">Status is displayed in the header banner
-                    above</small>
+                <label for="offer_notes">Offer Follow-up Notes</label>
+                <textarea id="offer_notes" name="offer_notes"
+                    placeholder="Example: Student asked for discount on all packages. Follow up again on Friday.">{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
+                <small style="color: #666; display: block; margin-top: 5px;">Use this to track callbacks, objections,
+                    and discount discussions before payment.</small>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+                <span class="status-indicator {{.Detail.Lead.Status}}" style="opacity: 0.8; font-size: 12px;">{{.StatusDisplayName}}</span>
+                <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
+                    class="btn btn-secondary">Packages Sent</button>
             </div>
         </div>
 
@@ -454,18 +410,7 @@
                 {{end}}
             </div>
 
-            {{if and (eq .FinalPrice 0) (not .IsWaitingForRound)}}
-            <div
-                style="padding: 15px; background-color: #FFF4E6; border: 1px solid #FFA500; border-radius: 4px; margin-bottom: 15px;">
-                <strong>⚠️ Set offer first:</strong> You must set the offer final price in the "Offer & Pricing" section
-                above and click <strong>Save</strong> before adding course payments.
-                {{if and .Detail.Offer .Detail.Offer.FinalPrice.Valid}}
-                <br><small style="color: #666;">Note: Final price is set in the form but not saved yet. Please click
-                    Save to
-                    persist it.</small>
-                {{end}}
-            </div>
-            {{else if eq .RemainingBalance 0}}
+            {{if eq .RemainingBalance 0}}
             <div
                 style="padding: 15px; background-color: #E8F5E9; border: 1px solid #28a745; border-radius: 4px; margin-bottom: 15px;">
                 <strong>✓ Paid in full:</strong> This lead has paid the full offer amount. No additional payments
@@ -475,9 +420,63 @@
 
             <div class="form-row">
                 <div class="form-group">
+                    <label for="payment_bundle">Bundle Selector *</label>
+                    <select id="payment_bundle" name="bundle_id" form="pre-enrolment-form" {{if eq
+                        .RemainingBalance 0}}disabled{{end}}>
+                        <option value="">-- Select bundle --</option>
+                        <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
+                            .Detail.Offer.BundleLevels.Int32 1)}}selected{{end}}>Bundle 1 (Base: 1300 EGP)</option>
+                        <option value="2" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
+                            .Detail.Offer.BundleLevels.Int32 2)}}selected{{end}}>Bundle 2 (Base: 2400 EGP)</option>
+                        <option value="3" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
+                            .Detail.Offer.BundleLevels.Int32 3)}}selected{{end}}>Bundle 3 (Base: 3300 EGP)</option>
+                        <option value="4" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
+                            .Detail.Offer.BundleLevels.Int32 4)}}selected{{end}}>Bundle 4 (Base: 4000 EGP)</option>
+                    </select>
+                    <small class="form-text text-muted">Select bundle to define base course price.</small>
+                </div>
+                <div class="form-group">
+                    <label for="payment_bundle_base_price">Bundle Base Price</label>
+                    <input type="text" id="payment_bundle_base_price" readonly value="{{if and .Detail.Offer
+                        .Detail.Offer.BasePrice.Valid}}{{.Detail.Offer.BasePrice.Int32}} EGP{{end}}">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="payment_discount_value">Discount Value</label>
+                    <input type="number" id="payment_discount_value" name="discount_amount" min="0" step="1"
+                        form="pre-enrolment-form" value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{end}}"
+                        {{if eq .RemainingBalance 0}}disabled{{end}}>
+                </div>
+                <div class="form-group">
+                    <label for="payment_discount_type">Discount Type</label>
+                    <select id="payment_discount_type" name="discount_type" form="pre-enrolment-form" {{if eq
+                        .RemainingBalance 0}}disabled{{end}}>
+                        <option value="amount" {{if and .Detail.Offer .Detail.Offer.DiscountType.Valid (eq
+                            .Detail.Offer.DiscountType.String `amount`)}}selected{{end}}>Amount</option>
+                        <option value="percent" {{if and .Detail.Offer .Detail.Offer.DiscountType.Valid (eq
+                            .Detail.Offer.DiscountType.String `percent`)}}selected{{end}}>Percent</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="width: 100%;">
+                    <label>Final Price</label>
+                    <div id="payment_final_price_display"
+                        style="padding: 10px 12px; border: 1px solid #E0E0E0; border-radius: 4px; background: #FAFAFA;">
+                        Base - Discount = Final Due
+                    </div>
+                    <input type="hidden" id="payment_final_price_value" name="payment_final_price">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
                     <label for="course_payment_type">Payment Type *</label>
-                    <select id="course_payment_type" name="course_payment_type" form="pre-enrolment-form" {{if or (eq
-                        .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                    <select id="course_payment_type" name="course_payment_type" form="pre-enrolment-form" {{if eq
+                        .RemainingBalance 0}}disabled{{end}}>
                         <option value="">Select type</option>
                         <option value="deposit">Deposit</option>
                         <option value="full_payment">Full Payment</option>
@@ -486,12 +485,11 @@
                 </div>
                 <div class="form-group">
                     <label for="course_payment_amount">Amount (EGP) *</label>
-                    <input type="number" id="course_payment_amount" name="course_payment_amount" min="1"
-                        max="{{.RemainingBalance}}" step="1" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq
-                        .RemainingBalance 0)}}disabled{{end}}>
+                    <input type="number" id="course_payment_amount" name="payment_amount" min="1" step="1"
+                        form="pre-enrolment-form" {{if eq .RemainingBalance 0}}disabled{{end}}>
                     {{if gt .RemainingBalance 0}}
-                    <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.RemainingBalance}} EGP
-                        (remaining balance)</small>
+                    <small style="color: #666; display: block; margin-top: 5px;">Auto-filled from final due. You can
+                        lower it manually only for Deposit payments.</small>
                     {{end}}
                 </div>
             </div>
@@ -499,8 +497,8 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="course_payment_method">Payment Method *</label>
-                    <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" {{if or
-                        (eq .FinalPrice 0) (eq .RemainingBalance 0)}}disabled{{end}}>
+                    <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" {{if eq
+                        .RemainingBalance 0}}disabled{{end}}>
                         <option value="">Select method</option>
                         <option value="vodafone_cash">Vodafone Cash</option>
                         <option value="bank_transfer">Bank Transfer</option>
@@ -511,8 +509,7 @@
                 <div class="form-group">
                     <label for="course_payment_date">Payment Date *</label>
                     <input type="date" id="course_payment_date" name="course_payment_date" value="{{.Today}}"
-                        max="{{.Today}}" form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq .RemainingBalance
-                        0)}}disabled{{end}}>
+                        max="{{.Today}}" form="pre-enrolment-form" {{if eq .RemainingBalance 0}}disabled{{end}}>
                 </div>
             </div>
 
@@ -520,8 +517,8 @@
                 <div class="form-group">
                     <label for="course_payment_notes">Notes</label>
                     <input type="text" id="course_payment_notes" name="course_payment_notes"
-                        placeholder="Optional notes..." form="pre-enrolment-form" {{if or (eq .FinalPrice 0) (eq
-                        .RemainingBalance 0)}}disabled{{end}}>
+                        placeholder="Optional notes..." form="pre-enrolment-form" {{if eq .RemainingBalance
+                        0}}disabled{{end}}>
                 </div>
             </div>
 
@@ -706,7 +703,7 @@
             Tested</button>
         {{end}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
-            class="btn btn-secondary">Mark Offer Sent</button>
+            class="btn btn-secondary">Packages Sent</button>
         {{if and .IsAdmin .ColdEligible}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_cold_lead" class="btn btn-secondary"
             style="background-color: #4A5568; border-color: #4A5568; color: white;">Send
@@ -745,7 +742,7 @@
 
     <!-- Late Joiner Button - Only show if not already sent, AND user is admin, AND assigned level set -->
     {{if and .IsAdmin (not .Detail.Lead.SentToClasses) .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid
-    (ne .Detail.Lead.Status "in_classes")}}
+    (ne .Detail.Lead.Status "in_classes") (not .LateJoiner)}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <button type="button" class="btn" style="background-color: #6c5ce7; border-color: #6c5ce7; color: white;"
             onclick="openLateJoinModal()">Add as Late Joiner</button>
@@ -834,6 +831,12 @@
             <h2 style="margin-top: 0; color: #dc3545;">⚠️ Cancel Lead: {{.Detail.Lead.FullName}}</h2>
             <p style="color: #666;">Cancelling this lead will mark it as cancelled. If the lead has course payments, a
                 refund must be created.</p>
+            {{if and .Error (ne .ErrorCode "refund_required") (ne .ErrorCode "invalid_amount") (ne .ErrorCode "amount_exceeds") (ne .ErrorCode "method_required") (ne .ErrorCode "invalid_method") (ne .ErrorCode "date_required") (ne .ErrorCode "invalid_date") (ne .ErrorCode "future_date")}}
+            <div
+                style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 12px; margin: 12px 0; border-radius: 4px; color: #721C24;">
+                <strong>Error:</strong> {{.Error}}
+            </div>
+            {{end}}
 
 
             <div style="margin: 20px 0; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
@@ -875,6 +878,14 @@
                     {{end}}
                 </table>
             </div>
+            {{if gt .UnusedCreditsValue 0}}
+            <small style="color: #666; display: block; margin-top: 8px; margin-bottom: 16px;">
+                Why {{.UnusedCreditsValue}} EGP? Consumed levels are charged at 1300 EGP each:
+                {{.ConsumedLevelsForRefund}} × 1300 = {{.ConsumedValueForRefund}} EGP.
+                Original paid value ({{.OriginalPaidForRefund}} EGP) - consumed value ({{.ConsumedValueForRefund}} EGP)
+                = {{.UnusedCreditsValue}} EGP refundable.
+            </small>
+            {{end}}
 
             {{if gt .TotalRefundableAmount 0}}
             <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
@@ -887,6 +898,9 @@
                     <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalRefundableAmount}} EGP
                         {{if gt .UnusedCreditsValue 0}}({{.TotalCoursePaid}} current cycle + {{.UnusedCreditsValue}}
                         unused credits){{end}}</small>
+                    {{if or (eq .ErrorCode "refund_required") (eq .ErrorCode "invalid_amount") (eq .ErrorCode "amount_exceeds")}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{.Error}}</small>
+                    {{end}}
                 </div>
 
                 <div class="form-group" style="margin-bottom: 15px;">
@@ -898,12 +912,18 @@
                         <option value="paypal">PayPal</option>
                         <option value="other">Other</option>
                     </select>
+                    {{if or (eq .ErrorCode "method_required") (eq .ErrorCode "invalid_method")}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{.Error}}</small>
+                    {{end}}
                 </div>
 
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label for="refund_date">Refund Date *</label>
                     <input type="date" id="refund_date" name="refund_date" value="{{.Today}}" max="{{.Today}}" required>
                     <small style="color: #666; display: block; margin-top: 5px;">Date cannot be in the future</small>
+                    {{if or (eq .ErrorCode "date_required") (eq .ErrorCode "invalid_date") (eq .ErrorCode "future_date")}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{.Error}}</small>
+                    {{end}}
                 </div>
 
                 <div class="form-group" style="margin-bottom: 15px;">
@@ -945,8 +965,7 @@
         <div
             style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 95%; max-height: 90vh; overflow-y: auto;">
             <h2 style="margin-top: 0; color: #6c5ce7;">Add as Late Joiner</h2>
-            <p style="color: #666;">Student will join an active class in session 1 or 2. Past sessions will be marked as
-                'N/A'.</p>
+            <p style="color: #666;">Student will join an eligible class in session 1 or 2 (active, or sent to Mentor Head but not started). Past sessions will be marked as 'N/A'.</p>
 
             <div id="late-join-error"
                 style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin: 20px 0; border-radius: 4px; color: #721C24; display: none;">
@@ -966,7 +985,7 @@
             <div style="display: flex; gap: 10px; margin-top: 20px;">
                 <button type="button" id="confirm-late-join-btn" class="btn"
                     style="background-color: #6c5ce7; border-color: #6c5ce7; color: white; flex: 1;"
-                    onclick="confirmLateJoin()" disabled>Confirm Join</button>
+                    onclick="confirmLateJoin()">Confirm Join</button>
                 <button type="button" class="btn btn-secondary" style="flex: 1;"
                     onclick="closeLateJoinModal()">Cancel</button>
             </div>
@@ -1041,6 +1060,7 @@
         3: 3300,
         4: 4000
     };
+    let depositAmountManuallyEdited = false;
 
     function updateBundlePricing() {
         const bundleSelect = document.getElementById('bundle');
@@ -1091,6 +1111,48 @@
         finalPriceInput.value = finalPrice;
     }
 
+    function calculateCoursePaymentFinal() {
+        const bundleEl = document.getElementById('payment_bundle');
+        const basePriceEl = document.getElementById('payment_bundle_base_price');
+        const discountValueEl = document.getElementById('payment_discount_value');
+        const discountTypeEl = document.getElementById('payment_discount_type');
+        const paymentTypeEl = document.getElementById('course_payment_type');
+        const amountEl = document.getElementById('course_payment_amount');
+        const finalDisplayEl = document.getElementById('payment_final_price_display');
+        const finalValueEl = document.getElementById('payment_final_price_value');
+
+        if (!bundleEl || !basePriceEl || !discountValueEl || !discountTypeEl || !amountEl || !finalDisplayEl || !finalValueEl) {
+            return;
+        }
+
+        const bundleId = bundleEl.value;
+        const basePrice = bundleId && bundlePrices[bundleId] ? bundlePrices[bundleId] : 0;
+        const discountRaw = parseFloat(discountValueEl.value) || 0;
+        const discountType = discountTypeEl.value || "amount";
+        let discountAmount = 0;
+
+        if (basePrice > 0) {
+            if (discountType === "percent") {
+                discountAmount = Math.round((basePrice * discountRaw) / 100);
+            } else {
+                discountAmount = Math.round(discountRaw);
+            }
+            if (discountAmount < 0) discountAmount = 0;
+            if (discountAmount > basePrice) discountAmount = basePrice;
+        }
+
+        const finalDue = Math.max(0, basePrice - discountAmount);
+        basePriceEl.value = basePrice > 0 ? `${basePrice} EGP` : '';
+        finalValueEl.value = finalDue > 0 ? String(finalDue) : '';
+        finalDisplayEl.textContent = `${basePrice} - ${discountAmount} = ${finalDue} EGP`;
+
+        const paymentType = paymentTypeEl ? paymentTypeEl.value : "";
+        const isDeposit = paymentType === "deposit";
+        if (!isDeposit || !depositAmountManuallyEdited) {
+            amountEl.value = finalDue > 0 ? String(finalDue) : "";
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         togglePrintedFields();
 
@@ -1107,6 +1169,49 @@
         const bundleSelect = document.getElementById('bundle');
         if (bundleSelect && bundleSelect.value) {
             updateBundlePricing();
+        }
+
+        const paymentBundleEl = document.getElementById('payment_bundle');
+        const paymentDiscountValueEl = document.getElementById('payment_discount_value');
+        const paymentDiscountTypeEl = document.getElementById('payment_discount_type');
+        const coursePaymentTypeEl = document.getElementById('course_payment_type');
+        const coursePaymentAmountEl = document.getElementById('course_payment_amount');
+
+        if (paymentBundleEl || paymentDiscountValueEl || paymentDiscountTypeEl) {
+            calculateCoursePaymentFinal();
+        }
+        if (paymentBundleEl) {
+            paymentBundleEl.addEventListener('change', function () {
+                depositAmountManuallyEdited = false;
+                calculateCoursePaymentFinal();
+            });
+        }
+        if (paymentDiscountValueEl) {
+            paymentDiscountValueEl.addEventListener('input', calculateCoursePaymentFinal);
+        }
+        if (paymentDiscountTypeEl) {
+            paymentDiscountTypeEl.addEventListener('change', calculateCoursePaymentFinal);
+        }
+        if (coursePaymentTypeEl) {
+            coursePaymentTypeEl.addEventListener('change', function () {
+                if (this.value !== 'deposit') {
+                    depositAmountManuallyEdited = false;
+                }
+                calculateCoursePaymentFinal();
+            });
+        }
+        if (coursePaymentAmountEl) {
+            coursePaymentAmountEl.addEventListener('input', function () {
+                if (!coursePaymentTypeEl) return;
+                if (coursePaymentTypeEl.value !== 'deposit') {
+                    depositAmountManuallyEdited = false;
+                    return;
+                }
+                const finalValueEl = document.getElementById('payment_final_price_value');
+                const finalDue = finalValueEl ? parseInt(finalValueEl.value, 10) || 0 : 0;
+                const entered = parseInt(this.value, 10) || 0;
+                depositAmountManuallyEdited = finalDue > 0 && entered > 0 && entered !== finalDue;
+            });
         }
     });
 
@@ -1137,7 +1242,7 @@
                     return;
                 }
                 if (!data.classes || data.classes.length === 0) {
-                    container.innerHTML = '<p style="color: #CC6600;">No eligible classes found (requires capacity 4-5 and session 1-2).</p>';
+                    container.innerHTML = '<p style="color: #CC6600;">No eligible classes found (requires session 1-2, capacity 4-5, and class state: active OR sent-to-MH not-started).</p>';
                     return;
                 }
 
@@ -1169,10 +1274,11 @@
     }
 
     function validateLateJoinForm() {
-        const classSelected = document.querySelector('input[name="selected_class"]:checked');
-        const reason = document.getElementById('late_join_reason').value.trim();
-        const btn = document.getElementById('confirm-late-join-btn');
-        btn.disabled = !(classSelected && reason.length >= 10);
+        const errBox = document.getElementById('late-join-error');
+        if (errBox && errBox.style.display === 'block') {
+            errBox.style.display = 'none';
+            errBox.innerText = '';
+        }
     }
 
     document.getElementById('late_join_reason').addEventListener('input', validateLateJoinForm);
@@ -1180,15 +1286,26 @@
     function confirmLateJoin() {
         const leadId = "{{.Detail.Lead.ID}}";
         const selectedClass = document.querySelector('input[name="selected_class"]:checked');
-        const reason = document.getElementById('late_join_reason').value;
+        const reason = document.getElementById('late_join_reason').value.trim();
+        const errBox = document.getElementById('late-join-error');
 
         if (!selectedClass) {
-            alert('Please select a class');
+            if (errBox) {
+                errBox.innerText = 'Please select a class.';
+                errBox.style.display = 'block';
+            }
             return;
         }
         if (reason.length < 10) {
-            alert('Please provide a reason (at least 10 chars)');
+            if (errBox) {
+                errBox.innerText = 'Please provide a reason (at least 10 characters).';
+                errBox.style.display = 'block';
+            }
             return;
+        }
+        if (errBox) {
+            errBox.style.display = 'none';
+            errBox.innerText = '';
         }
 
         const btn = document.getElementById('confirm-late-join-btn');
@@ -1218,9 +1335,12 @@
                 }
             })
             .catch(err => {
-                alert('Error: ' + err.message);
+                if (errBox) {
+                    errBox.innerText = `Error: ${err.message}`;
+                    errBox.style.display = 'block';
+                }
                 btn.disabled = false;
-                btn.innerText = 'Confirm Late Join';
+                btn.innerText = 'Confirm Join';
             });
     }
 

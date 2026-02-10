@@ -542,22 +542,22 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /api/compliance/class/:class_key -> apiHandler.GetComplianceByClass [student_success]")
 
 	mux.HandleFunc("/api/reports/mentors", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetMentorReports)(w, r)
+		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetMentorReports)(w, r)
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors -> apiHandler.GetMentorReports [student_success+mentor_head+admin+manager]")
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors -> apiHandler.GetMentorReports [student_success+mentor_head+manager]")
 
 	mux.HandleFunc("/api/reports/mentors/checklist", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetMentorReportChecklist)(w, r)
+		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetMentorReportChecklist)(w, r)
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors/checklist -> apiHandler.GetMentorReportChecklist [student_success+mentor_head+admin+manager]")
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors/checklist -> apiHandler.GetMentorReportChecklist [student_success+mentor_head+manager]")
 
 	mux.HandleFunc("/api/reports/mentors/classes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetMentorClassReports)(w, r)
+		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetMentorClassReports)(w, r)
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors/classes -> apiHandler.GetMentorClassReports [student_success+mentor_head+admin+manager]")
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors/classes -> apiHandler.GetMentorClassReports [student_success+mentor_head+manager]")
 
 	mux.HandleFunc("/api/reports/mentors/exclude", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.ExcludeMentorReportRow)(w, r)
+		middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.ExcludeMentorReportRow)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors/exclude -> apiHandler.ExcludeMentorReportRow [mentor_head+admin]")
 

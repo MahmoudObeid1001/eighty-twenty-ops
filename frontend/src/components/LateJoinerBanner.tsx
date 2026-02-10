@@ -106,7 +106,7 @@ export default function LateJoinerBanner({ userRole }: LateJoinerBannerProps) {
                             </span>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <Link
                             to={getClassPath(notification.class_key)}
                             className="btn btn-sm btn-outline-primary"
@@ -129,18 +129,22 @@ export default function LateJoinerBanner({ userRole }: LateJoinerBannerProps) {
                             onClick={() => acknowledge(notification.id)}
                             disabled={dismissing.has(notification.id)}
                             className="btn btn-sm"
+                            title="Dismiss"
+                            aria-label="Dismiss notification"
                             style={{
-                                backgroundColor: '#28a745',
-                                color: 'white',
-                                border: 'none',
-                                padding: '6px 14px',
-                                borderRadius: '4px',
+                                backgroundColor: 'transparent',
+                                color: '#666',
+                                border: '1px solid #d0d7de',
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
                                 cursor: dismissing.has(notification.id) ? 'not-allowed' : 'pointer',
-                                fontWeight: 500,
+                                fontSize: '18px',
+                                lineHeight: 1,
                                 opacity: dismissing.has(notification.id) ? 0.6 : 1,
                             }}
                         >
-                            {dismissing.has(notification.id) ? 'Acknowledging...' : 'Acknowledge'}
+                            {dismissing.has(notification.id) ? '…' : '×'}
                         </button>
                     </div>
                 </div>

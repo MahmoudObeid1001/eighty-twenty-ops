@@ -412,7 +412,12 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 
 	// Default sorting (unless hot filter is active, then we sort after computing flags in Go)
 	if hotFilter != "hot" {
-		query += " ORDER BY l.created_at DESC"
+		if statusFilter == "cancelled" {
+			// Cancelled view should show most recently cancelled leads first.
+			query += " ORDER BY l.cancelled_at DESC NULLS LAST, l.updated_at DESC"
+		} else {
+			query += " ORDER BY l.created_at DESC"
+		}
 	} else {
 		// For hot filter, we'll sort in Go after computing flags, but still need an ORDER BY for SQL
 		query += " ORDER BY l.created_at DESC"
@@ -972,6 +977,42 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 	return err
 }
 
+// UpdateLeadPurchasedLevels updates levels_purchased_total for a lead.
+// For returning students, levels_consumed is cumulative across history, so we store
+// a cumulative purchase target (levels_consumed + newly purchased levels) to preserve
+// the invariant: remaining_credits = levels_purchased_total - levels_consumed.
+func UpdateLeadPurchasedLevels(leadID uuid.UUID, levels int32) error {
+	var levelsConsumed int32
+	var isReturning bool
+	err := db.DB.QueryRow(`
+		SELECT COALESCE(levels_consumed, 0), COALESCE(is_returning, false)
+		FROM leads
+		WHERE id = $1
+	`, leadID).Scan(&levelsConsumed, &isReturning)
+	if err != nil {
+		return fmt.Errorf("failed to read lead consumption state: %w", err)
+	}
+
+	targetPurchased := levels
+	if isReturning {
+		targetPurchased = levelsConsumed + levels
+	}
+
+	_, err = db.DB.Exec(`
+		UPDATE leads
+		SET levels_purchased_total = $1,
+		    remaining_credits = GREATEST($1 - COALESCE(levels_consumed, 0), 0),
+		    updated_at = NOW()
+		WHERE id = $2
+	`, targetPurchased, leadID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update levels_purchased_total: %w", err)
+	}
+
+	return nil
+}
+
 // UpsertSchedulingClassDaysTime updates only class_days and class_time for a lead.
 // Used when marking ready to start; preserves expected_round, start_date, start_time.
 func UpsertSchedulingClassDaysTime(leadID uuid.UUID, classDays, classTime string) error {
@@ -1027,6 +1068,43 @@ func UpdateOffer(offer *Offer) error {
 	`, offer.LeadID, offer.BundleLevels, offer.BasePrice,
 		offer.DiscountValue, offer.DiscountType, offer.FinalPrice, now)
 	return err
+}
+
+// UpsertBookingAndShipping updates booking and shipping independently from full lead save.
+func UpsertBookingAndShipping(booking *Booking, shipping *Shipping) error {
+	now := time.Now()
+
+	if booking != nil {
+		_, err := db.DB.Exec(`
+			INSERT INTO bookings (id, lead_id, book_format, address, city, delivery_notes, updated_at)
+			VALUES (COALESCE((SELECT id FROM bookings WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6)
+			ON CONFLICT (lead_id) DO UPDATE SET
+				book_format = EXCLUDED.book_format,
+				address = EXCLUDED.address,
+				city = EXCLUDED.city,
+				delivery_notes = EXCLUDED.delivery_notes,
+				updated_at = EXCLUDED.updated_at
+		`, booking.LeadID, booking.BookFormat, booking.Address, booking.City, booking.DeliveryNotes, now)
+		if err != nil {
+			return fmt.Errorf("failed to upsert booking: %w", err)
+		}
+	}
+
+	if shipping != nil {
+		_, err := db.DB.Exec(`
+			INSERT INTO shipping (id, lead_id, shipment_status, shipment_date, updated_at)
+			VALUES (COALESCE((SELECT id FROM shipping WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4)
+			ON CONFLICT (lead_id) DO UPDATE SET
+				shipment_status = EXCLUDED.shipment_status,
+				shipment_date = EXCLUDED.shipment_date,
+				updated_at = EXCLUDED.updated_at
+		`, shipping.LeadID, shipping.ShipmentStatus, shipping.ShipmentDate, now)
+		if err != nil {
+			return fmt.Errorf("failed to upsert shipping: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // BookPlacementTest updates placement test fields and sets status to "test_booked"
@@ -1212,7 +1290,8 @@ func GetEligibleStudentsForClasses() ([]*ClassStudent, error) {
 // GetClassGroups groups eligible students by (level, days, time, group_index) and computes readiness
 func GetClassGroups() ([]*ClassGroup, error) {
 	// Get all eligible students with their level, days, time
-	// Include students in 'active' rounds so they don't disappear from the board
+	// Include both ready_to_start and in_classes students so late-joined students
+	// remain visible on Ops board even before Mentor Head starts the round.
 	query := `
 		SELECT l.id, l.full_name, l.phone, pt.assigned_level, s.class_days, s.class_time, s.class_group_index,
 		       COALESCE(cg.round_status, 'not_started'),
@@ -1227,7 +1306,7 @@ func GetClassGroups() ([]*ClassGroup, error) {
 			AND cg.class_time = s.class_time::text
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
-		WHERE (l.status = 'ready_to_start' OR (l.status = 'in_classes' AND cg.round_status = 'active'))
+		WHERE (l.status = 'ready_to_start' OR l.status = 'in_classes')
 		AND l.sent_to_classes = true
 		AND pt.assigned_level IS NOT NULL
 		AND s.class_days IS NOT NULL
@@ -1812,8 +1891,6 @@ func MoveStudentToClassKey(leadID uuid.UUID, classKey string) error {
 		SET class_days = $1,
 		    class_time = $2,
 		    class_group_index = $3,
-		    high_priority = false,
-		    high_priority_reason = '',
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE lead_id = $4
 	`, classDays, classTime, classNumber, leadID)
@@ -2264,22 +2341,27 @@ func GetTotalCoursePaid(leadID uuid.UUID) (int32, error) {
 // at the default single-level price (1,300 EGP), not the discounted bundle price.
 // Refund = Total Paid - (Consumed Levels × Default Price)
 // This is fair because they're backing out of the discounted deal.
+//
+// CRITICAL FIX: For returning students, the offers table is cleared when the round closes.
+// This function now uses class_enrollments history as a fallback to prevent leakage.
 func CalculateUnusedCreditsRefund(leadID uuid.UUID) (int32, error) {
 	const SINGLE_LEVEL_PRICE_EGP int32 = 1300 // Standard price for one level
 
 	var remainingCredits sql.NullInt32
 	var levelsPurchased sql.NullInt32
 	var levelsConsumed sql.NullInt32
+	var isReturning bool
 
 	// Get remaining credits (calculated dynamically) and original levels purchased
 	err := db.DB.QueryRow(`
 		SELECT 
 			GREATEST(COALESCE(levels_purchased_total, 0) - COALESCE(levels_consumed, 0), 0) AS remaining_credits,
 			levels_purchased_total,
-			COALESCE(levels_consumed, 0) AS levels_consumed
+			COALESCE(levels_consumed, 0) AS levels_consumed,
+			COALESCE(is_returning, false) AS is_returning
 		FROM leads
 		WHERE id = $1
-	`, leadID).Scan(&remainingCredits, &levelsPurchased, &levelsConsumed)
+	`, leadID).Scan(&remainingCredits, &levelsPurchased, &levelsConsumed, &isReturning)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get lead credits: %w", err)
 	}
@@ -2294,24 +2376,54 @@ func CalculateUnusedCreditsRefund(leadID uuid.UUID) (int32, error) {
 		return 0, nil
 	}
 
-	// Get the original offer final price (what they actually paid)
+	// Strategy 1: Try current offers table (for non-returning students or recent offers)
 	var finalPrice sql.NullInt32
 	err = db.DB.QueryRow(`
 		SELECT final_price
 		FROM offers
 		WHERE lead_id = $1
 	`, leadID).Scan(&finalPrice)
-	if err != nil {
-		// If no offer found, try to calculate from total payments
-		var totalPaid int32
-		totalPaid, err = GetTotalCoursePaid(leadID)
-		if err != nil || totalPaid == 0 {
-			return 0, fmt.Errorf("failed to get offer price and no payment history: %w", err)
+
+	if err == nil && finalPrice.Valid && finalPrice.Int32 > 0 {
+		log.Printf("💰 Refund calculation for lead %s: using current offers table (final_price=%d)", leadID, finalPrice.Int32)
+	} else {
+		// Strategy 2: Try class_enrollments history (for returning students with cleared offers)
+		err = db.DB.QueryRow(`
+			SELECT final_price
+			FROM class_enrollments
+			WHERE lead_id = $1
+			ORDER BY completed_at DESC
+			LIMIT 1
+		`, leadID).Scan(&finalPrice)
+
+		if err == nil && finalPrice.Valid && finalPrice.Int32 > 0 {
+			log.Printf("💰 Refund calculation for lead %s: using class_enrollments history (final_price=%d, is_returning=%v)",
+				leadID, finalPrice.Int32, isReturning)
+		} else {
+			// Strategy 3: Fallback to standard price calculation
+			// This handles edge cases where no historical data exists
+			pricePerLevel := SINGLE_LEVEL_PRICE_EGP
+			if levelsPurchased.Int32 > 0 {
+				// Try to get total paid to calculate average price per level
+				totalPaid, err := GetTotalCoursePaid(leadID)
+				if err == nil && totalPaid > 0 {
+					pricePerLevel = totalPaid / levelsPurchased.Int32
+					log.Printf("💰 Refund calculation for lead %s: using calculated price per level from total payments (price_per_level=%d, total_paid=%d, levels_purchased=%d)",
+						leadID, pricePerLevel, totalPaid, levelsPurchased.Int32)
+				} else {
+					log.Printf("💰 Refund calculation for lead %s: using fallback standard price (price_per_level=%d)",
+						leadID, SINGLE_LEVEL_PRICE_EGP)
+				}
+			}
+
+			// Calculate final price based on original bundle
+			finalPrice = sql.NullInt32{Int32: pricePerLevel * levelsPurchased.Int32, Valid: true}
 		}
-		finalPrice = sql.NullInt32{Int32: totalPaid, Valid: true}
 	}
 
 	if !finalPrice.Valid || finalPrice.Int32 <= 0 {
+		log.Printf("🚨 LEAKAGE ALERT: Lead %s has %d remaining credits but could not determine original price",
+			leadID, remainingCredits.Int32)
 		return 0, nil
 	}
 
@@ -2330,9 +2442,13 @@ func CalculateUnusedCreditsRefund(leadID uuid.UUID) (int32, error) {
 		if unusedCreditsValue < 0 {
 			unusedCreditsValue = 0
 		}
+
+		log.Printf("💰 Multi-level bundle refund: lead=%s, final_price=%d, consumed=%d, consumed_value=%d, refund=%d",
+			leadID, finalPrice.Int32, levelsConsumed.Int32, consumedValue, unusedCreditsValue)
 	} else {
 		// Single-level purchase: refund what they paid (they haven't consumed it yet if they have credits)
 		unusedCreditsValue = finalPrice.Int32
+		log.Printf("💰 Single-level refund: lead=%s, refund=%d", leadID, unusedCreditsValue)
 	}
 
 	return unusedCreditsValue, nil
@@ -2655,7 +2771,7 @@ func CreateCancelRefundIdempotent(leadID uuid.UUID, amount int32, paymentMethod 
 	if !allowedMethods[paymentMethod] {
 		return fmt.Errorf("invalid payment method: %s", paymentMethod)
 	}
-	refundableAmount, err := GetRefundableAmount(leadID)
+	refundableAmount, err := GetCancelRefundableAmount(leadID)
 	if err != nil {
 		return fmt.Errorf("failed to validate refund amount: %w", err)
 	}
@@ -2685,6 +2801,50 @@ func CreateCancelRefundIdempotent(leadID uuid.UUID, amount int32, paymentMethod 
 		log.Printf("WARNING: failed to auto-update lead status after cancel refund: %v", err)
 	}
 	return nil
+}
+
+// GetCancelRefundableAmount returns the maximum refundable amount for the cancel-lead flow.
+// It must stay aligned with pre-enrolment cancel modal calculation:
+// total refundable = current-cycle course paid + unused credits value (for leads with remaining credits).
+func GetCancelRefundableAmount(leadID uuid.UUID) (int32, error) {
+	lead, err := GetLeadByID(leadID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load lead detail: %w", err)
+	}
+	if lead == nil || lead.Lead == nil {
+		return 0, fmt.Errorf("lead detail not found")
+	}
+
+	hasRemainingCredits := false
+	if lead.Lead.LevelsPurchasedTotal.Valid {
+		remaining := lead.Lead.LevelsPurchasedTotal.Int32
+		if lead.Lead.LevelsConsumed.Valid {
+			remaining -= lead.Lead.LevelsConsumed.Int32
+		}
+		hasRemainingCredits = remaining > 0
+	} else if lead.Lead.RemainingCredits.Valid {
+		hasRemainingCredits = lead.Lead.RemainingCredits.Int32 > 0
+	}
+
+	var totalCoursePaid int32
+	if hasRemainingCredits || lead.Lead.IsReturning {
+		totalCoursePaid, err = GetTotalCoursePaidCurrentCycle(leadID)
+	} else {
+		totalCoursePaid, err = GetTotalCoursePaid(leadID)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to get course paid total: %w", err)
+	}
+
+	var unusedCreditsValue int32
+	if hasRemainingCredits {
+		unusedCreditsValue, err = CalculateUnusedCreditsRefund(leadID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to calculate unused credits refund: %w", err)
+		}
+	}
+
+	return totalCoursePaid + unusedCreditsValue, nil
 }
 
 // CancelLead soft-cancels a lead (sets status to cancelled, does not delete)
@@ -5313,7 +5473,10 @@ func GetStudentsForMentorHeadClass(classKey string) ([]*ClassStudent, error) {
 }
 
 // GetEligibleClassesForLateJoin returns classes a student is eligible to join as a late joiner.
-// Rule: Class must be active, same level, session <= 2, and current enrollment 4-5.
+// Rule: Class must be same level, session <= 2, and current enrollment 4-5.
+// Eligibility includes:
+// - active classes, and
+// - sent_to_mentor + not_started classes (pre-start exception).
 func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 	// 1. Get student's assigned level
 	var assignedLevel sql.NullInt32
@@ -5330,13 +5493,20 @@ func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 		return nil, fmt.Errorf("student has no assigned level")
 	}
 
-	// 2. Query classes matching level and round_status='active'
+	// 2. Query classes matching level and eligible class state.
 	rows, err := db.DB.Query(`
 		SELECT cg.class_key, cg.level, cg.class_days, cg.class_time,
-		       (SELECT COUNT(*) FROM class_sessions WHERE class_key = cg.class_key AND status = 'completed') + 1 as current_session
+		       (SELECT COUNT(*) FROM class_sessions WHERE class_key = cg.class_key AND status = 'completed') + 1 as current_session,
+		       COALESCE(cg.round_status, 'not_started') as round_status
 		FROM class_groups cg
-		WHERE cg.round_status = 'active'
-		  AND cg.level = $1
+		WHERE cg.level = $1
+		  AND (
+		    COALESCE(cg.round_status, 'not_started') = 'active'
+		    OR (
+		      COALESCE(cg.round_status, 'not_started') = 'not_started'
+		      AND COALESCE(cg.sent_to_mentor, false) = true
+		    )
+		  )
 	`, assignedLevel.Int32)
 	if err != nil {
 		return nil, err
@@ -5346,7 +5516,8 @@ func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 	var eligible []*EligibleClass
 	for rows.Next() {
 		ec := &EligibleClass{}
-		err := rows.Scan(&ec.ClassKey, &ec.Level, &ec.ClassDays, &ec.ClassTime, &ec.CurrentSession)
+		var roundStatus string
+		err := rows.Scan(&ec.ClassKey, &ec.Level, &ec.ClassDays, &ec.ClassTime, &ec.CurrentSession, &roundStatus)
 		if err != nil {
 			return nil, err
 		}
@@ -5356,12 +5527,32 @@ func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 			continue
 		}
 
-		// Count current enrollment
-		students, err := GetStudentsInClassGroup(ec.ClassKey)
+		// Count current enrollment:
+		// - active classes: in_classes students
+		// - sent/not_started classes: ready_to_start + in_classes roster
+		err = db.DB.QueryRow(`
+			SELECT COUNT(DISTINCT l.id)
+			FROM leads l
+			INNER JOIN scheduling s ON s.lead_id = l.id
+			INNER JOIN placement_tests pt ON pt.lead_id = l.id
+			INNER JOIN class_groups cg ON (
+				cg.level = pt.assigned_level
+				AND cg.class_days = s.class_days
+				AND cg.class_time = s.class_time::text
+				AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+			)
+			WHERE cg.class_key = $1
+			  AND (
+			    l.status = 'in_classes'
+			    OR (
+			      $2 = 'not_started'
+			      AND l.status = 'ready_to_start'
+			    )
+			  )
+		`, ec.ClassKey, roundStatus).Scan(&ec.CurrentEnrollment)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to count eligible class students: %w", err)
 		}
-		ec.CurrentEnrollment = int32(len(students))
 
 		// Filter by capacity (4-5 students)
 		if ec.CurrentEnrollment >= 4 && ec.CurrentEnrollment <= 5 {
@@ -5395,8 +5586,35 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("cannot join class: too late (current session: %d)", currentSession)
 	}
 
+	// 1.5 Validate class state and load class details.
+	// Allowed:
+	// - active class
+	// - sent_to_mentor + not_started class (pre-start exception)
+	var roundStatus string
+	var sentToMentor bool
+	var level, classNumber int32
+	var classDays, classTime string
+	err = tx.QueryRow(`
+		SELECT COALESCE(round_status, 'not_started'),
+		       COALESCE(sent_to_mentor, false),
+		       level, class_days, class_time, COALESCE(class_number, 1)
+		FROM class_groups
+		WHERE class_key = $1
+	`, classKey).Scan(&roundStatus, &sentToMentor, &level, &classDays, &classTime, &classNumber)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("class not found")
+		}
+		return fmt.Errorf("failed to get class details: %w", err)
+	}
+	isActiveClass := roundStatus == "active"
+	isSentNotStartedClass := roundStatus == "not_started" && sentToMentor
+	if !isActiveClass && !isSentNotStartedClass {
+		return fmt.Errorf("cannot join class: class must be active or sent to mentor head (not started)")
+	}
+
 	// 2. Validate capacity (4-5 students currently)
-	// We use the same JOIN logic as GetStudentsInClassGroup but inside the transaction
+	// For not-started sent classes, ready_to_start students are part of current roster.
 	var studentCount int
 	err = tx.QueryRow(`
 		SELECT COUNT(DISTINCT l.id)
@@ -5410,8 +5628,14 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE cg.class_key = $1
-		  AND l.status = 'in_classes'
-	`, classKey).Scan(&studentCount)
+		  AND (
+		    l.status = 'in_classes'
+		    OR (
+		      $2 = 'not_started'
+		      AND l.status = 'ready_to_start'
+		    )
+		  )
+	`, classKey, roundStatus).Scan(&studentCount)
 	if err != nil {
 		return fmt.Errorf("failed to count students: %w", err)
 	}
@@ -5441,19 +5665,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("failed to get previous scheduling: %w", err)
 	}
 
-	// 5. Get target class details
-	var level, classNumber int32
-	var classDays, classTime string
-	err = tx.QueryRow(`
-		SELECT level, class_days, class_time, COALESCE(class_number, 1)
-		FROM class_groups
-		WHERE class_key = $1
-	`, classKey).Scan(&level, &classDays, &classTime, &classNumber)
-	if err != nil {
-		return fmt.Errorf("failed to get class details: %w", err)
-	}
-
-	// 6. Create late_joiners audit record
+	// 5. Create late_joiners audit record
 	_, err = tx.Exec(`
 		INSERT INTO late_joiners (
 			id, lead_id, class_key, joined_at_session_number, reason, added_by_user_id,
@@ -5465,7 +5677,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("failed to create late joiner record: %w", err)
 	}
 
-	// 7. Update scheduling to match target class
+	// 6. Update scheduling to match target class
 	_, err = tx.Exec(`
 		UPDATE scheduling
 		SET class_days = $1,
@@ -5478,7 +5690,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("failed to update scheduling: %w", err)
 	}
 
-	// 8. Update lead status to 'in_classes' and mark as sent to classes
+	// 7. Update lead status to 'in_classes' and mark as sent to classes
 	_, err = tx.Exec(`
 		UPDATE leads
 		SET status = 'in_classes', sent_to_classes = true, updated_at = NOW()
@@ -5488,7 +5700,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("failed to update lead status: %w", err)
 	}
 
-	// 9. Backfill 'N/A' attendance for past sessions
+	// 8. Backfill 'N/A' attendance for past sessions
 	_, err = tx.Exec(`
 		INSERT INTO attendance (id, session_id, lead_id, status, created_at, updated_at)
 		SELECT gen_random_uuid(), cs.id, $1, 'N/A', NOW(), NOW()
@@ -5500,17 +5712,22 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("failed to backfill attendance: %w", err)
 	}
 
-	// 10. Insert notifications for mentor, mentor heads, and student success
+	// 9. Insert notifications.
+	// If class is sent but not started, notify Mentor Head only.
+	// Otherwise (active), keep existing recipients (mentor, mentor heads, student success).
 	notificationQuery := `
 		INSERT INTO late_joiner_notifications (lead_id, class_key, user_id, joined_at_session_number)
 		SELECT $1, $2, u.id, $3
 		FROM users u
 		LEFT JOIN mentor_assignments ma ON ma.mentor_user_id = u.id AND ma.class_key = $2
-		WHERE u.role IN ('mentor_head', 'student_success')
-		   OR ma.id IS NOT NULL
+		WHERE (
+			$4 = 'not_started' AND $5 = true AND u.role = 'mentor_head'
+		) OR (
+			$4 = 'active' AND (u.role IN ('mentor_head', 'student_success') OR ma.id IS NOT NULL)
+		)
 		ON CONFLICT (lead_id, class_key, user_id) DO NOTHING
 	`
-	_, err = tx.Exec(notificationQuery, leadID, classKey, currentSession)
+	_, err = tx.Exec(notificationQuery, leadID, classKey, currentSession, roundStatus, sentToMentor)
 	if err != nil {
 		// Log but don't fail transaction for notifications
 		log.Printf("WARNING: Failed to insert late joiner notifications: %v", err)
@@ -6276,48 +6493,102 @@ func GetFollowUpNotes(caseID uuid.UUID) ([]*FollowUpCaseNote, error) {
 	return notes, rows.Err()
 }
 
+func gradeMirrorNoteID(gradeID uuid.UUID) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("grade-note:"+gradeID.String()))
+}
+
+func syncGradeNoteMirror(gradeID uuid.UUID, leadID uuid.UUID, classKey string, notes string, createdByUserID uuid.UUID) error {
+	noteID := gradeMirrorNoteID(gradeID)
+	trimmed := strings.TrimSpace(notes)
+	if trimmed == "" {
+		_, err := db.DB.Exec(`DELETE FROM student_notes WHERE id = $1`, noteID)
+		if err != nil {
+			return fmt.Errorf("failed to delete mirrored grade note: %w", err)
+		}
+		return nil
+	}
+
+	_, err := db.DB.Exec(`
+		INSERT INTO student_notes (id, lead_id, class_key, session_number, note_text, is_private, created_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, $3, 8, $4, false, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (id) DO UPDATE SET
+			lead_id = EXCLUDED.lead_id,
+			class_key = EXCLUDED.class_key,
+			session_number = EXCLUDED.session_number,
+			note_text = EXCLUDED.note_text,
+			is_private = false,
+			created_by_user_id = EXCLUDED.created_by_user_id,
+			updated_at = CURRENT_TIMESTAMP
+	`, noteID, leadID, classKey, trimmed, createdByUserID)
+	if err != nil {
+		return fmt.Errorf("failed to upsert mirrored grade note: %w", err)
+	}
+	return nil
+}
+
 // InsertGrade creates a new grade record (session 8 only)
 func InsertGrade(leadID uuid.UUID, classKey string, grade string, notes string, createdByUserID uuid.UUID) (uuid.UUID, error) {
 	gradeID := uuid.New()
+	var actualGradeID uuid.UUID
 
-	_, err := db.DB.Exec(`
+	err := db.DB.QueryRow(`
 		INSERT INTO grades (id, lead_id, class_key, session_number, grade, notes, created_by_user_id, created_at, updated_at)
 		VALUES ($1, $2, $3, 8, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT (lead_id, class_key, session_number) DO UPDATE SET
 			grade = EXCLUDED.grade,
 			notes = EXCLUDED.notes,
 			updated_at = CURRENT_TIMESTAMP
-	`, gradeID, leadID, classKey, grade, notes, createdByUserID)
-
+		RETURNING id
+	`, gradeID, leadID, classKey, grade, notes, createdByUserID).Scan(&actualGradeID)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("failed to insert grade: %w", err)
 	}
 
-	return gradeID, nil
+	if err := syncGradeNoteMirror(actualGradeID, leadID, classKey, notes, createdByUserID); err != nil {
+		return uuid.Nil, err
+	}
+
+	return actualGradeID, nil
 }
 
 // DeleteGrade removes a grade record for session 8
 func DeleteGrade(leadID uuid.UUID, classKey string) error {
-	_, err := db.DB.Exec(`
+	var deletedGradeID uuid.UUID
+	err := db.DB.QueryRow(`
 		DELETE FROM grades
 		WHERE lead_id = $1 AND class_key = $2 AND session_number = 8
-	`, leadID, classKey)
+		RETURNING id
+	`, leadID, classKey).Scan(&deletedGradeID)
+	if err == sql.ErrNoRows {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("failed to delete grade: %w", err)
+	}
+
+	if _, err := db.DB.Exec(`DELETE FROM student_notes WHERE id = $1`, gradeMirrorNoteID(deletedGradeID)); err != nil {
+		return fmt.Errorf("failed to delete mirrored grade note: %w", err)
 	}
 	return nil
 }
 
 // UpdateGrade updates an existing grade record
 func UpdateGrade(gradeID uuid.UUID, grade string, notes string, updatedByUserID uuid.UUID) error {
-	_, err := db.DB.Exec(`
+	var leadID uuid.UUID
+	var classKey string
+	err := db.DB.QueryRow(`
 		UPDATE grades
 		SET grade = $1, notes = $2, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $3
-	`, grade, notes, gradeID)
+		RETURNING lead_id, class_key
+	`, grade, notes, gradeID).Scan(&leadID, &classKey)
 
 	if err != nil {
 		return fmt.Errorf("failed to update grade: %w", err)
+	}
+
+	if err := syncGradeNoteMirror(gradeID, leadID, classKey, notes, updatedByUserID); err != nil {
+		return err
 	}
 
 	return nil
@@ -6441,9 +6712,16 @@ func GetPendingLateJoinerNotifications(userID uuid.UUID) ([]*LateJoinerNotificat
 		FROM late_joiner_notifications n
 		INNER JOIN leads l ON l.id = n.lead_id
 		INNER JOIN class_groups cg ON cg.class_key = n.class_key
+		INNER JOIN users u ON u.id = n.user_id
 		WHERE n.user_id = $1 AND n.acknowledged_at IS NULL
-		  AND cg.round_status = 'active'
 		  AND cg.sent_to_mentor = true
+		  AND (
+			COALESCE(cg.round_status, 'not_started') = 'active'
+			OR (
+			  COALESCE(cg.round_status, 'not_started') = 'not_started'
+			  AND u.role = 'mentor_head'
+			)
+		  )
 		ORDER BY n.created_at DESC
 	`
 	rows, err := db.DB.Query(query, userID)

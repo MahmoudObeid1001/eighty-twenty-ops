@@ -20,12 +20,17 @@ export default function ReportsPage() {
 
   useEffect(() => {
     void loadMe()
-    void loadReports()
   }, [])
 
   useEffect(() => {
+    if (!userRole) return
+    if (userRole === 'admin') {
+      setLoading(false)
+      setClassesLoading(false)
+      return
+    }
     void loadReports()
-  }, [mentorFilter])
+  }, [mentorFilter, userRole])
 
   async function loadMe() {
     try {
@@ -37,6 +42,7 @@ export default function ReportsPage() {
   }
 
   async function loadReports() {
+    if (userRole === 'admin') return
     try {
       setLoading(true)
       setClassesLoading(true)
@@ -69,7 +75,7 @@ export default function ReportsPage() {
       })),
     [items],
   )
-  const canRemove = userRole === 'admin' || userRole === 'mentor_head'
+  const canRemove = userRole === 'mentor_head' || userRole === 'manager'
   const classRowsByMentor = useMemo(() => {
     const map = new Map<string, MentorClassReportItem[]>()
     for (const row of classRows) {
@@ -134,6 +140,17 @@ export default function ReportsPage() {
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
         <h1>Mentor Reports</h1>
       </div>
+
+      {userRole === 'admin' && (
+        <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>
+          <h3 style={{ marginTop: 0 }}>Reports Coming Soon</h3>
+          <p style={{ color: '#555', marginBottom: 0 }}>
+            In-round mentor reports are not available for Ops Admin. This tab will include Ops-specific reports later.
+          </p>
+        </div>
+      )}
+      {userRole !== 'admin' && (
+        <>
 
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700, color: '#333' }}>Unified Report</span>
@@ -258,6 +275,8 @@ export default function ReportsPage() {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </>
   )

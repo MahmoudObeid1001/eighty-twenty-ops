@@ -81,6 +81,16 @@ stateDiagram-v2
 **Closed/sent groups**: Send-to-Classes must not assign into **closed** or **sent_to_mentor** groups (ops can only add to ops-owned, not-started groups).  
 **Evidence**: `internal/models/repository.go` (`AssignClassGroup`, `MoveStudentBetweenGroups`), `internal/views/pre_enrolment_detail.html` note.
 
+### Late Joiner Pre-Start Exception
+**Scope**: Pre-Enrolment "Add as Late Joiner".  
+**Behavior**:
+- Eligible classes include:
+  - `round_status = 'active'`, or
+  - `sent_to_mentor = true` with `round_status = 'not_started'` (exception).
+- Capacity gate remains `4-5` students.
+- For the not-started exception path, system creates a Mentor Head only notification banner (dismissible).
+- Ops class board roster must still include these late-joined students (status `in_classes`) while class is `sent_to_mentor + not_started`, to keep Ops/MH rosters consistent.
+
 ### Transition: Mentor Head assigns mentor (SentToMentor → Assigned)
 **Route**: `POST /api/mentor-head/assign-mentor`  
 **Handler**: `apiHandler.AssignMentor`  
