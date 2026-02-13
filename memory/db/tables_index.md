@@ -17,7 +17,7 @@
 ### `leads`
 **Purpose**: Student pipeline from lead creation → in classes  
 **Features**: Pre-enrolment workflow, class assignments  
-**Key Fields**: full_name, phone (unique), status (pipeline state)  
+**Key Fields**: full_name, phone (unique), status (pipeline state), offer_sent_at (cold-lead timing anchor)  
 **Evidence**: `migrations/001_init.sql:13-26`
 
 ### ` settings`
@@ -109,6 +109,12 @@ All tables have UNIQUE `lead_id` - one record per lead.
 **Evidence**: `migrations/001_init.sql:65-73` (as `payments`)
 
 **Note**: Finance module has additional tables not fully documented here (see migrations/007_finance_tracking.sql, 008_finance_ledger_sync.sql)
+
+### `payment_cycles`
+**Purpose**: Explicit cycle boundary for returning-student entitlement and refunds  
+**Features**: Cancel refund guard, current-cycle cash calculation, carryover valuation  
+**Key Fields**: lead_id, started_at, bundle_levels, final_price, consumed_baseline, status  
+**Rule**: At most one active cycle per lead
 
 ---
 

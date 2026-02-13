@@ -275,10 +275,14 @@ func ComputeLeadFlags(item *LeadListItem) {
 		return
 	}
 
-	// Calculate days since last progress (test_date or updated_at)
+	// Calculate days since last progress using stage-aware anchors:
+	// - TESTED: placement test date (or updated fallback)
+	// - OFFER_SENT: offer_sent_at (or updated fallback)
 	var progressTime time.Time
-	if item.TestDate.Valid {
+	if stage == StageTested && item.TestDate.Valid {
 		progressTime = item.TestDate.Time
+	} else if stage == StageOfferSent && item.Lead.OfferSentAt.Valid {
+		progressTime = item.Lead.OfferSentAt.Time
 	} else {
 		progressTime = item.Lead.UpdatedAt
 		if progressTime.IsZero() {
@@ -288,6 +292,9 @@ func ComputeLeadFlags(item *LeadListItem) {
 
 	now := time.Now()
 	daysSince := int(now.Sub(progressTime).Hours() / 24)
+	if daysSince < 0 {
+		daysSince = 0
+	}
 	item.DaysSinceLastProgress = daysSince
 
 	// All TESTED/OFFER_SENT + UNPAID leads are hot: include in filter, banner, and detail callout
@@ -322,7 +329,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.sent_to_classes,
 			COALESCE(l.is_returning, false),
 			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc,
-			l.created_by_user_id, l.created_at, l.updated_at,
+			l.created_by_user_id, l.offer_sent_at, l.created_at, l.updated_at,
 			pt.assigned_level, pt.test_date,
 			p.remaining_balance, p.amount_paid,
 			o.final_price,
@@ -357,9 +364,11 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		query += " AND GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) > 0"
 	}
 
-	// Apply cold leads candidate filter: offer sent, finished bundle, no response for 7+ days
+	// Apply cold leads filter:
+	// - explicit cold bucket (status = cold_lead), or
+	// - cold candidates still in offer_sent for 7+ days with no remaining credits.
 	if coldFilter == "1" || coldFilter == "true" {
-		query += " AND l.status = 'offer_sent' AND l.updated_at <= NOW() - INTERVAL '7 days' AND COALESCE(l.levels_purchased_total, 0) > 0 AND GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) <= 0"
+		query += " AND (l.status = 'cold_lead' OR (l.status = 'offer_sent' AND COALESCE(l.offer_sent_at, l.updated_at) <= NOW() - INTERVAL '7 days' AND COALESCE(l.levels_purchased_total, 0) > 0 AND GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) <= 0))"
 	}
 
 	// Apply repeat filter
@@ -411,7 +420,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 	}
 
 	// Default sorting (unless hot filter is active, then we sort after computing flags in Go)
-	if hotFilter != "hot" {
+	if hotFilter != "hot" && hotFilter != "1" {
 		if statusFilter == "cancelled" {
 			// Cancelled view should show most recently cancelled leads first.
 			query += " ORDER BY l.cancelled_at DESC NULLS LAST, l.updated_at DESC"
@@ -447,7 +456,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		err := rows.Scan(
 			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.SentToClasses,
 			&lead.IsReturning, &lead.RemainingCredits,
-			&lead.CreatedByUserID, &lead.CreatedAt, &lead.UpdatedAt,
+			&lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 			&assignedLevel, &testDate,
 			&remainingBalance, &amountPaid,
 			&finalPrice,
@@ -644,12 +653,12 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	err := db.DB.QueryRow(`
 		SELECT id, full_name, phone, source, notes, status, sent_to_classes,
 		       levels_purchased_total, levels_consumed, remaining_credits,
-		       is_returning, high_priority_follow_up, created_by_user_id, created_at, updated_at
+		       is_returning, high_priority_follow_up, created_by_user_id, offer_sent_at, created_at, updated_at
 		FROM leads WHERE id = $1
 	`, id).Scan(
 		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
-		&lead.IsReturning, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.CreatedAt, &lead.UpdatedAt,
+		&lead.IsReturning, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get lead: %w", err)
@@ -815,7 +824,18 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 
 	// Update lead
 	_, err = tx.Exec(`
-		UPDATE leads SET full_name = $1, phone = $2, source = $3, notes = $4, status = $5, sent_to_classes = $6, updated_at = $7
+		UPDATE leads
+		SET full_name = $1,
+		    phone = $2,
+		    source = $3,
+		    notes = $4,
+		    status = $5,
+		    sent_to_classes = $6,
+		    offer_sent_at = CASE
+		        WHEN $5 = 'offer_sent' AND status <> 'offer_sent' THEN $7
+		        ELSE offer_sent_at
+		    END,
+		    updated_at = $7
 		WHERE id = $8
 	`, detail.Lead.FullName, detail.Lead.Phone, detail.Lead.Source, detail.Lead.Notes, detail.Lead.Status, detail.Lead.SentToClasses, now, detail.Lead.ID)
 	if err != nil {
@@ -965,6 +985,10 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 			UPDATE leads
 			SET status = $1,
 			    sent_to_classes = false,
+			    offer_sent_at = CASE
+			        WHEN $1 = 'offer_sent' AND status <> 'offer_sent' THEN CURRENT_TIMESTAMP
+			        ELSE offer_sent_at
+			    END,
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE id = $2
 		`, status, leadID)
@@ -972,7 +996,14 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 	}
 
 	_, err := db.DB.Exec(`
-		UPDATE leads SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+		UPDATE leads
+		SET status = $1,
+		    offer_sent_at = CASE
+		        WHEN $1 = 'offer_sent' AND status <> 'offer_sent' THEN CURRENT_TIMESTAMP
+		        ELSE offer_sent_at
+		    END,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2
 	`, status, leadID)
 	return err
 }
@@ -2345,6 +2376,16 @@ type UnusedCreditsRefundBreakdown struct {
 	BundleLevels       int32
 }
 
+type PaymentCycle struct {
+	ID               uuid.UUID
+	LeadID           uuid.UUID
+	StartedAt        time.Time
+	BundleLevels     int32
+	FinalPrice       int32
+	ConsumedBaseline int32
+	Status           string
+}
+
 func inferBundleLevelsFromPaidAmount(amount int32) int32 {
 	switch {
 	case amount <= 0:
@@ -2360,6 +2401,118 @@ func inferBundleLevelsFromPaidAmount(amount int32) int32 {
 	}
 }
 
+func GetActivePaymentCycle(leadID uuid.UUID) (*PaymentCycle, error) {
+	cycle := &PaymentCycle{}
+	err := db.DB.QueryRow(`
+		SELECT id, lead_id, started_at, bundle_levels, final_price, consumed_baseline, status
+		FROM payment_cycles
+		WHERE lead_id = $1 AND status = 'active'
+		ORDER BY started_at DESC
+		LIMIT 1
+	`, leadID).Scan(
+		&cycle.ID, &cycle.LeadID, &cycle.StartedAt, &cycle.BundleLevels,
+		&cycle.FinalPrice, &cycle.ConsumedBaseline, &cycle.Status,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query active payment cycle: %w", err)
+	}
+	return cycle, nil
+}
+
+func UpsertActivePaymentCycle(leadID uuid.UUID, bundleLevels int32, finalPrice int32) error {
+	if bundleLevels < 1 || bundleLevels > 4 {
+		return fmt.Errorf("invalid bundle levels for cycle")
+	}
+	if finalPrice <= 0 {
+		return fmt.Errorf("invalid final price for cycle")
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin payment cycle tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var levelsConsumed int32
+	err = tx.QueryRow(`SELECT COALESCE(levels_consumed, 0) FROM leads WHERE id = $1`, leadID).Scan(&levelsConsumed)
+	if err != nil {
+		return fmt.Errorf("failed to read lead consumption for cycle: %w", err)
+	}
+
+	var cycleID uuid.UUID
+	var existingBundle int32
+	var existingFinal int32
+	var consumedBaseline int32
+	err = tx.QueryRow(`
+		SELECT id, bundle_levels, final_price, consumed_baseline
+		FROM payment_cycles
+		WHERE lead_id = $1 AND status = 'active'
+		ORDER BY started_at DESC
+		LIMIT 1
+	`, leadID).Scan(&cycleID, &existingBundle, &existingFinal, &consumedBaseline)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to load active payment cycle: %w", err)
+	}
+
+	now := time.Now()
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = tx.Exec(`
+			INSERT INTO payment_cycles (lead_id, started_at, bundle_levels, final_price, consumed_baseline, status, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, 'active', $2, $2)
+		`, leadID, now, bundleLevels, finalPrice, levelsConsumed)
+		if err != nil {
+			return fmt.Errorf("failed to create active payment cycle: %w", err)
+		}
+		return tx.Commit()
+	}
+
+	consumedInCycle := levelsConsumed - consumedBaseline
+	if consumedInCycle < 0 {
+		consumedInCycle = 0
+	}
+	remainingInCycle := existingBundle - consumedInCycle
+
+	if remainingInCycle <= 0 {
+		_, err = tx.Exec(`
+			UPDATE payment_cycles
+			SET status = 'closed', closed_at = $2, updated_at = $2
+			WHERE id = $1
+		`, cycleID, now)
+		if err != nil {
+			return fmt.Errorf("failed to close exhausted payment cycle: %w", err)
+		}
+		_, err = tx.Exec(`
+			INSERT INTO payment_cycles (lead_id, started_at, bundle_levels, final_price, consumed_baseline, status, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, 'active', $2, $2)
+		`, leadID, now, bundleLevels, finalPrice, levelsConsumed)
+		if err != nil {
+			return fmt.Errorf("failed to create replacement payment cycle: %w", err)
+		}
+		return tx.Commit()
+	}
+
+	// Once consumption begins, cycle deal terms are immutable for safety.
+	if consumedInCycle > 0 && (existingBundle != bundleLevels || existingFinal != finalPrice) {
+		return fmt.Errorf("cannot modify active payment cycle after consumption has started")
+	}
+
+	_, err = tx.Exec(`
+		UPDATE payment_cycles
+		SET bundle_levels = $2,
+		    final_price = $3,
+		    updated_at = $4
+		WHERE id = $1
+	`, cycleID, bundleLevels, finalPrice, now)
+	if err != nil {
+		return fmt.Errorf("failed to update active payment cycle: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // GetUnusedCreditsRefundBreakdown calculates unused-credit refund from carryover entitlement.
 // It is cycle-scoped: for returning students, only the latest pre-cycle payment (before current cycle start)
 // is used for unused-credit valuation to avoid mixing with current-cycle cash flow.
@@ -2370,13 +2523,15 @@ func GetUnusedCreditsRefundBreakdown(leadID uuid.UUID) (*UnusedCreditsRefundBrea
 
 	var remainingCredits int32
 	var isReturning bool
+	var levelsConsumed int32
 	err := db.DB.QueryRow(`
 		SELECT
 			GREATEST(COALESCE(levels_purchased_total, 0) - COALESCE(levels_consumed, 0), 0) AS remaining_credits,
-			COALESCE(is_returning, false) AS is_returning
+			COALESCE(is_returning, false) AS is_returning,
+			COALESCE(levels_consumed, 0) AS levels_consumed
 		FROM leads
 		WHERE id = $1
-	`, leadID).Scan(&remainingCredits, &isReturning)
+	`, leadID).Scan(&remainingCredits, &isReturning, &levelsConsumed)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load lead credits: %w", err)
 	}
@@ -2391,70 +2546,109 @@ func GetUnusedCreditsRefundBreakdown(leadID uuid.UUID) (*UnusedCreditsRefundBrea
 		return breakdown, nil
 	}
 
-	var cycleStart sql.NullTime
-	err = db.DB.QueryRow(`
-		SELECT MAX(completed_at)
-		FROM class_enrollments
-		WHERE lead_id = $1
-	`, leadID).Scan(&cycleStart)
+	cycle, err := GetActivePaymentCycle(leadID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current cycle start: %w", err)
+		return nil, err
 	}
-	if !cycleStart.Valid {
-		return nil, fmt.Errorf("cannot value unused credits without a prior completed class")
-	}
-
-	var paidAmount int32
-	err = db.DB.QueryRow(`
-		SELECT amount
-		FROM lead_payments
-		WHERE lead_id = $1
-		  AND created_at < $2
-		ORDER BY created_at DESC
-		LIMIT 1
-	`, leadID, cycleStart.Time).Scan(&paidAmount)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("cannot value unused credits: no pre-cycle payment found")
+	if cycle == nil {
+		// Legacy fallback only when cycle record is absent.
+		var cycleStart sql.NullTime
+		err = db.DB.QueryRow(`
+			SELECT MAX(completed_at)
+			FROM class_enrollments
+			WHERE lead_id = $1
+		`, leadID).Scan(&cycleStart)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get current cycle start: %w", err)
 		}
-		return nil, fmt.Errorf("failed to get pre-cycle payment: %w", err)
+		if !cycleStart.Valid {
+			return nil, fmt.Errorf("cannot value unused credits without a prior completed class")
+		}
+
+		var paidAmount int32
+		err = db.DB.QueryRow(`
+			SELECT amount
+			FROM lead_payments
+			WHERE lead_id = $1
+			  AND created_at < $2
+			ORDER BY created_at DESC
+			LIMIT 1
+		`, leadID, cycleStart.Time).Scan(&paidAmount)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("cannot value unused credits: no pre-cycle payment found")
+			}
+			return nil, fmt.Errorf("failed to get pre-cycle payment: %w", err)
+		}
+		if paidAmount <= 0 {
+			return nil, fmt.Errorf("cannot value unused credits: invalid pre-cycle payment amount")
+		}
+
+		bundleLevels := inferBundleLevelsFromPaidAmount(paidAmount)
+		if bundleLevels < remainingCredits {
+			bundleLevels = remainingCredits
+		}
+		consumedLevels := bundleLevels - remainingCredits
+		if consumedLevels < 0 {
+			consumedLevels = 0
+		}
+		consumedValue := consumedLevels * singleLevelPriceEGP
+		unusedCreditsValue := paidAmount - consumedValue
+		if unusedCreditsValue < 0 {
+			unusedCreditsValue = 0
+		}
+		maxUnusedByStandard := remainingCredits * singleLevelPriceEGP
+		if unusedCreditsValue > maxUnusedByStandard {
+			unusedCreditsValue = maxUnusedByStandard
+		}
+		breakdown.BundleLevels = bundleLevels
+		breakdown.ConsumedLevels = consumedLevels
+		breakdown.ConsumedValue = consumedValue
+		breakdown.OriginalPaidValue = paidAmount
+		breakdown.UnusedCreditsValue = unusedCreditsValue
+		log.Printf("💰 Carryover refund (legacy fallback): lead=%s paid=%d bundle_levels=%d remaining=%d consumed=%d unused=%d",
+			leadID, paidAmount, bundleLevels, remainingCredits, consumedLevels, unusedCreditsValue)
+		return breakdown, nil
 	}
 
-	if paidAmount <= 0 {
-		return nil, fmt.Errorf("cannot value unused credits: invalid pre-cycle payment amount")
+	consumedInCycle := levelsConsumed - cycle.ConsumedBaseline
+	if consumedInCycle < 0 {
+		consumedInCycle = 0
+	}
+	remainingInCycle := cycle.BundleLevels - consumedInCycle
+	if remainingInCycle < 0 {
+		remainingInCycle = 0
 	}
 
-	bundleLevels := inferBundleLevelsFromPaidAmount(paidAmount)
-	if bundleLevels < remainingCredits {
-		// If paid amount is heavily discounted, don't allow negative consumed count.
-		bundleLevels = remainingCredits
+	refundableLevels := remainingCredits
+	if remainingInCycle < refundableLevels {
+		refundableLevels = remainingInCycle
 	}
-
-	consumedLevels := bundleLevels - remainingCredits
+	consumedLevels := cycle.BundleLevels - refundableLevels
 	if consumedLevels < 0 {
 		consumedLevels = 0
 	}
 
 	consumedValue := consumedLevels * singleLevelPriceEGP
-	unusedCreditsValue := paidAmount - consumedValue
+	unusedCreditsValue := cycle.FinalPrice - consumedValue
 	if unusedCreditsValue < 0 {
 		unusedCreditsValue = 0
 	}
 
 	// Safety ceiling: unused-credit value should not exceed standard value of remaining levels.
-	maxUnusedByStandard := remainingCredits * singleLevelPriceEGP
+	maxUnusedByStandard := refundableLevels * singleLevelPriceEGP
 	if unusedCreditsValue > maxUnusedByStandard {
 		unusedCreditsValue = maxUnusedByStandard
 	}
 
-	breakdown.BundleLevels = bundleLevels
+	breakdown.BundleLevels = cycle.BundleLevels
 	breakdown.ConsumedLevels = consumedLevels
 	breakdown.ConsumedValue = consumedValue
-	breakdown.OriginalPaidValue = paidAmount
+	breakdown.OriginalPaidValue = cycle.FinalPrice
 	breakdown.UnusedCreditsValue = unusedCreditsValue
 
-	log.Printf("💰 Carryover refund: lead=%s paid=%d bundle_levels=%d remaining=%d consumed=%d unused=%d",
-		leadID, paidAmount, bundleLevels, remainingCredits, consumedLevels, unusedCreditsValue)
+	log.Printf("💰 Carryover refund (cycle): lead=%s paid=%d bundle_levels=%d remaining=%d consumed=%d unused=%d",
+		leadID, cycle.FinalPrice, cycle.BundleLevels, refundableLevels, consumedLevels, unusedCreditsValue)
 
 	return breakdown, nil
 }
@@ -2468,22 +2662,30 @@ func CalculateUnusedCreditsRefund(leadID uuid.UUID) (int32, error) {
 	return breakdown.UnusedCreditsValue, nil
 }
 
-// GetTotalCoursePaidCurrentCycle returns the net course payments since the last class completion.
-// Used for returning students so old-level payments don't leak into the new offer.
+// GetTotalCoursePaidCurrentCycle returns the net course payments in the active cycle.
+// It uses payment_cycles.started_at when available, and falls back to last class completion for legacy rows.
 func GetTotalCoursePaidCurrentCycle(leadID uuid.UUID) (int32, error) {
-	var cycleStart sql.NullTime
-	err := db.DB.QueryRow(`
-		SELECT MAX(completed_at)
-		FROM class_enrollments
-		WHERE lead_id = $1
-	`, leadID).Scan(&cycleStart)
+	cycle, err := GetActivePaymentCycle(leadID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get cycle start: %w", err)
+		return 0, err
 	}
-
-	// If no prior class completion, fall back to all payments.
-	if !cycleStart.Valid {
-		return GetTotalCoursePaid(leadID)
+	var cycleStart time.Time
+	if cycle != nil {
+		cycleStart = cycle.StartedAt
+	} else {
+		var legacyStart sql.NullTime
+		err = db.DB.QueryRow(`
+			SELECT MAX(completed_at)
+			FROM class_enrollments
+			WHERE lead_id = $1
+		`, leadID).Scan(&legacyStart)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get cycle start: %w", err)
+		}
+		if !legacyStart.Valid {
+			return GetTotalCoursePaid(leadID)
+		}
+		cycleStart = legacyStart.Time
 	}
 
 	// Sum all course payments from lead_payments table since cycle start.
@@ -2493,7 +2695,7 @@ func GetTotalCoursePaidCurrentCycle(leadID uuid.UUID) (int32, error) {
 		FROM lead_payments
 		WHERE lead_id = $1
 		  AND created_at >= $2
-	`, leadID, cycleStart.Time).Scan(&totalPayments)
+	`, leadID, cycleStart).Scan(&totalPayments)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get current-cycle payments: %w", err)
 	}
@@ -2512,7 +2714,7 @@ func GetTotalCoursePaidCurrentCycle(leadID uuid.UUID) (int32, error) {
 		  AND transaction_type = 'OUT'
 		  AND category = 'refund'
 		  AND transaction_date >= $2::date
-	`, leadID, cycleStart.Time).Scan(&totalRefunds)
+	`, leadID, cycleStart).Scan(&totalRefunds)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get current-cycle refunds: %w", err)
 	}
@@ -3011,13 +3213,18 @@ func UpdateLeadCreditsFromPayments(leadID uuid.UUID, bundleLevels sql.NullInt32)
 
 	levelsPurchased, bundleType := CalculateLevelsPurchased(bundleLevels, totalPaid)
 
+	if levelsPurchased.Valid {
+		if err := UpdateLeadPurchasedLevels(leadID, levelsPurchased.Int32); err != nil {
+			return err
+		}
+	}
+
 	_, err = db.DB.Exec(`
 		UPDATE leads SET 
-			levels_purchased_total = $1,
-			bundle_type = $2,
-			updated_at = $3
-		WHERE id = $4
-	`, levelsPurchased, bundleType, time.Now(), leadID)
+			bundle_type = $1,
+			updated_at = $2
+		WHERE id = $3
+	`, bundleType, time.Now(), leadID)
 
 	return err
 }
@@ -5492,9 +5699,22 @@ func GetStudentsForMentorHeadClass(classKey string) ([]*ClassStudent, error) {
 // - active classes, and
 // - sent_to_mentor + not_started classes (pre-start exception).
 func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
+	// Lead must be ready to start before late-join assignment.
+	var leadStatus string
+	err := db.DB.QueryRow(`SELECT status FROM leads WHERE id = $1`, leadID).Scan(&leadStatus)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("lead not found")
+		}
+		return nil, fmt.Errorf("failed to get lead status: %w", err)
+	}
+	if leadStatus != "ready_to_start" {
+		return nil, fmt.Errorf("late join is only available for ready-to-start students")
+	}
+
 	// 1. Get student's assigned level
 	var assignedLevel sql.NullInt32
-	err := db.DB.QueryRow(`
+	err = db.DB.QueryRow(`
 		SELECT assigned_level FROM placement_tests WHERE lead_id = $1
 	`, leadID).Scan(&assignedLevel)
 	if err != nil {
@@ -5657,11 +5877,14 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("cannot join class: invalid capacity (current students: %d, required: 4-5)", studentCount)
 	}
 
-	// 3. Validate lead not already in_classes
+	// 3. Validate lead status eligibility.
 	var status string
 	err = tx.QueryRow(`SELECT status FROM leads WHERE id = $1`, leadID).Scan(&status)
 	if err != nil {
 		return fmt.Errorf("failed to get lead status: %w", err)
+	}
+	if status != "ready_to_start" {
+		return fmt.Errorf("late join is only available for ready-to-start students")
 	}
 	if status == "in_classes" {
 		return fmt.Errorf("student is already enrolled in a class")

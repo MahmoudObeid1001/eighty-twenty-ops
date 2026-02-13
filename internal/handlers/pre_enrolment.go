@@ -629,7 +629,11 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		}
 	}
 
-	coldEligible := detail.Lead.Status == "offer_sent" && time.Since(detail.Lead.UpdatedAt) >= 7*24*time.Hour
+	coldAnchor := detail.Lead.UpdatedAt
+	if detail.Lead.OfferSentAt.Valid {
+		coldAnchor = detail.Lead.OfferSentAt.Time
+	}
+	coldEligible := detail.Lead.Status == "offer_sent" && time.Since(coldAnchor) >= 7*24*time.Hour
 
 	creditsRemaining := int32(0)
 	if detail.Lead.LevelsPurchasedTotal.Valid {
@@ -761,6 +765,21 @@ func canUseWaitingFlow(detail *models.LeadDetail) bool {
 	return detail.Lead.IsReturning && (hasCredits || alreadyInWaitingFlow)
 }
 
+func isReturningCyclePlacementLocked(lead *models.Lead) bool {
+	if lead == nil {
+		return false
+	}
+	if lead.IsReturning {
+		return true
+	}
+	switch lead.Status {
+	case "renewal_pending", "waiting_for_round", "schedule_assigned", "ready_to_start", "in_classes":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
@@ -788,6 +807,16 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	switch action {
 	case "mark_test_booked":
 		h.cfg.Debugf("  → Action: mark_test_booked")
+		existingDetail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if isReturningCyclePlacementLocked(existingDetail.Lead) {
+			h.renderDetailWithError(w, r, leadID, "Placement test booking is locked for returning students. Keep the promoted level and continue with renewal payment flow.")
+			return
+		}
+
 		// Validate placement test fields
 		testDate := r.FormValue("test_date")
 		testTime := r.FormValue("test_time")
@@ -1025,7 +1054,11 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			h.renderDetailWithError(w, r, leadID, "Cold leads can only be set for offers that haven't been accepted.")
 			return
 		}
-		if time.Since(detail.Lead.UpdatedAt) < 7*24*time.Hour {
+		coldAnchor := detail.Lead.UpdatedAt
+		if detail.Lead.OfferSentAt.Valid {
+			coldAnchor = detail.Lead.OfferSentAt.Time
+		}
+		if time.Since(coldAnchor) < 7*24*time.Hour {
 			h.renderDetailWithError(w, r, leadID, "Cold leads can only be sent after 7 days with no response.")
 			return
 		}
@@ -1037,7 +1070,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.cfg.Debugf("  ✅ Status updated to cold_lead, redirecting to list")
-		http.Redirect(w, r, "/pre-enrolment?status_flash=cold", http.StatusFound)
+		http.Redirect(w, r, "/pre-enrolment?cold=1&status_flash=cold", http.StatusFound)
 		return
 
 	case "move_waiting":
@@ -2531,6 +2564,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if !bundleLevels.Valid && detail.Offer != nil && detail.Offer.BundleLevels.Valid {
 			bundleLevels = detail.Offer.BundleLevels
 		}
+		if bundleLevels.Valid {
+			if err := models.UpsertActivePaymentCycle(leadID, bundleLevels.Int32, finalPriceValue); err != nil {
+				log.Printf("ERROR: Failed to upsert active payment cycle: %v", err)
+				h.renderDetailWithError(w, r, leadID, "Couldn't lock payment cycle safely. Please try again.")
+				return
+			}
+		}
 		err = models.UpdateLeadCreditsFromPayments(leadID, bundleLevels)
 		if err != nil {
 			log.Printf("ERROR: Failed to update lead credits: %v", err)
@@ -2857,6 +2897,16 @@ func (h *PreEnrolmentHandler) BookTest(w http.ResponseWriter, r *http.Request) {
 	leadID, err := uuid.Parse(pathParts[2])
 	if err != nil {
 		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
+		return
+	}
+
+	detail, err := models.GetLeadByID(leadID)
+	if err != nil {
+		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+		return
+	}
+	if isReturningCyclePlacementLocked(detail.Lead) {
+		http.Error(w, "Placement test booking is locked for returning students. Continue with renewal payment flow.", http.StatusBadRequest)
 		return
 	}
 

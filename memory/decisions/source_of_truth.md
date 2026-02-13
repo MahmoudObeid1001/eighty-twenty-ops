@@ -1,6 +1,6 @@
 # SOURCE OF TRUTH - Business Rules
 
-**Last Updated**: 2026-01-31  
+**Last Updated**: 2026-02-13  
 **Status**: Definitive - All implementation must match these rules
 
 ---
@@ -121,6 +121,7 @@
 **Business Rule**: Late Joiner can target classes that are either:
 - `round_status = 'active'` (normal case), or
 - `sent_to_mentor = true` and `round_status = 'not_started'` (pre-start exception).
+**Lead Status Gate**: Late Join is available only when the lead is `ready_to_start`. It must not be available for `renewal_pending` or earlier pipeline states.
 
 **Capacity Rule**: Keep the same late-join capacity gate (4-5 current students).
 
@@ -144,16 +145,40 @@
 
 **Business Rule**: Remaining credits are computed as `levels_purchased_total - levels_consumed` (min 0).  
 **Implementation Invariant**: For returning students, `levels_consumed` is cumulative across cycles, so when a new bundle is purchased, `levels_purchased_total` must be stored as a cumulative target: `levels_consumed_at_purchase + bundle_levels_bought`.  
+**Placement Test Rule**: Returning-cycle leads (`is_returning=true` or statuses `renewal_pending`/`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`) must not be moved back to `test_booked` by Ops actions.
 **UI**: Pre‑enrolment list shows a **REPEAT** badge if the latest class outcome is `repeated`.  
 **Status**: When remaining credits = 0 after close round, status must be `renewal_pending` (not paid_full).
 
 **Filter**: Pre‑enrolment list includes a Repeat Level filter.
+
+### Pre‑Enrolment Filter Consistency
+
+**Business Rule**:
+- Quick filters (`Hot Leads`, `Cold Leads`, etc.) are explicit modes and must apply only when their own chip is clicked.
+- Using the main filter form (`All Statuses`, status dropdown, payment dropdown, search) must not silently keep `hot`/`cold` query constraints.
+- Quick-filter chips are toggleable: clicking an already active chip clears that chip's filter.
+
+**Status Filter Rule**:
+- Use canonical stage status values in filter URLs (`RENEWAL_PENDING`, `WAITING_FOR_ROUND`, etc.).
+- Backward compatibility for legacy lowercase status query values is allowed.
+
+**Cold Leads Clock Rule**:
+- Cold Leads quick filter must include explicitly marked `status = cold_lead`.
+- For `offer_sent` candidates, timing must use `leads.offer_sent_at` (7+ days) rather than generic `updated_at`.
+- For legacy rows where `offer_sent_at` is null, fallback to `updated_at` is allowed temporarily.
+
+**Hot Leads Badge Clock Rule**:
+- Unpaid `tested` leads: use `placement_tests.test_date` to age the HOT/WARM/COOL badge.
+- Unpaid `offer_sent` leads: use `leads.offer_sent_at` to age the HOT/WARM/COOL badge.
+- Fallback for legacy null timestamps is `leads.updated_at`.
+- Bucket thresholds remain: HOT 0-6 days, WARM 7-13 days, COOL 14+ days.
 
 ### Cancellation Refund Guard (Returning Students)
 
 **Business Rule**: Cancel flow refund checks must use computed remaining credits (`levels_purchased_total - levels_consumed`), not stale cached values.  
 **Required behavior**: If computed remaining credits > 0, cancellation must enforce refund modal/validation for unused credits value.
 **Cycle Scope Rule**: In cancel flow, unused-credit valuation for returning students must be derived from pre-cycle carryover entitlement (latest payment before current cycle start), while current-cycle paid cash is calculated separately via current-cycle payment totals. This avoids cross-cycle mixing.
+**Implementation Rule**: The system persists explicit cycle records in `payment_cycles`. Refund and current-cycle paid computations should read cycle boundaries from `payment_cycles.started_at` when present (legacy fallback allowed only for older rows without cycle records).
 
 ---
 

@@ -32,6 +32,7 @@ type Lead struct {
 	HighPriorityAbsence  bool           // Set automatically if 3+ absences
 	HighPriorityReason   sql.NullString // Reason for high priority
 	CreatedByUserID      sql.NullString
+	OfferSentAt          sql.NullTime
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }

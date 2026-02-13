@@ -3137,6 +3137,12 @@ func (h *APIHandler) GetEligibleClassesForLateJoin(w http.ResponseWriter, r *htt
 
 	eligible, err := models.GetEligibleClassesForLateJoin(leadID)
 	if err != nil {
+		if strings.Contains(err.Error(), "late join is only available for ready-to-start students") ||
+			strings.Contains(err.Error(), "lead not found") ||
+			strings.Contains(err.Error(), "student has no") {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		log.Printf("ERROR: Failed to get eligible classes: %v", err)
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return

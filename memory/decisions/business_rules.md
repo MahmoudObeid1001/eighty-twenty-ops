@@ -113,6 +113,35 @@
 **Tooltip**: Shows repeat reason (grade F vs missed 3+ sessions) based on latest enrollment grade  
 **Evidence**: `internal/views/pre_enrolment_list.html`, `internal/models/repository.go` (GetAllLeads with last outcome/grade)
 
+### Rule: Pre-enrolment quick filters are explicit (no hidden carry-over)
+**Behavior**: `Hot Leads` / `Cold Leads` constraints are applied only when those quick filter buttons are clicked.  
+**Form behavior**: Status/payment/search form submission must not keep hidden `hot`/`cold` query parameters.  
+**UX behavior**: Quick-filter chips are toggleable; clicking an active chip clears that filter.
+**Reason**: Prevents contradictory UI states like `All Statuses` with hidden hot-only filtering.
+**Evidence**: `internal/views/pre_enrolment_list.html`, `internal/handlers/pre_enrolment.go`
+
+### Rule: Canonical filter status values
+**Behavior**: Pre-enrolment status filter uses canonical stage constants in query values (`RENEWAL_PENDING`, `WAITING_FOR_ROUND`, etc.), with compatibility for legacy lowercase values.  
+**Reason**: Keeps dropdown selection and quick-filter active state consistent.  
+**Evidence**: `internal/views/pre_enrolment_list.html`, `internal/models/repository.go` (status mapping)
+
+### Rule: Cold Leads uses offer-sent clock (not generic updates)
+**Behavior**: Cold Leads quick filter includes:
+- leads explicitly marked `status = cold_lead`, and
+- `offer_sent` candidates aged 7+ days by `offer_sent_at` (fallback `updated_at`) with no remaining credits.  
+**Fallback**: Legacy rows without `offer_sent_at` use `updated_at` until backfilled.  
+**Reason**: Prevents unrelated edits from resetting cold-lead timing.  
+**Evidence**: `internal/models/repository.go` (`GetAllLeads`), `internal/handlers/pre_enrolment.go` (detail `ColdEligible`)
+
+### Rule: Hot/Warm/Cool "No Payment" badge uses stage-aware clock
+**Scope**: Unpaid leads in hot stages (`tested`, `offer_sent`) on pre-enrolment list/detail.  
+**Clock**:
+- `tested`: age uses `placement_tests.test_date` (fallback `leads.updated_at`).
+- `offer_sent`: age uses `leads.offer_sent_at` (fallback `leads.updated_at`).
+**Buckets**: 0-6 days = HOT, 7-13 = WARM, 14+ = COOL.  
+**Reason**: Prevents stale historical placement-test dates from mislabeling fresh `offer_sent` renewals as COOL/WARM.  
+**Evidence**: `internal/models/repository.go` (`ComputeLeadFlags`), `internal/views/pre_enrolment_list.html`, `internal/handlers/pre_enrolment.go`
+
 ### Rule: Returning student visibility (Ops)
 **UI**: Pre‑enrolment list/detail shows remaining credits and last outcome (promoted vs repeated) for returning students.  
 **Purpose**: Ops can immediately see how many levels are left and whether the student should repeat.  
