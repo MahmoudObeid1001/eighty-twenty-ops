@@ -103,6 +103,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                       isActive('/hr') ||
                       isActive('/student-success') ||
                       isClassPage)
+                      && !isActive('/mentors')
                       ? 'active'
                       : ''
                   }
@@ -134,6 +135,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 >
                   <BarChartIcon />
                   Reports
+                </Link>
+              </li>
+            )}
+            {(role === 'mentor_head' || role === 'admin') && (
+              <li>
+                <Link to="/mentors" className={isActive('/mentors') ? 'active' : ''}>
+                  Mentors
                 </Link>
               </li>
             )}

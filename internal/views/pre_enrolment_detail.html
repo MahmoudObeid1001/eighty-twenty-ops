@@ -708,8 +708,13 @@
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_tested" class="btn btn-secondary">Mark
             Tested</button>
         {{end}}
+        {{if .CanMarkOfferSent}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
             class="btn btn-secondary">Packages Sent</button>
+        {{else}}
+        <button type="button" class="btn btn-secondary" disabled title="{{.OfferActionLockedReason}}">Packages
+            Sent</button>
+        {{end}}
         {{if and .IsAdmin .ColdEligible}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_cold_lead" class="btn btn-secondary"
             style="background-color: #4A5568; border-color: #4A5568; color: white;">Send

@@ -185,6 +185,21 @@
 **Assumption**: Backend middleware is the real enforcement  
 **Next steps**: Confirm React router doesn't bypass auth
 
+### Q: Mentor Evaluations scope mismatch (mentor-level vs class-level)?
+**Observation**: Mentor Evaluations page (`/app/mentor-head/evaluations`) currently stores one manual evaluation row per mentor (`mentor_evaluations.mentor_id UNIQUE`) and shows assigned class count from all assignments, not active-only classes.
+**User Impact**:
+- Mentor card can show class count higher than active workload (e.g., includes closed classes).
+- Evaluation remains visible even when all classes are closed.
+- Metrics are partly manual and not aligned with Student Success compliance data.
+**Questions**:
+- Should evaluations be class-scoped (mentor + class_key) and shown only for active classes?
+- Which metrics remain manual and which must be auto-computed from `mentor_session_checks`?
+**Evidence**:
+- `internal/db/migrations/025_create_mentor_evaluations.sql` (UNIQUE mentor_id)
+- `internal/models/repository.go` (`GetAssignedMentors`, `UpsertMentorEvaluation`)
+- `internal/handlers/api.go` (`GetMentorEvaluations`, `UpdateMentorEvaluation`)
+- `frontend/src/pages/MentorEvaluations.tsx`
+
 ---
 
 ## Migration Gaps

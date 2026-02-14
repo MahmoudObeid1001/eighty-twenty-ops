@@ -47,6 +47,16 @@ func jsonError(w http.ResponseWriter, status int, message string) {
 	jsonResponse(w, status, map[string]string{"error": message})
 }
 
+func userDisplayName(user *models.User) string {
+	if user == nil {
+		return ""
+	}
+	if user.FullName.Valid && strings.TrimSpace(user.FullName.String) != "" {
+		return strings.TrimSpace(user.FullName.String)
+	}
+	return user.Email
+}
+
 // GET /api/me - returns current user info
 func (h *APIHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
@@ -58,12 +68,13 @@ func (h *APIHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user name (for now, use email as name)
+	// Prefer stored full name, fallback to email.
 	userName := userEmail
 	user, err := models.GetUserByID(userID)
 	if err == nil && user != nil {
-		// If we have a name field later, use it; for now email is fine
-		userName = userEmail
+		if name := userDisplayName(user); name != "" {
+			userName = name
+		}
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -155,6 +166,200 @@ func (h *APIHandler) GetMentors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, response)
+}
+
+// GET /api/mentors - mentor directory for mentor_head/admin
+func (h *APIHandler) GetMentorDirectory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
+		return
+	}
+
+	mentors, err := models.GetMentorDirectory()
+	if err != nil {
+		log.Printf("ERROR: Failed to load mentor directory: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load mentors")
+		return
+	}
+
+	type MentorDirectoryRow struct {
+		ID                 string `json:"id"`
+		Name               string `json:"name"`
+		Email              string `json:"email"`
+		Phone              string `json:"phone"`
+		Status             string `json:"status"`
+		TotalClassesTaught int    `json:"total_classes_taught"`
+	}
+
+	rows := make([]MentorDirectoryRow, 0, len(mentors))
+	for _, m := range mentors {
+		rows = append(rows, MentorDirectoryRow{
+			ID:                 m.ID.String(),
+			Name:               m.Name,
+			Email:              m.Email,
+			Phone:              m.Phone,
+			Status:             m.Status,
+			TotalClassesTaught: m.TotalClassesTaught,
+		})
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"mentors": rows,
+	})
+}
+
+// GET /api/mentors/:id/profile - mentor profile details for mentor_head/admin
+func (h *APIHandler) GetMentorProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
+		return
+	}
+
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// /api/mentors/:id/profile
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "mentors" || parts[3] != "profile" {
+		http.NotFound(w, r)
+		return
+	}
+
+	mentorID, err := uuid.Parse(parts[2])
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid mentor ID")
+		return
+	}
+
+	profile, err := models.GetMentorProfile(mentorID)
+	if err != nil {
+		log.Printf("ERROR: Failed to load mentor profile: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load mentor profile")
+		return
+	}
+	if profile == nil {
+		jsonError(w, http.StatusNotFound, "Mentor not found")
+		return
+	}
+
+	formatTime := func(t sql.NullTime) interface{} {
+		if !t.Valid {
+			return nil
+		}
+		return t.Time.Format(time.RFC3339)
+	}
+
+	classHistory := make([]map[string]interface{}, 0, len(profile.ClassHistory))
+	for _, ch := range profile.ClassHistory {
+		classHistory = append(classHistory, map[string]interface{}{
+			"class_key":        ch.ClassKey,
+			"level":            ch.Level,
+			"days":             ch.Days,
+			"time":             ch.Time,
+			"start_date":       formatTime(ch.StartDate),
+			"end_date":         formatTime(ch.EndDate),
+			"duration":         ch.Duration,
+			"evaluation_score": ch.EvaluationScore,
+			"compliance_score": ch.ComplianceScore,
+		})
+	}
+
+	testimonials := make([]map[string]interface{}, 0, len(profile.Testimonials))
+	for _, t := range profile.Testimonials {
+		testimonials = append(testimonials, map[string]interface{}{
+			"id":               t.ID.String(),
+			"class_key":        t.ClassKey,
+			"testimonial_text": t.TestimonialText,
+			"created_by":       t.CreatedByEmail,
+			"created_at":       t.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"mentor_details": map[string]interface{}{
+			"id":     profile.MentorDetails.ID.String(),
+			"name":   profile.MentorDetails.Name,
+			"email":  profile.MentorDetails.Email,
+			"phone":  profile.MentorDetails.Phone,
+			"status": profile.MentorDetails.Status,
+		},
+		"stats": map[string]interface{}{
+			"total_classes":    profile.Stats.TotalClasses,
+			"first_class_date": formatTime(profile.Stats.FirstClassDate),
+			"last_class_date":  formatTime(profile.Stats.LastClassDate),
+			"avg_rating":       profile.Stats.AvgRating,
+			"feedback_meter":   profile.Stats.FeedbackMeter,
+			"compliance_score": profile.Stats.ComplianceScore,
+		},
+		"class_history": classHistory,
+		"testimonials":  testimonials,
+	})
+}
+
+// POST /api/mentor-head/mentors/:id/testimonials
+func (h *APIHandler) CreateMentorTestimonial(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
+		return
+	}
+
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// /api/mentor-head/mentors/:id/testimonials
+	if len(parts) != 5 || parts[0] != "api" || parts[1] != "mentor-head" || parts[2] != "mentors" || parts[4] != "testimonials" {
+		http.NotFound(w, r)
+		return
+	}
+
+	mentorID, err := uuid.Parse(parts[3])
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid mentor ID")
+		return
+	}
+
+	var req struct {
+		ClassKey        string `json:"class_key"`
+		TestimonialText string `json:"testimonial_text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	createdByID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	item, err := models.CreateMentorTestimonial(mentorID, req.ClassKey, req.TestimonialText, createdByID)
+	if err != nil {
+		log.Printf("ERROR: Failed to create mentor testimonial: %v", err)
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"id":               item.ID.String(),
+		"class_key":        item.ClassKey,
+		"testimonial_text": item.TestimonialText,
+		"created_by":       item.CreatedByEmail,
+		"created_at":       item.CreatedAt.Format(time.RFC3339),
+	})
 }
 
 // GET /api/mentor-head/classes - returns classes grouped by mentor
@@ -1084,7 +1289,7 @@ func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request
 			user, err := models.GetUserByID(mentorID)
 			if err == nil && user != nil {
 				group.Mentor.Email = user.Email
-				group.Mentor.Name = user.Email // Use email as name if name field doesn't exist/empty
+				group.Mentor.Name = userDisplayName(user)
 			}
 			groupMap[mentorID] = group
 		}
@@ -1548,7 +1753,7 @@ func (h *APIHandler) ReopenRound(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// GET /api/mentor-head/evaluations - returns mentors assigned to classes with KPI data
+// GET /api/mentor-head/evaluations - returns mentors with active classes and class-scoped evaluation data
 func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1561,66 +1766,74 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Get all mentors assigned to classes
-	assignedMentors, err := models.GetAssignedMentors()
+	mentorItems, err := models.GetMentorEvaluationsActiveByClass()
 	if err != nil {
-		log.Printf("ERROR: Failed to get assigned mentors: %v", err)
+		log.Printf("ERROR: Failed to get mentor evaluations by class: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load evaluations")
 		return
 	}
 
-	type MentorKPIResponse struct {
-		ID                 string `json:"id"`
-		Email              string `json:"email"`
-		Name               string `json:"name"`
-		AssignedClassCount int    `json:"assignedClassCount"`
-		KPIs               struct {
-			SessionQuality     int `json:"sessionQuality"`
-			TrelloCompliance   int `json:"trelloCompliance"`
-			WhatsappManagement int `json:"whatsappManagement"`
-			StudentsFeedback   int `json:"studentsFeedback"`
-		} `json:"kpis"`
-		Attendance struct {
-			SessionsTotal int      `json:"sessionsTotal"`
-			Statuses      []string `json:"statuses"`
-			OnTimePercent int      `json:"onTimePercent"`
-		} `json:"attendance"`
+	type ClassResponse struct {
+		ClassKey    string `json:"classKey"`
+		Level       int32  `json:"level"`
+		Days        string `json:"days"`
+		Time        string `json:"time"`
+		ClassNumber int32  `json:"classNumber"`
+		Manual      struct {
+			SessionQuality      int    `json:"sessionQuality"`
+			StudentsFeedback    int    `json:"studentsFeedback"`
+			TrelloSessionChecks []bool `json:"trelloSessionChecks"`
+			TrelloCompliancePct int    `json:"trelloCompliancePercent"`
+		} `json:"manual"`
+		Automatic struct {
+			WhatsAppManagementPercent int      `json:"whatsAppManagementPercent"`
+			AttendancePunctualityPct  int      `json:"attendancePunctualityPercent"`
+			AttendanceStatuses        []string `json:"attendanceStatuses"`
+		} `json:"automatic"`
 	}
 
-	mentorsResponse := make([]MentorKPIResponse, 0, len(assignedMentors))
-	for _, am := range assignedMentors {
-		mentor := MentorKPIResponse{
-			ID:                 am.User.ID.String(),
-			Email:              am.User.Email,
-			Name:               am.User.Email, // Use email as name (no name field in User model)
-			AssignedClassCount: am.AssignedClassCount,
+	type MentorResponse struct {
+		ID               string          `json:"id"`
+		Email            string          `json:"email"`
+		Name             string          `json:"name"`
+		ActiveClassCount int             `json:"activeClassCount"`
+		Classes          []ClassResponse `json:"classes"`
+	}
+
+	mentorsResponse := make([]MentorResponse, 0, len(mentorItems))
+	for _, item := range mentorItems {
+		mentor := MentorResponse{
+			ID:               item.User.ID.String(),
+			Email:            item.User.Email,
+			Name:             userDisplayName(item.User),
+			ActiveClassCount: len(item.ActiveClasses),
+			Classes:          make([]ClassResponse, 0, len(item.ActiveClasses)),
 		}
 
-		// Use evaluation data if exists, otherwise defaults
-		if am.Evaluation != nil {
-			mentor.KPIs.SessionQuality = am.Evaluation.KPISessionQuality
-			mentor.KPIs.TrelloCompliance = am.Evaluation.KPITrello
-			mentor.KPIs.WhatsappManagement = am.Evaluation.KPIWhatsapp
-			mentor.KPIs.StudentsFeedback = am.Evaluation.KPIStudentsFeedback
-			mentor.Attendance.Statuses = am.Evaluation.AttendanceStatuses
-		} else {
-			// Defaults
-			mentor.KPIs.SessionQuality = 0
-			mentor.KPIs.TrelloCompliance = 0
-			mentor.KPIs.WhatsappManagement = 0
-			mentor.KPIs.StudentsFeedback = 0
-			mentor.Attendance.Statuses = []string{"unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"}
-		}
-
-		// Compute on-time percent from attendance statuses
-		mentor.Attendance.SessionsTotal = 8
-		onTimeCount := 0
-		for _, status := range mentor.Attendance.Statuses {
-			if status == "on-time" {
-				onTimeCount++
+		for _, classItem := range item.ActiveClasses {
+			c := ClassResponse{
+				ClassKey:    classItem.ClassKey,
+				Level:       classItem.Level,
+				Days:        classItem.ClassDays,
+				Time:        classItem.ClassTime,
+				ClassNumber: classItem.ClassNumber,
 			}
+			c.Manual.SessionQuality = classItem.KPISessionQuality
+			c.Manual.StudentsFeedback = classItem.KPIStudentsFeedback
+			c.Manual.TrelloSessionChecks = classItem.TrelloSessionChecks
+			checked := 0
+			for _, ok := range classItem.TrelloSessionChecks {
+				if ok {
+					checked++
+				}
+			}
+			c.Manual.TrelloCompliancePct = (checked * 100) / 8
+
+			c.Automatic.WhatsAppManagementPercent = classItem.AutoWhatsAppPercent
+			c.Automatic.AttendancePunctualityPct = classItem.AttendancePercent
+			c.Automatic.AttendanceStatuses = classItem.AttendanceStatuses
+			mentor.Classes = append(mentor.Classes, c)
 		}
-		mentor.Attendance.OnTimePercent = (onTimeCount * 100) / 8
 
 		mentorsResponse = append(mentorsResponse, mentor)
 	}
@@ -1630,7 +1843,7 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// PUT /api/mentor-head/evaluations/:mentorId - updates mentor evaluation
+// PUT /api/mentor-head/evaluations/:mentorId - updates class-scoped manual mentor evaluation
 func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1671,15 +1884,12 @@ func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Reque
 
 	// Parse request body
 	var req struct {
-		KPIs struct {
-			SessionQuality     int `json:"sessionQuality"`
-			TrelloCompliance   int `json:"trelloCompliance"`
-			WhatsappManagement int `json:"whatsappManagement"`
-			StudentsFeedback   int `json:"studentsFeedback"`
-		} `json:"kpis"`
-		Attendance struct {
-			Statuses []string `json:"statuses"`
-		} `json:"attendance"`
+		ClassKey string `json:"classKey"`
+		Manual   struct {
+			SessionQuality      int    `json:"sessionQuality"`
+			StudentsFeedback    int    `json:"studentsFeedback"`
+			TrelloSessionChecks []bool `json:"trelloSessionChecks"`
+		} `json:"manual"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1687,23 +1897,21 @@ func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Validate attendance statuses
-	if len(req.Attendance.Statuses) != 8 {
-		jsonError(w, http.StatusBadRequest, "attendance.statuses must have exactly 8 elements")
+	if req.ClassKey == "" {
+		jsonError(w, http.StatusBadRequest, "classKey is required")
 		return
 	}
 
-	// Upsert evaluation
-	if err := models.UpsertMentorEvaluation(
+	// Upsert class-scoped manual evaluation.
+	if err := models.UpsertMentorEvaluationByClass(
 		mentorID,
+		req.ClassKey,
 		evaluatorID,
-		req.KPIs.SessionQuality,
-		req.KPIs.TrelloCompliance,
-		req.KPIs.WhatsappManagement,
-		req.KPIs.StudentsFeedback,
-		req.Attendance.Statuses,
+		req.Manual.SessionQuality,
+		req.Manual.StudentsFeedback,
+		req.Manual.TrelloSessionChecks,
 	); err != nil {
-		if strings.Contains(err.Error(), "must be between") || strings.Contains(err.Error(), "invalid attendance status") {
+		if strings.Contains(err.Error(), "must be between") || strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "active class") {
 			jsonError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -1712,26 +1920,27 @@ func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Return updated evaluation
-	onTimeCount := 0
-	for _, status := range req.Attendance.Statuses {
-		if status == "on-time" {
-			onTimeCount++
+	trelloChecks := req.Manual.TrelloSessionChecks
+	if len(trelloChecks) < 8 {
+		fixed := make([]bool, 8)
+		copy(fixed, trelloChecks)
+		trelloChecks = fixed
+	}
+	checked := 0
+	for _, ok := range trelloChecks {
+		if ok {
+			checked++
 		}
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"id": mentorID.String(),
-		"kpis": map[string]interface{}{
-			"sessionQuality":     req.KPIs.SessionQuality,
-			"trelloCompliance":   req.KPIs.TrelloCompliance,
-			"whatsappManagement": req.KPIs.WhatsappManagement,
-			"studentsFeedback":   req.KPIs.StudentsFeedback,
-		},
-		"attendance": map[string]interface{}{
-			"sessionsTotal": 8,
-			"statuses":      req.Attendance.Statuses,
-			"onTimePercent": (onTimeCount * 100) / 8,
+		"id":       mentorID.String(),
+		"classKey": req.ClassKey,
+		"manual": map[string]interface{}{
+			"sessionQuality":      req.Manual.SessionQuality,
+			"studentsFeedback":    req.Manual.StudentsFeedback,
+			"trelloSessionChecks": trelloChecks,
+			"trelloCompliancePct": (checked * 100) / 8,
 		},
 	})
 }

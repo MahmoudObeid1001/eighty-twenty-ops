@@ -8,6 +8,7 @@ import StudentSuccessDashboard from './pages/StudentSuccessDashboard'
 import StudentSuccessClass from './pages/StudentSuccessClass'
 import StudentsPage from './pages/StudentsPage'
 import ReportsPage from './pages/ReportsPage'
+import MentorsPage from './pages/MentorsPage'
 
 function App() {
   const location = useLocation()
@@ -25,6 +26,7 @@ function App() {
         <Route path="/student-success/class" element={<StudentSuccessClass />} />
         <Route path="/students" element={<StudentsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/mentors" element={<MentorsPage />} />
         <Route path="/" element={<Navigate to={classKey ? `/student-success/class?class_key=${classKey}` : "/mentor"} replace />} />
       </Routes>
     </AppLayout>

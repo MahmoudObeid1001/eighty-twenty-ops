@@ -10,9 +10,12 @@
 
 ### `users`
 **Purpose**: System users with role-based access  
-**Features**: Authentication, authorization, audit trails  
-**Key Fields**: email (login), password_hash, role  
-**Evidence**: `migrations/001_init.sql:4-10`
+**Features**: Authentication, authorization, audit trails, mentor directory identity source  
+**Key Fields**: email (login), password_hash, role, full_name, phone  
+**Rules**:
+- For `role='mentor'`, `full_name` and `phone` are required (DB check constraint).
+- Legacy mentor rows are backfilled with generated phone values.
+**Evidence**: `migrations/001_init.sql:4-10`, `migrations/056_add_user_profile_fields_for_mentors.sql`
 
 ### `leads`
 **Purpose**: Student pipeline from lead creation → in classes  
@@ -49,14 +52,14 @@ All tables have UNIQUE `lead_id` - one record per lead.
 
 ### `class_groups`
 **Purpose**: Represents a class (group of students in same level/days/time)  
-**Features**: Classes board, mentor head dashboard, mentor workflow  
+**Features**: Classes board, mentor head dashboard, mentor workflow, mentor profile class history  
 **Key Fields**: class_key (PK), level, class_days, class_time, sent_to_mentor, round_status  
 **Used By**: Admin (ops), Mentor Head (assignment), Mentor (teaching)  
 **Evidence**: `migrations/005_class_groups_workflow.sql`
 
 ### `mentor_assignments`
 **Purpose**: Links mentors (users) to classes  
-**Features**: Mentor head dashboard, mentor workflow  
+**Features**: Mentor head dashboard, mentor workflow, mentor profile first/last class timeline  
 **Key Fields**: mentor_user_id FK → users(id), class_key FK → class_groups(class_key) UNIQUE  
 **Constraint**: One mentor per class  
 **Evidence**: `migrations/022_create_mentor_assignments.sql`
@@ -136,9 +139,30 @@ All tables have UNIQUE `lead_id` - one record per lead.
 **Evidence**: `migrations/020_create_community_officer_feedback.sql`
 
 ### `mentor_evaluations`
-**Purpose**: Mentor performance evaluations  
-**Features**: Mentor Head evaluations page  
-**Evidence**: `migrations/025_create_mentor_evaluations.sql`
+**Purpose**: Class-scoped mentor evaluation snapshots (manual metrics by Mentor Head)  
+**Features**: Mentor Head evaluations page (active classes only), mentor profile class history scores  
+**Key Fields**:
+- `mentor_id`
+- `class_key`
+- `kpi_session_quality` (manual 1-10)
+- `kpi_students_feedback` (manual 1-10)
+- `trello_session_checks` (manual 8-session checklist)
+**Notes**:
+- Auto metrics are sourced from `mentor_session_checks` (not stored manually in this table).
+- Unique key is `(mentor_id, class_key)` for per-class records.
+**Evidence**: `migrations/025_create_mentor_evaluations.sql`, `migrations/054_mentor_evaluations_per_class.sql`
+
+### `mentor_session_checks`
+**Purpose**: Per-session compliance checks for each class session  
+**Features**: Compliance tracking, WhatsApp management %, attendance punctuality %, mentor profile aggregate compliance  
+**Key Fields**: class_session_id, reminder_1d, reminder_1h, reminder_tasks, delay_minutes, is_absent  
+**Evidence**: `migrations/023_create_mentor_session_checks.sql`
+
+### `mentor_testimonials`
+**Purpose**: Mentor Head-curated testimonial snippets per mentor with source class traceability  
+**Features**: Mentor Evaluations "Testimonials" action, Mentor Profile testimonials tab  
+**Key Fields**: mentor_id, class_key, testimonial_text, created_by_user_id, created_at  
+**Evidence**: `migrations/057_create_mentor_testimonials.sql`
 
 ---
 
@@ -153,7 +177,24 @@ All tables have UNIQUE `lead_id` - one record per lead.
 | **Student Success Absence** | attendance, followups (type=absence_escalation), followup_case_notes, leads |
 | **Complaints Workflow** | followups (type=complaint), followup_case_notes, leads |
 | **Finance** | payments, (other finance tables) |
-| **Mentor Evaluations** | mentor_evaluations, users (mentors) |
+| **Mentor Evaluations** | mentor_evaluations, class_groups, mentor_assignments, mentor_session_checks, users (mentors) |
+| **Mentor Directory & Profile** | users, mentor_assignments, class_groups, mentor_evaluations, mentor_session_checks, class_sessions |
+| **Mentor Testimonials** | mentor_testimonials, users (mentor + creator), class_groups |
+
+---
+
+## API Usage Notes
+
+- `GET /api/mentors`
+  - Source tables: `users` + `mentor_assignments` + `class_groups`
+  - Output: mentor directory rows (name/email/status/total classes).
+- `GET /api/mentors/:id/profile`
+  - Source tables: `users`, `mentor_assignments`, `class_groups`, `mentor_evaluations`, `class_sessions`, `mentor_session_checks`, `mentor_testimonials`
+  - Historical class source uses union of `mentor_assignments.class_key` and `class_groups.closed_mentor_user_id`.
+  - Output: mentor details, aggregate stats (`feedback_meter` included), class history timeline, and testimonials list.
+- `POST /api/mentor-head/mentors/:id/testimonials`
+  - Source tables: `mentor_testimonials`, `users`, `class_groups`
+  - Output: saved testimonial row with class source and creator metadata.
 
 ---
 

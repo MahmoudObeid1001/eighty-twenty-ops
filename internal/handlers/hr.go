@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"eighty-twenty-ops/internal/config"
 	"eighty-twenty-ops/internal/middleware"
@@ -57,10 +58,12 @@ func (h *HRHandler) MentorsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	emailRaw := r.FormValue("email")
+	fullName := r.FormValue("full_name")
+	phone := r.FormValue("phone")
 	password := r.FormValue("password")
 	email := normalizeEmail(emailRaw)
-	if email == "" || password == "" {
-		http.Redirect(w, r, "/hr/mentors?error=email_and_password_required", http.StatusFound)
+	if strings.TrimSpace(fullName) == "" || email == "" || strings.TrimSpace(phone) == "" || password == "" {
+		http.Redirect(w, r, "/hr/mentors?error=name_email_phone_password_required", http.StatusFound)
 		return
 	}
 
@@ -82,7 +85,7 @@ func (h *HRHandler) MentorsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = models.CreateUser(email, string(hashed), "mentor")
+	_, err = models.CreateUser(email, string(hashed), "mentor", fullName, phone)
 	if err != nil {
 		log.Printf("ERROR: HR create mentor: db insert failed email=%q: %v", email, err)
 		http.Redirect(w, r, "/hr/mentors?error=create_failed", http.StatusFound)

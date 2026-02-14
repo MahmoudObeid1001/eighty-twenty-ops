@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -425,11 +426,12 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			// Cancelled view should show most recently cancelled leads first.
 			query += " ORDER BY l.cancelled_at DESC NULLS LAST, l.updated_at DESC"
 		} else {
-			query += " ORDER BY l.created_at DESC"
+			// Main pre-enrolment feed should rank by latest activity.
+			query += " ORDER BY l.updated_at DESC, l.created_at DESC"
 		}
 	} else {
 		// For hot filter, we'll sort in Go after computing flags, but still need an ORDER BY for SQL
-		query += " ORDER BY l.created_at DESC"
+		query += " ORDER BY l.updated_at DESC, l.created_at DESC"
 	}
 
 	var rows *sql.Rows
@@ -1178,27 +1180,39 @@ func GetUserByEmail(email string) (*User, error) {
 	user := &User{}
 	// Case-insensitive lookup so login works regardless of email case (e.g. HR stores normalized, seed may not).
 	err := db.DB.QueryRow(`
-		SELECT id, email, password_hash, role, created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, created_at
 		FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-	`, email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.Role, &user.CreatedAt)
+	`, email).Scan(&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return user, nil
 }
 
-func CreateUser(email, passwordHash, role string) (*User, error) {
+func CreateUser(email, passwordHash, role, fullName, phone string) (*User, error) {
 	userID := uuid.New()
+	fullName = strings.TrimSpace(fullName)
+	phone = strings.TrimSpace(phone)
+	var fullNameVal sql.NullString
+	var phoneVal sql.NullString
+	if fullName != "" {
+		fullNameVal = sql.NullString{String: fullName, Valid: true}
+	}
+	if phone != "" {
+		phoneVal = sql.NullString{String: phone, Valid: true}
+	}
 	_, err := db.DB.Exec(`
-		INSERT INTO users (id, email, password_hash, role, created_at)
-		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-	`, userID, email, passwordHash, role)
+		INSERT INTO users (id, email, full_name, phone, password_hash, role, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+	`, userID, email, fullNameVal, phoneVal, passwordHash, role)
 	if err != nil {
 		return nil, err
 	}
 	return &User{
 		ID:           userID,
 		Email:        email,
+		FullName:     fullNameVal,
+		Phone:        phoneVal,
 		PasswordHash: passwordHash,
 		Role:         role,
 	}, nil
@@ -5149,7 +5163,7 @@ func GetAbsenceFollowUpLogs(leadID uuid.UUID) ([]*AbsenceFollowUpLog, error) {
 // GetUsersByRole returns all users with a specific role
 func GetUsersByRole(role string) ([]*User, error) {
 	rows, err := db.DB.Query(`
-		SELECT id, email, password_hash, role, created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, created_at
 		FROM users
 		WHERE role = $1
 		ORDER BY email
@@ -5162,7 +5176,7 @@ func GetUsersByRole(role string) ([]*User, error) {
 	var users []*User
 	for rows.Next() {
 		u := &User{}
-		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
 		users = append(users, u)
@@ -5171,135 +5185,644 @@ func GetUsersByRole(role string) ([]*User, error) {
 	return users, rows.Err()
 }
 
-// GetAssignedMentors returns all distinct mentors assigned to at least one class, with their class count and evaluation data
-func GetAssignedMentors() ([]struct {
-	User               *User
-	AssignedClassCount int
-	Evaluation         *MentorEvaluation
-}, error) {
+func normalizeTrelloChecks(raw []bool) []bool {
+	out := make([]bool, 8)
+	copy(out, raw)
+	return out
+}
+
+func parseTrelloChecksJSON(raw sql.NullString) []bool {
+	if !raw.Valid {
+		return make([]bool, 8)
+	}
+	var parsed []bool
+	if err := json.Unmarshal([]byte(raw.String), &parsed); err != nil {
+		return make([]bool, 8)
+	}
+	return normalizeTrelloChecks(parsed)
+}
+
+type classComplianceMetrics struct {
+	Statuses       []string
+	PunctualityPct int
+	WhatsAppPct    int
+	ChecksCount    int
+	RemindersSent  int
+	AbsentCount    int
+	DelayedCount   int
+}
+
+func getClassComplianceMetrics(classKey string) (*classComplianceMetrics, error) {
+	sessions, err := GetComplianceByClassKey(classKey)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses := make([]string, 8)
+	for i := range statuses {
+		statuses[i] = "unknown"
+	}
+
+	checkedCount := 0
+	remindersSent := 0
+	absentCount := 0
+	delayedCount := 0
+
+	for _, s := range sessions {
+		if s.SessionNumber < 1 || s.SessionNumber > 8 {
+			continue
+		}
+		idx := int(s.SessionNumber - 1)
+		if s.Check == nil {
+			continue
+		}
+		checkedCount++
+		if s.Check.Reminder1D {
+			remindersSent++
+		}
+		if s.Check.Reminder1H {
+			remindersSent++
+		}
+		if s.Check.ReminderTasks {
+			remindersSent++
+		}
+		if s.Check.IsAbsent {
+			absentCount++
+			statuses[idx] = "absent"
+			continue
+		}
+		if s.Check.DelayMinutes > 0 {
+			delayedCount++
+			statuses[idx] = "late"
+			continue
+		}
+		statuses[idx] = "on-time"
+	}
+
+	whatsappPercent := 0
+	if checkedCount > 0 {
+		whatsappPercent = int((float64(remindersSent) / float64(checkedCount*3)) * 100)
+		if whatsappPercent > 100 {
+			whatsappPercent = 100
+		}
+	}
+
+	equivalentAbsences := absentCount + (delayedCount / 2)
+	onTimeEquivalent := 8 - equivalentAbsences
+	if onTimeEquivalent < 0 {
+		onTimeEquivalent = 0
+	}
+	punctualityPercent := int((float64(onTimeEquivalent) / 8.0) * 100.0)
+
+	return &classComplianceMetrics{
+		Statuses:       statuses,
+		PunctualityPct: punctualityPercent,
+		WhatsAppPct:    whatsappPercent,
+		ChecksCount:    checkedCount,
+		RemindersSent:  remindersSent,
+		AbsentCount:    absentCount,
+		DelayedCount:   delayedCount,
+	}, nil
+}
+
+func computeAttendanceFromCompliance(classKey string) (statuses []string, punctualityPercent int, whatsappPercent int, err error) {
+	metrics, err := getClassComplianceMetrics(classKey)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return metrics.Statuses, metrics.PunctualityPct, metrics.WhatsAppPct, nil
+}
+
+func computeCollectiveClassScore(sessionQuality10 int, feedback10 int, trelloPercent int, punctualityPercent int, whatsappPercent int) int {
+	sessionQualityPct := sessionQuality10 * 10
+	feedbackPct := feedback10 * 10
+	weighted := float64(punctualityPercent)*0.25 +
+		float64(sessionQualityPct)*0.25 +
+		float64(feedbackPct)*0.20 +
+		float64(whatsappPercent)*0.10 +
+		float64(trelloPercent)*0.20
+	return int(math.Round(weighted))
+}
+
+func durationLabel(start, end sql.NullTime) string {
+	if !end.Valid {
+		return "Ongoing"
+	}
+	if !start.Valid {
+		return "Closed"
+	}
+	d := end.Time.Sub(start.Time)
+	if d < 0 {
+		d = 0
+	}
+	days := int(d.Hours() / 24)
+	if days < 30 {
+		if days == 1 {
+			return "1 day"
+		}
+		return fmt.Sprintf("%d days", days)
+	}
+	months := days / 30
+	if months < 12 {
+		if months == 1 {
+			return "1 month"
+		}
+		return fmt.Sprintf("%d months", months)
+	}
+	years := months / 12
+	if years == 1 {
+		return "1 year"
+	}
+	return fmt.Sprintf("%d years", years)
+}
+
+// GetMentorEvaluationsActiveByClass returns mentor evaluations grouped by mentor, scoped to active classes only.
+func GetMentorEvaluationsActiveByClass() ([]*MentorEvaluationMentorItem, error) {
 	rows, err := db.DB.Query(`
-		SELECT 
-			u.id, u.email, u.password_hash, u.role, u.created_at, 
-			COUNT(ma.class_key) as assigned_class_count,
-			me.kpi_session_quality, me.kpi_trello, me.kpi_whatsapp, me.kpi_students_feedback,
-			me.attendance_statuses
-		FROM users u
-		INNER JOIN mentor_assignments ma ON u.id = ma.mentor_user_id
-		LEFT JOIN mentor_evaluations me ON u.id = me.mentor_id
+		SELECT
+			u.id, u.email, COALESCE(u.full_name, ''), COALESCE(u.phone, ''), u.password_hash, u.role, u.created_at,
+			cg.class_key, cg.level, cg.class_days, cg.class_time, cg.class_number,
+			COALESCE(me.kpi_session_quality, 0) AS kpi_session_quality,
+			COALESCE(me.kpi_students_feedback, 0) AS kpi_students_feedback,
+			me.trello_session_checks
+		FROM class_groups cg
+		INNER JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+		INNER JOIN users u ON u.id = ma.mentor_user_id
+		LEFT JOIN mentor_evaluations me ON me.mentor_id = u.id AND me.class_key = cg.class_key
 		WHERE u.role = 'mentor'
-		GROUP BY u.id, u.email, u.password_hash, u.role, u.created_at,
-		         me.kpi_session_quality, me.kpi_trello, me.kpi_whatsapp, me.kpi_students_feedback,
-		         me.attendance_statuses
-		ORDER BY u.email
+		  AND cg.round_status = 'active'
+		ORDER BY u.email ASC, cg.level ASC, cg.class_days ASC, cg.class_time ASC, cg.class_number ASC
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query assigned mentors: %w", err)
+		return nil, fmt.Errorf("failed to query mentor evaluations by class: %w", err)
 	}
 	defer rows.Close()
 
-	var results []struct {
-		User               *User
-		AssignedClassCount int
-		Evaluation         *MentorEvaluation
-	}
+	mentorMap := map[uuid.UUID]*MentorEvaluationMentorItem{}
+	order := make([]uuid.UUID, 0)
 
 	for rows.Next() {
-		u := &User{}
-		var count int
-		var kpiSessionQuality, kpiTrello, kpiWhatsapp, kpiStudentsFeedback sql.NullInt32
-		var attendanceStatusesJSON sql.NullString
+		user := &User{}
+		classItem := MentorEvaluationClassItem{}
+		var trelloJSON sql.NullString
 
-		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &count,
-			&kpiSessionQuality, &kpiTrello, &kpiWhatsapp, &kpiStudentsFeedback, &attendanceStatusesJSON); err != nil {
-			return nil, fmt.Errorf("failed to scan mentor: %w", err)
+		if err := rows.Scan(
+			&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.CreatedAt,
+			&classItem.ClassKey, &classItem.Level, &classItem.ClassDays, &classItem.ClassTime, &classItem.ClassNumber,
+			&classItem.KPISessionQuality, &classItem.KPIStudentsFeedback, &trelloJSON,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan mentor evaluation class row: %w", err)
 		}
 
-		var eval *MentorEvaluation
-		if kpiSessionQuality.Valid {
-			eval = &MentorEvaluation{
-				MentorID:            u.ID,
-				KPISessionQuality:   int(kpiSessionQuality.Int32),
-				KPITrello:           int(kpiTrello.Int32),
-				KPIWhatsapp:         int(kpiWhatsapp.Int32),
-				KPIStudentsFeedback: int(kpiStudentsFeedback.Int32),
-			}
-			if attendanceStatusesJSON.Valid {
-				// Parse JSON array
-				var statuses []string
-				if err := json.Unmarshal([]byte(attendanceStatusesJSON.String), &statuses); err == nil {
-					eval.AttendanceStatuses = statuses
-				} else {
-					// Default to unknown if parse fails
-					eval.AttendanceStatuses = []string{"unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"}
-				}
-			} else {
-				eval.AttendanceStatuses = []string{"unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"}
-			}
+		statuses, punctuality, whatsapp, err := computeAttendanceFromCompliance(classItem.ClassKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute compliance metrics for class %s: %w", classItem.ClassKey, err)
 		}
 
-		results = append(results, struct {
-			User               *User
-			AssignedClassCount int
-			Evaluation         *MentorEvaluation
-		}{
-			User:               u,
-			AssignedClassCount: count,
-			Evaluation:         eval,
-		})
+		classItem.TrelloSessionChecks = parseTrelloChecksJSON(trelloJSON)
+		classItem.AttendanceStatuses = statuses
+		classItem.AttendancePercent = punctuality
+		classItem.AutoWhatsAppPercent = whatsapp
+
+		entry, ok := mentorMap[user.ID]
+		if !ok {
+			entry = &MentorEvaluationMentorItem{
+				User:          user,
+				ActiveClasses: make([]MentorEvaluationClassItem, 0, 2),
+			}
+			mentorMap[user.ID] = entry
+			order = append(order, user.ID)
+		}
+		entry.ActiveClasses = append(entry.ActiveClasses, classItem)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate mentor evaluation class rows: %w", err)
 	}
 
-	return results, rows.Err()
+	out := make([]*MentorEvaluationMentorItem, 0, len(order))
+	for _, id := range order {
+		out = append(out, mentorMap[id])
+	}
+	return out, nil
 }
 
-// UpsertMentorEvaluation creates or updates a mentor evaluation
-func UpsertMentorEvaluation(mentorID uuid.UUID, evaluatorID uuid.UUID, kpiSessionQuality, kpiTrello, kpiWhatsapp, kpiStudentsFeedback int, attendanceStatuses []string) error {
-	// Validate attendance statuses
-	if len(attendanceStatuses) != 8 {
-		return fmt.Errorf("attendance statuses must have exactly 8 elements")
+func GetMentorDirectory() ([]*MentorDirectoryItem, error) {
+	rows, err := db.DB.Query(`
+		WITH taught_classes AS (
+			SELECT ma.mentor_user_id AS mentor_id, ma.class_key
+			FROM mentor_assignments ma
+			UNION
+			SELECT cg.closed_mentor_user_id AS mentor_id, cg.class_key
+			FROM class_groups cg
+			WHERE cg.closed_mentor_user_id IS NOT NULL
+		),
+		taught_counts AS (
+			SELECT mentor_id, COUNT(DISTINCT class_key) AS total_classes_taught
+			FROM taught_classes
+			GROUP BY mentor_id
+		),
+		active_counts AS (
+			SELECT ma.mentor_user_id AS mentor_id, COUNT(DISTINCT ma.class_key) AS active_classes
+			FROM mentor_assignments ma
+			JOIN class_groups cg ON cg.class_key = ma.class_key
+			WHERE COALESCE(cg.round_status, '') = 'active'
+			GROUP BY ma.mentor_user_id
+		)
+		SELECT
+			u.id,
+			COALESCE(NULLIF(BTRIM(u.full_name), ''), u.email) AS display_name,
+			u.email,
+			COALESCE(NULLIF(BTRIM(u.phone), ''), '-') AS phone,
+			COALESCE(tc.total_classes_taught, 0) AS total_classes_taught,
+			COALESCE(ac.active_classes, 0) AS active_classes
+		FROM users u
+		LEFT JOIN taught_counts tc ON tc.mentor_id = u.id
+		LEFT JOIN active_counts ac ON ac.mentor_id = u.id
+		WHERE u.role = 'mentor'
+		ORDER BY u.email ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query mentor directory: %w", err)
 	}
-	for _, status := range attendanceStatuses {
-		if status != "on-time" && status != "late" && status != "absent" && status != "unknown" {
-			return fmt.Errorf("invalid attendance status: %s (must be on-time, late, absent, or unknown)", status)
+	defer rows.Close()
+
+	out := make([]*MentorDirectoryItem, 0)
+	for rows.Next() {
+		item := &MentorDirectoryItem{}
+		var activeClasses int
+		if err := rows.Scan(&item.ID, &item.Name, &item.Email, &item.Phone, &item.TotalClassesTaught, &activeClasses); err != nil {
+			return nil, fmt.Errorf("failed to scan mentor directory row: %w", err)
+		}
+		if activeClasses > 0 {
+			item.Status = "active"
+		} else {
+			item.Status = "inactive"
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate mentor directory rows: %w", err)
+	}
+	return out, nil
+}
+
+func GetMentorProfile(mentorID uuid.UUID) (*MentorProfile, error) {
+	profile := &MentorProfile{}
+
+	var role string
+	var fullName sql.NullString
+	var phone sql.NullString
+	err := db.DB.QueryRow(`
+		SELECT id, email, role, full_name, phone
+		FROM users
+		WHERE id = $1
+	`, mentorID).Scan(&profile.MentorDetails.ID, &profile.MentorDetails.Email, &role, &fullName, &phone)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to load mentor details: %w", err)
+	}
+	if role != "mentor" {
+		return nil, nil
+	}
+	if fullName.Valid && strings.TrimSpace(fullName.String) != "" {
+		profile.MentorDetails.Name = strings.TrimSpace(fullName.String)
+	} else {
+		profile.MentorDetails.Name = profile.MentorDetails.Email
+	}
+	if phone.Valid && strings.TrimSpace(phone.String) != "" {
+		profile.MentorDetails.Phone = strings.TrimSpace(phone.String)
+	} else {
+		profile.MentorDetails.Phone = "-"
+	}
+
+	var activeClasses int
+	err = db.DB.QueryRow(`
+		SELECT COUNT(DISTINCT ma.class_key) AS active_classes
+		FROM mentor_assignments ma
+		JOIN class_groups cg ON cg.class_key = ma.class_key
+		WHERE ma.mentor_user_id = $1
+		  AND COALESCE(cg.round_status, '') = 'active'
+	`, mentorID).Scan(&activeClasses)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute mentor profile stats: %w", err)
+	}
+	if activeClasses > 0 {
+		profile.MentorDetails.Status = "active"
+	} else {
+		profile.MentorDetails.Status = "inactive"
+	}
+	profile.MentorDetails.TotalClassesTaught = profile.Stats.TotalClasses
+
+	rows, err := db.DB.Query(`
+		WITH class_keys AS (
+			SELECT ma.class_key
+			FROM mentor_assignments ma
+			WHERE ma.mentor_user_id = $1
+			UNION
+			SELECT cg.class_key
+			FROM class_groups cg
+			WHERE cg.closed_mentor_user_id = $1
+		)
+		SELECT
+			ck.class_key,
+			cg.level,
+			cg.class_days,
+			cg.class_time,
+			COALESCE(cg.round_started_at, cg.sent_at, ma.assigned_at, cg.round_closed_at) AS start_date,
+			cg.round_closed_at,
+			COALESCE(me.kpi_session_quality, 0) AS kpi_session_quality,
+			COALESCE(me.kpi_students_feedback, 0) AS kpi_students_feedback,
+			me.trello_session_checks
+		FROM class_keys ck
+		INNER JOIN class_groups cg ON cg.class_key = ck.class_key
+		LEFT JOIN mentor_assignments ma ON ma.class_key = ck.class_key AND ma.mentor_user_id = $1
+		LEFT JOIN mentor_evaluations me ON me.mentor_id = $1 AND me.class_key = ck.class_key
+		ORDER BY COALESCE(cg.round_started_at, cg.sent_at, ma.assigned_at, cg.round_closed_at) DESC, ma.assigned_at DESC NULLS LAST
+	`, mentorID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load mentor class history: %w", err)
+	}
+	defer rows.Close()
+
+	history := make([]MentorClassHistoryItem, 0)
+	totalEval := 0
+	classCountForKPI := 0
+	totalFeedback := 0
+	feedbackCount := 0
+	totalReminderSlots := 0
+	totalRemindersSent := 0
+
+	for rows.Next() {
+		item := MentorClassHistoryItem{}
+		var sessionQuality, feedback int
+		var trelloJSON sql.NullString
+		if err := rows.Scan(
+			&item.ClassKey, &item.Level, &item.Days, &item.Time,
+			&item.StartDate, &item.EndDate,
+			&sessionQuality, &feedback, &trelloJSON,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan mentor class history row: %w", err)
+		}
+
+		metrics, err := getClassComplianceMetrics(item.ClassKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute compliance for class %s: %w", item.ClassKey, err)
+		}
+
+		trelloChecks := parseTrelloChecksJSON(trelloJSON)
+		checked := 0
+		for _, ok := range trelloChecks {
+			if ok {
+				checked++
+			}
+		}
+		trelloPercent := (checked * 100) / 8
+
+		item.ComplianceScore = metrics.WhatsAppPct
+		item.EvaluationScore = computeCollectiveClassScore(sessionQuality, feedback, trelloPercent, metrics.PunctualityPct, metrics.WhatsAppPct)
+		item.Duration = durationLabel(item.StartDate, item.EndDate)
+		if feedback > 0 {
+			totalFeedback += feedback * 10
+			feedbackCount++
+		}
+
+		totalEval += item.EvaluationScore
+		classCountForKPI++
+		totalReminderSlots += metrics.ChecksCount * 3
+		totalRemindersSent += metrics.RemindersSent
+
+		history = append(history, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate mentor class history rows: %w", err)
+	}
+
+	profile.ClassHistory = history
+	profile.Stats.TotalClasses = len(history)
+	for _, item := range history {
+		if item.StartDate.Valid {
+			if !profile.Stats.FirstClassDate.Valid || item.StartDate.Time.Before(profile.Stats.FirstClassDate.Time) {
+				profile.Stats.FirstClassDate = item.StartDate
+			}
+			if !profile.Stats.LastClassDate.Valid || item.StartDate.Time.After(profile.Stats.LastClassDate.Time) {
+				profile.Stats.LastClassDate = item.StartDate
+			}
+		}
+	}
+	profile.MentorDetails.TotalClassesTaught = profile.Stats.TotalClasses
+	if classCountForKPI > 0 {
+		profile.Stats.AvgRating = int(math.Round(float64(totalEval) / float64(classCountForKPI)))
+	}
+	if feedbackCount > 0 {
+		profile.Stats.FeedbackMeter = int(math.Round(float64(totalFeedback) / float64(feedbackCount)))
+	}
+	if totalReminderSlots > 0 {
+		profile.Stats.ComplianceScore = int(math.Round((float64(totalRemindersSent) / float64(totalReminderSlots)) * 100))
+	}
+
+	testimonials, err := GetMentorTestimonials(mentorID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load mentor testimonials: %w", err)
+	}
+	profile.Testimonials = testimonials
+	return profile, nil
+}
+
+func GetMentorTestimonials(mentorID uuid.UUID) ([]MentorTestimonial, error) {
+	rows, err := db.DB.Query(`
+		SELECT
+			mt.id,
+			mt.mentor_id,
+			mt.class_key,
+			mt.testimonial_text,
+			mt.created_by_user_id,
+			COALESCE(u.email, '') AS created_by_email,
+			mt.created_at
+		FROM mentor_testimonials mt
+		LEFT JOIN users u ON u.id = mt.created_by_user_id
+		WHERE mt.mentor_id = $1
+		ORDER BY mt.created_at DESC
+	`, mentorID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query mentor testimonials: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]MentorTestimonial, 0)
+	for rows.Next() {
+		var item MentorTestimonial
+		if err := rows.Scan(
+			&item.ID,
+			&item.MentorID,
+			&item.ClassKey,
+			&item.TestimonialText,
+			&item.CreatedByUserID,
+			&item.CreatedByEmail,
+			&item.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan mentor testimonial: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate mentor testimonials: %w", err)
+	}
+	return out, nil
+}
+
+func CreateMentorTestimonial(mentorID uuid.UUID, classKey string, testimonialText string, createdByUserID uuid.UUID) (*MentorTestimonial, error) {
+	classKey = strings.TrimSpace(classKey)
+	testimonialText = strings.TrimSpace(testimonialText)
+	if classKey == "" {
+		return nil, fmt.Errorf("class_key is required")
+	}
+	if testimonialText == "" {
+		return nil, fmt.Errorf("testimonial_text is required")
+	}
+
+	// Ensure mentor exists and role is mentor.
+	var mentorExists bool
+	if err := db.DB.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM users WHERE id = $1 AND role = 'mentor'
+		)
+	`, mentorID).Scan(&mentorExists); err != nil {
+		return nil, fmt.Errorf("failed to validate mentor: %w", err)
+	}
+	if !mentorExists {
+		return nil, fmt.Errorf("mentor not found")
+	}
+
+	// Ensure class exists.
+	var classExists bool
+	if err := db.DB.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM class_groups WHERE class_key = $1
+		)
+	`, classKey).Scan(&classExists); err != nil {
+		return nil, fmt.Errorf("failed to validate class_key: %w", err)
+	}
+	if !classExists {
+		return nil, fmt.Errorf("class_key not found")
+	}
+
+	item := &MentorTestimonial{}
+	err := db.DB.QueryRow(`
+		INSERT INTO mentor_testimonials (
+			id, mentor_id, class_key, testimonial_text, created_by_user_id, created_at, updated_at
+		)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW(), NOW())
+		RETURNING id, mentor_id, class_key, testimonial_text, created_by_user_id, created_at
+	`, mentorID, classKey, testimonialText, createdByUserID).Scan(
+		&item.ID,
+		&item.MentorID,
+		&item.ClassKey,
+		&item.TestimonialText,
+		&item.CreatedByUserID,
+		&item.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mentor testimonial: %w", err)
+	}
+
+	creator, err := GetUserByID(createdByUserID.String())
+	if err == nil && creator != nil {
+		item.CreatedByEmail = creator.Email
+	}
+	return item, nil
+}
+
+// UpsertMentorEvaluationByClass creates or updates class-scoped manual evaluation fields.
+func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluatorID uuid.UUID, sessionQuality int, studentsFeedback int, trelloSessionChecks []bool) error {
+	if classKey == "" {
+		return fmt.Errorf("class_key is required")
+	}
+	if sessionQuality < 1 || sessionQuality > 10 {
+		return fmt.Errorf("session_quality must be between 1 and 10")
+	}
+	if studentsFeedback < 1 || studentsFeedback > 10 {
+		return fmt.Errorf("students_feedback must be between 1 and 10")
+	}
+	trelloSessionChecks = normalizeTrelloChecks(trelloSessionChecks)
+	trelloJSON, err := json.Marshal(trelloSessionChecks)
+	if err != nil {
+		return fmt.Errorf("failed to encode trello checks: %w", err)
+	}
+
+	var exists bool
+	err = db.DB.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM class_groups cg
+			INNER JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+			WHERE cg.class_key = $1
+			  AND cg.round_status = 'active'
+			  AND ma.mentor_user_id = $2
+		)
+	`, classKey, mentorID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to validate active class ownership: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("class is not an active class assigned to this mentor")
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin mentor evaluation upsert tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	updateRes, err := tx.Exec(`
+		UPDATE mentor_evaluations
+		SET kpi_session_quality = $3,
+		    kpi_students_feedback = $4,
+		    trello_session_checks = $5::jsonb,
+		    evaluator_id = $6,
+		    updated_at = NOW()
+		WHERE mentor_id = $1
+		  AND class_key = $2
+	`, mentorID, classKey, sessionQuality, studentsFeedback, string(trelloJSON), evaluatorID)
+	if err != nil {
+		return fmt.Errorf("failed to update mentor evaluation by class: %w", err)
+	}
+
+	updatedRows, err := updateRes.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to read mentor evaluation update rows affected: %w", err)
+	}
+	if updatedRows == 0 {
+		_, err = tx.Exec(`
+			INSERT INTO mentor_evaluations (
+				mentor_id, class_key, kpi_session_quality, kpi_students_feedback, trello_session_checks, evaluator_id, updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6, NOW())
+		`, mentorID, classKey, sessionQuality, studentsFeedback, string(trelloJSON), evaluatorID)
+		if err != nil {
+			// If another request inserted concurrently, retry as update in same tx.
+			if pgErr, ok := err.(*pq.Error); ok && pgErr.Code == "23505" {
+				_, err = tx.Exec(`
+					UPDATE mentor_evaluations
+					SET kpi_session_quality = $3,
+					    kpi_students_feedback = $4,
+					    trello_session_checks = $5::jsonb,
+					    evaluator_id = $6,
+					    updated_at = NOW()
+					WHERE mentor_id = $1
+					  AND class_key = $2
+				`, mentorID, classKey, sessionQuality, studentsFeedback, string(trelloJSON), evaluatorID)
+			}
+			if err != nil {
+				return fmt.Errorf("failed to upsert mentor evaluation by class: %w", err)
+			}
 		}
 	}
 
-	// Validate KPIs (0-100)
-	if kpiSessionQuality < 0 || kpiSessionQuality > 100 {
-		return fmt.Errorf("kpi_session_quality must be between 0 and 100")
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit mentor evaluation upsert tx: %w", err)
 	}
-	if kpiTrello < 0 || kpiTrello > 100 {
-		return fmt.Errorf("kpi_trello must be between 0 and 100")
-	}
-	if kpiWhatsapp < 0 || kpiWhatsapp > 100 {
-		return fmt.Errorf("kpi_whatsapp must be between 0 and 100")
-	}
-	if kpiStudentsFeedback < 0 || kpiStudentsFeedback > 100 {
-		return fmt.Errorf("kpi_students_feedback must be between 0 and 100")
-	}
-
-	// Convert attendance statuses to JSON
-	statusesJSON, err := json.Marshal(attendanceStatuses)
-	if err != nil {
-		return fmt.Errorf("failed to marshal attendance statuses: %w", err)
-	}
-
-	// Upsert (INSERT ... ON CONFLICT UPDATE)
-	_, err = db.DB.Exec(`
-		INSERT INTO mentor_evaluations (mentor_id, kpi_session_quality, kpi_trello, kpi_whatsapp, kpi_students_feedback, attendance_statuses, evaluator_id, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())
-		ON CONFLICT (mentor_id) DO UPDATE SET
-			kpi_session_quality = EXCLUDED.kpi_session_quality,
-			kpi_trello = EXCLUDED.kpi_trello,
-			kpi_whatsapp = EXCLUDED.kpi_whatsapp,
-			kpi_students_feedback = EXCLUDED.kpi_students_feedback,
-			attendance_statuses = EXCLUDED.attendance_statuses,
-			evaluator_id = EXCLUDED.evaluator_id,
-			updated_at = NOW()
-	`, mentorID, kpiSessionQuality, kpiTrello, kpiWhatsapp, kpiStudentsFeedback, string(statusesJSON), evaluatorID)
-	if err != nil {
-		return fmt.Errorf("failed to upsert mentor evaluation: %w", err)
-	}
-
 	return nil
 }
 
@@ -5307,10 +5830,10 @@ func UpsertMentorEvaluation(mentorID uuid.UUID, evaluatorID uuid.UUID, kpiSessio
 func GetUserByID(userID string) (*User, error) {
 	u := &User{}
 	err := db.DB.QueryRow(`
-		SELECT id, email, password_hash, role, created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, created_at
 		FROM users
 		WHERE id = $1
-	`, userID).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	`, userID).Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

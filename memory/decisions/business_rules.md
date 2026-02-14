@@ -204,6 +204,15 @@
 **Reason**: Since they already have credits, the pre-enrolment workflow only requires setting their new schedule. No financial actions are needed.  
 **Evidence**: `internal/views/pre_enrolment_detail.html` (IsWaitingForRound conditions)
 
+### Rule: Action guards for paid returning-cycle leads
+**Scope**: Pre-Enrolment detail action buttons (`Mark Test Booked`, `Packages Sent`).  
+**Behavior**:
+- `Mark Test Booked` is blocked for returning-cycle leads (`is_returning=true` or statuses `renewal_pending`/`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`).
+- `Packages Sent` must be blocked when lead is already in paid waiting flow (`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`) or has remaining credits (`levels_purchased_total - levels_consumed > 0`), to prevent accidental downgrade to `offer_sent`.
+**Reason**: Paid entitlement/waiting-flow leads must not be pushed backward into hot lead lifecycle by accidental clicks.
+**Expected UX**: Action is disabled with explanatory tooltip; backend enforces same guard server-side.
+**Evidence**: `internal/handlers/pre_enrolment.go` (`canMarkOfferSent`, `mark_offer_sent` action guard), `internal/views/pre_enrolment_detail.html` (disabled `Packages Sent` button with tooltip)
+
 ### Rule: Mentor compliance checks per session
 **Scope**: Student Success only compliance auditing for each class session.  
 **Storage**: `mentor_session_checks` (one row per `class_session_id`, enforced by UNIQUE).  
@@ -255,6 +264,35 @@
 - `frontend/src/pages/ReportsPage.tsx`
 - `internal/handlers/api.go` (`GetMentorReportChecklist`)
 - `internal/models/compliance.go` (`GetMentorComplianceChecklist`)
+
+### Rule: Mentor evaluations are class-scoped and active-only
+**UI**: Mentor Evaluations page shows mentors as expandable groups, then each mentor's **active classes** as separate evaluation cards.  
+**Visibility**: Closed rounds are excluded automatically (no active evaluation card once class is closed).  
+**Reason**: Prevents stale closed-class load from inflating mentor class counts and mixing unrelated classes under one score.  
+**Evidence**: `frontend/src/pages/MentorEvaluations.tsx`, `internal/handlers/api.go` (`GetMentorEvaluations`), `internal/models/repository.go` (`GetMentorEvaluationsActiveByClass`)
+
+### Rule: Mentor evaluation metrics split (manual vs automatic)
+**Manual (Mentor Head edits, per class)**:
+- Session Quality: scale 1-10
+- Students Feedback: scale 1-10
+- Trello Compliance: 8 session checkboxes (`trello_session_checks`), displayed as percentage checked
+**Automatic (from Student Success compliance checks, per class)**:
+- WhatsApp Groups Management = `(reminder_1d + reminder_1h + reminder_tasks true count) / (checks_count * 3) * 100`
+- Attendance Punctuality = `((8 - (absent_count + floor(delayed_sessions/2))) / 8) * 100`, where delayed session means `delay_minutes > 0`
+**Evidence**: `internal/models/repository.go` (`computeAttendanceFromCompliance`, `UpsertMentorEvaluationByClass`), `internal/models/compliance.go` (`GetComplianceByClassKey`), `frontend/src/pages/MentorEvaluations.tsx`
+
+### Rule: Mentor evaluations show weighted collective KPI ratio
+**Scope**: Per active class card, plus mentor summary (average of active-class collective scores).  
+**Formula**:
+- Punctuality: 25%
+- Session Quality: 25%
+- Students Feedback: 20%
+- WhatsApp Groups Management: 10%
+- Trello Compliance: 20%
+**Normalization**:
+- Session Quality and Students Feedback are 1-10 manual scores, converted to percent (`score * 10`) before weighting.
+- Remaining metrics are already 0-100 percentages.
+**Evidence**: `frontend/src/pages/MentorEvaluations.tsx`
 
 ### Rule: Compliance schedule day label uses class slot (not calendar weekday)
 **Behavior**: For classes with dual-day schedules (e.g., `Sat/Tues`), session labels alternate by session number: odd→first day, even→second day.  
@@ -642,6 +680,12 @@
 **Privacy**: Private notes visible to all roles (as per current system design)  
 **Context**: Includes class_key and session_number when applicable  
 **Evidence**: `internal/models/student_profile_repository.go` (`GetStudentNotesTimeline`)
+
+### Rule: Pre-Enrolment default list sorting
+**Scope**: Main pre-enrolment feed (non-cancelled views)  
+**Order**: `updated_at DESC, created_at DESC` (latest activity first)  
+**Reason**: Recently added/updated leads should appear at the top.  
+**Evidence**: `internal/models/repository.go` (`GetAllLeads`)
 
 ### Rule: Promoted student badge
 **Display**: Star badge (⭐) shown for students with `is_returning = true`  

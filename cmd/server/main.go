@@ -122,6 +122,37 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/mentors -> apiHandler.GetMentors [mentor_head+admin]")
 
+	mux.HandleFunc("/api/mentor-head/mentors/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/testimonials") {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.CreateMentorTestimonial)(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/mentors/:id/testimonials -> apiHandler.CreateMentorTestimonial [mentor_head+admin]")
+
+	mux.HandleFunc("/api/mentors", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/mentors" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorDirectory)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentors -> apiHandler.GetMentorDirectory [mentor_head+admin]")
+
+	mux.HandleFunc("/api/mentors/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorProfile)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentors/:id/profile -> apiHandler.GetMentorProfile [mentor_head+admin]")
+
 	mux.HandleFunc("/api/mentor-head/classes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorHeadClasses)(w, r)
 	}))
@@ -1196,7 +1227,7 @@ func seedAdminUser(cfg *config.Config) error {
 	}
 
 	// Create admin user
-	_, err = models.CreateUser(cfg.AdminEmail, string(hashedPassword), "admin")
+	_, err = models.CreateUser(cfg.AdminEmail, string(hashedPassword), "admin", "Admin", "")
 	if err != nil {
 		return fmt.Errorf("failed to create admin user: %w", err)
 	}
@@ -1220,7 +1251,7 @@ func seedModeratorUser(cfg *config.Config) error {
 	}
 
 	// Create moderator user
-	_, err = models.CreateUser(cfg.ModeratorEmail, string(hashedPassword), "moderator")
+	_, err = models.CreateUser(cfg.ModeratorEmail, string(hashedPassword), "moderator", "Moderator", "")
 	if err != nil {
 		return fmt.Errorf("failed to create moderator user: %w", err)
 	}
@@ -1238,7 +1269,7 @@ func seedMentorHeadUser(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
-	_, err = models.CreateUser(cfg.MentorHeadEmail, string(hashedPassword), "mentor_head")
+	_, err = models.CreateUser(cfg.MentorHeadEmail, string(hashedPassword), "mentor_head", "Mentor Head", "")
 	if err != nil {
 		return fmt.Errorf("failed to create mentor_head user: %w", err)
 	}
@@ -1255,7 +1286,7 @@ func seedMentorUser(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
-	_, err = models.CreateUser(cfg.MentorEmail, string(hashedPassword), "mentor")
+	_, err = models.CreateUser(cfg.MentorEmail, string(hashedPassword), "mentor", "Default Mentor", "01000000000")
 	if err != nil {
 		return fmt.Errorf("failed to create mentor user: %w", err)
 	}
@@ -1272,7 +1303,7 @@ func seedHRUser(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
-	_, err = models.CreateUser(cfg.HREmail, string(hashedPassword), "hr")
+	_, err = models.CreateUser(cfg.HREmail, string(hashedPassword), "hr", "HR", "")
 	if err != nil {
 		return fmt.Errorf("failed to create hr user: %w", err)
 	}
@@ -1289,7 +1320,7 @@ func seedStudentSuccessUser(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
-	_, err = models.CreateUser(cfg.StudentSuccessEmail, string(hashedPassword), "student_success")
+	_, err = models.CreateUser(cfg.StudentSuccessEmail, string(hashedPassword), "student_success", "Student Success", "")
 	if err != nil {
 		return fmt.Errorf("failed to create student_success user: %w", err)
 	}

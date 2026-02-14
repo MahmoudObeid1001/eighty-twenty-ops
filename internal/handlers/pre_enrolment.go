@@ -700,18 +700,26 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"IsFullyPaid":            isFullyPaid,
 		"IsWaitingForRound":      detail.Lead.Status == "waiting_for_round",
 		"CanMoveWaiting":         canUseWaitingFlow(detail),
-		"StatusDisplayName":      statusInfo.DisplayName,
-		"StatusBgColor":          statusInfo.BgColor,
-		"StatusTextColor":        statusInfo.TextColor,
-		"StatusBorderColor":      statusInfo.BorderColor,
-		"CreditsRemaining":       creditsRemaining,
-		"LastOutcome":            lastOutcome,
-		"LastFinalGrade":         lastGrade,
-		"Error":                  "",
-		"PhoneError":             "",
-		"ExistingLeadID":         nil,
-		"SuccessMessage":         "",
-		"ShowCancelModal":        false,
+		"CanMarkOfferSent": func() bool {
+			ok, _ := canMarkOfferSent(detail)
+			return ok
+		}(),
+		"OfferActionLockedReason": func() string {
+			_, reason := canMarkOfferSent(detail)
+			return reason
+		}(),
+		"StatusDisplayName": statusInfo.DisplayName,
+		"StatusBgColor":     statusInfo.BgColor,
+		"StatusTextColor":   statusInfo.TextColor,
+		"StatusBorderColor": statusInfo.BorderColor,
+		"CreditsRemaining":  creditsRemaining,
+		"LastOutcome":       lastOutcome,
+		"LastFinalGrade":    lastGrade,
+		"Error":             "",
+		"PhoneError":        "",
+		"ExistingLeadID":    nil,
+		"SuccessMessage":    "",
+		"ShowCancelModal":   false,
 	}
 	return data, nil
 }
@@ -778,6 +786,28 @@ func isReturningCyclePlacementLocked(lead *models.Lead) bool {
 	default:
 		return false
 	}
+}
+
+func isPaidWaitingFlowStatus(status string) bool {
+	switch status {
+	case "waiting_for_round", "schedule_assigned", "ready_to_start", "in_classes":
+		return true
+	default:
+		return false
+	}
+}
+
+func canMarkOfferSent(detail *models.LeadDetail) (bool, string) {
+	if detail == nil || detail.Lead == nil {
+		return false, "Lead data is unavailable. Please refresh and try again."
+	}
+	if isPaidWaitingFlowStatus(detail.Lead.Status) {
+		return false, "Packages Sent is locked: this lead is already in paid waiting flow."
+	}
+	if computedRemainingCredits(detail.Lead) > 0 {
+		return false, "Packages Sent is locked: this lead still has prepaid remaining credits."
+	}
+	return true, ""
 }
 
 func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -942,6 +972,10 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		detail, err := models.GetLeadByID(leadID)
 		if err != nil {
 			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if allowed, reason := canMarkOfferSent(detail); !allowed {
+			h.renderDetailWithError(w, r, leadID, reason)
 			return
 		}
 
@@ -1327,18 +1361,18 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-				// If there are refundable amounts, refund details are required.
-				// Some browsers/DOM edge cases can submit without refund_amount even when prefilled,
-				// so we default to full refundable amount instead of failing with refund_required.
-				if totalRefundableAmount > 0 {
-					refundAmount := int(totalRefundableAmount)
-					if strings.TrimSpace(refundAmountStr) != "" {
-						refundAmount, err = strconv.Atoi(refundAmountStr)
-						if err != nil || refundAmount <= 0 {
-							http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_amount", leadID.String()), http.StatusFound)
-							return
-						}
+			// If there are refundable amounts, refund details are required.
+			// Some browsers/DOM edge cases can submit without refund_amount even when prefilled,
+			// so we default to full refundable amount instead of failing with refund_required.
+			if totalRefundableAmount > 0 {
+				refundAmount := int(totalRefundableAmount)
+				if strings.TrimSpace(refundAmountStr) != "" {
+					refundAmount, err = strconv.Atoi(refundAmountStr)
+					if err != nil || refundAmount <= 0 {
+						http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_amount", leadID.String()), http.StatusFound)
+						return
 					}
+				}
 
 				if int32(refundAmount) > totalRefundableAmount {
 					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds&max=%d", leadID.String(), totalRefundableAmount), http.StatusFound)
@@ -1497,23 +1531,23 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		today := time.Now().Format("2006-01-02")
 		data := map[string]interface{}{
-			"Title":                 fmt.Sprintf("Cancel Lead - %s", detail.Lead.FullName),
-			"Detail":                detail,
-			"UserRole":              userRole,
-			"IsModerator":           false,
-			"ShowCancelModal":       true,
-			"PlacementTestPaid":     placementTestPaid,
-			"TotalCoursePaid":       totalCoursePaid,
-			"UnusedCreditsValue":    unusedCreditsValue,
-			"RemainingCreditsCount": calculatedRemainingCredits,
+			"Title":                   fmt.Sprintf("Cancel Lead - %s", detail.Lead.FullName),
+			"Detail":                  detail,
+			"UserRole":                userRole,
+			"IsModerator":             false,
+			"ShowCancelModal":         true,
+			"PlacementTestPaid":       placementTestPaid,
+			"TotalCoursePaid":         totalCoursePaid,
+			"UnusedCreditsValue":      unusedCreditsValue,
+			"RemainingCreditsCount":   calculatedRemainingCredits,
 			"ConsumedLevelsForRefund": consumedLevelsForRefund,
 			"ConsumedValueForRefund":  consumedValueForRefund,
 			"OriginalPaidForRefund":   originalPaidForRefund,
-			"TotalRefundableAmount": totalRefundableAmount,
-			"RemainingBalance":      remainingBalance,
-			"FinalPrice":            finalPriceValue,
-			"LeadPayments":          leadPayments,
-			"Today":                 today,
+			"TotalRefundableAmount":   totalRefundableAmount,
+			"RemainingBalance":        remainingBalance,
+			"FinalPrice":              finalPriceValue,
+			"LeadPayments":            leadPayments,
+			"Today":                   today,
 		}
 		renderTemplate(w, r, "pre_enrolment_detail.html", data)
 		return
@@ -1658,18 +1692,18 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse form values
-		detail := &models.LeadDetail{
-			Lead: &models.Lead{
-				ID:                   leadID,
-				FullName:             fullName,
-				Phone:                phone,
-				Status:               existingDetail.Lead.Status,
-				SentToClasses:        existingDetail.Lead.SentToClasses,
-				IsReturning:          existingDetail.Lead.IsReturning,
-				LevelsPurchasedTotal: existingDetail.Lead.LevelsPurchasedTotal,
-				LevelsConsumed:       existingDetail.Lead.LevelsConsumed,
-				RemainingCredits:     existingDetail.Lead.RemainingCredits,
-			},
+	detail := &models.LeadDetail{
+		Lead: &models.Lead{
+			ID:                   leadID,
+			FullName:             fullName,
+			Phone:                phone,
+			Status:               existingDetail.Lead.Status,
+			SentToClasses:        existingDetail.Lead.SentToClasses,
+			IsReturning:          existingDetail.Lead.IsReturning,
+			LevelsPurchasedTotal: existingDetail.Lead.LevelsPurchasedTotal,
+			LevelsConsumed:       existingDetail.Lead.LevelsConsumed,
+			RemainingCredits:     existingDetail.Lead.RemainingCredits,
+		},
 	}
 
 	// Moderator restrictions: only allow editing Lead Info (name, phone, source, notes)
@@ -2344,13 +2378,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
 		detail.Lead.Status = dbStatus
 		h.cfg.Debugf("  ♻️ Renewal offer changed: computed stage=%s, dbStatus=%s (was %s)", newStage, dbStatus, currentStatus)
-		} else if currentStatus == "in_classes" {
-			detail.Lead.Status = currentStatus
-			h.cfg.Debugf("  🎯 In-classes lead: preserving status, skipping auto-stage, leadID=%s", leadID)
-		} else if currentStatus == "renewal_pending" || currentStatus == "waiting_for_round" || detail.Lead.IsReturning {
-			detail.Lead.Status = currentStatus
-			h.cfg.Debugf("  ♻️ Returning lead: preserving status, skipping auto-stage, leadID=%s", leadID)
-		} else {
+	} else if currentStatus == "in_classes" {
+		detail.Lead.Status = currentStatus
+		h.cfg.Debugf("  🎯 In-classes lead: preserving status, skipping auto-stage, leadID=%s", leadID)
+	} else if currentStatus == "renewal_pending" || currentStatus == "waiting_for_round" || detail.Lead.IsReturning {
+		detail.Lead.Status = currentStatus
+		h.cfg.Debugf("  ♻️ Returning lead: preserving status, skipping auto-stage, leadID=%s", leadID)
+	} else {
 		newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
 
 		// Validation: If stage reaches OFFER_SENT or later, final_price must be valid
@@ -2698,6 +2732,10 @@ func (h *PreEnrolmentHandler) MarkOfferSent(w http.ResponseWriter, r *http.Reque
 	detail, err := models.GetLeadByID(leadID)
 	if err != nil {
 		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+		return
+	}
+	if allowed, reason := canMarkOfferSent(detail); !allowed {
+		h.renderDetailWithError(w, r, leadID, reason)
 		return
 	}
 

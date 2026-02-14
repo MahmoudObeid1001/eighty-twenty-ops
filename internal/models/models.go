@@ -10,6 +10,8 @@ import (
 type User struct {
 	ID           uuid.UUID
 	Email        string
+	FullName     sql.NullString
+	Phone        sql.NullString
 	PasswordHash string
 	Role         string
 	CreatedAt    time.Time
@@ -412,13 +414,78 @@ type MentorAssignment struct {
 type MentorEvaluation struct {
 	ID                  uuid.UUID
 	MentorID            uuid.UUID
+	ClassKey            string
 	KPISessionQuality   int
-	KPITrello           int
-	KPIWhatsapp         int
 	KPIStudentsFeedback int
-	AttendanceStatuses  []string // Array of 8 statuses: "on-time", "late", "absent", "unknown"
+	TrelloSessionChecks []bool
 	EvaluatorID         uuid.UUID
 	UpdatedAt           time.Time
+}
+
+type MentorEvaluationClassItem struct {
+	ClassKey            string
+	Level               int32
+	ClassDays           string
+	ClassTime           string
+	ClassNumber         int32
+	KPISessionQuality   int
+	KPIStudentsFeedback int
+	TrelloSessionChecks []bool
+	AutoWhatsAppPercent int
+	AttendanceStatuses  []string
+	AttendancePercent   int
+}
+
+type MentorEvaluationMentorItem struct {
+	User          *User
+	ActiveClasses []MentorEvaluationClassItem
+}
+
+type MentorDirectoryItem struct {
+	ID                 uuid.UUID
+	Name               string
+	Email              string
+	Phone              string
+	Status             string
+	TotalClassesTaught int
+}
+
+type MentorClassHistoryItem struct {
+	ClassKey        string
+	Level           int32
+	Days            string
+	Time            string
+	StartDate       sql.NullTime
+	EndDate         sql.NullTime
+	Duration        string
+	EvaluationScore int
+	ComplianceScore int
+}
+
+type MentorProfileStats struct {
+	TotalClasses    int
+	FirstClassDate  sql.NullTime
+	LastClassDate   sql.NullTime
+	AvgRating       int
+	FeedbackMeter   int
+	ComplianceScore int
+}
+
+type MentorTestimonial struct {
+	ID              uuid.UUID
+	MentorID        uuid.UUID
+	ClassKey        string
+	TestimonialText string
+	CreatedByUserID uuid.UUID
+	CreatedByEmail  string
+	CreatedAt       time.Time
+}
+
+type MentorProfile struct {
+	MentorDetails MentorDirectoryItem
+	Stats         MentorProfileStats
+	ClassHistory  []MentorClassHistoryItem
+	Testimonials  []MentorTestimonial
 }
 
 // FollowUp represents a follow-up action for an absence

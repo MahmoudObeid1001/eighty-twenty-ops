@@ -30,6 +30,10 @@
 - Maintain mentor availability and admin metadata (optional later)
 - Does NOT handle sessions or attendance directly
 
+**Create Rule**:
+- HR mentor creation requires `full_name`, `email`, `phone`, and `password`.
+- DB enforces mentor profile completeness (`role='mentor'` requires non-empty name and phone).
+
 ### Manager
 **Status**: Future feature (Tier 3)  
 **Current**: Not implemented
@@ -146,6 +150,7 @@
 **Business Rule**: Remaining credits are computed as `levels_purchased_total - levels_consumed` (min 0).  
 **Implementation Invariant**: For returning students, `levels_consumed` is cumulative across cycles, so when a new bundle is purchased, `levels_purchased_total` must be stored as a cumulative target: `levels_consumed_at_purchase + bundle_levels_bought`.  
 **Placement Test Rule**: Returning-cycle leads (`is_returning=true` or statuses `renewal_pending`/`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`) must not be moved back to `test_booked` by Ops actions.
+**Offer Action Rule**: Paid waiting-flow leads (`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`) and leads with remaining credits must not be moved to `offer_sent` by quick actions (e.g., `Packages Sent`).
 **UI**: Pre‑enrolment list shows a **REPEAT** badge if the latest class outcome is `repeated`.  
 **Status**: When remaining credits = 0 after close round, status must be `renewal_pending` (not paid_full).
 

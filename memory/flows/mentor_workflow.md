@@ -165,6 +165,17 @@ flowchart TD
 - `frontend/src/pages/ClassWorkspace.tsx` (edit controls)
 - `frontend/src/pages/StudentSuccessClass.tsx` (read-only controls)
 
+### Rule: Final grading uses explicit batch save
+**Rule**: Grade/notes edits are draft-only until user clicks `Save All Grades`.  
+**Behavior**:
+- Mentors/Mentor Head can modify multiple students first.
+- No per-field autosave on select/blur.
+- Save action persists all changed rows in one batch.
+- Success toast confirms save completion.
+**Evidence**:
+- `frontend/src/pages/ClassWorkspace.tsx` (`gradeDrafts`, `handleSaveAllGrades`)
+- `frontend/src/api/client.ts` (`createGrade`, `deleteGrade`)
+
 ### Rule: Final grading notes are visible in student record timeline
 **Rule**: Notes entered with session 8 grades are visible later in the Students tab timeline across levels/classes.  
 **Mechanism**: Student timeline API unions `grades.notes` as `grade_note` items.  
@@ -225,6 +236,48 @@ stateDiagram-v2
 ### Evidence:
 - `migrations/016_create_class_sessions.sql` - status field
 - Session completion API updates status to 'completed'
+
+---
+
+## Mentor Evaluation Workflow (Mentor Head)
+
+```mermaid
+flowchart TD
+    Start([Mentor Head opens Mentor Evaluations]) --> Load[Load mentors with active classes only]
+    Load --> Expand[Expand mentor row]
+    Expand --> Classes[View active classes per mentor]
+    Classes --> OpenEdit[Edit one class evaluation]
+    OpenEdit --> Manual[Set manual metrics: session quality, students feedback, trello checkboxes]
+    Manual --> Save[Save class-scoped evaluation]
+    Save --> Refresh[Refresh class card metrics]
+    Refresh --> Auto[Auto metrics stay derived from SS compliance checks]
+    Auto --> CloseRound{Class round closed?}
+    CloseRound -->|Yes| Hidden[Class removed from active evaluations]
+    CloseRound -->|No| Classes
+```
+
+### Evidence
+- `frontend/src/pages/MentorEvaluations.tsx`
+- `internal/handlers/api.go` (`GetMentorEvaluations`, `UpdateMentorEvaluation`)
+- `internal/models/repository.go` (`GetMentorEvaluationsActiveByClass`, `UpsertMentorEvaluationByClass`)
+- `internal/db/migrations/054_mentor_evaluations_per_class.sql`
+
+### Mentor Testimonials (Mentor Head)
+**Rule**: Mentor Head can add manual testimonials per mentor, and each testimonial must include source `class_key`.  
+**Input Source**: Copied manually from Student Success "Feedback Collected".  
+**Feedback UX**: On save, Mentor Head sees a success confirmation banner.
+**Evidence**:
+- `frontend/src/pages/MentorEvaluations.tsx` (`Testimonials` button + modal)
+- `internal/handlers/api.go` (`CreateMentorTestimonial`)
+- `internal/models/repository.go` (`CreateMentorTestimonial`, `GetMentorTestimonials`)
+- `internal/db/migrations/057_create_mentor_testimonials.sql`
+
+### Historical Mentor Data Integrity
+**Rule**: Mentor historical classes must remain visible after class close/unassignment.  
+**Source of truth for profile history**:
+- active/current links from `mentor_assignments`
+- closed history from `class_groups.closed_mentor_user_id`
+**Reason**: closed classes can be unassigned from `mentor_assignments` during lifecycle transitions, but should still count in mentor history.
 
 ---
 

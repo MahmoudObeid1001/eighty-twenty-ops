@@ -1,600 +1,653 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 
-interface MentorKPI {
-  id: string
-  name: string
-  email: string
-  assignedClassCount: number
-  kpis: {
+type AttendanceStatus = 'on-time' | 'late' | 'absent' | 'unknown'
+
+interface MentorClassEvaluation {
+  classKey: string
+  level: number
+  days: string
+  time: string
+  classNumber: number
+  manual: {
     sessionQuality: number
-    trelloCompliance: number
-    whatsappManagement: number
     studentsFeedback: number
+    trelloSessionChecks: boolean[]
+    trelloCompliancePercent: number
   }
-  attendance: {
-    sessionsTotal: number
-    statuses: string[]
-    onTimePercent: number
-  }
-}
-
-function getStatusColor(status: string): string {
-  switch (status) {
-    case 'on-time':
-      return '#28a745' // green
-    case 'late':
-      return '#ffc107' // yellow
-    case 'absent':
-      return '#dc3545' // red
-    case 'unknown':
-    default:
-      return '#6c757d' // gray
+  automatic: {
+    whatsAppManagementPercent: number
+    attendancePunctualityPercent: number
+    attendanceStatuses: AttendanceStatus[]
   }
 }
 
-function getStatusLabel(status: string): string {
+interface MentorEvaluationItem {
+  id: string
+  email: string
+  name: string
+  activeClassCount: number
+  classes: MentorClassEvaluation[]
+}
+
+interface EditTarget {
+  mentorId: string
+  mentorName: string
+  classItem: MentorClassEvaluation
+}
+
+interface TestimonialTarget {
+  mentorId: string
+  mentorName: string
+  classes: MentorClassEvaluation[]
+}
+
+function computeCollectiveKPI(classItem: MentorClassEvaluation): number {
+  const punctuality = classItem.automatic.attendancePunctualityPercent
+  const sessionQuality = classItem.manual.sessionQuality * 10
+  const feedback = classItem.manual.studentsFeedback * 10
+  const whatsapp = classItem.automatic.whatsAppManagementPercent
+  const trello = classItem.manual.trelloCompliancePercent
+
+  const weighted =
+    punctuality*0.25 +
+    sessionQuality*0.25 +
+    feedback*0.20 +
+    whatsapp*0.10 +
+    trello*0.20
+
+  return Math.round(weighted)
+}
+
+function statusColor(status: AttendanceStatus): string {
   switch (status) {
     case 'on-time':
-      return 'On time'
+      return '#2f9e44'
     case 'late':
-      return 'Late'
+      return '#f59f00'
     case 'absent':
-      return 'Absent'
-    case 'unknown':
+      return '#e03131'
     default:
-      return 'Unknown'
+      return '#6c757d'
   }
 }
 
 export default function MentorEvaluations() {
-  const [mentors, setMentors] = useState<MentorKPI[]>([])
+  const [mentors, setMentors] = useState<MentorEvaluationItem[]>([])
+  const [expandedMentors, setExpandedMentors] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [editingMentor, setEditingMentor] = useState<MentorKPI | null>(null)
+  const [editing, setEditing] = useState<EditTarget | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [testimonialTarget, setTestimonialTarget] = useState<TestimonialTarget | null>(null)
+  const [savingTestimonial, setSavingTestimonial] = useState(false)
+  const [testimonialError, setTestimonialError] = useState<string | null>(null)
+  const [testimonialSuccess, setTestimonialSuccess] = useState<string | null>(null)
 
   useEffect(() => {
-    loadMentors()
+    void load()
   }, [])
 
-  async function loadMentors() {
+  async function load() {
     try {
       setLoading(true)
       setError(null)
       const data = await api.getMentorEvaluations()
-      setMentors(data.mentors)
-    } catch (err) {
-      if (err instanceof Error) {
-        if (err.message.includes('401') || err.message.includes('403')) {
-          setError('No access')
-        } else {
-          setError('Failed to load evaluations')
-        }
-      } else {
-        setError('Failed to load evaluations')
+      setMentors(data.mentors as MentorEvaluationItem[])
+      const openByDefault: Record<string, boolean> = {}
+      for (const mentor of data.mentors) {
+        openByDefault[mentor.id] = true
       }
+      setExpandedMentors(openByDefault)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load mentor evaluations')
     } finally {
       setLoading(false)
     }
   }
 
+  function toggleMentor(mentorId: string) {
+    setExpandedMentors((prev) => ({ ...prev, [mentorId]: !prev[mentorId] }))
+  }
+
+  async function saveClassManualEvaluation(payload: {
+    mentorId: string
+    classKey: string
+    manual: { sessionQuality: number; studentsFeedback: number; trelloSessionChecks: boolean[] }
+  }) {
+    try {
+      setSaving(true)
+      setSaveError(null)
+      const res = await api.updateMentorEvaluation(payload.mentorId, {
+        classKey: payload.classKey,
+        manual: payload.manual,
+      })
+
+      setMentors((prev) =>
+        prev.map((mentor) =>
+          mentor.id !== payload.mentorId
+            ? mentor
+            : {
+                ...mentor,
+                classes: mentor.classes.map((cls) =>
+                  cls.classKey !== payload.classKey
+                    ? cls
+                    : {
+                        ...cls,
+                        manual: {
+                          ...cls.manual,
+                          sessionQuality: res.manual.sessionQuality,
+                          studentsFeedback: res.manual.studentsFeedback,
+                          trelloSessionChecks: res.manual.trelloSessionChecks,
+                          trelloCompliancePercent: res.manual.trelloCompliancePct,
+                        },
+                      }
+                ),
+              }
+        )
+      )
+      setEditing(null)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save evaluation')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveTestimonial(payload: { mentorId: string; classKey: string; testimonialText: string }) {
+    try {
+      setSavingTestimonial(true)
+      setTestimonialError(null)
+      setTestimonialSuccess(null)
+      await api.createMentorTestimonial(payload.mentorId, {
+        class_key: payload.classKey,
+        testimonial_text: payload.testimonialText,
+      })
+      setTestimonialTarget(null)
+      setTestimonialSuccess('Testimonial saved successfully.')
+    } catch (err) {
+      setTestimonialError(err instanceof Error ? err.message : 'Failed to save testimonial')
+    } finally {
+      setSavingTestimonial(false)
+    }
+  }
+
   if (loading) {
-    return (
-      <div style={{ padding: '24px' }}>
-        <h1 style={{ marginBottom: '24px', fontSize: '24px', fontWeight: 600 }}>Mentor Evaluations</h1>
-        <p>Loading...</p>
-      </div>
-    )
+    return <div style={{ padding: '24px' }}>Loading mentor evaluations...</div>
   }
 
   if (error) {
     return (
-      <div style={{ padding: '24px' }}>
-        <h1 style={{ marginBottom: '24px', fontSize: '24px', fontWeight: 600 }}>Mentor Evaluations</h1>
-        <div style={{ padding: '16px', background: '#f8d7da', color: '#721c24', borderRadius: '4px', border: '1px solid #f5c6cb' }}>
-          {error}
-        </div>
+      <div style={{ padding: '24px', color: '#721c24', background: '#f8d7da', borderRadius: '6px' }}>
+        {error}
       </div>
     )
   }
 
   return (
     <div style={{ padding: '24px' }}>
-      <h1 style={{ marginBottom: '24px', fontSize: '24px', fontWeight: 600 }}>Mentor Evaluations</h1>
+      <h1 style={{ marginBottom: '16px', fontSize: '30px' }}>Mentor Evaluations</h1>
+      <p style={{ marginTop: 0, marginBottom: '20px', color: '#555' }}>
+        Evaluations are scoped per active class. Closed rounds are not shown here.
+      </p>
+
+      {testimonialSuccess && (
+        <div style={{ marginBottom: '12px', padding: '10px 12px', borderRadius: '6px', background: '#d4edda', color: '#155724', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{testimonialSuccess}</span>
+          <button onClick={() => setTestimonialSuccess(null)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#155724' }}>×</button>
+        </div>
+      )}
 
       {mentors.length === 0 ? (
-        <p style={{ color: '#666' }}>No mentors assigned to classes.</p>
+        <p style={{ color: '#666' }}>No mentors with active classes.</p>
       ) : (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))',
-            gap: '20px',
-          }}
-        >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {mentors.map((mentor) => (
-            <div
-              key={mentor.id}
-              style={{
-                background: 'white',
-                border: '1px solid #dee2e6',
-                borderRadius: '8px',
-                padding: '20px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-              }}
-            >
-              {/* Header */}
-              <div style={{ marginBottom: '16px', borderBottom: '1px solid #dee2e6', paddingBottom: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ flex: 1 }}>
-                    <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, marginBottom: '4px' }}>
-                      {mentor.name}
-                    </h2>
-                    <p style={{ margin: 0, fontSize: '14px', color: '#666' }}>{mentor.email}</p>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        marginTop: '8px',
-                        padding: '4px 8px',
-                        background: '#d4edda',
-                        color: '#155724',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {mentor.assignedClassCount} {mentor.assignedClassCount === 1 ? 'class' : 'classes'}
-                    </span>
-                  </div>
+            <div key={mentor.id} style={{ border: '1px solid #dee2e6', borderRadius: '8px', background: '#fff' }}>
+              {(() => {
+                const classScores = mentor.classes.map(computeCollectiveKPI)
+                const mentorCollective =
+                  classScores.length > 0
+                    ? Math.round(classScores.reduce((acc, s) => acc + s, 0) / classScores.length)
+                    : 0
+                return (
+              <div
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: '#fff',
+                  padding: '14px 16px',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <div onClick={() => toggleMentor(mentor.id)} style={{ cursor: 'pointer' }}>
+                  <div style={{ fontWeight: 700 }}>{mentor.name}</div>
+                  <div style={{ color: '#666', fontSize: '13px' }}>{mentor.email}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      background: '#e7f5ff',
+                      color: '#1864ab',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    Collective KPI {mentorCollective}%
+                  </span>
+                  <span
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      background: '#d4edda',
+                      color: '#155724',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {mentor.activeClassCount} active {mentor.activeClassCount === 1 ? 'class' : 'classes'}
+                  </span>
                   <button
-                    onClick={() => setEditingMentor(mentor)}
+                    onClick={() => {
+                      setTestimonialError(null)
+                      setTestimonialTarget({ mentorId: mentor.id, mentorName: mentor.name, classes: mentor.classes })
+                    }}
                     style={{
-                      padding: '6px 12px',
-                      background: '#007bff',
-                      color: 'white',
-                      border: 'none',
+                      border: '1px solid #1c7ed6',
                       borderRadius: '4px',
+                      background: '#fff',
+                      color: '#1c7ed6',
+                      padding: '6px 10px',
                       cursor: 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 500,
+                      fontWeight: 600,
                     }}
                   >
-                    Edit
+                    Testimonials
                   </button>
+                  <span onClick={() => toggleMentor(mentor.id)} style={{ color: '#666', cursor: 'pointer' }}>{expandedMentors[mentor.id] ? '▲' : '▼'}</span>
                 </div>
               </div>
+                )
+              })()}
 
-              {/* KPI Metrics */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {/* Session Quality */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 500 }}>Session Quality</span>
-                    <span style={{ fontSize: '14px', fontWeight: 600 }}>{mentor.kpis.sessionQuality}%</span>
-                  </div>
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '8px',
-                      background: '#e9ecef',
-                      borderRadius: '4px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${mentor.kpis.sessionQuality}%`,
-                        height: '100%',
-                        background: mentor.kpis.sessionQuality >= 80 ? '#28a745' : mentor.kpis.sessionQuality >= 60 ? '#ffc107' : '#dc3545',
-                        transition: 'width 0.3s',
-                      }}
+              {expandedMentors[mentor.id] && (
+                <div style={{ padding: '0 16px 16px', display: 'grid', gap: '12px' }}>
+                  {mentor.classes.map((cls) => (
+                    <ClassCard
+                      key={`${mentor.id}-${cls.classKey}`}
+                      classItem={cls}
+                      onEdit={() => setEditing({ mentorId: mentor.id, mentorName: mentor.name, classItem: cls })}
                     />
-                  </div>
+                  ))}
                 </div>
-
-                {/* Trello Compliance */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 500 }}>Trello Compliance</span>
-                    <span style={{ fontSize: '14px', fontWeight: 600 }}>{mentor.kpis.trelloCompliance}%</span>
-                  </div>
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '8px',
-                      background: '#e9ecef',
-                      borderRadius: '4px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${mentor.kpis.trelloCompliance}%`,
-                        height: '100%',
-                        background: mentor.kpis.trelloCompliance >= 80 ? '#28a745' : mentor.kpis.trelloCompliance >= 60 ? '#ffc107' : '#dc3545',
-                        transition: 'width 0.3s',
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* WhatsApp Management */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 500 }}>WhatsApp Groups Management</span>
-                    <span style={{ fontSize: '14px', fontWeight: 600 }}>{mentor.kpis.whatsappManagement}%</span>
-                  </div>
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '8px',
-                      background: '#e9ecef',
-                      borderRadius: '4px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${mentor.kpis.whatsappManagement}%`,
-                        height: '100%',
-                        background: mentor.kpis.whatsappManagement >= 80 ? '#28a745' : mentor.kpis.whatsappManagement >= 60 ? '#ffc107' : '#dc3545',
-                        transition: 'width 0.3s',
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Attendance Punctuality */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 500 }}>Attendance Punctuality</span>
-                    <span style={{ fontSize: '14px', fontWeight: 600 }}>{mentor.attendance.onTimePercent}%</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                    {mentor.attendance.statuses.map((status, index) => (
-                      <div
-                        key={index}
-                        title={`Session ${index + 1}: ${getStatusLabel(status)}`}
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '50%',
-                          background: getStatusColor(status),
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          color: 'white',
-                          cursor: 'pointer',
-                          border: '2px solid white',
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                        }}
-                      >
-                        {index + 1}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                    Overall: {mentor.attendance.onTimePercent}% on time
-                  </div>
-                </div>
-
-                {/* Students Feedback */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 500 }}>Students Feedback</span>
-                    <span style={{ fontSize: '14px', fontWeight: 600 }}>{mentor.kpis.studentsFeedback}%</span>
-                  </div>
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '8px',
-                      background: '#e9ecef',
-                      borderRadius: '4px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${mentor.kpis.studentsFeedback}%`,
-                        height: '100%',
-                        background: mentor.kpis.studentsFeedback >= 80 ? '#28a745' : mentor.kpis.studentsFeedback >= 60 ? '#ffc107' : '#dc3545',
-                        transition: 'width 0.3s',
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {/* Edit Modal */}
-      {editingMentor && (
-        <EditMentorModal
-          mentor={editingMentor}
-          onClose={() => {
-            setEditingMentor(null)
-            setSaveError(null)
-          }}
-          onSave={async (updated) => {
-            try {
-              setSaving(true)
-              setSaveError(null)
-              await api.updateMentorEvaluation(editingMentor.id, {
-                kpis: updated.kpis,
-                attendance: { statuses: updated.attendance.statuses },
-              })
-              // Update local state
-              setMentors((prev) =>
-                prev.map((m) =>
-                  m.id === editingMentor.id
-                    ? {
-                        ...m,
-                        kpis: updated.kpis,
-                        attendance: {
-                          ...m.attendance,
-                          statuses: updated.attendance.statuses,
-                          onTimePercent: updated.attendance.onTimePercent,
-                        },
-                      }
-                    : m
-                )
-              )
-              setEditingMentor(null)
-            } catch (err) {
-              if (err instanceof Error) {
-                if (err.message.includes('403')) {
-                  setSaveError('No access')
-                } else {
-                  setSaveError(err.message || 'Failed to save evaluation')
-                }
-              } else {
-                setSaveError('Failed to save evaluation')
-              }
-            } finally {
-              setSaving(false)
-            }
-          }}
+      {editing && (
+        <EditClassEvaluationModal
+          mentorName={editing.mentorName}
+          classItem={editing.classItem}
           saving={saving}
           error={saveError}
+          onClose={() => {
+            if (!saving) {
+              setEditing(null)
+              setSaveError(null)
+            }
+          }}
+          onSave={(manual) =>
+            saveClassManualEvaluation({
+              mentorId: editing.mentorId,
+              classKey: editing.classItem.classKey,
+              manual,
+            })
+          }
+        />
+      )}
+
+      {testimonialTarget && (
+        <AddTestimonialModal
+          mentorName={testimonialTarget.mentorName}
+          classes={testimonialTarget.classes}
+          saving={savingTestimonial}
+          error={testimonialError}
+          onClose={() => {
+            if (!savingTestimonial) {
+              setTestimonialTarget(null)
+              setTestimonialError(null)
+            }
+          }}
+          onSave={(payload) => saveTestimonial({ mentorId: testimonialTarget.mentorId, classKey: payload.classKey, testimonialText: payload.testimonialText })}
         />
       )}
     </div>
   )
 }
 
-interface EditMentorModalProps {
-  mentor: MentorKPI
-  onClose: () => void
-  onSave: (updated: MentorKPI) => void
-  saving: boolean
-  error: string | null
+function ScoreBar({ label, score, max = 10 }: { label: string; score: number; max?: number }) {
+  const percent = Math.max(0, Math.min(100, (score / max) * 100))
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+        <span style={{ fontSize: '14px' }}>{label}</span>
+        <strong style={{ fontSize: '14px' }}>
+          {score}/{max}
+        </strong>
+      </div>
+      <div style={{ height: '8px', background: '#eceff1', borderRadius: '4px', overflow: 'hidden' }}>
+        <div style={{ width: `${percent}%`, height: '100%', background: '#1c7ed6' }} />
+      </div>
+    </div>
+  )
 }
 
-function EditMentorModal({ mentor, onClose, onSave, saving, error }: EditMentorModalProps) {
-  const [kpis, setKPIs] = useState(mentor.kpis)
-  const [statuses, setStatuses] = useState([...mentor.attendance.statuses])
+function PercentBar({ label, percent }: { label: string; percent: number }) {
+  const clamped = Math.max(0, Math.min(100, percent))
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+        <span style={{ fontSize: '14px' }}>{label}</span>
+        <strong style={{ fontSize: '14px' }}>{clamped}%</strong>
+      </div>
+      <div style={{ height: '8px', background: '#eceff1', borderRadius: '4px', overflow: 'hidden' }}>
+        <div
+          style={{
+            width: `${clamped}%`,
+            height: '100%',
+            background: clamped >= 80 ? '#2f9e44' : clamped >= 60 ? '#f59f00' : '#e03131',
+          }}
+        />
+      </div>
+    </div>
+  )
+}
 
-  // Compute on-time percent
-  const onTimeCount = statuses.filter((s) => s === 'on-time').length
-  const onTimePercent = (onTimeCount * 100) / 8
+function ClassCard({ classItem, onEdit }: { classItem: MentorClassEvaluation; onEdit: () => void }) {
+  const collective = computeCollectiveKPI(classItem)
+  return (
+    <div style={{ border: '1px solid #e9ecef', borderRadius: '8px', padding: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <div>
+          <strong>
+            Level {classItem.level} • {classItem.days} • {classItem.time} • Class #{classItem.classNumber}
+          </strong>
+          <div style={{ color: '#666', fontSize: '12px' }}>{classItem.classKey}</div>
+        </div>
+        <button
+          onClick={onEdit}
+          style={{
+            border: 'none',
+            borderRadius: '4px',
+            background: '#1c7ed6',
+            color: '#fff',
+            padding: '6px 10px',
+            cursor: 'pointer',
+          }}
+        >
+          Edit Class
+        </button>
+      </div>
 
-  function handleSave() {
-    onSave({
-      ...mentor,
-      kpis,
-      attendance: {
-        ...mentor.attendance,
-        statuses,
-        onTimePercent,
-      },
-    })
+      <div style={{ marginBottom: '10px' }}>
+        <PercentBar label="Collective KPI Ratio (Weighted)" percent={collective} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+        <ScoreBar label="Session Quality (Manual)" score={classItem.manual.sessionQuality} />
+        <ScoreBar label="Students Feedback (Manual)" score={classItem.manual.studentsFeedback} />
+        <PercentBar label="Trello Compliance (Manual)" percent={classItem.manual.trelloCompliancePercent} />
+        <PercentBar label="WhatsApp Groups Management (Auto)" percent={classItem.automatic.whatsAppManagementPercent} />
+        <PercentBar label="Attendance Punctuality (Auto)" percent={classItem.automatic.attendancePunctualityPercent} />
+      </div>
+
+      <div style={{ marginTop: '10px' }}>
+        <div style={{ marginBottom: '6px', fontSize: '13px', color: '#555' }}>Attendance by Session (Auto)</div>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          {classItem.automatic.attendanceStatuses.map((status, idx) => (
+            <div
+              key={`${classItem.classKey}-${idx}`}
+              title={`Session ${idx + 1}: ${status}`}
+              style={{
+                width: '30px',
+                height: '30px',
+                borderRadius: '50%',
+                background: statusColor(status),
+                color: '#fff',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                fontSize: '11px',
+                fontWeight: 700,
+              }}
+            >
+              {idx + 1}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditClassEvaluationModal({
+  mentorName,
+  classItem,
+  saving,
+  error,
+  onClose,
+  onSave,
+}: {
+  mentorName: string
+  classItem: MentorClassEvaluation
+  saving: boolean
+  error: string | null
+  onClose: () => void
+  onSave: (manual: { sessionQuality: number; studentsFeedback: number; trelloSessionChecks: boolean[] }) => void
+}) {
+  const [sessionQuality, setSessionQuality] = useState(Math.max(1, classItem.manual.sessionQuality || 1))
+  const [studentsFeedback, setStudentsFeedback] = useState(Math.max(1, classItem.manual.studentsFeedback || 1))
+  const [trelloChecks, setTrelloChecks] = useState<boolean[]>(() => {
+    const fixed = new Array(8).fill(false) as boolean[]
+    const src = classItem.manual.trelloSessionChecks || []
+    for (let i = 0; i < Math.min(8, src.length); i++) fixed[i] = !!src[i]
+    return fixed
+  })
+
+  const trelloPercent = useMemo(
+    () => Math.round((trelloChecks.filter(Boolean).length / 8) * 100),
+    [trelloChecks]
+  )
+  const collectivePreview = useMemo(() => {
+    const punctuality = classItem.automatic.attendancePunctualityPercent
+    const sessionQualityPct = sessionQuality * 10
+    const feedbackPct = studentsFeedback * 10
+    const whatsapp = classItem.automatic.whatsAppManagementPercent
+    return Math.round(
+      punctuality*0.25 +
+      sessionQualityPct*0.25 +
+      feedbackPct*0.20 +
+      whatsapp*0.10 +
+      trelloPercent*0.20
+    )
+  }, [classItem.automatic.attendancePunctualityPercent, classItem.automatic.whatsAppManagementPercent, sessionQuality, studentsFeedback, trelloPercent])
+
+  function toggleSession(index: number) {
+    setTrelloChecks((prev) => prev.map((v, i) => (i === index ? !v : v)))
   }
 
   return (
-    <>
-      {/* Backdrop */}
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
       <div
-        onClick={onClose}
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: '92%', maxWidth: '680px', background: '#fff', borderRadius: '8px', padding: '16px' }}
       >
-        {/* Modal */}
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            background: 'white',
-            borderRadius: '8px',
-            width: '90%',
-            maxWidth: '600px',
-            maxHeight: '90vh',
-            overflow: 'auto',
-            padding: '24px',
-            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600 }}>Edit Evaluation: {mentor.name}</h2>
-            <button
-              onClick={onClose}
-              style={{
-                background: 'none',
-                border: 'none',
-                fontSize: '24px',
-                cursor: 'pointer',
-                color: '#666',
-                padding: 0,
-                width: '32px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              ×
-            </button>
-          </div>
-
-          {error && (
-            <div style={{ padding: '12px', background: '#f8d7da', color: '#721c24', borderRadius: '4px', marginBottom: '16px' }}>
-              {error}
-            </div>
-          )}
-
-          {/* KPI Fields */}
-          <div style={{ marginBottom: '24px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '12px' }}>KPIs (0-100)</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Session Quality */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>
-                  Session Quality: {kpis.sessionQuality}%
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={kpis.sessionQuality}
-                  onChange={(e) => setKPIs({ ...kpis, sessionQuality: parseInt(e.target.value) })}
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              {/* Trello Compliance */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>
-                  Trello Compliance: {kpis.trelloCompliance}%
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={kpis.trelloCompliance}
-                  onChange={(e) => setKPIs({ ...kpis, trelloCompliance: parseInt(e.target.value) })}
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              {/* WhatsApp Management */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>
-                  WhatsApp Groups Management: {kpis.whatsappManagement}%
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={kpis.whatsappManagement}
-                  onChange={(e) => setKPIs({ ...kpis, whatsappManagement: parseInt(e.target.value) })}
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              {/* Students Feedback */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>
-                  Students Feedback: {kpis.studentsFeedback}%
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={kpis.studentsFeedback}
-                  onChange={(e) => setKPIs({ ...kpis, studentsFeedback: parseInt(e.target.value) })}
-                  style={{ width: '100%' }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Attendance */}
-          <div style={{ marginBottom: '24px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '12px' }}>
-              Attendance Punctuality: {onTimePercent}% on time
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-              {statuses.map((status, index) => (
-                <div key={index}>
-                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 500 }}>
-                    Session {index + 1}
-                  </label>
-                  <select
-                    value={status}
-                    onChange={(e) => {
-                      const newStatuses = [...statuses]
-                      newStatuses[index] = e.target.value
-                      setStatuses(newStatuses)
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '6px',
-                      border: '1px solid #ddd',
-                      borderRadius: '4px',
-                      fontSize: '13px',
-                    }}
-                  >
-                    <option value="unknown">Unknown</option>
-                    <option value="on-time">On time</option>
-                    <option value="late">Late</option>
-                    <option value="absent">Absent</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-            <button
-              onClick={onClose}
-              disabled={saving}
-              style={{
-                padding: '8px 16px',
-                background: '#6c757d',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                fontSize: '14px',
-                opacity: saving ? 0.6 : 1,
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{
-                padding: '8px 16px',
-                background: saving ? '#6c757d' : '#007bff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                fontSize: '14px',
-                fontWeight: 500,
-              }}
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </button>
+        <div style={{ marginBottom: '10px' }}>
+          <h3 style={{ margin: 0 }}>Edit Class Evaluation</h3>
+          <div style={{ color: '#666', fontSize: '13px', marginTop: '4px' }}>
+            {mentorName} • Level {classItem.level} • {classItem.days} • {classItem.time} • Class #{classItem.classNumber}
           </div>
         </div>
+
+        {error && <div style={{ color: '#721c24', background: '#f8d7da', padding: '8px', borderRadius: '4px' }}>{error}</div>}
+
+        <div style={{ marginTop: '12px', display: 'grid', gap: '14px' }}>
+          <div>
+            <PercentBar label="Collective KPI Ratio (Preview)" percent={collectivePreview} />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: '6px' }}>Session Quality (1-10): {sessionQuality}</label>
+            <input type="range" min={1} max={10} value={sessionQuality} onChange={(e) => setSessionQuality(parseInt(e.target.value, 10))} style={{ width: '100%' }} />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '6px' }}>Students Feedback (1-10): {studentsFeedback}</label>
+            <input type="range" min={1} max={10} value={studentsFeedback} onChange={(e) => setStudentsFeedback(parseInt(e.target.value, 10))} style={{ width: '100%' }} />
+          </div>
+
+          <div>
+            <div style={{ marginBottom: '8px', fontWeight: 600 }}>Trello Compliance by Session (Manual)</div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {trelloChecks.map((checked, idx) => (
+                <label
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: '#f1f3f5',
+                    borderRadius: '4px',
+                    padding: '6px 8px',
+                  }}
+                >
+                  <input type="checkbox" checked={checked} onChange={() => toggleSession(idx)} />
+                  S{idx + 1}
+                </label>
+              ))}
+            </div>
+            <div style={{ marginTop: '6px', fontSize: '13px', color: '#555' }}>Total: {trelloPercent}%</div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <button onClick={onClose} disabled={saving} style={{ padding: '8px 12px' }}>
+            Cancel
+          </button>
+          <button
+            disabled={saving}
+            onClick={() => onSave({ sessionQuality, studentsFeedback, trelloSessionChecks: trelloChecks })}
+            style={{ padding: '8px 12px', background: '#1c7ed6', border: 'none', color: '#fff', borderRadius: '4px' }}
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
       </div>
-    </>
+    </div>
+  )
+}
+
+function AddTestimonialModal({
+  mentorName,
+  classes,
+  saving,
+  error,
+  onClose,
+  onSave,
+}: {
+  mentorName: string
+  classes: MentorClassEvaluation[]
+  saving: boolean
+  error: string | null
+  onClose: () => void
+  onSave: (payload: { classKey: string; testimonialText: string }) => void
+}) {
+  const [classKey, setClassKey] = useState(classes[0]?.classKey || '')
+  const [testimonialText, setTestimonialText] = useState('')
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: '92%', maxWidth: '720px', background: '#fff', borderRadius: '8px', padding: '16px' }}
+      >
+        <h3 style={{ marginTop: 0, marginBottom: '6px' }}>Add Testimonial</h3>
+        <div style={{ color: '#666', fontSize: '13px', marginBottom: '12px' }}>
+          {mentorName}
+        </div>
+
+        {error && <div style={{ color: '#721c24', background: '#f8d7da', padding: '8px', borderRadius: '4px', marginBottom: '10px' }}>{error}</div>}
+
+        <div style={{ marginBottom: '10px' }}>
+          <label style={{ display: 'block', marginBottom: '6px' }}>Source Class</label>
+          <select value={classKey} onChange={(e) => setClassKey(e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid #ced4da', borderRadius: '4px' }}>
+            {classes.map((cls) => (
+              <option key={cls.classKey} value={cls.classKey}>
+                {`Level ${cls.level} ${cls.days} ${cls.time} (${cls.classKey})`}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: '10px' }}>
+          <label style={{ display: 'block', marginBottom: '6px' }}>Testimonial Text</label>
+          <textarea
+            value={testimonialText}
+            onChange={(e) => setTestimonialText(e.target.value)}
+            rows={6}
+            placeholder="Paste selected feedback from Feedback Collected..."
+            style={{ width: '100%', padding: '10px', border: '1px solid #ced4da', borderRadius: '4px' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <button onClick={onClose} disabled={saving} style={{ padding: '8px 12px' }}>
+            Cancel
+          </button>
+          <button
+            disabled={saving || !classKey || !testimonialText.trim()}
+            onClick={() => onSave({ classKey, testimonialText })}
+            style={{ padding: '8px 12px', background: '#1c7ed6', border: 'none', color: '#fff', borderRadius: '4px' }}
+          >
+            {saving ? 'Saving...' : 'Save Testimonial'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

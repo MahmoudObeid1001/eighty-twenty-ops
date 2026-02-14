@@ -23,6 +23,8 @@ erDiagram
     users ||--o{ followups : "deleted_by"
     users ||--o{ late_joiner_notifications : "user_id"
     users ||--o{ feedback_collected_uploads : "uploaded_by"
+    users ||--o{ mentor_testimonials : "mentor_id"
+    users ||--o{ mentor_testimonials : "created_by_user_id"
     
     leads ||--o| placement_tests : "lead_id"
     leads ||--o| offers : "lead_id"
@@ -39,6 +41,7 @@ erDiagram
     class_groups ||--o{ followups : "class_key"
     class_groups ||--o{ late_joiner_notifications : "class_key"
     class_groups ||--o{ feedback_collected_uploads : "class_key"
+    class_groups ||--o{ mentor_testimonials : "class_key"
     
     class_sessions ||--o{ attendance : "session_id"
     attendance }o--|| leads : "lead_id"
@@ -67,6 +70,16 @@ erDiagram
         uuid uploaded_by_user_id FK
         timestamp uploaded_at
     }
+
+    mentor_testimonials {
+        uuid id PK
+        uuid mentor_id FK
+        text class_key FK
+        text testimonial_text
+        uuid created_by_user_id FK
+        timestamp created_at
+        timestamp updated_at
+    }
     
     class_sessions {
         uuid id PK
@@ -81,6 +94,8 @@ erDiagram
     users {
         uuid id PK
         text email UK
+        text full_name
+        text phone
         text password_hash
         text role "CHECK(admin|moderator|mentor_head|mentor|community_officer|hr|student_success)"
         timestamp created_at
@@ -281,7 +296,7 @@ erDiagram
 
 | Table | Created In | Modified In |
 |-------|------------|-------------|
-| `users` | `001_init.sql:4-10` | `014_add_mentor_roles.sql`, `023_add_hr_role.sql`, `028_add_student_success_role.sql`, `035_add_manager_role.sql` |
+| `users` | `001_init.sql:4-10` | `014_add_mentor_roles.sql`, `023_add_hr_role.sql`, `028_add_student_success_role.sql`, `035_add_manager_role.sql`, `056_add_user_profile_fields_for_mentors.sql` (added `full_name`, `phone`, mentor required-profile check) |
 | `leads` | `001_init.sql:13-26` | `004_classes_board.sql` (added `in_classes` status), `013_add_paused_status.sql` (added `paused`) |
 | `placement_tests` | `001_init.sql:29-39` | `003_assigned_level_1_to_8.sql` (changed level constraint 1-4 → 1-8) |
 | `offers` | `001_init.sql:42-51` | - |
@@ -300,6 +315,7 @@ erDiagram
 | `grades` | `018_create_grades.sql` | - |
 | `student_notes` | `019_create_student_notes.sql` | - |
 | `community_officer_feedback` | `020_create_community_officer_feedback.sql` | - |
+| `mentor_testimonials` | `057_create_mentor_testimonials.sql` | - |
 
 ---
 
@@ -325,6 +341,7 @@ erDiagram
 **Evidence**: Inline in CREATE TABLE statements
 
 - `users.role` must be one of: admin, moderator, community_officer, mentor_head, mentor, hr, student_success *(manager was added and removed)*
+- `users_mentor_profile_required`: when `role='mentor'`, both `full_name` and `phone` must be non-empty
 - `leads.status` has extensive pipeline states (lead_created → in_classes)
 - `placement_tests.assigned_level` must be 1-8 *(changed from 1-4)*
 - `placement_tests.test_type` must be online or live

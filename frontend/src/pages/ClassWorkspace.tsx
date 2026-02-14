@@ -41,9 +41,11 @@ export default function ClassWorkspace() {
   }
 
   const [grades, setGrades] = useState<Record<string, { grade: string; notes: string }>>({})
-  const [submittingGrade, setSubmittingGrade] = useState<string | null>(null)
+  const [gradeDrafts, setGradeDrafts] = useState<Record<string, { grade: string; notes: string }>>({})
+  const [savingAllGrades, setSavingAllGrades] = useState(false)
   const [userRole, setUserRole] = useState<string>('')
   const [complianceOpen, setComplianceOpen] = useState(false)
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     if (classKey) {
@@ -80,6 +82,7 @@ export default function ClassWorkspace() {
         gradeMap[g.lead_id] = { grade: g.grade, notes: g.notes }
       })
       setGrades(gradeMap)
+      setGradeDrafts(gradeMap)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load class')
     } finally {
@@ -121,37 +124,60 @@ export default function ClassWorkspace() {
     }
   }
 
-  async function handleUpdateGrade(leadId: string, grade: string, notes: string) {
-    if (userRole !== 'mentor' && userRole !== 'mentor_head') return
-    if (!grade) return
-    try {
-      setSubmittingGrade(leadId)
-      setActionError(null)
-      await api.createGrade({
-        lead_id: leadId,
-        class_key: classKey,
-        grade,
-        notes,
-      })
-      setGrades((prev) => ({ ...prev, [leadId]: { grade, notes } }))
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to save grade')
-    } finally {
-      setSubmittingGrade(null)
+  function normalizeGrade(v?: { grade: string; notes: string }) {
+    return {
+      grade: v?.grade || '',
+      notes: v?.notes || '',
     }
   }
 
-  async function handleClearGrade(leadId: string) {
+  function isGradeChanged(leadId: string): boolean {
+    const saved = normalizeGrade(grades[leadId])
+    const draft = normalizeGrade(gradeDrafts[leadId])
+    return saved.grade !== draft.grade || saved.notes !== draft.notes
+  }
+
+  async function handleSaveAllGrades() {
     if (userRole !== 'mentor' && userRole !== 'mentor_head') return
+    if (!allSessionsCompleted) {
+      setActionError("Final Grading is locked until all sessions are completed (e.g. Session 8 finished).")
+      return
+    }
+    if (classData?.class.round_status === 'closed') {
+      setActionError('This class is archived. Grades are read-only.')
+      return
+    }
+
     try {
-      setSubmittingGrade(leadId)
+      setSavingAllGrades(true)
       setActionError(null)
-      await api.deleteGrade(leadId, classKey)
-      setGrades((prev) => ({ ...prev, [leadId]: { grade: '', notes: '' } }))
+      setActionSuccess(null)
+      for (const student of classData?.students || []) {
+        if (!isGradeChanged(student.lead_id)) continue
+        const saved = normalizeGrade(grades[student.lead_id])
+        const draft = normalizeGrade(gradeDrafts[student.lead_id])
+
+        if (!draft.grade) {
+          if (saved.grade) {
+            await api.deleteGrade(student.lead_id, classKey)
+          }
+          continue
+        }
+
+        await api.createGrade({
+          lead_id: student.lead_id,
+          class_key: classKey,
+          grade: draft.grade,
+          notes: draft.notes,
+        })
+      }
+
+      await loadClass(true)
+      setActionSuccess('Final grading saved successfully.')
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to clear grade')
+      setActionError(err instanceof Error ? err.message : 'Failed to save grades')
     } finally {
-      setSubmittingGrade(null)
+      setSavingAllGrades(false)
     }
   }
 
@@ -259,6 +285,31 @@ export default function ClassWorkspace() {
         >
           <span>{actionError}</span>
           <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#721c24' }}>
+            ×
+          </button>
+        </div>
+      )}
+
+      {actionSuccess && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            background: '#d4edda',
+            color: '#155724',
+            padding: '12px 20px',
+            borderRadius: '8px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            zIndex: 9999,
+          }}
+        >
+          <span>{actionSuccess}</span>
+          <button onClick={() => setActionSuccess(null)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#155724' }}>
             ×
           </button>
         </div>
@@ -541,10 +592,34 @@ export default function ClassWorkspace() {
             Please assign final grades for all students. This is required before the round can be closed by the Mentor Head.
           </p>
 
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <div style={{ fontSize: '13px', color: '#666' }}>
+              {classData.students.filter((s) => isGradeChanged(s.lead_id)).length} unsaved change(s)
+            </div>
+            {canEditGrades && (
+              <button
+                onClick={handleSaveAllGrades}
+                disabled={savingAllGrades || classData.class.round_status === 'closed' || !allSessionsCompleted}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: '#007bff',
+                  color: 'white',
+                  fontWeight: 700,
+                  cursor: savingAllGrades ? 'not-allowed' : 'pointer',
+                  opacity: savingAllGrades || classData.class.round_status === 'closed' || !allSessionsCompleted ? 0.7 : 1,
+                }}
+              >
+                {savingAllGrades ? 'Saving...' : 'Save All Grades'}
+              </button>
+            )}
+          </div>
+
           <div style={{ display: 'grid', gap: '16px' }}>
             {classData.students.map((student) => {
-              const currentGrade = grades[student.lead_id] || { grade: '', notes: '' }
-              const isSaving = submittingGrade === student.lead_id
+              const currentGrade = gradeDrafts[student.lead_id] || { grade: '', notes: '' }
+              const isDirty = isGradeChanged(student.lead_id)
 
               return (
                 <div
@@ -563,6 +638,7 @@ export default function ClassWorkspace() {
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {student.full_name}
                       {currentGrade.grade && <span style={{ color: '#28a745', fontSize: '14px' }}>✅</span>}
+                      {isDirty && <span style={{ color: '#f59f00', fontSize: '12px', fontWeight: 700 }}>Unsaved</span>}
                       {student.missed_count !== undefined && student.missed_count > 2 && (
                         <span
                           style={{
@@ -588,7 +664,7 @@ export default function ClassWorkspace() {
                       - "all sessions completed" is enforced on save attempts, not via dead-looking disabled inputs.
                     */}
                     {(() => {
-                      const canInteractGradeFields = !isSaving && classData.class.round_status !== 'closed' && canEditGrades
+                      const canInteractGradeFields = !savingAllGrades && classData.class.round_status !== 'closed' && canEditGrades
                       return (
                         <>
                     <select
@@ -601,14 +677,7 @@ export default function ClassWorkspace() {
                           setActionError("Final Grading is locked until all sessions are completed (e.g. Session 8 finished).")
                           return
                         }
-                        setGrades({ ...grades, [student.lead_id]: { ...currentGrade, grade: nextGrade } })
-                        if (!nextGrade) {
-                          if (currentGrade.grade) {
-                            handleClearGrade(student.lead_id)
-                          }
-                          return
-                        }
-                        handleUpdateGrade(student.lead_id, nextGrade, currentGrade.notes)
+                        setGradeDrafts((prev) => ({ ...prev, [student.lead_id]: { ...currentGrade, grade: nextGrade } }))
                       }}
                       style={{
                         padding: '8px 12px',
@@ -631,18 +700,9 @@ export default function ClassWorkspace() {
                       placeholder="Add final notes..."
                       value={currentGrade.notes}
                       disabled={!canInteractGradeFields || !currentGrade.grade}
-                      onBlur={(e) => {
-                        if (!canEditGrades) return
-                        if (!currentGrade.grade) return
-                        if (!allSessionsCompleted) {
-                          setActionError("Final Grading is locked until all sessions are completed (e.g. Session 8 finished).")
-                          return
-                        }
-                        handleUpdateGrade(student.lead_id, currentGrade.grade, e.target.value)
-                      }}
                       onChange={(e) => {
                         if (!canEditGrades) return
-                        setGrades({ ...grades, [student.lead_id]: { ...currentGrade, notes: e.target.value } })
+                        setGradeDrafts((prev) => ({ ...prev, [student.lead_id]: { ...currentGrade, notes: e.target.value } }))
                       }}
                       style={{
                         padding: '8px 12px',
@@ -654,7 +714,7 @@ export default function ClassWorkspace() {
                       }}
                     />
 
-                    {isSaving && <span style={{ fontSize: '12px', color: '#666' }}>Saving...</span>}
+                    {savingAllGrades && <span style={{ fontSize: '12px', color: '#666' }}>Saving...</span>}
                     {!canEditGrades && <span style={{ fontSize: '12px', color: '#999' }}>Read-only</span>}
                         </>
                       )

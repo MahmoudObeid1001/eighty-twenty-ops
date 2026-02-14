@@ -40,6 +40,57 @@ export interface User {
   role: string
 }
 
+export interface MentorDirectoryItem {
+  id: string
+  name: string
+  email: string
+  phone: string
+  status: 'active' | 'inactive'
+  total_classes_taught: number
+}
+
+export interface MentorProfileStats {
+  total_classes: number
+  first_class_date: string | null
+  last_class_date: string | null
+  avg_rating: number
+  feedback_meter: number
+  compliance_score: number
+}
+
+export interface MentorProfileClassHistory {
+  class_key: string
+  level: number
+  days: string
+  time: string
+  start_date: string | null
+  end_date: string | null
+  duration: string
+  evaluation_score: number
+  compliance_score: number
+}
+
+export interface MentorProfileResponse {
+  mentor_details: {
+    id: string
+    name: string
+    email: string
+    phone: string
+    status: 'active' | 'inactive'
+  }
+  stats: MentorProfileStats
+  class_history: MentorProfileClassHistory[]
+  testimonials: MentorTestimonial[]
+}
+
+export interface MentorTestimonial {
+  id: string
+  class_key: string
+  testimonial_text: string
+  created_by: string
+  created_at: string
+}
+
 export interface Class {
   class_key: string
   level: number
@@ -327,7 +378,7 @@ export const api = {
 
   getMentorReminders: (): Promise<{ reminders: MentorReminder[] }> => fetchAPI('/mentor/reminders'),
 
-  getMentors: (): Promise<Mentor[]> => fetchAPI('/mentor-head/mentors'),
+  getMentorHeadMentors: (): Promise<Mentor[]> => fetchAPI('/mentor-head/mentors'),
 
   getMentorHeadClasses: (): Promise<MentorGroup[]> => fetchAPI('/mentor-head/classes'),
 
@@ -418,46 +469,54 @@ export const api = {
       id: string
       email: string
       name: string
-      assignedClassCount: number
-      kpis: {
-        sessionQuality: number
-        trelloCompliance: number
-        whatsappManagement: number
-        studentsFeedback: number
-      }
-      attendance: {
-        sessionsTotal: number
-        statuses: string[]
-        onTimePercent: number
-      }
+      activeClassCount: number
+      classes: Array<{
+        classKey: string
+        level: number
+        days: string
+        time: string
+        classNumber: number
+        manual: {
+          sessionQuality: number
+          studentsFeedback: number
+          trelloSessionChecks: boolean[]
+          trelloCompliancePercent: number
+        }
+        automatic: {
+          whatsAppManagementPercent: number
+          attendancePunctualityPercent: number
+          attendanceStatuses: string[]
+        }
+      }>
     }>
   }> => fetchAPI('/mentor-head/evaluations'),
 
   updateMentorEvaluation: (mentorId: string, data: {
-    kpis: {
+    classKey: string
+    manual: {
       sessionQuality: number
-      trelloCompliance: number
-      whatsappManagement: number
       studentsFeedback: number
-    }
-    attendance: {
-      statuses: string[]
+      trelloSessionChecks: boolean[]
     }
   }): Promise<{
     id: string
-    kpis: {
+    classKey: string
+    manual: {
       sessionQuality: number
-      trelloCompliance: number
-      whatsappManagement: number
       studentsFeedback: number
-    }
-    attendance: {
-      sessionsTotal: number
-      statuses: string[]
-      onTimePercent: number
+      trelloSessionChecks: boolean[]
+      trelloCompliancePct: number
     }
   }> => fetchAPI(`/mentor-head/evaluations/${encodeURIComponent(mentorId)}`, {
     method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  createMentorTestimonial: (mentorId: string, data: {
+    class_key: string
+    testimonial_text: string
+  }): Promise<MentorTestimonial> => fetchAPI(`/mentor-head/mentors/${encodeURIComponent(mentorId)}/testimonials`, {
+    method: 'POST',
     body: JSON.stringify(data),
   }),
 
@@ -601,7 +660,13 @@ export const api = {
       method: 'POST',
     }),
 
-  // Student Profile API (Milestone 4)
+  // Mentor Directory API (Mentor Head/Admin)
+  getMentors: (): Promise<{ mentors: MentorDirectoryItem[] }> =>
+    fetchAPI('/mentors'),
+
+  getMentorProfile: (mentorId: string): Promise<MentorProfileResponse> =>
+    fetchAPI(`/mentors/${encodeURIComponent(mentorId)}/profile`),
+
   searchStudents: (query: string): Promise<StudentSearchResult[]> =>
     fetchAPI(`/students/search?q=${encodeURIComponent(query)}`),
 
