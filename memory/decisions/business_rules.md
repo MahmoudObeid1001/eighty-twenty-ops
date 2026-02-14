@@ -133,6 +133,17 @@
 **Reason**: Prevents unrelated edits from resetting cold-lead timing.  
 **Evidence**: `internal/models/repository.go` (`GetAllLeads`), `internal/handlers/pre_enrolment.go` (detail `ColdEligible`)
 
+### Rule: Cold Leads retarget uses one level dropdown to filter the table
+**Scope**: Pre-enrolment list when `cold=1` quick filter is active.  
+**Behavior**:
+- Show a single **Level** dropdown (not one dropdown per level).
+- Selecting a level filters the bottom leads table to that assigned level only.
+- Inside the selected level, rows remain newest-first (`updated_at DESC`).
+**Fallback**: Leads without assigned level are excluded when a specific level is selected.
+**Reason**: Ops selects the target level once, then works from one filtered list.
+**Implementation Note (2026-02-14)**: Level options are generated server-side from the current cold-leads dataset; selected value is applied in list handler filtering.
+**Evidence**: `internal/handlers/pre_enrolment.go` (`List` cold level options + selected-level filtering), `internal/views/pre_enrolment_list.html` (single cold level selector)
+
 ### Rule: Hot/Warm/Cool "No Payment" badge uses stage-aware clock
 **Scope**: Unpaid leads in hot stages (`tested`, `offer_sent`) on pre-enrolment list/detail.  
 **Clock**:

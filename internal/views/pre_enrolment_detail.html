@@ -170,13 +170,42 @@
                         <label for="placement_test_fee">Fee (EGP)</label>
                         <input type="number" id="placement_test_fee" name="placement_test_fee" min="0"
                             value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFee.Valid}}{{.Detail.PlacementTest.PlacementTestFee.Int32}}{{else}}100{{end}}"
-                            form="pre-enrolment-form">
+                            form="pre-enrolment-form" onchange="calculatePlacementTestFinal()">
+                    </div>
+                    <div class="form-group">
+                        <label for="placement_test_discount_value">Discount Value</label>
+                        <input type="number" id="placement_test_discount_value" name="placement_test_discount_value"
+                            min="0"
+                            value="{{if and .Detail.PlacementTest .Detail.PlacementTest.DiscountValue.Valid}}{{.Detail.PlacementTest.DiscountValue.Int32}}{{else}}0{{end}}"
+                            form="pre-enrolment-form" onchange="calculatePlacementTestFinal()">
+                    </div>
+                    <div class="form-group">
+                        <label for="placement_test_discount_type">Discount Type</label>
+                        <select id="placement_test_discount_type" name="placement_test_discount_type"
+                            form="pre-enrolment-form" onchange="calculatePlacementTestFinal()">
+                            <option value="amount" {{if and .Detail.PlacementTest
+                                .Detail.PlacementTest.DiscountType.Valid (eq
+                                .Detail.PlacementTest.DiscountType.String "amount" )}}selected{{else}}selected{{end}}>
+                                Amount</option>
+                            <option value="percent" {{if and .Detail.PlacementTest
+                                .Detail.PlacementTest.DiscountType.Valid (eq
+                                .Detail.PlacementTest.DiscountType.String "percent" )}}selected{{end}}>Percent</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Final Fee</label>
+                        <div id="placement_test_final_display"
+                            style="padding: 10px 12px; border: 1px solid #E0E0E0; border-radius: 4px; background: #FAFAFA;">
+                            Base - Discount = Final
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="placement_test_fee_paid">Paid (EGP)</label>
                         <input type="number" id="placement_test_fee_paid" name="placement_test_fee_paid" min="0"
                             value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFeePaid.Valid}}{{.Detail.PlacementTest.PlacementTestFeePaid.Int32}}{{else}}0{{end}}"
-                            form="pre-enrolment-form">
+                            form="pre-enrolment-form" onchange="calculatePlacementTestFinal()">
                     </div>
                     <div class="form-group">
                         <label>Remaining (EGP)</label>
@@ -216,6 +245,32 @@
                     </div>
                 </div>
             </div>
+
+            <script>
+                function calculatePlacementTestFinal() {
+                    const fee = parseInt(document.getElementById('placement_test_fee').value) || 100;
+                    const discountValue = parseInt(document.getElementById('placement_test_discount_value').value) || 0;
+                    const discountType = document.getElementById('placement_test_discount_type').value;
+
+                    let discount = 0;
+                    if (discountType === 'percent') {
+                        discount = Math.round(fee * discountValue / 100);
+                    } else {
+                        discount = discountValue;
+                    }
+
+                    const final = Math.max(0, fee - discount);
+                    const paid = parseInt(document.getElementById('placement_test_fee_paid').value) || 0;
+                    const remaining = Math.max(0, final - paid);
+
+                    document.getElementById('placement_test_final_display').textContent =
+                        `${fee} - ${discount} = ${final} EGP`;
+                    document.getElementById('placement_test_remaining').value = remaining;
+                }
+
+                // Call on page load
+                document.addEventListener('DOMContentLoaded', calculatePlacementTestFinal);
+            </script>
 
             <!-- Full placement test form (for main form) -->
             <div class="form-row">
@@ -266,8 +321,8 @@
                             eq .Detail.PlacementTest.AssignedLevel.Int32 8}}selected{{end}}{{end}}>Level 8</option>
                     </select>
                     {{if eq .UserRole "admin"}}
-                    <small style="color: #666; display: block; margin-top: 5px;">Student Success records level after the
-                        test.</small>
+                    <small style="color: #E67E22; display: block; margin-top: 5px; font-weight: 500;">⚠️ Only Student
+                        Success can assign a level after conducting the placement test.</small>
                     {{end}}
                 </div>
             </div>
@@ -304,6 +359,13 @@
                 bundle. No new offer needed.
             </div>
             {{end}}
+            {{if not (and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid)}}
+            <div
+                style="background-color: #FFF4E6; border: 1px solid #FFA500; border-left: 4px solid #FFA500; padding: 15px; margin-bottom: 15px; border-radius: 4px;">
+                <strong>⚠️ Placement Test Required:</strong> Student Success must assign a level after conducting the
+                placement test before you can proceed with offers and scheduling.
+            </div>
+            {{end}}
             <div class="section-note">Click "Packages Sent", then add a short follow-up note.</div>
 
             <div class="form-group">
@@ -315,7 +377,8 @@
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
-                <span class="status-indicator {{.Detail.Lead.Status}}" style="opacity: 0.8; font-size: 12px;">{{.StatusDisplayName}}</span>
+                <span class="status-indicator {{.Detail.Lead.Status}}"
+                    style="opacity: 0.8; font-size: 12px;">{{.StatusDisplayName}}</span>
                 <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
                     class="btn btn-secondary">Packages Sent</button>
             </div>
@@ -421,8 +484,8 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="payment_bundle">Bundle Selector *</label>
-                    <select id="payment_bundle" name="bundle_id" form="pre-enrolment-form" {{if eq
-                        .RemainingBalance 0}}disabled{{end}}>
+                    <select id="payment_bundle" name="bundle_id" form="pre-enrolment-form" {{if eq .RemainingBalance
+                        0}}disabled{{end}}>
                         <option value="">-- Select bundle --</option>
                         <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
                             .Detail.Offer.BundleLevels.Int32 1)}}selected{{end}}>Bundle 1 (Base: 1300 EGP)</option>
@@ -446,7 +509,8 @@
                 <div class="form-group">
                     <label for="payment_discount_value">Discount Value</label>
                     <input type="number" id="payment_discount_value" name="discount_amount" min="0" step="1"
-                        form="pre-enrolment-form" value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{end}}"
+                        form="pre-enrolment-form"
+                        value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{end}}"
                         {{if eq .RemainingBalance 0}}disabled{{end}}>
                 </div>
                 <div class="form-group">
@@ -696,7 +760,9 @@
     {{else}}
     <div class="action-buttons" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E6E6E6;">
         <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-primary">Save</button>
-        {{if or .Detail.Lead.IsReturning (eq .Detail.Lead.Status "renewal_pending") (eq .Detail.Lead.Status "waiting_for_round") (eq .Detail.Lead.Status "schedule_assigned") (eq .Detail.Lead.Status "ready_to_start") (eq .Detail.Lead.Status "in_classes")}}
+        {{if or .Detail.Lead.IsReturning (eq .Detail.Lead.Status "renewal_pending") (eq .Detail.Lead.Status
+        "waiting_for_round") (eq .Detail.Lead.Status "schedule_assigned") (eq .Detail.Lead.Status "ready_to_start") (eq
+        .Detail.Lead.Status "in_classes")}}
         <button type="button" class="btn btn-secondary" disabled
             title="Locked for returning students. Keep promoted level and continue renewal payment flow.">Mark Test
             Booked</button>
@@ -760,7 +826,8 @@
         <p style="margin-top: 8px; font-size: 12px; color: #666;">Add student to an active class (Session 1 or 2).
             Requires capacity (4-5 students).</p>
     </div>
-    {{else if and .IsAdmin (not .Detail.Lead.SentToClasses) .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid
+    {{else if and .IsAdmin (not .Detail.Lead.SentToClasses) .Detail.PlacementTest
+    .Detail.PlacementTest.AssignedLevel.Valid
     (not .LateJoiner) (ne .Detail.Lead.Status "ready_to_start")}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <button type="button" class="btn btn-secondary" disabled
@@ -850,7 +917,9 @@
             <h2 style="margin-top: 0; color: #dc3545;">⚠️ Cancel Lead: {{.Detail.Lead.FullName}}</h2>
             <p style="color: #666;">Cancelling this lead will mark it as cancelled. If the lead has course payments, a
                 refund must be created.</p>
-            {{if and .Error (ne .ErrorCode "refund_required") (ne .ErrorCode "invalid_amount") (ne .ErrorCode "amount_exceeds") (ne .ErrorCode "method_required") (ne .ErrorCode "invalid_method") (ne .ErrorCode "date_required") (ne .ErrorCode "invalid_date") (ne .ErrorCode "future_date")}}
+            {{if and .Error (ne .ErrorCode "refund_required") (ne .ErrorCode "invalid_amount") (ne .ErrorCode
+            "amount_exceeds") (ne .ErrorCode "method_required") (ne .ErrorCode "invalid_method") (ne .ErrorCode
+            "date_required") (ne .ErrorCode "invalid_date") (ne .ErrorCode "future_date")}}
             <div
                 style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 12px; margin: 12px 0; border-radius: 4px; color: #721C24;">
                 <strong>Error:</strong> {{.Error}}
@@ -917,7 +986,8 @@
                     <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalRefundableAmount}} EGP
                         {{if gt .UnusedCreditsValue 0}}({{.TotalCoursePaid}} current cycle + {{.UnusedCreditsValue}}
                         unused credits){{end}}</small>
-                    {{if or (eq .ErrorCode "refund_required") (eq .ErrorCode "invalid_amount") (eq .ErrorCode "amount_exceeds")}}
+                    {{if or (eq .ErrorCode "refund_required") (eq .ErrorCode "invalid_amount") (eq .ErrorCode
+                    "amount_exceeds")}}
                     <small style="color: #dc3545; display: block; margin-top: 5px;">{{.Error}}</small>
                     {{end}}
                 </div>
@@ -940,7 +1010,8 @@
                     <label for="refund_date">Refund Date *</label>
                     <input type="date" id="refund_date" name="refund_date" value="{{.Today}}" max="{{.Today}}" required>
                     <small style="color: #666; display: block; margin-top: 5px;">Date cannot be in the future</small>
-                    {{if or (eq .ErrorCode "date_required") (eq .ErrorCode "invalid_date") (eq .ErrorCode "future_date")}}
+                    {{if or (eq .ErrorCode "date_required") (eq .ErrorCode "invalid_date") (eq .ErrorCode
+                    "future_date")}}
                     <small style="color: #dc3545; display: block; margin-top: 5px;">{{.Error}}</small>
                     {{end}}
                 </div>
@@ -984,7 +1055,8 @@
         <div
             style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 95%; max-height: 90vh; overflow-y: auto;">
             <h2 style="margin-top: 0; color: #6c5ce7;">Add as Late Joiner</h2>
-            <p style="color: #666;">Student will join an eligible class in session 1 or 2 (active, or sent to Mentor Head but not started). Past sessions will be marked as 'N/A'.</p>
+            <p style="color: #666;">Student will join an eligible class in session 1 or 2 (active, or sent to Mentor
+                Head but not started). Past sessions will be marked as 'N/A'.</p>
 
             <div id="late-join-error"
                 style="background-color: #F8D7DA; border: 1px solid #F5C6CB; border-left: 4px solid #DC3545; padding: 15px; margin: 20px 0; border-radius: 4px; color: #721C24; display: none;">

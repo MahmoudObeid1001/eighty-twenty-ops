@@ -52,6 +52,8 @@ type PlacementTest struct {
 	PlacementTestFeePaid       sql.NullInt32
 	PlacementTestPaymentDate   sql.NullTime
 	PlacementTestPaymentMethod sql.NullString
+	DiscountValue              sql.NullInt32
+	DiscountType               sql.NullString
 	UpdatedAt                  time.Time
 }
 

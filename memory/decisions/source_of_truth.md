@@ -172,6 +172,13 @@
 - For `offer_sent` candidates, timing must use `leads.offer_sent_at` (7+ days) rather than generic `updated_at`.
 - For legacy rows where `offer_sent_at` is null, fallback to `updated_at` is allowed temporarily.
 
+**Cold Leads Level Filter Rule**:
+- In Pre-Enrolment when `cold=1`, show one level dropdown for filtering.
+- Selecting a level filters the bottom leads table to that assigned level.
+- Within a selected level, ordering remains newest first (`updated_at DESC`).
+- Leads without assigned level are excluded when a specific level is selected.
+- Implementation note (2026-02-14): server derives level options from current cold dataset and applies selected-level filtering in list handler.
+
 **Hot Leads Badge Clock Rule**:
 - Unpaid `tested` leads: use `placement_tests.test_date` to age the HOT/WARM/COOL badge.
 - Unpaid `offer_sent` leads: use `leads.offer_sent_at` to age the HOT/WARM/COOL badge.

@@ -99,7 +99,7 @@
     {{$incCan := .IncludeCancelled}}
     {{$isHP := eq .FollowUpFilter "high_priority"}}
     {{$isRepeat := eq .RepeatFilter "1"}}
-    {{$isCold := eq .ColdFilter "1"}}
+    {{$isCold := or (eq .ColdFilter "1") (eq .ColdFilter "true")}}
     <div class="quick-filters">
         {{$isHot := or (eq .HotFilter "1") (eq .HotFilter "hot")}}
         <a href="/pre-enrolment?{{if not $isHot}}hot=1{{end}}{{if $search}}{{if not $isHot}}&{{end}}search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
@@ -141,6 +141,32 @@
             Level</a>
     </div>
 </div>
+
+{{if $isCold}}
+<div class="cold-retarget-panel">
+    <h3>Cold Leads by Level</h3>
+    <p>Select one level to filter the students table below.</p>
+    {{if .ColdLevelOptions}}
+    <form method="GET" action="/pre-enrolment" class="cold-level-form">
+        <input type="hidden" name="cold" value="1">
+        {{if $search}}<input type="hidden" name="search" value="{{$search}}">{{end}}
+        {{if $incCan}}<input type="hidden" name="include_cancelled" value="1">{{end}}
+        {{if $isHP}}<input type="hidden" name="follow_up" value="high_priority">{{end}}
+        {{if $isRepeat}}<input type="hidden" name="repeat" value="1">{{end}}
+        <label for="cold-level-filter">Level</label>
+        <select id="cold-level-filter" name="cold_level" class="filter-select cold-level-select"
+            onchange="this.form.submit()">
+            <option value="">All levels</option>
+            {{range .ColdLevelOptions}}
+            <option value="{{.}}" {{if eq $.SelectedColdLevel .}}selected{{end}}>Level {{.}}</option>
+            {{end}}
+        </select>
+    </form>
+    {{else}}
+    <div class="cold-retarget-empty">No levels available for cold leads yet.</div>
+    {{end}}
+</div>
+{{end}}
 
 <!-- Leads Table -->
 <div class="table-container">
@@ -324,15 +350,20 @@
 
                 if (isActive) {
                     params.delete(key);
+                    if (key === 'cold') {
+                        params.delete('cold_level');
+                    }
                 } else {
                     if (key === 'status') {
                         params.set('status', value);
                         params.delete('hot');
                         params.delete('cold');
+                        params.delete('cold_level');
                     } else if (key === 'hot') {
                         params.set('hot', value);
                         params.delete('status');
                         params.delete('cold');
+                        params.delete('cold_level');
                     } else if (key === 'cold') {
                         params.set('cold', value);
                         params.delete('status');
@@ -342,6 +373,7 @@
                         params.delete('status');
                         params.delete('hot');
                         params.delete('cold');
+                        params.delete('cold_level');
                     } else {
                         params.set(key, value);
                     }
@@ -369,6 +401,43 @@
 </script>
 
 <style>
+    .cold-retarget-panel {
+        background: #f7fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 14px;
+        margin-bottom: 16px;
+    }
+
+    .cold-retarget-panel h3 {
+        margin: 0 0 6px 0;
+        font-size: 16px;
+        color: #2d3748;
+    }
+
+    .cold-retarget-panel p {
+        margin: 0 0 12px 0;
+        color: #4a5568;
+        font-size: 13px;
+    }
+
+    .cold-level-form label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        font-size: 13px;
+        color: #2d3748;
+    }
+
+    .cold-level-select {
+        width: 100%;
+    }
+
+    .cold-retarget-empty {
+        color: #718096;
+        font-size: 13px;
+    }
+
     .badge.waiting_for_round {
         background-color: #4EC6E0;
         color: white;

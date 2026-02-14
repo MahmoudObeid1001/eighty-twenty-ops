@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,42 @@ type PreEnrolmentHandler struct {
 
 func NewPreEnrolmentHandler(cfg *config.Config) *PreEnrolmentHandler {
 	return &PreEnrolmentHandler{cfg: cfg}
+}
+
+func buildColdLevelOptions(leads []*models.LeadListItem) []int {
+	levelsSet := make(map[int]struct{})
+	for _, item := range leads {
+		if item == nil || item.Lead == nil || !item.AssignedLevel.Valid {
+			continue
+		}
+		level := int(item.AssignedLevel.Int32)
+		if level < 1 || level > 8 {
+			continue
+		}
+		levelsSet[level] = struct{}{}
+	}
+	levels := make([]int, 0, len(levelsSet))
+	for level := range levelsSet {
+		levels = append(levels, level)
+	}
+	sort.Ints(levels)
+	return levels
+}
+
+func filterLeadsByAssignedLevel(leads []*models.LeadListItem, selectedLevel int) []*models.LeadListItem {
+	if selectedLevel < 1 || selectedLevel > 8 {
+		return leads
+	}
+	filtered := make([]*models.LeadListItem, 0, len(leads))
+	for _, item := range leads {
+		if item == nil || !item.AssignedLevel.Valid {
+			continue
+		}
+		if int(item.AssignedLevel.Int32) == selectedLevel {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func isValidAssignedLevel(level int) bool {
@@ -61,6 +98,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	returningFilter := r.URL.Query().Get("returning")
 	followUpFilter := r.URL.Query().Get("follow_up") // Milestone 2: high_priority follow-up filter
 	coldFilter := r.URL.Query().Get("cold")
+	coldLevelFilter := r.URL.Query().Get("cold_level")
 	repeatFilter := r.URL.Query().Get("repeat")
 	includeCancelled := r.URL.Query().Get("include_cancelled") == "1" || r.URL.Query().Get("include_cancelled") == "true"
 	// When explicitly filtering by status=cancelled, include cancelled even if checkbox off
@@ -124,6 +162,16 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	h.cfg.Debugf("List: returned %d leads", len(leads))
 
+	var coldLevelOptions []int
+	selectedColdLevel := 0
+	if coldFilter == "1" || strings.EqualFold(coldFilter, "true") {
+		coldLevelOptions = buildColdLevelOptions(leads)
+		if lvl, err := strconv.Atoi(strings.TrimSpace(coldLevelFilter)); err == nil && isValidAssignedLevel(lvl) {
+			selectedColdLevel = lvl
+			leads = filterLeadsByAssignedLevel(leads, selectedColdLevel)
+		}
+	}
+
 	// Count follow-ups due for banner
 	// Get total count of hot leads (need to fetch all leads without hot filter)
 	var followUpCount int
@@ -168,6 +216,8 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"FollowUpCount":      followUpCount,
 		"FollowUpFilter":     followUpFilter,
 		"TestedResultsCount": testedResultsCount,
+		"ColdLevelOptions":   coldLevelOptions,
+		"SelectedColdLevel":  selectedColdLevel,
 	}
 	renderTemplate(w, r, "pre_enrolment_list.html", data)
 }
@@ -807,6 +857,12 @@ func canMarkOfferSent(detail *models.LeadDetail) (bool, string) {
 	if computedRemainingCredits(detail.Lead) > 0 {
 		return false, "Packages Sent is locked: this lead still has prepaid remaining credits."
 	}
+
+	// Check if placement test level is assigned by Student Success
+	if detail.PlacementTest == nil || !detail.PlacementTest.AssignedLevel.Valid {
+		return false, "Packages Sent is locked: Student Success must assign a placement test level first."
+	}
+
 	return true, ""
 }
 
@@ -1780,18 +1836,66 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	// Placement test
 	if r.FormValue("test_date") != "" || r.FormValue("assigned_level") != "" || r.FormValue("placement_test_fee") != "" {
 		pt := &models.PlacementTest{LeadID: leadID}
-		if testDate := r.FormValue("test_date"); testDate != "" {
+
+		// GUARD: Check if test date/time is being set - require fee payment first
+		testDate := r.FormValue("test_date")
+		testTime := r.FormValue("test_time")
+
+		if testDate != "" || testTime != "" {
+			// Calculate required fee and paid amount
+			requiredFee := 100 // default
+			paidAmount := 0
+
+			// Check existing placement test data
+			if existingDetail.PlacementTest != nil {
+				if existingDetail.PlacementTest.PlacementTestFee.Valid {
+					requiredFee = int(existingDetail.PlacementTest.PlacementTestFee.Int32)
+				}
+				if existingDetail.PlacementTest.PlacementTestFeePaid.Valid {
+					paidAmount = int(existingDetail.PlacementTest.PlacementTestFeePaid.Int32)
+				}
+			}
+
+			// Check if fee is being paid in this request
+			if feeBeingPaidStr := r.FormValue("placement_test_fee_paid"); feeBeingPaidStr != "" {
+				if feePaid, err := strconv.Atoi(feeBeingPaidStr); err == nil {
+					paidAmount = feePaid
+				}
+			}
+
+			// Check if fee is being updated in this request
+			if feeStr := r.FormValue("placement_test_fee"); feeStr != "" {
+				if fee, err := strconv.Atoi(feeStr); err == nil {
+					requiredFee = fee
+				}
+			}
+
+			// Validate that fee is paid in full
+			if paidAmount < requiredFee {
+				h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Placement test fee must be paid in full (%d EGP) before booking the test.", requiredFee))
+				return
+			}
+		}
+
+		if testDate != "" {
 			if t, err := time.Parse("2006-01-02", testDate); err == nil {
 				pt.TestDate = sql.NullTime{Time: t, Valid: true}
 			}
 		}
-		if testTime := r.FormValue("test_time"); testTime != "" {
+		if testTime != "" {
 			pt.TestTime = sql.NullString{String: testTime, Valid: true}
 		}
 		if testType := r.FormValue("test_type"); testType != "" {
 			pt.TestType = sql.NullString{String: testType, Valid: true}
 		}
 		if assignedLevel := r.FormValue("assigned_level"); assignedLevel != "" {
+			// GUARD: Only Student Success can set assigned_level
+			// Ops Admin can book tests (date/time) but cannot mark results
+			if userRole != "student_success" {
+				h.renderDetailWithError(w, r, leadID, "Only Student Success can assign a level after conducting the placement test.")
+				return
+			}
+
 			level, err := strconv.Atoi(assignedLevel)
 			if err != nil || !isValidAssignedLevel(level) {
 				h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–8.")
@@ -1800,6 +1904,11 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			pt.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
 		}
 		if testNotes := r.FormValue("test_notes"); testNotes != "" {
+			// GUARD: Only Student Success can set test notes
+			if userRole != "student_success" {
+				h.renderDetailWithError(w, r, leadID, "Only Student Success can add test notes after conducting the placement test.")
+				return
+			}
 			pt.TestNotes = sql.NullString{String: testNotes, Valid: true}
 		}
 		// Preserve existing assigned level/notes when fields are not submitted (admin fields disabled)
@@ -1820,6 +1929,18 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if paidStr := r.FormValue("placement_test_fee_paid"); paidStr != "" {
 			if paid, err := strconv.Atoi(paidStr); err == nil {
 				pt.PlacementTestFeePaid = sql.NullInt32{Int32: int32(paid), Valid: true}
+			}
+		}
+
+		// Discount fields
+		if discountValue := r.FormValue("placement_test_discount_value"); discountValue != "" {
+			if dv, err := strconv.Atoi(discountValue); err == nil {
+				pt.DiscountValue = sql.NullInt32{Int32: int32(dv), Valid: true}
+			}
+		}
+		if discountType := r.FormValue("placement_test_discount_type"); discountType != "" {
+			if discountType == "amount" || discountType == "percent" {
+				pt.DiscountType = sql.NullString{String: discountType, Valid: true}
 			}
 		}
 
