@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api, type StudentSuccessClassDetail } from '../api/client'
+import { api, type StudentReportCardData, type StudentSuccessClassDetail } from '../api/client'
 import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import StudentModal from '../components/StudentModal'
 import ComplianceModal from '../components/ComplianceModal'
+import StudentReportCard from '../components/StudentReportCard'
 
 type Tab = 'students' | 'absence' | 'followups' | 'feedback' | 'feedback_collected' | 'final_grading'
 
@@ -330,6 +331,9 @@ export default function StudentSuccessClass() {
 
   const [grades, setGrades] = useState<Record<string, { grade: string; notes: string }>>({})
   const [submittingGrade, setSubmittingGrade] = useState<string | null>(null)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportData, setReportData] = useState<StudentReportCardData | null>(null)
 
   const triggerRefresh = () => setRefreshNonce((n) => n + 1)
 
@@ -414,6 +418,23 @@ export default function StudentSuccessClass() {
       setActionError(err instanceof Error ? err.message : 'Failed to clear grade')
     } finally {
       setSubmittingGrade(null)
+    }
+  }
+
+  async function handleOpenReport(leadId: string) {
+    try {
+      setReportLoading(true)
+      setActionError(null)
+      const res = await api.getStudentReportCard(leadId, classKey)
+      if (!res.report_card) {
+        throw new Error('Report card data is not available for this student yet.')
+      }
+      setReportData(res.report_card)
+      setReportOpen(true)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to load student report')
+    } finally {
+      setReportLoading(false)
     }
   }
 
@@ -623,6 +644,21 @@ export default function StudentSuccessClass() {
                     }}
                     style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', width: '240px', background: canEditGrades ? '#fff' : '#f5f5f5' }}
                   />
+                  <button
+                    onClick={() => handleOpenReport(student.lead_id)}
+                    disabled={reportLoading}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      background: '#fff',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    View Report
+                  </button>
                   {!canEditGrades && <span style={{ fontSize: '12px', color: '#999' }}>Read-only</span>}
                 </div>
               </div>
@@ -750,6 +786,32 @@ export default function StudentSuccessClass() {
       />
       {canOpenCompliance && (
         <ComplianceModal open={complianceOpen} classKey={classKey} onClose={() => setComplianceOpen(false)} />
+      )}
+      {reportOpen && reportData && (
+        <div
+          className="report-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 5000,
+            background: 'rgba(0,0,0,0.5)',
+            overflow: 'auto',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setReportOpen(false)
+              setReportData(null)
+            }
+          }}
+        >
+          <StudentReportCard
+            data={reportData}
+            onClose={() => {
+              setReportOpen(false)
+              setReportData(null)
+            }}
+          />
+        </div>
       )}
     </>
   )

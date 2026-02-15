@@ -44,7 +44,9 @@ erDiagram
     class_groups ||--o{ mentor_testimonials : "class_key"
     
     class_sessions ||--o{ attendance : "session_id"
+    class_sessions ||--o{ session_performance : "class_session_id"
     attendance }o--|| leads : "lead_id"
+    session_performance }o--|| leads : "lead_id"
     
     leads ||--o{ grades : "lead_id"
     class_groups ||--o{ grades : "class_key"
@@ -207,6 +209,16 @@ erDiagram
         timestamp marked_at
         uuid marked_by_user_id FK
     }
+
+    session_performance {
+        uuid id PK
+        uuid class_session_id FK
+        uuid lead_id FK
+        bool task_completed
+        int participation_score "1..5"
+        timestamp created_at
+        timestamp updated_at
+    }
     
     followups {
         uuid id PK
@@ -308,6 +320,7 @@ erDiagram
 | `class_groups` | `005_class_groups_workflow.sql:2-12` | `027_class_groups_round_status.sql` (added round_status, closed_at, closed_by_mentor_user_id), `032_add_closed_mentor_user_id.sql` |
 | `class_sessions` | `016_create_class_sessions.sql` | - |
 | `attendance` | `017_create_attendance.sql` | `030_refine_attendance_and_followups.sql` |
+| `session_performance` | `058_create_session_performance.sql` | - |
 | `mentor_assignments` | `022_create_mentor_assignments.sql:3-10` | - |
 | `followups` | `029_create_followups_table.sql:2-13` | `030_refine_attendance_and_followups.sql`, `033_add_complaints_to_followups.sql` (added type, category, urgency, student_phone, complaint_text, deleted_at, deleted_by_user_id, delete_reason), `036_make_followups_nullable_for_complaints.sql` |
 | `followup_case_notes` | `034_create_followup_case_notes.sql` | - |
@@ -327,6 +340,8 @@ erDiagram
 - `mentor_assignments.mentor_user_id` → `users(id) ON DELETE CASCADE`
 - `mentor_assignments.class_key` → `class_groups(class_key) ON DELETE CASCADE`
 - `attendance.session_id` → `class_sessions(id)`
+- `session_performance.class_session_id` → `class_sessions(id)`
+- `session_performance.lead_id` → `leads(id)`
 - `followups.lead_id` → `leads(id) ON DELETE CASCADE`
 - `followup_case_notes.followup_id` → `followups(id) ON DELETE CASCADE`
 
@@ -336,6 +351,7 @@ erDiagram
 - UNIQUE: `followups(class_key, lead_id, session_number)` - One follow-up per absence instance
 - UNIQUE: `grades(lead_id, class_key, session_number)` - One grade per student per class per session
 - UNIQUE: `attendance(session_id, lead_id)` - One attendance record per student per session
+- UNIQUE: `session_performance(class_session_id, lead_id)` - One performance row per student per session
 
 ### Check Constraints
 **Evidence**: Inline in CREATE TABLE statements

@@ -144,6 +144,10 @@ stateDiagram-v2
 **Database**: Updates `class_groups.round_status = 'CLOSED'`, sets `closed_at` timestamp, sets `closed_by_mentor_user_id`  
 **Prerequisite**: All students must have a grade recorded for session 8; otherwise, an error is returned and the round remains open.  
 **Roster Scope**: Grade completeness is checked against the active class roster (`in_classes`) for that class key, not against unrelated leads sharing the same schedule metadata.
+**Grading Source**:
+- Mentors save final grades from automated breakdown (attendance + tasks + participation).
+- Mentor submissions are validated against calculated grade.
+- Mentor Head can override when needed.
 **Evidence**:
 - `cmd/server/main.go:201-208`
 - `internal/handlers/api.go` - CloseRound function

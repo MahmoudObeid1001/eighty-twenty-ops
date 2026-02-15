@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, ClassDetail, Student } from '../api/client'
+import { api, ClassDetail, GradePreview, Student, StudentReportCardData } from '../api/client'
 import StudentModal from '../components/StudentModal'
 import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import ComplianceModal from '../components/ComplianceModal'
+import StudentReportCard from '../components/StudentReportCard'
 
 export default function ClassWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -42,10 +43,31 @@ export default function ClassWorkspace() {
 
   const [grades, setGrades] = useState<Record<string, { grade: string; notes: string }>>({})
   const [gradeDrafts, setGradeDrafts] = useState<Record<string, { grade: string; notes: string }>>({})
+  const [gradePreviews, setGradePreviews] = useState<Record<string, GradePreview>>({})
   const [savingAllGrades, setSavingAllGrades] = useState(false)
   const [userRole, setUserRole] = useState<string>('')
   const [complianceOpen, setComplianceOpen] = useState(false)
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportData, setReportData] = useState<StudentReportCardData | null>(null)
+
+  async function handleOpenReport(leadId: string) {
+    try {
+      setReportLoading(true)
+      setActionError(null)
+      const res = await api.getStudentReportCard(leadId, classKey)
+      if (!res.report_card) {
+        throw new Error('Report card data is not available for this student yet.')
+      }
+      setReportData(res.report_card)
+      setReportOpen(true)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to load student report')
+    } finally {
+      setReportLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (classKey) {
@@ -83,6 +105,13 @@ export default function ClassWorkspace() {
       })
       setGrades(gradeMap)
       setGradeDrafts(gradeMap)
+
+      const previewRes = await api.getGradePreview(classKey)
+      const previewMap: Record<string, GradePreview> = {}
+      previewRes.previews?.forEach((p) => {
+        previewMap[p.lead_id] = p
+      })
+      setGradePreviews(previewMap)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load class')
     } finally {
@@ -90,17 +119,39 @@ export default function ClassWorkspace() {
     }
   }
 
-  async function handleMarkAttendance(sessionId: string, leadId: string, status: string) {
+  async function handleMarkAttendance(
+    sessionId: string,
+    leadId: string,
+    status: string,
+    taskCompleted?: boolean,
+    participationScore?: number
+  ) {
     try {
       setUpdating(`${leadId}-${sessionId}`)
       setActionError(null)
-      await api.markAttendance(sessionId, leadId, status, classKey)
+      await api.markAttendance(sessionId, leadId, status, classKey, '', taskCompleted, participationScore)
       await loadClass(true)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to mark attendance')
     } finally {
       setUpdating(null)
     }
+  }
+
+  async function handleSessionPerformanceChange(
+    sessionId: string,
+    leadId: string,
+    nextTaskCompleted?: boolean,
+    nextParticipationScore?: number
+  ) {
+    const student = classData?.students.find((s) => s.lead_id === leadId)
+    if (!student) return
+    const currentStatus = student.attendance?.[sessionId]
+    if (!currentStatus || currentStatus === 'ABSENT' || currentStatus === 'N/A') return
+    const currentPerf = student.session_performance?.[sessionId]
+    const taskCompleted = nextTaskCompleted ?? currentPerf?.task_completed ?? true
+    const participationScore = nextParticipationScore ?? currentPerf?.participation_score ?? 3
+    await handleMarkAttendance(sessionId, leadId, currentStatus, taskCompleted, participationScore)
   }
 
   function handleCompleteSession(sessionId: string, sessionNumber: number) {
@@ -131,10 +182,19 @@ export default function ClassWorkspace() {
     }
   }
 
+  function getTargetGrade(leadId: string): string {
+    const calculatedGrade = gradePreviews[leadId]?.calculated_grade || ''
+    if (userRole === 'mentor_head') {
+      return gradeDrafts[leadId]?.grade || calculatedGrade
+    }
+    return calculatedGrade
+  }
+
   function isGradeChanged(leadId: string): boolean {
     const saved = normalizeGrade(grades[leadId])
     const draft = normalizeGrade(gradeDrafts[leadId])
-    return saved.grade !== draft.grade || saved.notes !== draft.notes
+    const targetGrade = getTargetGrade(leadId)
+    return saved.grade !== targetGrade || saved.notes !== draft.notes
   }
 
   async function handleSaveAllGrades() {
@@ -153,21 +213,19 @@ export default function ClassWorkspace() {
       setActionError(null)
       setActionSuccess(null)
       for (const student of classData?.students || []) {
+        if (!gradePreviews[student.lead_id]) {
+          throw new Error(`Missing calculated breakdown for ${student.full_name}`)
+        }
         if (!isGradeChanged(student.lead_id)) continue
-        const saved = normalizeGrade(grades[student.lead_id])
         const draft = normalizeGrade(gradeDrafts[student.lead_id])
 
-        if (!draft.grade) {
-          if (saved.grade) {
-            await api.deleteGrade(student.lead_id, classKey)
-          }
-          continue
-        }
+        const targetGrade = getTargetGrade(student.lead_id)
+        if (!targetGrade) continue
 
         await api.createGrade({
           lead_id: student.lead_id,
           class_key: classKey,
-          grade: draft.grade,
+          grade: targetGrade,
           notes: draft.notes,
         })
       }
@@ -480,6 +538,10 @@ export default function ClassWorkspace() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
                 {classData.students.map((student) => {
                   const status = selectedSession ? student.attendance?.[selectedSession.id] : undefined
+                  const perf = selectedSession ? student.session_performance?.[selectedSession.id] : undefined
+                  const isAbsent = status === 'ABSENT' || status === 'N/A'
+                  const taskCompleted = perf?.task_completed ?? true
+                  const participationScore = perf?.participation_score ?? 3
                   const isUpdating = updating === `${student.lead_id}-${selectedSession?.id}`
 
                   return (
@@ -528,7 +590,7 @@ export default function ClassWorkspace() {
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <button
                               disabled={isUpdating || classData.class.round_status === 'closed'}
-                              onClick={() => handleMarkAttendance(selectedSession.id, student.lead_id, 'PRESENT')}
+                              onClick={() => handleMarkAttendance(selectedSession.id, student.lead_id, 'PRESENT', taskCompleted, participationScore)}
                               style={{
                                 flex: 1,
                                 padding: '8px',
@@ -546,7 +608,7 @@ export default function ClassWorkspace() {
                             </button>
                             <button
                               disabled={isUpdating || classData.class.round_status === 'closed'}
-                              onClick={() => handleMarkAttendance(selectedSession.id, student.lead_id, 'ABSENT')}
+                              onClick={() => handleMarkAttendance(selectedSession.id, student.lead_id, 'ABSENT', false, 3)}
                               style={{
                                 flex: 1,
                                 padding: '8px',
@@ -562,6 +624,44 @@ export default function ClassWorkspace() {
                             >
                               Absent
                             </button>
+                          </div>
+
+                          {selectedSession.session_number > 1 && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '13px', color: '#444' }}>
+                              <input
+                                type="checkbox"
+                                checked={taskCompleted}
+                                disabled={isUpdating || classData.class.round_status === 'closed' || isAbsent}
+                                onChange={(e) => handleSessionPerformanceChange(selectedSession.id, student.lead_id, e.target.checked, participationScore)}
+                              />
+                              Task Completed
+                            </label>
+                          )}
+
+                          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {[1, 2, 3, 4, 5].map((star) => {
+                              const active = star <= participationScore
+                              return (
+                                <button
+                                  key={star}
+                                  disabled={isUpdating || classData.class.round_status === 'closed' || isAbsent}
+                                  onClick={() => handleSessionPerformanceChange(selectedSession.id, student.lead_id, taskCompleted, star)}
+                                  style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    cursor: isAbsent ? 'not-allowed' : 'pointer',
+                                    color: active ? '#f59f00' : '#cbd5e0',
+                                    fontSize: '18px',
+                                    lineHeight: 1,
+                                    padding: 0,
+                                  }}
+                                  title={`Participation: ${star} star${star > 1 ? 's' : ''}`}
+                                >
+                                  ★
+                                </button>
+                              )
+                            })}
+                            <span style={{ fontSize: '12px', color: '#666' }}>Participation</span>
                           </div>
                         </div>
                       ) : (
@@ -589,7 +689,7 @@ export default function ClassWorkspace() {
         <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #dee2e6' }}>
           <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Final Class Grading</h2>
           <p style={{ color: '#666', marginBottom: '24px', fontSize: '14px' }}>
-            Please assign final grades for all students. This is required before the round can be closed by the Mentor Head.
+            Grades are calculated from attendance, tasks, and participation. Save commits the calculated values.
           </p>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -619,6 +719,9 @@ export default function ClassWorkspace() {
           <div style={{ display: 'grid', gap: '16px' }}>
             {classData.students.map((student) => {
               const currentGrade = gradeDrafts[student.lead_id] || { grade: '', notes: '' }
+              const preview = gradePreviews[student.lead_id]
+              const calculatedGrade = preview?.calculated_grade || ''
+              const targetGrade = getTargetGrade(student.lead_id)
               const isDirty = isGradeChanged(student.lead_id)
 
               return (
@@ -637,7 +740,7 @@ export default function ClassWorkspace() {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {student.full_name}
-                      {currentGrade.grade && <span style={{ color: '#28a745', fontSize: '14px' }}>✅</span>}
+                      {targetGrade && <span style={{ color: '#28a745', fontSize: '14px' }}>✅</span>}
                       {isDirty && <span style={{ color: '#f59f00', fontSize: '12px', fontWeight: 700 }}>Unsaved</span>}
                       {student.missed_count !== undefined && student.missed_count > 2 && (
                         <span
@@ -655,6 +758,15 @@ export default function ClassWorkspace() {
                       )}
                     </div>
                     <div style={{ fontSize: '12px', color: '#666' }}>{student.phone}</div>
+                    {preview ? (
+                      <div style={{ marginTop: '6px', fontSize: '12px', color: '#444' }}>
+                        Attendance: {preview.attendance_score.toFixed(2)}/60 | Tasks: {preview.task_score.toFixed(2)}/30 | Part: {preview.participation_score.toFixed(2)}/10 = <strong>{calculatedGrade}</strong>
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: '6px', fontSize: '12px', color: '#b02a37' }}>
+                        Missing calculation data for this student.
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -667,39 +779,41 @@ export default function ClassWorkspace() {
                       const canInteractGradeFields = !savingAllGrades && classData.class.round_status !== 'closed' && canEditGrades
                       return (
                         <>
-                    <select
-                      value={currentGrade.grade}
-                      disabled={!canInteractGradeFields}
-                      onChange={(e) => {
-                        if (!canEditGrades) return
-                        const nextGrade = e.target.value
-                        if (!allSessionsCompleted) {
-                          setActionError("Final Grading is locked until all sessions are completed (e.g. Session 8 finished).")
-                          return
-                        }
-                        setGradeDrafts((prev) => ({ ...prev, [student.lead_id]: { ...currentGrade, grade: nextGrade } }))
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        border: '1px solid #ccc',
-                        background: canEditGrades ? 'white' : '#f5f5f5',
-                        fontWeight: 600,
-                        cursor: canEditGrades ? 'pointer' : 'not-allowed',
-                      }}
-                    >
-                      <option value="">Select Grade</option>
-                      <option value="A">Grade A</option>
-                      <option value="B">Grade B</option>
-                      <option value="C">Grade C</option>
-                      <option value="F">Grade F</option>
-                    </select>
+                    {userRole === 'mentor_head' && (
+                      <select
+                        value={currentGrade.grade || calculatedGrade}
+                        disabled={!canInteractGradeFields}
+                        onChange={(e) => {
+                          if (!canEditGrades) return
+                          const nextGrade = e.target.value
+                          if (!allSessionsCompleted) {
+                            setActionError("Final Grading is locked until all sessions are completed (e.g. Session 8 finished).")
+                            return
+                          }
+                          setGradeDrafts((prev) => ({ ...prev, [student.lead_id]: { ...currentGrade, grade: nextGrade } }))
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid #ccc',
+                          background: canEditGrades ? 'white' : '#f5f5f5',
+                          fontWeight: 600,
+                          cursor: canEditGrades ? 'pointer' : 'not-allowed',
+                        }}
+                        title="Mentor Head can override calculated grade"
+                      >
+                        <option value="A">Grade A</option>
+                        <option value="B">Grade B</option>
+                        <option value="C">Grade C</option>
+                        <option value="F">Grade F</option>
+                      </select>
+                    )}
 
                     <input
                       type="text"
                       placeholder="Add final notes..."
                       value={currentGrade.notes}
-                      disabled={!canInteractGradeFields || !currentGrade.grade}
+                      disabled={!canInteractGradeFields}
                       onChange={(e) => {
                         if (!canEditGrades) return
                         setGradeDrafts((prev) => ({ ...prev, [student.lead_id]: { ...currentGrade, notes: e.target.value } }))
@@ -713,6 +827,21 @@ export default function ClassWorkspace() {
                         background: canEditGrades ? 'white' : '#f5f5f5',
                       }}
                     />
+
+                    <button
+                      onClick={() => handleOpenReport(student.lead_id)}
+                      disabled={reportLoading}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: 'white',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      View Report
+                    </button>
 
                     {savingAllGrades && <span style={{ fontSize: '12px', color: '#666' }}>Saving...</span>}
                     {!canEditGrades && <span style={{ fontSize: '12px', color: '#999' }}>Read-only</span>}
@@ -794,6 +923,33 @@ export default function ClassWorkspace() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {reportOpen && reportData && (
+        <div
+          className="report-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 5000,
+            background: 'rgba(0,0,0,0.5)',
+            overflow: 'auto',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setReportOpen(false)
+              setReportData(null)
+            }
+          }}
+        >
+          <StudentReportCard
+            data={reportData}
+            onClose={() => {
+              setReportOpen(false)
+              setReportData(null)
+            }}
+          />
         </div>
       )}
 

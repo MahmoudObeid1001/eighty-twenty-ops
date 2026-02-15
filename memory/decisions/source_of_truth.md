@@ -236,7 +236,7 @@
 
 ## Grades Feature
 
-**Status**: Planned (implement)
+**Status**: Active (automated scoring + mentor head override)
 
 **Rules**:
 - **Scale**: A | B | C only (not 0-100)
@@ -258,6 +258,88 @@
 - Saving/updating a final grade note updates `grades.notes` and mirrors it to `student_notes`.
 - Clearing a final grade note removes the mirrored note from `student_notes`.
 - The mirrored note is mentor-facing (not private) and tied to the same class/session context.
+
+### Final Grade Automation Rule
+
+**Business Rule**: Final grade is data-driven from session attendance + task completion + participation stars.
+
+**Scoring Algorithm (100 points)**:
+- Attendance (60): if absences in class `>= 2` then `0`, else `60`.
+- Tasks (30): from sessions `2..8` (7 tasks total).
+  - If completed tasks `<= 1` then `0`.
+  - Else `(completed_tasks / 7) * 30`.
+- Participation (10): average stars `(1..5)` across attended sessions, `(avg_stars / 5) * 10`.
+
+**Grade Letter Mapping**:
+- `A`: score `>= 85`
+- `B`: score `>= 70` and `< 85`
+- `C`: score `>= 50` and `< 70`
+- `F`: score `< 50`
+
+**Override Rule**:
+- Mentors must submit the calculated grade (server validates).
+- Mentor Head may override manually.
+
+**Legacy Safety Rule**:
+- Missing legacy session-performance rows must not mass-fail historical classes.
+- Safe fallback:
+  - Missing task rows for historical data are treated as completed by default for scoring fallback.
+  - Missing participation score defaults to neutral `3/5` for attended sessions.
+
+### Student Report Card Rule
+
+**Business Rule**: Each student can generate a print-friendly report card that justifies final grade with session evidence.
+
+**Data Contract**:
+- Report consumes `GET /api/student?lead_id=...&class_key=...` payload including:
+  - student identity + class level
+  - final grade + mentor comment
+  - calculated score breakdown (attendance/tasks/participation + total)
+  - per-session evidence (attendance, task status, stars)
+
+**Certificate Rule**:
+- Certificate page is rendered only when final grade is not `F`.
+- If grade is `F`, only report card page is printed.
+
+**Visibility Rule**:
+- Student Success can open and print/download the report card from final grading in read-only mode.
+- Report visibility does not grant grade-edit privileges.
+
+**Implementation note (2026-02-15)**:
+- New React component: `frontend/src/components/StudentReportCard.tsx`.
+- Final Grading UI includes "View Report" action in class workspace.
+- Report print uses `@media print` and `window.print()`.
+
+### Mentor Round Report Rule
+
+**Business Rule**: Mentor Head can generate a print-friendly mentor performance report per class for round review discussions.
+
+**Scope Rule**:
+- Evaluations endpoint supports scope filtering:
+  - `scope=active` (default)
+  - `scope=closed` (post-round discussion)
+- Closed scope supports additional filters:
+  - `q` for mentor name/email
+  - `from` and `to` for class close date (`YYYY-MM-DD`)
+- Closed scope resolves mentor ownership from `closed_mentor_user_id` because mentor assignments are removed at close.
+
+**Report Content Rule**:
+- Report includes:
+  - Collective KPI (weighted)
+  - Manual KPIs (session quality, students feedback, Trello compliance)
+  - Auto KPIs (attendance punctuality, WhatsApp groups management)
+  - Session evidence strip (attendance by session + Trello checks)
+
+**Editing Rule**:
+- Closed scope is discussion/reporting context; manual editing remains active-round only.
+
+### Mentor Total Active Report Rule
+**Business Rule**:
+- Mentor Head can generate one combined "Total Active Report" for current active classes.
+- Report includes:
+  - global totals (active mentors, active classes),
+  - mentor-level summary (active class count + collective KPI),
+  - class-level KPI rows for each active class under each mentor.
 
 ---
 

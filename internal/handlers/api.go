@@ -508,11 +508,13 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type StudentResponse struct {
-		LeadID      string            `json:"lead_id"`
-		FullName    string            `json:"full_name"`
-		Phone       string            `json:"phone"`
-		MissedCount int               `json:"missed_count"`
-		Attendance  map[string]string `json:"attendance"` // session_id -> status
+		LeadID                string                            `json:"lead_id"`
+		FullName              string                            `json:"full_name"`
+		Phone                 string                            `json:"phone"`
+		MissedCount           int                               `json:"missed_count"`
+		JoinedAtSessionNumber *int32                            `json:"joined_at_session_number,omitempty"`
+		Attendance            map[string]string                 `json:"attendance"`          // session_id -> status
+		SessionPerformance    map[string]map[string]interface{} `json:"session_performance"` // session_id -> {task_completed, participation_score}
 	}
 
 	type SessionResponse struct {
@@ -546,26 +548,46 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	attendanceBySession, err := models.GetAttendanceByClassKey(classKey)
+	if err != nil {
+		log.Printf("WARNING: Failed to get attendance map for class %s: %v", classKey, err)
+		attendanceBySession = make(map[uuid.UUID]map[uuid.UUID]*models.Attendance)
+	}
+	performanceBySession, err := models.GetSessionPerformanceByClassKey(classKey)
+	if err != nil {
+		log.Printf("WARNING: Failed to get session performance map for class %s: %v", classKey, err)
+		performanceBySession = make(map[uuid.UUID]map[uuid.UUID]*models.SessionPerformance)
+	}
+
 	studentList := make([]StudentResponse, 0, len(students))
 	for _, s := range students {
 		swa := StudentResponse{
-			LeadID:     s.LeadID.String(),
-			FullName:   s.FullName,
-			Phone:      s.Phone,
-			Attendance: make(map[string]string),
+			LeadID:             s.LeadID.String(),
+			FullName:           s.FullName,
+			Phone:              s.Phone,
+			Attendance:         make(map[string]string),
+			SessionPerformance: make(map[string]map[string]interface{}),
+		}
+		if s.JoinedAtSessionNumber.Valid {
+			joined := s.JoinedAtSessionNumber.Int32
+			swa.JoinedAtSessionNumber = &joined
 		}
 
-		// Get attendance for each session
+		// Attach attendance + performance for each session
 		for _, session := range sessions {
-			attendance, err := models.GetAttendanceForSession(session.ID)
-			if err == nil {
-				for _, att := range attendance {
-					if att.LeadID == s.LeadID {
-						swa.Attendance[session.ID.String()] = att.Status
-						if att.Status == "ABSENT" {
-							swa.MissedCount++
-						}
-						break
+			if byLead, ok := attendanceBySession[session.ID]; ok {
+				if att, ok := byLead[s.LeadID]; ok && att != nil {
+					swa.Attendance[session.ID.String()] = att.Status
+					if strings.EqualFold(att.Status, "ABSENT") {
+						swa.MissedCount++
+					}
+				}
+			}
+			if byLead, ok := performanceBySession[session.ID]; ok {
+				if perf, ok := byLead[s.LeadID]; ok && perf != nil {
+					swa.SessionPerformance[session.ID.String()] = map[string]interface{}{
+						"task_completed":      perf.TaskCompleted,
+						"participation_score": perf.ParticipationScore,
 					}
 				}
 			}
@@ -599,12 +621,14 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		SessionID string `json:"session_id"`
-		LeadID    string `json:"lead_id"`
-		Status    string `json:"status"`
-		Attended  *bool  `json:"attended"` // Legacy field, optional
-		ClassKey  string `json:"class_key"`
-		Notes     string `json:"notes"`
+		SessionID          string `json:"session_id"`
+		LeadID             string `json:"lead_id"`
+		Status             string `json:"status"`
+		Attended           *bool  `json:"attended"` // Legacy field, optional
+		ClassKey           string `json:"class_key"`
+		Notes              string `json:"notes"`
+		TaskCompleted      *bool  `json:"task_completed"`
+		ParticipationScore *int   `json:"participation_score"`
 	}
 
 	// Read body for logging
@@ -679,6 +703,31 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonError(w, http.StatusInternalServerError, "Failed to mark attendance")
+		return
+	}
+
+	// Session performance upsert (grading automation inputs).
+	// Legacy-safe defaults are used when old clients omit these fields.
+	taskCompleted := true
+	if req.TaskCompleted != nil {
+		taskCompleted = *req.TaskCompleted
+	}
+	participationScore := 3
+	if req.ParticipationScore != nil {
+		participationScore = *req.ParticipationScore
+	}
+	if participationScore < 1 || participationScore > 5 {
+		jsonError(w, http.StatusBadRequest, "participation_score must be between 1 and 5")
+		return
+	}
+	// If marked absent, performance inputs are inactive for that session.
+	if strings.EqualFold(req.Status, "ABSENT") {
+		taskCompleted = false
+		participationScore = 3
+	}
+	if err := models.UpsertSessionPerformance(sessionID, leadID, taskCompleted, participationScore); err != nil {
+		log.Printf("ERROR: Failed to upsert session performance: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to save session performance")
 		return
 	}
 
@@ -971,7 +1020,7 @@ func (h *APIHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// GET /api/student?student_id=... - returns student profile for ID card
+// GET /api/student?student_id=... or ?lead_id=... - returns student profile (+ report payload when class_key is provided)
 func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
 	if userRole != "mentor" && userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
@@ -980,8 +1029,11 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	studentIDStr := r.URL.Query().Get("student_id")
+	if strings.TrimSpace(studentIDStr) == "" {
+		studentIDStr = r.URL.Query().Get("lead_id")
+	}
 	if studentIDStr == "" {
-		jsonError(w, http.StatusBadRequest, "student_id is required")
+		jsonError(w, http.StatusBadRequest, "student_id or lead_id is required")
 		return
 	}
 
@@ -1056,7 +1108,7 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 		filteredNotes = append(filteredNotes, n)
 	}
 
-	jsonResponse(w, http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"id":                 studentID.String(),
 		"name":               lead.FullName,
 		"phone":              lead.Phone,
@@ -1066,7 +1118,173 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 		"highPriority":       lead.HighPriorityAbsence,
 		"highPriorityReason": lead.HighPriorityReason.String,
 		"notes":              filteredNotes,
-	})
+	}
+
+	// Optional report-card payload (for printable grade justification paper).
+	if classKey != "" {
+		type SessionEvidence struct {
+			SessionNumber       int32  `json:"session_number"`
+			AttendanceStatus    string `json:"attendance_status"`
+			TaskCompleted       *bool  `json:"task_completed,omitempty"`
+			ParticipationScore  *int32 `json:"participation_score,omitempty"`
+			ParticipationStars  string `json:"participation_stars"`
+			TaskDisplay         string `json:"task_display"`
+			AttendanceDisplay   string `json:"attendance_display"`
+			ParticipationSymbol string `json:"participation_symbol"`
+		}
+
+		classGroup, _ := models.GetClassGroupByKey(classKey)
+		sessions, _ := models.GetClassSessions(classKey)
+		attendanceBySession, _ := models.GetAttendanceByClassKey(classKey)
+		perfBySession, _ := models.GetSessionPerformanceByClassKey(classKey)
+		previews, _ := models.GetGradePreviewsByClass(classKey)
+		preview, hasPreview := previews[studentID]
+
+		finalGrade := ""
+		mentorComment := ""
+		if grade, err := models.GetGrade(studentID, classKey); err == nil && grade != nil {
+			finalGrade = grade.Grade
+			if grade.Notes.Valid {
+				mentorComment = grade.Notes.String
+			}
+		}
+		if finalGrade == "" && hasPreview {
+			finalGrade = preview.CalculatedGrade
+		}
+
+		evidence := make([]SessionEvidence, 0, len(sessions))
+		for _, s := range sessions {
+			if s == nil {
+				continue
+			}
+			row := SessionEvidence{
+				SessionNumber:       s.SessionNumber,
+				AttendanceStatus:    "",
+				ParticipationStars:  "—",
+				TaskDisplay:         "—",
+				AttendanceDisplay:   "—",
+				ParticipationSymbol: "—",
+			}
+			if byLead, ok := attendanceBySession[s.ID]; ok {
+				if att, ok := byLead[studentID]; ok && att != nil {
+					row.AttendanceStatus = strings.ToUpper(strings.TrimSpace(att.Status))
+					switch row.AttendanceStatus {
+					case "ABSENT":
+						row.AttendanceDisplay = "❌"
+					case "PRESENT", "LATE":
+						row.AttendanceDisplay = "✅"
+					default:
+						row.AttendanceDisplay = "—"
+					}
+				}
+			}
+
+			if s.SessionNumber == 1 {
+				row.TaskDisplay = "➖"
+			} else {
+				taskCompleted := true
+				if byLead, ok := perfBySession[s.ID]; ok {
+					if perf, ok := byLead[studentID]; ok && perf != nil {
+						taskCompleted = perf.TaskCompleted
+						score := perf.ParticipationScore
+						row.ParticipationScore = &score
+					}
+				}
+				row.TaskCompleted = &taskCompleted
+				if taskCompleted {
+					row.TaskDisplay = "✅"
+				} else {
+					row.TaskDisplay = "❌"
+				}
+			}
+
+			if row.ParticipationScore != nil && *row.ParticipationScore > 0 {
+				row.ParticipationStars = strings.Repeat("⭐", int(*row.ParticipationScore))
+				row.ParticipationSymbol = row.ParticipationStars
+			}
+			evidence = append(evidence, row)
+		}
+
+		response["report_card"] = map[string]interface{}{
+			"class_key": classKey,
+			"class_level": func() int32 {
+				if classGroup != nil {
+					return classGroup.Level
+				}
+				return 0
+			}(),
+			"student_name":     lead.FullName,
+			"student_phone":    lead.Phone,
+			"generated_at":     time.Now().Format(time.RFC3339),
+			"final_grade":      finalGrade,
+			"mentor_comment":   mentorComment,
+			"session_evidence": evidence,
+			"calculation": map[string]interface{}{
+				"attendance_score": func() float64 {
+					if hasPreview {
+						return preview.AttendanceScore
+					}
+					return 0
+				}(),
+				"task_score": func() float64 {
+					if hasPreview {
+						return preview.TaskScore
+					}
+					return 0
+				}(),
+				"participation_score": func() float64 {
+					if hasPreview {
+						return preview.ParticipationScore
+					}
+					return 0
+				}(),
+				"total_score": func() float64 {
+					if hasPreview {
+						return preview.TotalScore
+					}
+					return 0
+				}(),
+				"absences": func() int {
+					if hasPreview {
+						return preview.Absences
+					}
+					return 0
+				}(),
+				"completed_tasks": func() int {
+					if hasPreview {
+						return preview.CompletedTasks
+					}
+					return 0
+				}(),
+				"missed_tasks": func() int {
+					if hasPreview {
+						return 7 - preview.CompletedTasks
+					}
+					return 0
+				}(),
+				"average_stars": func() float64 {
+					if hasPreview {
+						return preview.AverageParticipation
+					}
+					return 0
+				}(),
+				"calculated_grade": func() string {
+					if hasPreview {
+						return preview.CalculatedGrade
+					}
+					return finalGrade
+				}(),
+				"used_legacy_task_safe": func() bool {
+					if hasPreview {
+						return preview.UsedLegacyTaskFallback
+					}
+					return false
+				}(),
+			},
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, response)
 }
 
 // GET /api/mentor-head/dashboard - returns dashboard data (classes + mentors)
@@ -1753,7 +1971,7 @@ func (h *APIHandler) ReopenRound(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// GET /api/mentor-head/evaluations - returns mentors with active classes and class-scoped evaluation data
+// GET /api/mentor-head/evaluations - returns mentors with class-scoped evaluation data by scope.
 func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1766,7 +1984,44 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mentorItems, err := models.GetMentorEvaluationsActiveByClass()
+	scope := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("scope")))
+	if scope == "" {
+		scope = "active"
+	}
+	if scope != "active" && scope != "closed" {
+		jsonError(w, http.StatusBadRequest, "scope must be active or closed")
+		return
+	}
+
+	mentorQuery := strings.TrimSpace(r.URL.Query().Get("q"))
+	var fromDate *time.Time
+	var toDate *time.Time
+	if scope == "closed" {
+		fromRaw := strings.TrimSpace(r.URL.Query().Get("from"))
+		toRaw := strings.TrimSpace(r.URL.Query().Get("to"))
+		if fromRaw != "" {
+			parsed, err := time.Parse("2006-01-02", fromRaw)
+			if err != nil {
+				jsonError(w, http.StatusBadRequest, "from must be YYYY-MM-DD")
+				return
+			}
+			fromDate = &parsed
+		}
+		if toRaw != "" {
+			parsed, err := time.Parse("2006-01-02", toRaw)
+			if err != nil {
+				jsonError(w, http.StatusBadRequest, "to must be YYYY-MM-DD")
+				return
+			}
+			toDate = &parsed
+		}
+		if fromDate != nil && toDate != nil && fromDate.After(*toDate) {
+			jsonError(w, http.StatusBadRequest, "from date must be before or equal to to date")
+			return
+		}
+	}
+
+	mentorItems, err := models.GetMentorEvaluationsByRoundStatus(scope, mentorQuery, fromDate, toDate)
 	if err != nil {
 		log.Printf("ERROR: Failed to get mentor evaluations by class: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load evaluations")
@@ -1779,6 +2034,7 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 		Days        string `json:"days"`
 		Time        string `json:"time"`
 		ClassNumber int32  `json:"classNumber"`
+		RoundStatus string `json:"roundStatus"`
 		Manual      struct {
 			SessionQuality      int    `json:"sessionQuality"`
 			StudentsFeedback    int    `json:"studentsFeedback"`
@@ -1817,6 +2073,7 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 				Days:        classItem.ClassDays,
 				Time:        classItem.ClassTime,
 				ClassNumber: classItem.ClassNumber,
+				RoundStatus: classItem.RoundStatus,
 			}
 			c.Manual.SessionQuality = classItem.KPISessionQuality
 			c.Manual.StudentsFeedback = classItem.KPIStudentsFeedback
@@ -1839,6 +2096,12 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"scope":   scope,
+		"filters": map[string]interface{}{
+			"q":    mentorQuery,
+			"from": r.URL.Query().Get("from"),
+			"to":   r.URL.Query().Get("to"),
+		},
 		"mentors": mentorsResponse,
 	})
 }

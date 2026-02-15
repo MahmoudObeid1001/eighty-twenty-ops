@@ -57,6 +57,7 @@
 | `/api/reports/mentors/exclude` | POST | mentor_head, admin | `apiHandler.ExcludeMentorReportRow` | `main.go` |
 | `/api/classes/:id/sessions` | GET | mentor, mentor_head, admin, student_success | `apiHandler.ListClassSessions` | `main.go:391-406` |
 | `/api/classes/:id/sessions/:n/complete` | POST | mentor, mentor_head, admin, student_success | `apiHandler.CompleteSessionByNumber` (deprecated) | `main.go:391-406` |
+| `/api/grades/preview` | GET | mentor, mentor_head, student_success, admin | `apiHandler.GetGradesPreview` | `main.go` |
 | `/api/notifications/late-join` | GET | mentor, mentor_head, student_success | `apiHandler.GetLateJoinNotifications` | `main.go (new)` |
 | `/api/notifications/late-join/:id/acknowledge` | POST | mentor, mentor_head, student_success | `apiHandler.AcknowledgeLateJoinNotification` | `main.go (new)` |
 
@@ -125,3 +126,14 @@
 ### TODO: Investigate
 - [ ] `moderator` role behavior - confirm intended access after router alignment (no `/classes` or `/finance`)
 - [ ] React app session validation - how does `/app/*` ensure roles match? *(check AppLayout.tsx)*
+
+### Notes
+- `/api/student` supports both `student_id` and `lead_id` query params.
+- When `class_key` is passed, `/api/student` also returns `report_card` payload for printable grading justification.
+- `/api/mentor-head/evaluations` supports `scope` query param:
+  - `scope=active` (default) for ongoing rounds
+  - `scope=closed` for post-round discussion/reporting
+- Closed-scope filters on `/api/mentor-head/evaluations`:
+  - `q` (mentor name/email search)
+  - `from` (closed date start, `YYYY-MM-DD`)
+  - `to` (closed date end, `YYYY-MM-DD`)

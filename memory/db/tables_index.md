@@ -76,6 +76,13 @@ All tables have UNIQUE `lead_id` - one record per lead.
 **Key Fields**: session_id, lead_id, status (present/absent_excused/absent_unexcused)  
 **Evidence**: `migrations/017_create_attendance.sql`
 
+### `session_performance`
+**Purpose**: Stores per-session grading inputs per student (task + participation stars)  
+**Features**: Automated final grade calculation, class workspace session card controls  
+**Key Fields**: class_session_id, lead_id, task_completed, participation_score (1-5)  
+**Constraint**: UNIQUE(class_session_id, lead_id)  
+**Evidence**: `migrations/058_create_session_performance.sql`
+
 ### `late_joiner_notifications`
 **Purpose**: Tracks awareness alerts for mentors/heads when students join mid-round  
 **Features**: Dashboard notification banner  
@@ -174,6 +181,7 @@ All tables have UNIQUE `lead_id` - one record per lead.
 | **Classes Board (Admin)** | class_groups, leads (status transitions), scheduling |
 | **Mentor Head Dashboard** | class_groups, mentor_assignments, users (mentors) |
 | **Mentor Workflow** | class_groups, mentor_assignments, class_sessions, attendance, student_notes, leads |
+| **Automated Final Grading** | class_sessions, attendance, session_performance, grades |
 | **Student Success Absence** | attendance, followups (type=absence_escalation), followup_case_notes, leads |
 | **Complaints Workflow** | followups (type=complaint), followup_case_notes, leads |
 | **Finance** | payments, (other finance tables) |

@@ -147,6 +147,7 @@ export interface Student {
   phone: string
   missed_count?: number
   attendance?: Record<string, string> // session_id -> status
+  session_performance?: Record<string, { task_completed: boolean; participation_score: number }>
   joined_at_session_number?: number // NEW
 }
 
@@ -190,6 +191,42 @@ export interface StudentProfile {
   lastLevelGrade: string | null
   highPriority?: boolean
   highPriorityReason?: string
+}
+
+export interface StudentReportCardData {
+  class_key: string
+  class_level: number
+  student_name: string
+  student_phone: string
+  generated_at: string
+  final_grade: string
+  mentor_comment: string
+  session_evidence: Array<{
+    session_number: number
+    attendance_status: string
+    task_completed?: boolean
+    participation_score?: number
+    participation_stars: string
+    task_display: string
+    attendance_display: string
+    participation_symbol: string
+  }>
+  calculation: {
+    attendance_score: number
+    task_score: number
+    participation_score: number
+    total_score: number
+    absences: number
+    completed_tasks: number
+    missed_tasks: number
+    average_stars: number
+    calculated_grade: string
+    used_legacy_task_safe: boolean
+  }
+}
+
+export interface StudentProfileResponse extends StudentProfile {
+  report_card?: StudentReportCardData
 }
 
 export interface StudentSuccessClass {
@@ -302,6 +339,20 @@ export interface Grade {
   notes: string
   created_by_user_id: string
   created_at: string
+}
+
+export interface GradePreview {
+  lead_id: string
+  absences: number
+  completed_tasks: number
+  attended_sessions: number
+  average_stars: number
+  attendance_score: number
+  task_score: number
+  participation_score: number
+  total_score: number
+  calculated_grade: string
+  used_legacy_task_safety: boolean
 }
 
 export interface ComplianceCheck {
@@ -461,10 +512,23 @@ export const api = {
       body: JSON.stringify({ class_key: classKey }),
     }),
 
-  getStudent: (studentId: string, classKey: string): Promise<StudentProfile> =>
+  getStudent: (studentId: string, classKey: string): Promise<StudentProfileResponse> =>
     fetchAPI(`/student?student_id=${encodeURIComponent(studentId)}&class_key=${encodeURIComponent(classKey)}`),
 
-  getMentorEvaluations: (): Promise<{
+  getStudentReportCard: (leadId: string, classKey: string): Promise<StudentProfileResponse> =>
+    fetchAPI(`/student?lead_id=${encodeURIComponent(leadId)}&class_key=${encodeURIComponent(classKey)}`),
+
+  getMentorEvaluations: (scope: 'active' | 'closed' = 'active', filters?: {
+    q?: string
+    from?: string
+    to?: string
+  }): Promise<{
+    scope: 'active' | 'closed'
+    filters?: {
+      q?: string
+      from?: string
+      to?: string
+    }
     mentors: Array<{
       id: string
       email: string
@@ -476,6 +540,7 @@ export const api = {
         days: string
         time: string
         classNumber: number
+        roundStatus: 'active' | 'closed'
         manual: {
           sessionQuality: number
           studentsFeedback: number
@@ -489,7 +554,14 @@ export const api = {
         }
       }>
     }>
-  }> => fetchAPI('/mentor-head/evaluations'),
+  }> => {
+    const params = new URLSearchParams()
+    params.set('scope', scope)
+    if (filters?.q) params.set('q', filters.q)
+    if (filters?.from) params.set('from', filters.from)
+    if (filters?.to) params.set('to', filters.to)
+    return fetchAPI(`/mentor-head/evaluations?${params.toString()}`)
+  },
 
   updateMentorEvaluation: (mentorId: string, data: {
     classKey: string
@@ -568,11 +640,21 @@ export const api = {
     leadId: string,
     status: string,
     classKey: string,
-    notes: string = ''
+    notes: string = '',
+    taskCompleted?: boolean,
+    participationScore?: number
   ): Promise<{ ok: boolean }> =>
     fetchAPI('/attendance', {
       method: 'POST',
-      body: JSON.stringify({ session_id: sessionId, lead_id: leadId, status, class_key: classKey, notes }),
+      body: JSON.stringify({
+        session_id: sessionId,
+        lead_id: leadId,
+        status,
+        class_key: classKey,
+        notes,
+        task_completed: taskCompleted,
+        participation_score: participationScore,
+      }),
     }),
 
   completeSession: (sessionId: string, classKey: string): Promise<{ ok: boolean }> =>
@@ -684,6 +766,9 @@ export const api = {
 
   getGrades: (classKey: string): Promise<{ grades: Grade[] }> =>
     fetchAPI(`/grades?class_key=${encodeURIComponent(classKey)}`),
+
+  getGradePreview: (classKey: string): Promise<{ previews: GradePreview[] }> =>
+    fetchAPI(`/grades/preview?class_key=${encodeURIComponent(classKey)}`),
 
   createGrade: (data: { lead_id: string; class_key: string; grade: string; notes: string }): Promise<{ ok: boolean; grade_id: string }> =>
     fetchAPI('/grades', {

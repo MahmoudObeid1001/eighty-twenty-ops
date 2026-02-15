@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
+import MentorRoundReport from '../components/MentorRoundReport'
+import MentorActiveTotalReport from '../components/MentorActiveTotalReport'
 
 type AttendanceStatus = 'on-time' | 'late' | 'absent' | 'unknown'
 
@@ -9,6 +11,7 @@ interface MentorClassEvaluation {
   days: string
   time: string
   classNumber: number
+  roundStatus: 'active' | 'closed'
   manual: {
     sessionQuality: number
     studentsFeedback: number
@@ -40,6 +43,12 @@ interface TestimonialTarget {
   mentorId: string
   mentorName: string
   classes: MentorClassEvaluation[]
+}
+
+interface ReportTarget {
+  mentorName: string
+  mentorEmail: string
+  classItem: MentorClassEvaluation
 }
 
 function computeCollectiveKPI(classItem: MentorClassEvaluation): number {
@@ -74,6 +83,11 @@ function statusColor(status: AttendanceStatus): string {
 
 export default function MentorEvaluations() {
   const [mentors, setMentors] = useState<MentorEvaluationItem[]>([])
+  const [scope, setScope] = useState<'active' | 'closed'>('active')
+  const [closedSearch, setClosedSearch] = useState('')
+  const [closedFrom, setClosedFrom] = useState('')
+  const [closedTo, setClosedTo] = useState('')
+  const [closedAppliedFilters, setClosedAppliedFilters] = useState<{ q?: string; from?: string; to?: string } | null>(null)
   const [expandedMentors, setExpandedMentors] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -84,16 +98,31 @@ export default function MentorEvaluations() {
   const [savingTestimonial, setSavingTestimonial] = useState(false)
   const [testimonialError, setTestimonialError] = useState<string | null>(null)
   const [testimonialSuccess, setTestimonialSuccess] = useState<string | null>(null)
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
+  const [totalReportOpen, setTotalReportOpen] = useState(false)
+  const [closedFilterError, setClosedFilterError] = useState<string | null>(null)
 
   useEffect(() => {
     void load()
-  }, [])
+  }, [scope, closedAppliedFilters])
 
   async function load() {
     try {
+      if (scope === 'closed' && !closedAppliedFilters) {
+        setMentors([])
+        setExpandedMentors({})
+        setError(null)
+        setLoading(false)
+        return
+      }
       setLoading(true)
       setError(null)
-      const data = await api.getMentorEvaluations()
+      const data = await api.getMentorEvaluations(
+        scope,
+        scope === 'closed'
+          ? closedAppliedFilters || undefined
+          : undefined
+      )
       setMentors(data.mentors as MentorEvaluationItem[])
       const openByDefault: Record<string, boolean> = {}
       for (const mentor of data.mentors) {
@@ -105,6 +134,22 @@ export default function MentorEvaluations() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function applyClosedFilters() {
+    const q = closedSearch.trim()
+    const from = closedFrom.trim()
+    const to = closedTo.trim()
+    if (!q && !from && !to) {
+      setClosedFilterError('Enter at least one filter, then click Apply.')
+      return
+    }
+    setClosedFilterError(null)
+    setClosedAppliedFilters({
+      q: q || undefined,
+      from: from || undefined,
+      to: to || undefined,
+    })
   }
 
   function toggleMentor(mentorId: string) {
@@ -189,8 +234,162 @@ export default function MentorEvaluations() {
     <div style={{ padding: '24px' }}>
       <h1 style={{ marginBottom: '16px', fontSize: '30px' }}>Mentor Evaluations</h1>
       <p style={{ marginTop: 0, marginBottom: '20px', color: '#555' }}>
-        Evaluations are scoped per active class. Closed rounds are not shown here.
+        Evaluations are scoped per class. Use the Closed tab for post-round discussions.
       </p>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+        <button
+          onClick={() => {
+            setScope('active')
+            setClosedFilterError(null)
+          }}
+          style={{
+            border: '1px solid #1c7ed6',
+            borderRadius: '6px',
+            background: scope === 'active' ? '#1c7ed6' : '#fff',
+            color: scope === 'active' ? '#fff' : '#1c7ed6',
+            padding: '6px 12px',
+            cursor: 'pointer',
+            fontWeight: 700,
+          }}
+        >
+          Active Rounds
+        </button>
+        <button
+          onClick={() => setScope('closed')}
+          style={{
+            border: '1px solid #495057',
+            borderRadius: '6px',
+            background: scope === 'closed' ? '#495057' : '#fff',
+            color: scope === 'closed' ? '#fff' : '#495057',
+            padding: '6px 12px',
+            cursor: 'pointer',
+            fontWeight: 700,
+          }}
+        >
+          Closed Rounds
+        </button>
+      </div>
+      {scope === 'closed' && (
+        <div style={{ marginBottom: '16px', maxWidth: '860px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(220px, 1fr) 160px 160px auto auto',
+              gap: '8px',
+              alignItems: 'end',
+            }}
+          >
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', color: '#555', marginBottom: '4px' }}>Mentor</label>
+              <input
+                type="text"
+                placeholder="Search by mentor name/email/phone"
+                value={closedSearch}
+                onChange={(e) => setClosedSearch(e.target.value)}
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', color: '#555', marginBottom: '4px' }}>From</label>
+              <input
+                type="date"
+                value={closedFrom}
+                onChange={(e) => setClosedFrom(e.target.value)}
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', color: '#555', marginBottom: '4px' }}>To</label>
+              <input
+                type="date"
+                value={closedTo}
+                onChange={(e) => setClosedTo(e.target.value)}
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da' }}
+              />
+            </div>
+            <button
+              onClick={applyClosedFilters}
+              style={{
+                border: '1px solid #1c7ed6',
+                borderRadius: '6px',
+                background: '#1c7ed6',
+                color: '#fff',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontWeight: 700,
+                height: '36px',
+              }}
+            >
+              Apply
+            </button>
+            <button
+              onClick={() => {
+                setClosedSearch('')
+                setClosedFrom('')
+                setClosedTo('')
+                setClosedAppliedFilters(null)
+                setClosedFilterError(null)
+              }}
+              style={{
+                border: '1px solid #adb5bd',
+                borderRadius: '6px',
+                background: '#fff',
+                color: '#495057',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontWeight: 600,
+                height: '36px',
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          {closedFilterError && (
+            <div style={{ marginTop: '6px', color: '#b02a37', fontSize: '12px' }}>{closedFilterError}</div>
+          )}
+          {!closedAppliedFilters && !closedFilterError && (
+            <div style={{ marginTop: '6px', color: '#555', fontSize: '12px' }}>
+              No data is shown until you apply at least one filter.
+            </div>
+          )}
+        </div>
+      )}
+      {scope === 'active' && (
+        <div style={{ marginBottom: '16px' }}>
+          <button
+            onClick={() => setTotalReportOpen(true)}
+            style={{
+              border: '1px solid #0c8599',
+              borderRadius: '6px',
+              background: '#fff',
+              color: '#0c8599',
+              padding: '7px 12px',
+              cursor: 'pointer',
+              fontWeight: 700,
+            }}
+          >
+            Total Active Report
+          </button>
+        </div>
+      )}
+      {scope === 'closed' && closedAppliedFilters && mentors.length > 0 && (
+        <div style={{ marginBottom: '16px' }}>
+          <button
+            onClick={() => setTotalReportOpen(true)}
+            style={{
+              border: '1px solid #0c8599',
+              borderRadius: '6px',
+              background: '#fff',
+              color: '#0c8599',
+              padding: '7px 12px',
+              cursor: 'pointer',
+              fontWeight: 700,
+            }}
+          >
+            Total Closed Report
+          </button>
+        </div>
+      )}
 
       {testimonialSuccess && (
         <div style={{ marginBottom: '12px', padding: '10px 12px', borderRadius: '6px', background: '#d4edda', color: '#155724', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -239,7 +438,7 @@ export default function MentorEvaluations() {
                       fontWeight: 700,
                     }}
                   >
-                    Collective KPI {mentorCollective}%
+                    Collective KPI {mentorCollective}% {scope === 'closed' ? '(filtered)' : ''}
                   </span>
                   <span
                     style={{
@@ -251,7 +450,7 @@ export default function MentorEvaluations() {
                       fontWeight: 700,
                     }}
                   >
-                    {mentor.activeClassCount} active {mentor.activeClassCount === 1 ? 'class' : 'classes'}
+                    {mentor.activeClassCount} {scope} {mentor.activeClassCount === 1 ? 'class' : 'classes'} {scope === 'closed' ? '(filtered)' : ''}
                   </span>
                   <button
                     onClick={() => {
@@ -282,7 +481,9 @@ export default function MentorEvaluations() {
                     <ClassCard
                       key={`${mentor.id}-${cls.classKey}`}
                       classItem={cls}
+                      canEdit={scope === 'active'}
                       onEdit={() => setEditing({ mentorId: mentor.id, mentorName: mentor.name, classItem: cls })}
+                      onViewReport={() => setReportTarget({ mentorName: mentor.name, mentorEmail: mentor.email, classItem: cls })}
                     />
                   ))}
                 </div>
@@ -329,6 +530,75 @@ export default function MentorEvaluations() {
           onSave={(payload) => saveTestimonial({ mentorId: testimonialTarget.mentorId, classKey: payload.classKey, testimonialText: payload.testimonialText })}
         />
       )}
+
+      {reportTarget && (
+        <div
+          className="report-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 5000,
+            background: 'rgba(0,0,0,0.5)',
+            overflow: 'auto',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setReportTarget(null)
+            }
+          }}
+        >
+          <MentorRoundReport
+            report={{
+              mentorName: reportTarget.mentorName,
+              mentorEmail: reportTarget.mentorEmail,
+              classKey: reportTarget.classItem.classKey,
+              level: reportTarget.classItem.level,
+              days: reportTarget.classItem.days,
+              time: reportTarget.classItem.time,
+              classNumber: reportTarget.classItem.classNumber,
+              roundStatus: reportTarget.classItem.roundStatus,
+              generatedAt: new Date().toISOString(),
+              collectiveKpi: computeCollectiveKPI(reportTarget.classItem),
+              manual: reportTarget.classItem.manual,
+              automatic: reportTarget.classItem.automatic,
+            }}
+            onClose={() => setReportTarget(null)}
+          />
+        </div>
+      )}
+
+      {totalReportOpen && (
+        <div
+          className="report-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 5000,
+            background: 'rgba(0,0,0,0.5)',
+            overflow: 'auto',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setTotalReportOpen(false)
+            }
+          }}
+        >
+          <MentorActiveTotalReport
+            mentors={mentors}
+            scopeLabel={scope === 'closed' ? 'Closed' : 'Active'}
+            filterSummary={
+              scope === 'closed'
+                ? [
+                    closedAppliedFilters?.q ? `Mentor=${closedAppliedFilters.q}` : '',
+                    closedAppliedFilters?.from ? `From=${closedAppliedFilters.from}` : '',
+                    closedAppliedFilters?.to ? `To=${closedAppliedFilters.to}` : '',
+                  ].filter(Boolean).join(' | ')
+                : ''
+            }
+            onClose={() => setTotalReportOpen(false)}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -371,7 +641,17 @@ function PercentBar({ label, percent }: { label: string; percent: number }) {
   )
 }
 
-function ClassCard({ classItem, onEdit }: { classItem: MentorClassEvaluation; onEdit: () => void }) {
+function ClassCard({
+  classItem,
+  canEdit,
+  onEdit,
+  onViewReport,
+}: {
+  classItem: MentorClassEvaluation
+  canEdit: boolean
+  onEdit: () => void
+  onViewReport: () => void
+}) {
   const collective = computeCollectiveKPI(classItem)
   return (
     <div style={{ border: '1px solid #e9ecef', borderRadius: '8px', padding: '12px' }}>
@@ -382,19 +662,37 @@ function ClassCard({ classItem, onEdit }: { classItem: MentorClassEvaluation; on
           </strong>
           <div style={{ color: '#666', fontSize: '12px' }}>{classItem.classKey}</div>
         </div>
-        <button
-          onClick={onEdit}
-          style={{
-            border: 'none',
-            borderRadius: '4px',
-            background: '#1c7ed6',
-            color: '#fff',
-            padding: '6px 10px',
-            cursor: 'pointer',
-          }}
-        >
-          Edit Class
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={onViewReport}
+            style={{
+              border: '1px solid #0c8599',
+              borderRadius: '4px',
+              background: '#fff',
+              color: '#0c8599',
+              padding: '6px 10px',
+              cursor: 'pointer',
+              fontWeight: 700,
+            }}
+          >
+            View Report
+          </button>
+          {canEdit && (
+            <button
+              onClick={onEdit}
+              style={{
+                border: 'none',
+                borderRadius: '4px',
+                background: '#1c7ed6',
+                color: '#fff',
+                padding: '6px 10px',
+                cursor: 'pointer',
+              }}
+            >
+              Edit Class
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ marginBottom: '10px' }}>

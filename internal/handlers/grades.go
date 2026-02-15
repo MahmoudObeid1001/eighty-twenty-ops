@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -12,6 +13,36 @@ import (
 
 	"github.com/google/uuid"
 )
+
+type GradePreviewResponse struct {
+	LeadID               string  `json:"lead_id"`
+	Absences             int     `json:"absences"`
+	CompletedTasks       int     `json:"completed_tasks"`
+	AttendedSessions     int     `json:"attended_sessions"`
+	AverageStars         float64 `json:"average_stars"`
+	AttendanceScore      float64 `json:"attendance_score"`
+	TaskScore            float64 `json:"task_score"`
+	ParticipationScore   float64 `json:"participation_score"`
+	TotalScore           float64 `json:"total_score"`
+	CalculatedGrade      string  `json:"calculated_grade"`
+	UsedLegacyTaskSafety bool    `json:"used_legacy_task_safety"`
+}
+
+func mapGradePreview(leadID uuid.UUID, p models.GradePreview) GradePreviewResponse {
+	return GradePreviewResponse{
+		LeadID:               leadID.String(),
+		Absences:             p.Absences,
+		CompletedTasks:       p.CompletedTasks,
+		AttendedSessions:     p.AttendedSessions,
+		AverageStars:         p.AverageParticipation,
+		AttendanceScore:      p.AttendanceScore,
+		TaskScore:            p.TaskScore,
+		ParticipationScore:   p.ParticipationScore,
+		TotalScore:           p.TotalScore,
+		CalculatedGrade:      p.CalculatedGrade,
+		UsedLegacyTaskSafety: p.UsedLegacyTaskFallback,
+	}
+}
 
 // POST /api/mentor/grades - mentor creates grade for student in their class
 func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +96,23 @@ func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate mentor-submitted grade against calculated value (mentor head may override).
+	previews, err := models.GetGradePreviewsByClass(req.ClassKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to compute grade previews for class %s: %v", req.ClassKey, err)
+		jsonError(w, http.StatusInternalServerError, "Failed to validate grade against calculated breakdown")
+		return
+	}
+	preview, ok := previews[leadID]
+	if !ok {
+		jsonError(w, http.StatusBadRequest, "Student not found in class roster for grade calculation")
+		return
+	}
+	if userRole != "mentor_head" && req.Grade != preview.CalculatedGrade {
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("Submitted grade %s does not match calculated grade %s", req.Grade, preview.CalculatedGrade))
+		return
+	}
+
 	// Create grade (session 8 is set automatically)
 	gradeID, err := models.InsertGrade(leadID, req.ClassKey, req.Grade, req.Notes, userID)
 	if err != nil {
@@ -81,6 +129,48 @@ func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"grade_id": gradeID.String(),
 	})
+}
+
+// GET /api/grades/preview?class_key=X - calculated grading breakdown for class students
+func (h *APIHandler) GetGradesPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	classKey := r.URL.Query().Get("class_key")
+	if classKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key query parameter is required")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	userIDStr := middleware.GetUserID(r)
+	userID, _ := uuid.Parse(userIDStr)
+
+	if userRole == "mentor" {
+		assignment, err := models.GetMentorAssignment(classKey)
+		if err != nil || assignment == nil || assignment.MentorUserID != userID {
+			jsonError(w, http.StatusForbidden, "Forbidden: You can only view grade previews for your assigned classes")
+			return
+		}
+	} else if userRole != "mentor_head" && userRole != "student_success" && userRole != "admin" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
+		return
+	}
+
+	previews, err := models.GetGradePreviewsByClass(classKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to load grade previews: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load grade previews")
+		return
+	}
+
+	resp := make([]GradePreviewResponse, 0, len(previews))
+	for leadID, p := range previews {
+		resp = append(resp, mapGradePreview(leadID, p))
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"previews": resp})
 }
 
 // DELETE /api/grades?lead_id=...&class_key=... - mentor/mentor head clears grade

@@ -4019,6 +4019,227 @@ func GetAttendanceForSession(sessionID uuid.UUID) ([]*Attendance, error) {
 	return records, rows.Err()
 }
 
+// GetAttendanceByClassKey loads attendance rows grouped by session then lead.
+func GetAttendanceByClassKey(classKey string) (map[uuid.UUID]map[uuid.UUID]*Attendance, error) {
+	rows, err := db.DB.Query(`
+		SELECT a.id, a.session_id, a.lead_id, a.status, a.notes, a.marked_by_user_id, a.created_at, a.updated_at
+		FROM attendance a
+		INNER JOIN class_sessions cs ON cs.id = a.session_id
+		WHERE cs.class_key = $1
+	`, classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query attendance by class: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[uuid.UUID]map[uuid.UUID]*Attendance)
+	for rows.Next() {
+		rec := &Attendance{}
+		var notes, markedByUserID sql.NullString
+		if err := rows.Scan(
+			&rec.ID, &rec.SessionID, &rec.LeadID, &rec.Status,
+			&notes, &markedByUserID, &rec.CreatedAt, &rec.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan attendance by class: %w", err)
+		}
+		rec.Notes = notes
+		rec.MarkedByUserID = markedByUserID
+		if _, ok := out[rec.SessionID]; !ok {
+			out[rec.SessionID] = make(map[uuid.UUID]*Attendance)
+		}
+		out[rec.SessionID][rec.LeadID] = rec
+	}
+	return out, rows.Err()
+}
+
+// UpsertSessionPerformance stores task/participation inputs for one student-session pair.
+func UpsertSessionPerformance(classSessionID, leadID uuid.UUID, taskCompleted bool, participationScore int) error {
+	if participationScore < 1 || participationScore > 5 {
+		return fmt.Errorf("participation score must be between 1 and 5")
+	}
+	_, err := db.DB.Exec(`
+		INSERT INTO session_performance (id, class_session_id, lead_id, task_completed, participation_score, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (class_session_id, lead_id) DO UPDATE SET
+			task_completed = EXCLUDED.task_completed,
+			participation_score = EXCLUDED.participation_score,
+			updated_at = CURRENT_TIMESTAMP
+	`, classSessionID, leadID, taskCompleted, participationScore)
+	if err != nil {
+		return fmt.Errorf("failed to upsert session performance: %w", err)
+	}
+	return nil
+}
+
+// GetSessionPerformanceByClassKey loads performance rows grouped by session then lead.
+func GetSessionPerformanceByClassKey(classKey string) (map[uuid.UUID]map[uuid.UUID]*SessionPerformance, error) {
+	rows, err := db.DB.Query(`
+		SELECT sp.id, sp.class_session_id, sp.lead_id, sp.task_completed, sp.participation_score, sp.created_at, sp.updated_at
+		FROM session_performance sp
+		INNER JOIN class_sessions cs ON cs.id = sp.class_session_id
+		WHERE cs.class_key = $1
+	`, classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query session performance by class: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[uuid.UUID]map[uuid.UUID]*SessionPerformance)
+	for rows.Next() {
+		rec := &SessionPerformance{}
+		if err := rows.Scan(
+			&rec.ID, &rec.ClassSessionID, &rec.LeadID,
+			&rec.TaskCompleted, &rec.ParticipationScore,
+			&rec.CreatedAt, &rec.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan session performance by class: %w", err)
+		}
+		if _, ok := out[rec.ClassSessionID]; !ok {
+			out[rec.ClassSessionID] = make(map[uuid.UUID]*SessionPerformance)
+		}
+		out[rec.ClassSessionID][rec.LeadID] = rec
+	}
+	return out, rows.Err()
+}
+
+func gradeFromScore(total float64) string {
+	switch {
+	case total >= 85:
+		return "A"
+	case total >= 70:
+		return "B"
+	case total >= 50:
+		return "C"
+	default:
+		return "F"
+	}
+}
+
+func isAbsentStatus(status string) bool {
+	s := strings.ToUpper(strings.TrimSpace(status))
+	return s == "ABSENT"
+}
+
+func isAttendedStatus(status string) bool {
+	s := strings.ToUpper(strings.TrimSpace(status))
+	return s == "PRESENT" || s == "LATE"
+}
+
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
+}
+
+// GetGradePreviewsByClass computes deterministic grading breakdown for each student in a class.
+// Legacy-safe defaults:
+// - missing task rows count as completed for sessions 2..8
+// - missing participation score defaults to 3/5 for attended sessions
+func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error) {
+	students, err := GetStudentsInClassGroup(classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load class students: %w", err)
+	}
+	sessions, err := GetClassSessions(classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load class sessions: %w", err)
+	}
+	attendanceBySession, err := GetAttendanceByClassKey(classKey)
+	if err != nil {
+		return nil, err
+	}
+	perfBySession, err := GetSessionPerformanceByClassKey(classKey)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[uuid.UUID]GradePreview, len(students))
+	for _, student := range students {
+		if student == nil {
+			continue
+		}
+		var absences int
+		var completedTasks int
+		var attendedSessions int
+		var participationTotal float64
+		usedLegacyTaskFallback := false
+
+		for _, session := range sessions {
+			if session == nil {
+				continue
+			}
+			var attendance *Attendance
+			if byLead, ok := attendanceBySession[session.ID]; ok {
+				attendance = byLead[student.LeadID]
+			}
+			status := ""
+			if attendance != nil {
+				status = attendance.Status
+			}
+			if isAbsentStatus(status) {
+				absences++
+			}
+
+			var perf *SessionPerformance
+			if byLead, ok := perfBySession[session.ID]; ok {
+				perf = byLead[student.LeadID]
+			}
+
+			if session.SessionNumber >= 2 && session.SessionNumber <= 8 {
+				taskCompleted := true
+				if perf != nil {
+					taskCompleted = perf.TaskCompleted
+				} else {
+					usedLegacyTaskFallback = true
+				}
+				if taskCompleted {
+					completedTasks++
+				}
+			}
+
+			if isAttendedStatus(status) {
+				score := float64(3)
+				if perf != nil && perf.ParticipationScore >= 1 && perf.ParticipationScore <= 5 {
+					score = float64(perf.ParticipationScore)
+				}
+				participationTotal += score
+				attendedSessions++
+			}
+		}
+
+		attendanceScore := float64(60)
+		if absences >= 2 {
+			attendanceScore = 0
+		}
+
+		taskScore := float64(0)
+		if completedTasks > 1 {
+			taskScore = (float64(completedTasks) / 7.0) * 30.0
+		}
+
+		avgParticipation := float64(3)
+		if attendedSessions > 0 {
+			avgParticipation = participationTotal / float64(attendedSessions)
+		}
+		participationScore := (avgParticipation / 5.0) * 10.0
+
+		total := attendanceScore + taskScore + participationScore
+		out[student.LeadID] = GradePreview{
+			LeadID:                 student.LeadID,
+			Absences:               absences,
+			CompletedTasks:         completedTasks,
+			AttendedSessions:       attendedSessions,
+			AverageParticipation:   round2(avgParticipation),
+			AttendanceScore:        round2(attendanceScore),
+			TaskScore:              round2(taskScore),
+			ParticipationScore:     round2(participationScore),
+			TotalScore:             round2(total),
+			CalculatedGrade:        gradeFromScore(total),
+			UsedLegacyTaskFallback: usedLegacyTaskFallback,
+		}
+	}
+
+	return out, nil
+}
+
 // EnterGrade inserts or updates a grade for a student at session 8
 func EnterGrade(leadID uuid.UUID, classKey string, grade string, notes string, createdByUserID uuid.UUID) error {
 	now := time.Now()
@@ -5336,23 +5557,70 @@ func durationLabel(start, end sql.NullTime) string {
 	return fmt.Sprintf("%d years", years)
 }
 
-// GetMentorEvaluationsActiveByClass returns mentor evaluations grouped by mentor, scoped to active classes only.
-func GetMentorEvaluationsActiveByClass() ([]*MentorEvaluationMentorItem, error) {
+// GetMentorEvaluationsByRoundStatus returns mentor evaluations grouped by mentor, scoped to one round status.
+func GetMentorEvaluationsByRoundStatus(roundStatus string, mentorQuery string, fromDate, toDate *time.Time) ([]*MentorEvaluationMentorItem, error) {
+	if roundStatus != "active" && roundStatus != "closed" {
+		return nil, fmt.Errorf("invalid round status scope")
+	}
+
 	rows, err := db.DB.Query(`
+		WITH scoped_classes AS (
+			SELECT ma.class_key AS class_key, ma.mentor_user_id AS mentor_user_id
+			FROM mentor_assignments ma
+			INNER JOIN class_groups cg ON cg.class_key = ma.class_key
+			WHERE $1 = 'active' AND cg.round_status = 'active'
+			UNION ALL
+			SELECT cg.class_key AS class_key, cg.closed_mentor_user_id AS mentor_user_id
+			FROM class_groups cg
+			WHERE $1 = 'closed'
+			  AND cg.round_status = 'closed'
+			  AND cg.closed_mentor_user_id IS NOT NULL
+		)
 		SELECT
 			u.id, u.email, COALESCE(u.full_name, ''), COALESCE(u.phone, ''), u.password_hash, u.role, u.created_at,
-			cg.class_key, cg.level, cg.class_days, cg.class_time, cg.class_number,
+			cg.class_key, cg.level, cg.class_days, cg.class_time, cg.class_number, cg.round_status,
 			COALESCE(me.kpi_session_quality, 0) AS kpi_session_quality,
 			COALESCE(me.kpi_students_feedback, 0) AS kpi_students_feedback,
 			me.trello_session_checks
-		FROM class_groups cg
-		INNER JOIN mentor_assignments ma ON ma.class_key = cg.class_key
-		INNER JOIN users u ON u.id = ma.mentor_user_id
+		FROM scoped_classes sc
+		INNER JOIN class_groups cg ON cg.class_key = sc.class_key
+		INNER JOIN users u ON u.id = sc.mentor_user_id
 		LEFT JOIN mentor_evaluations me ON me.mentor_id = u.id AND me.class_key = cg.class_key
 		WHERE u.role = 'mentor'
-		  AND cg.round_status = 'active'
+		  AND (
+		    $2 = ''
+		    OR LOWER(BTRIM(COALESCE(u.full_name, ''))) = LOWER(BTRIM($2))
+		    OR LOWER(BTRIM(u.email)) = LOWER(BTRIM($2))
+		    OR (
+		      regexp_replace(BTRIM($2), '[0-9+() -]', '', 'g') = ''
+		      AND (
+		        BTRIM(COALESCE(u.phone, '')) = BTRIM($2)
+		        OR (
+		          regexp_replace(BTRIM($2), '\D', '', 'g') <> ''
+		          AND regexp_replace(COALESCE(u.phone, ''), '\D', '', 'g') LIKE ('%' || regexp_replace(BTRIM($2), '\D', '', 'g') || '%')
+		        )
+		      )
+		    )
+		    OR (
+		      POSITION(' ' IN BTRIM($2)) > 0
+		      AND (
+		        COALESCE(u.full_name, '') ILIKE ('%' || $2 || '%')
+		        OR u.email ILIKE ('%' || $2 || '%')
+		      )
+		    )
+		  )
+		  AND (
+		    $1 <> 'closed'
+		    OR $3::date IS NULL
+		    OR cg.round_closed_at::date >= $3::date
+		  )
+		  AND (
+		    $1 <> 'closed'
+		    OR $4::date IS NULL
+		    OR cg.round_closed_at::date <= $4::date
+		  )
 		ORDER BY u.email ASC, cg.level ASC, cg.class_days ASC, cg.class_time ASC, cg.class_number ASC
-	`)
+	`, roundStatus, strings.TrimSpace(mentorQuery), fromDate, toDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query mentor evaluations by class: %w", err)
 	}
@@ -5368,7 +5636,7 @@ func GetMentorEvaluationsActiveByClass() ([]*MentorEvaluationMentorItem, error) 
 
 		if err := rows.Scan(
 			&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.CreatedAt,
-			&classItem.ClassKey, &classItem.Level, &classItem.ClassDays, &classItem.ClassTime, &classItem.ClassNumber,
+			&classItem.ClassKey, &classItem.Level, &classItem.ClassDays, &classItem.ClassTime, &classItem.ClassNumber, &classItem.RoundStatus,
 			&classItem.KPISessionQuality, &classItem.KPIStudentsFeedback, &trelloJSON,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan mentor evaluation class row: %w", err)
@@ -5404,6 +5672,11 @@ func GetMentorEvaluationsActiveByClass() ([]*MentorEvaluationMentorItem, error) 
 		out = append(out, mentorMap[id])
 	}
 	return out, nil
+}
+
+// GetMentorEvaluationsActiveByClass returns mentor evaluations grouped by mentor, scoped to active classes only.
+func GetMentorEvaluationsActiveByClass() ([]*MentorEvaluationMentorItem, error) {
+	return GetMentorEvaluationsByRoundStatus("active", "", nil, nil)
 }
 
 func GetMentorDirectory() ([]*MentorDirectoryItem, error) {

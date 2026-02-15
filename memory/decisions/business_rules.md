@@ -218,6 +218,18 @@
 ### Rule: Action guards for paid returning-cycle leads
 **Scope**: Pre-Enrolment detail action buttons (`Mark Test Booked`, `Packages Sent`).  
 **Behavior**:
+
+### Rule: Mentor evaluations support round scope and report output
+**Scope**: Mentor Head evaluations page (`/app/mentor-head/evaluations`) and API (`/api/mentor-head/evaluations`).  
+**Behavior**:
+- Evaluations can be viewed for `active` rounds (default) or `closed` rounds via `scope` query param.
+- Closed-round view is read-only for class evaluation editing.
+- Each class row supports a printable/downloadable "Mentor Round Report" that includes:
+  - Collective KPI (weighted)
+  - Manual metrics (session quality, students feedback, Trello compliance)
+  - Auto metrics (attendance punctuality, WhatsApp management)
+  - Session evidence (attendance-by-session + Trello session checks)
+**Evidence**: `internal/handlers/api.go` (`GetMentorEvaluations` scope parsing), `internal/models/repository.go` (`GetMentorEvaluationsByRoundStatus`), `frontend/src/pages/MentorEvaluations.tsx`, `frontend/src/components/MentorRoundReport.tsx`
 - `Mark Test Booked` is blocked for returning-cycle leads (`is_returning=true` or statuses `renewal_pending`/`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`).
 - `Packages Sent` must be blocked when lead is already in paid waiting flow (`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`) or has remaining credits (`levels_purchased_total - levels_consumed > 0`), to prevent accidental downgrade to `offer_sent`.
 **Reason**: Paid entitlement/waiting-flow leads must not be pushed backward into hot lead lifecycle by accidental clicks.
@@ -276,11 +288,25 @@
 - `internal/handlers/api.go` (`GetMentorReportChecklist`)
 - `internal/models/compliance.go` (`GetMentorComplianceChecklist`)
 
-### Rule: Mentor evaluations are class-scoped and active-only
-**UI**: Mentor Evaluations page shows mentors as expandable groups, then each mentor's **active classes** as separate evaluation cards.  
-**Visibility**: Closed rounds are excluded automatically (no active evaluation card once class is closed).  
-**Reason**: Prevents stale closed-class load from inflating mentor class counts and mixing unrelated classes under one score.  
-**Evidence**: `frontend/src/pages/MentorEvaluations.tsx`, `internal/handlers/api.go` (`GetMentorEvaluations`), `internal/models/repository.go` (`GetMentorEvaluationsActiveByClass`)
+### Rule: Mentor evaluations are class-scoped with round scope toggle
+**UI**: Mentor Evaluations page shows mentors as expandable groups, then each mentor class as separate evaluation cards.  
+**Visibility**:
+- `scope=active` shows ongoing classes (editable).
+- `scope=closed` shows completed rounds for post-round review (read-only evaluation context).
+**Closed ownership source**:
+- Closed scope must use `class_groups.closed_mentor_user_id` as mentor source (not `mentor_assignments`, which is deleted on close round).
+**Closed filters**:
+- Mentor search by name/email (`q`), plus closed date range (`from`/`to`) are supported to find historical rounds quickly.
+**Search semantics**:
+- Single-token mentor search is exact (case-insensitive) on full name/email/phone to avoid near-name collisions (example: `Ahmed` should not match `Ahmed1`).
+- Phone search supports normalized digit matching (ignores spaces/symbols) only when query is phone-like input, so name+digit strings (e.g., `Ahmed1`) do not trigger phone fallback.
+- Multi-word search keeps partial-match behavior.
+**Closed activation rule**:
+- Closed tab does not auto-load data.
+- User must click **Apply** after setting at least one filter (`q`, `from`, or `to`).
+**Reason**: avoids noisy default results and prevents input hiccups from per-keystroke reloads.
+**Reason**: Keeps live evaluation work separate from retrospective round discussions while preserving one class-per-card model.  
+**Evidence**: `frontend/src/pages/MentorEvaluations.tsx`, `internal/handlers/api.go` (`GetMentorEvaluations`), `internal/models/repository.go` (`GetMentorEvaluationsByRoundStatus`)
 
 ### Rule: Mentor evaluation metrics split (manual vs automatic)
 **Manual (Mentor Head edits, per class)**:
@@ -293,7 +319,7 @@
 **Evidence**: `internal/models/repository.go` (`computeAttendanceFromCompliance`, `UpsertMentorEvaluationByClass`), `internal/models/compliance.go` (`GetComplianceByClassKey`), `frontend/src/pages/MentorEvaluations.tsx`
 
 ### Rule: Mentor evaluations show weighted collective KPI ratio
-**Scope**: Per active class card, plus mentor summary (average of active-class collective scores).  
+**Scope**: Per class card in the selected scope, plus mentor summary (average of visible class collective scores).  
 **Formula**:
 - Punctuality: 25%
 - Session Quality: 25%
@@ -304,6 +330,25 @@
 - Session Quality and Students Feedback are 1-10 manual scores, converted to percent (`score * 10`) before weighting.
 - Remaining metrics are already 0-100 percentages.
 **Evidence**: `frontend/src/pages/MentorEvaluations.tsx`
+
+### Rule: Total Active Mentor report aggregates all active classes
+**Scope**: Mentor Evaluations page, active scope only.  
+**Behavior**:
+- "Total Active Report" generates one combined printable report containing:
+  - total active mentors count,
+  - total active classes count,
+  - for each mentor: active class count + mentor collective KPI,
+  - per-class KPI rows (collective + manual + auto metrics).
+**Reason**: Gives Mentor Head one final current-round snapshot for discussion and review.
+**Evidence**: `frontend/src/pages/MentorEvaluations.tsx`, `frontend/src/components/MentorActiveTotalReport.tsx`
+
+### Rule: Total Closed Mentor report aggregates filtered closed classes
+**Scope**: Mentor Evaluations page, closed scope only (after filters are applied).  
+**Behavior**:
+- "Total Closed Report" generates one combined printable report from the current closed-filter result set.
+- Report includes filter summary (`q`, `from`, `to`) so discussion context is explicit.
+**Reason**: Allows Mentor Head to review a selected closed period/mentor slice in one consolidated document.
+**Evidence**: `frontend/src/pages/MentorEvaluations.tsx`, `frontend/src/components/MentorActiveTotalReport.tsx`
 
 ### Rule: Compliance schedule day label uses class slot (not calendar weekday)
 **Behavior**: For classes with dual-day schedules (e.g., `Sat/Tues`), session labels alternate by session number: odd→first day, even→second day.  
@@ -518,6 +563,40 @@
 **Legacy**: `POST /api/classes/:id/sessions/:n/complete` (deprecated; logs warning)  
 **Behavior**: Both call the same `CompleteSession` logic for side effects.  
 **Evidence**: `internal/handlers/api.go` (CompleteSession, CompleteSessionByNumber)
+
+### Rule: Session performance is stored per student per session
+**Storage**: `session_performance` table with unique `(class_session_id, lead_id)`.  
+**Fields**:
+- `task_completed` (bool)
+- `participation_score` (1..5 stars)
+**Behavior**: Attendance updates can upsert session performance in the same workflow.  
+**Evidence**: `internal/db/migrations/058_create_session_performance.sql`, `internal/handlers/api.go` (`MarkAttendance`), `internal/models/repository.go` (session performance upsert/query helpers)
+
+### Rule: Final grade is auto-calculated from attendance/tasks/participation
+**Algorithm**:
+- Attendance score (60): `0` when absences `>= 2`, else `60`.
+- Task score (30): sessions `2..8` only; if completed tasks `<= 1` then `0`, else `(completed/7)*30`.
+- Participation score (10): average stars over attended sessions; `(avg/5)*10`.
+**Grade mapping**:
+- A `>= 85`, B `>= 70`, C `>= 50`, F `< 50`.
+**Submission guard**:
+- Mentor submissions must match server-calculated grade.
+- Mentor Head can override grade manually.
+**Legacy safety**:
+- Missing legacy performance data falls back safely (task defaults and neutral stars) to avoid mass failing old classes.
+**Evidence**: `internal/models/repository.go` (grade preview/calculation), `internal/handlers/grades.go` (validation + override), `frontend/src/pages/ClassWorkspace.tsx` (calculated breakdown UI)
+
+### Rule: Printable student performance report card
+**UI**: Class Workspace Final Grading tab can open a per-student print report with score breakdown + evidence grid.  
+**Payload source**: `GET /api/student?lead_id=...&class_key=...` includes session performance rows, calculated breakdown, and final grade/comment for that class.  
+**Access**: Student Success can view/download report in read-only grading view; no grade editing permission is granted by report access.  
+**Certificate behavior**: Render Certificate page only when grade is not `F`; failed students get report page only.  
+**Print behavior**: Use print-specific CSS (`@media print`) for A4 output and progress-bar colors.
+**Implementation Note (2026-02-15)**:
+- Added `StudentReportCard` component with print toolbar (`window.print()`), A4 print CSS, page break for certificate, and evidence table.
+- Added "View Report" action in Final Grading student rows to open report modal.
+- `/api/student` now accepts both `student_id` and `lead_id`; when `class_key` is provided it returns `report_card` payload.
+**Evidence**: `internal/handlers/api.go` (`GetStudent` report payload), `frontend/src/components/StudentReportCard.tsx`, `frontend/src/pages/ClassWorkspace.tsx`
 
 ---
 

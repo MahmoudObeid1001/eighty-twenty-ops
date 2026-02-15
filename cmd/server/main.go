@@ -408,6 +408,15 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/grades -> apiHandler.GetGradesForClass (GET) or CreateGrade (POST)")
 
+	mux.HandleFunc("/api/grades/preview", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "student_success", "admin"}, cfg.SessionSecret)(apiHandler.GetGradesPreview)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/grades/preview -> apiHandler.GetGradesPreview (GET)")
+
 	mux.HandleFunc("/api/student-success/classes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/student-success/classes" {
 			http.NotFound(w, r)

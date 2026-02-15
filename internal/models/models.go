@@ -333,6 +333,17 @@ type Attendance struct {
 	UpdatedAt      time.Time
 }
 
+// SessionPerformance stores per-session task + participation signals for grading automation.
+type SessionPerformance struct {
+	ID                 uuid.UUID
+	ClassSessionID     uuid.UUID
+	LeadID             uuid.UUID
+	TaskCompleted      bool
+	ParticipationScore int32 // 1..5 stars
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
 // Grade represents a grade (A/B/C/F) assigned at session 8
 type Grade struct {
 	ID              uuid.UUID
@@ -344,6 +355,20 @@ type Grade struct {
 	CreatedByUserID sql.NullString
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+}
+
+type GradePreview struct {
+	LeadID                 uuid.UUID
+	Absences               int
+	CompletedTasks         int
+	AttendedSessions       int
+	AverageParticipation   float64
+	AttendanceScore        float64
+	TaskScore              float64
+	ParticipationScore     float64
+	TotalScore             float64
+	CalculatedGrade        string
+	UsedLegacyTaskFallback bool
 }
 
 // StudentNote represents a carry-over note for a student
@@ -430,6 +455,7 @@ type MentorEvaluationClassItem struct {
 	ClassDays           string
 	ClassTime           string
 	ClassNumber         int32
+	RoundStatus         string
 	KPISessionQuality   int
 	KPIStudentsFeedback int
 	TrelloSessionChecks []bool
