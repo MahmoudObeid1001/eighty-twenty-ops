@@ -3,6 +3,7 @@
 
 # Go
 server
+server_test
 *.exe
 *.exe~
 *.dll
@@ -29,3 +30,18 @@ Thumbs.db
 
 # Build cache
 .gocache/
+
+# JS dependencies
+**/node_modules/
+
+# Frontend/build outputs
+**/dist/
+**/build/
+**/.next/
+**/.vite/
+**/.turbo/
+**/.cache/
+**/coverage/
+
+# Runtime generated uploads
+web/static/uploads/
