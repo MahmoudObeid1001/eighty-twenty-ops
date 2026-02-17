@@ -147,7 +147,7 @@ export default function ClassWorkspace() {
     const student = classData?.students.find((s) => s.lead_id === leadId)
     if (!student) return
     const currentStatus = student.attendance?.[sessionId]
-    if (!currentStatus || currentStatus === 'ABSENT' || currentStatus === 'N/A') return
+    if (!currentStatus || currentStatus === 'N/A') return
     const currentPerf = student.session_performance?.[sessionId]
     const taskCompleted = nextTaskCompleted ?? currentPerf?.task_completed ?? true
     const participationScore = nextParticipationScore ?? currentPerf?.participation_score ?? 3
@@ -296,6 +296,7 @@ export default function ClassWorkspace() {
   }
 
   const selectedSession = classData.sessions.find((s) => s.session_number === selectedSessionNumber)
+  const mentorPreStartLocked = userRole === 'mentor' && classData.class.round_status !== 'active'
 
   return (
     <>
@@ -393,6 +394,22 @@ export default function ClassWorkspace() {
             Attention: Attendance is missing for {overdueSessions.length} session(s) that took place more than 24 hours ago. Please mark attendance for:{' '}
             {overdueSessions.map((s) => `S${s.session_number}`).join(', ')}.
           </span>
+        </div>
+      )}
+
+      {mentorPreStartLocked && (
+        <div
+          style={{
+            background: '#fff3cd',
+            color: '#856404',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            marginBottom: '16px',
+            border: '1px solid #ffeeba',
+            fontWeight: 600,
+          }}
+        >
+          Class is visible before round start. Attendance and session completion will unlock once Mentor Head starts the round.
         </div>
       )}
 
@@ -517,6 +534,7 @@ export default function ClassWorkspace() {
             <div style={{ marginBottom: '24px' }}>
               <button
                 onClick={() => handleCompleteSession(selectedSession.id, selectedSession.session_number)}
+                disabled={mentorPreStartLocked}
                 style={{
                   padding: '10px 20px',
                   background: '#28a745',
@@ -524,7 +542,8 @@ export default function ClassWorkspace() {
                   border: 'none',
                   borderRadius: '8px',
                   fontWeight: 600,
-                  cursor: 'pointer',
+                  cursor: mentorPreStartLocked ? 'not-allowed' : 'pointer',
+                  opacity: mentorPreStartLocked ? 0.7 : 1,
                 }}
               >
                 ✓ Complete Session {selectedSession.session_number}
@@ -539,7 +558,7 @@ export default function ClassWorkspace() {
                 {classData.students.map((student) => {
                   const status = selectedSession ? student.attendance?.[selectedSession.id] : undefined
                   const perf = selectedSession ? student.session_performance?.[selectedSession.id] : undefined
-                  const isAbsent = status === 'ABSENT' || status === 'N/A'
+                  const isNA = status === 'N/A'
                   const taskCompleted = perf?.task_completed ?? true
                   const participationScore = perf?.participation_score ?? 3
                   const isUpdating = updating === `${student.lead_id}-${selectedSession?.id}`
@@ -589,7 +608,7 @@ export default function ClassWorkspace() {
                           <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>Session {selectedSession.session_number} Attendance</div>
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <button
-                              disabled={isUpdating || classData.class.round_status === 'closed'}
+                              disabled={isUpdating || classData.class.round_status === 'closed' || mentorPreStartLocked}
                               onClick={() => handleMarkAttendance(selectedSession.id, student.lead_id, 'PRESENT', taskCompleted, participationScore)}
                               style={{
                                 flex: 1,
@@ -599,15 +618,15 @@ export default function ClassWorkspace() {
                                 background: status === 'PRESENT' ? '#28a745' : '#e9ecef',
                                 color: status === 'PRESENT' ? 'white' : '#666',
                                 fontWeight: 600,
-                                cursor: classData.class.round_status === 'closed' ? 'not-allowed' : 'pointer',
+                                cursor: classData.class.round_status === 'closed' || mentorPreStartLocked ? 'not-allowed' : 'pointer',
                                 fontSize: '13px',
-                                opacity: classData.class.round_status === 'closed' ? 0.7 : 1,
+                                opacity: classData.class.round_status === 'closed' || mentorPreStartLocked ? 0.7 : 1,
                               }}
                             >
                               Present
                             </button>
                             <button
-                              disabled={isUpdating || classData.class.round_status === 'closed'}
+                              disabled={isUpdating || classData.class.round_status === 'closed' || mentorPreStartLocked}
                               onClick={() => handleMarkAttendance(selectedSession.id, student.lead_id, 'ABSENT', false, 3)}
                               style={{
                                 flex: 1,
@@ -617,9 +636,9 @@ export default function ClassWorkspace() {
                                 background: status === 'ABSENT' ? '#dc3545' : '#e9ecef',
                                 color: status === 'ABSENT' ? 'white' : '#666',
                                 fontWeight: 600,
-                                cursor: classData.class.round_status === 'closed' ? 'not-allowed' : 'pointer',
+                                cursor: classData.class.round_status === 'closed' || mentorPreStartLocked ? 'not-allowed' : 'pointer',
                                 fontSize: '13px',
-                                opacity: classData.class.round_status === 'closed' ? 0.7 : 1,
+                                opacity: classData.class.round_status === 'closed' || mentorPreStartLocked ? 0.7 : 1,
                               }}
                             >
                               Absent
@@ -631,7 +650,7 @@ export default function ClassWorkspace() {
                               <input
                                 type="checkbox"
                                 checked={taskCompleted}
-                                disabled={isUpdating || classData.class.round_status === 'closed' || isAbsent}
+                                disabled={isUpdating || classData.class.round_status === 'closed' || mentorPreStartLocked || isNA}
                                 onChange={(e) => handleSessionPerformanceChange(selectedSession.id, student.lead_id, e.target.checked, participationScore)}
                               />
                               Task Completed
@@ -644,12 +663,12 @@ export default function ClassWorkspace() {
                               return (
                                 <button
                                   key={star}
-                                  disabled={isUpdating || classData.class.round_status === 'closed' || isAbsent}
+                                  disabled={isUpdating || classData.class.round_status === 'closed' || mentorPreStartLocked || isNA}
                                   onClick={() => handleSessionPerformanceChange(selectedSession.id, student.lead_id, taskCompleted, star)}
                                   style={{
                                     border: 'none',
                                     background: 'transparent',
-                                    cursor: isAbsent ? 'not-allowed' : 'pointer',
+                                    cursor: isNA || mentorPreStartLocked ? 'not-allowed' : 'pointer',
                                     color: active ? '#f59f00' : '#cbd5e0',
                                     fontSize: '18px',
                                     lineHeight: 1,
@@ -760,7 +779,7 @@ export default function ClassWorkspace() {
                     <div style={{ fontSize: '12px', color: '#666' }}>{student.phone}</div>
                     {preview ? (
                       <div style={{ marginTop: '6px', fontSize: '12px', color: '#444' }}>
-                        Attendance: {preview.attendance_score.toFixed(2)}/60 | Tasks: {preview.task_score.toFixed(2)}/30 | Part: {preview.participation_score.toFixed(2)}/10 = <strong>{calculatedGrade}</strong>
+                        Attendance: {preview.attendance_score.toFixed(2)}/50 | Tasks: {preview.task_score.toFixed(2)}/40 | Part: {preview.participation_score.toFixed(2)}/10 = <strong>{calculatedGrade}</strong>
                       </div>
                     ) : (
                       <div style={{ marginTop: '6px', fontSize: '12px', color: '#b02a37' }}>

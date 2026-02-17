@@ -118,8 +118,15 @@ stateDiagram-v2
 - `POST /api/classes/:id/sessions/:n/complete` (complete by number)  
 **Database**: 
 - `attendance` records created
+- `session_performance` (task + participation) upserted from the same attendance workflow inputs
 - `class_sessions.status` updated to 'completed'
 - `class_sessions.completed_at` timestamp set  
+**UI Rule**:
+- Task/participation inputs are editable for `PRESENT` and `ABSENT`.
+- Inputs stay disabled only for `N/A`.
+**Grading Rule Update**:
+- Attendance scoring is proportional up to 50 points: `(present_sessions/8)*50`; severe-absence guard applies at `3+` absences (`attendance_score=0`).
+- Final grading weights are Attendance `50`, Tasks `40`, Participation `10`.
 **Evidence**:
 - `cmd/server/main.go:104-112`, `391-406`
 - `migrations/016_create_class_sessions.sql`
@@ -167,6 +174,14 @@ stateDiagram-v2
 - `renewal_pending` students auto-transition to `offer_sent` when Ops Admin saves an offer
 - This provides visual feedback that the offer has been sent and allows filtering by status
 - Manual `Move to Waiting List` is blocked for leads without prepaid entitlement (prevents bypass from `renewal_pending` to `ready_to_start`)
+- Returning students who refuse renewal can be explicitly moved to `cold_lead` as `refused_renewal` (audited) for later retargeting/reporting
+- Course payment creation in pre-enrolment is all-or-none: if any required payment field is filled, all required fields (type, amount, method, date) must be valid before save
+- Selecting a bundle in Course Payment without a valid recorded payment must not mutate purchased levels/credits
+- Active payment cycle is initialized before payment insert; once cycle remaining balance is zero, further course payments are blocked
+- Current-cycle payment totals use created-at scope with payment-date fallback on cycle date to avoid millisecond drift leaks
+- Placement test booking/payment validation uses discounted final placement fee (base fee minus discount); 100% discount allows zero payment
+- Course Payment panel is stage-gated in pre-enrolment: locked for early statuses and explicitly locked for `renewal_pending`; unlock starts at `offer_sent` (also `booking_confirmed`, `deposit_paid`)
+- Pre-start mentor visibility: once class is sent to mentor (`sent_to_mentor=true`, `round_status=not_started`), mentor can view sessions + roster in class workspace, but attendance and session completion remain locked until round becomes `active`
 
 **Ops Visibility**:
 - Pre‑enrolment list can filter Repeat Level and shows REPEAT badge from latest class outcome

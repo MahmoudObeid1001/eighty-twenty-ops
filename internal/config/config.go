@@ -28,6 +28,9 @@ type Config struct {
 	ManagerPassword          string
 	FrontendOrigin           string
 	Debug                    bool
+	OpenAIAPIKey             string
+	OpenAIModel              string
+	SmartStepsAIEnabled      bool
 }
 
 func Load() *Config {
@@ -57,6 +60,9 @@ func Load() *Config {
 		ManagerPassword:          getEnv("MANAGER_PASSWORD", "manager123"),
 		FrontendOrigin:           frontendOrigin,
 		Debug:                    getEnvBool("DEBUG", false),
+		OpenAIAPIKey:             getEnv("OPENAI_API_KEY", ""),
+		OpenAIModel:              getEnv("OPENAI_MODEL", "gpt-4o-mini"),
+		SmartStepsAIEnabled:      getEnvBool("SMART_STEPS_AI_ENABLED", false),
 	}
 }
 

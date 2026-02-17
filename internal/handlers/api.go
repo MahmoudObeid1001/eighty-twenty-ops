@@ -487,9 +487,11 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get students (mentor_head/admin can see ready_to_start when round not started)
+	// Get students.
+	// Pre-start visibility includes ready_to_start roster for sent/not_started classes.
+	// Mentors get the same visibility for their assigned class, but actions remain locked until round is active.
 	var students []*models.ClassStudent
-	if userRole == "mentor_head" || userRole == "admin" {
+	if userRole == "mentor_head" || userRole == "admin" || userRole == "mentor" {
 		students, err = models.GetStudentsForMentorHeadClass(classKey)
 	} else {
 		students, err = models.GetStudentsInClassGroup(classKey)
@@ -686,6 +688,15 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
+		classGroup, err := models.GetClassGroupByKey(req.ClassKey)
+		if err != nil {
+			jsonError(w, http.StatusNotFound, "Class not found")
+			return
+		}
+		if strings.TrimSpace(classGroup.RoundStatus) != "active" {
+			jsonError(w, http.StatusBadRequest, "Round has not started yet. Attendance is locked for mentors until Mentor Head starts the round.")
+			return
+		}
 	} else if userRole != "admin" && userRole != "student_success" && userRole != "mentor_head" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
@@ -719,11 +730,6 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	if participationScore < 1 || participationScore > 5 {
 		jsonError(w, http.StatusBadRequest, "participation_score must be between 1 and 5")
 		return
-	}
-	// If marked absent, performance inputs are inactive for that session.
-	if strings.EqualFold(req.Status, "ABSENT") {
-		taskCompleted = false
-		participationScore = 3
 	}
 	if err := models.UpsertSessionPerformance(sessionID, leadID, taskCompleted, participationScore); err != nil {
 		log.Printf("ERROR: Failed to upsert session performance: %v", err)
@@ -773,6 +779,15 @@ func (h *APIHandler) CompleteSession(w http.ResponseWriter, r *http.Request) {
 		assignment, err := models.GetMentorAssignment(req.ClassKey)
 		if err != nil || assignment == nil || assignment.MentorUserID != userID {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
+			return
+		}
+		classGroup, err := models.GetClassGroupByKey(req.ClassKey)
+		if err != nil {
+			jsonError(w, http.StatusNotFound, "Class not found")
+			return
+		}
+		if strings.TrimSpace(classGroup.RoundStatus) != "active" {
+			jsonError(w, http.StatusBadRequest, "Round has not started yet. Session completion is locked for mentors until Mentor Head starts the round.")
 			return
 		}
 	} else if userRole != "admin" && userRole != "student_success" && userRole != "mentor_head" {
@@ -2458,8 +2473,8 @@ func (h *APIHandler) CompletePlacementTest(w http.ResponseWriter, r *http.Reques
 		jsonError(w, http.StatusBadRequest, "lead_id is required")
 		return
 	}
-	if req.AssignedLevel < 1 || req.AssignedLevel > 8 {
-		jsonError(w, http.StatusBadRequest, "assigned_level must be between 1 and 8")
+	if req.AssignedLevel < 1 || req.AssignedLevel > 10 {
+		jsonError(w, http.StatusBadRequest, "assigned_level must be between 1 and 10")
 		return
 	}
 
@@ -3006,6 +3021,15 @@ func (h *APIHandler) CompleteSessionByNumber(w http.ResponseWriter, r *http.Requ
 		assignment, err := models.GetMentorAssignment(classKey)
 		if err != nil || assignment == nil || assignment.MentorUserID != userID {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
+			return
+		}
+		classGroup, err := models.GetClassGroupByKey(classKey)
+		if err != nil {
+			jsonError(w, http.StatusNotFound, "Class not found")
+			return
+		}
+		if strings.TrimSpace(classGroup.RoundStatus) != "active" {
+			jsonError(w, http.StatusBadRequest, "Round has not started yet. Session completion is locked for mentors until Mentor Head starts the round.")
 			return
 		}
 	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {

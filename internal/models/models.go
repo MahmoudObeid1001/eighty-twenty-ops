@@ -123,6 +123,8 @@ type LeadListItem struct {
 	AssignedLevel         sql.NullInt32
 	LastOutcome           sql.NullString // latest class_enrollments.outcome (promoted/repeated)
 	LastFinalGrade        sql.NullString // latest class_enrollments.final_grade
+	RefusedRenewal        bool           // latest renewal_refusals marker exists
+	RefusedRenewalAt      sql.NullTime   // latest refusal timestamp
 	PaymentStatus         string
 	PaymentState          string // UNPAID, DEPOSIT, PAID_FULL
 	NextAction            string
@@ -256,6 +258,16 @@ type LeadPayment struct {
 	Notes         sql.NullString
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+type RenewalRefusal struct {
+	ID              uuid.UUID
+	LeadID          uuid.UUID
+	RefusedAt       time.Time
+	RefusedByUserID sql.NullString
+	Reason          string
+	Notes           sql.NullString
+	CreatedAt       time.Time
 }
 
 // PaymentMethodBalance holds IN/OUT/Net for a payment-method bucket (e.g. Cash vs Bank)

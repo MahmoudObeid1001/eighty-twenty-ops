@@ -23,9 +23,9 @@
     </div>
 </div>
 
-{{if .Detail.Lead.IsReturning}}
 <div
     style="background-color: #F0F8FF; border: 1px solid #B3D7FF; border-left: 4px solid #4EA1FF; padding: 12px 15px; margin-bottom: 15px; border-radius: 4px;">
+    {{if .Detail.Lead.IsReturning}}
     <strong>Returning Summary:</strong>
     Credits remaining: <strong>{{.CreditsRemaining}}</strong>
     {{if .LastOutcome}}
@@ -36,8 +36,45 @@
     {{if .LastFinalGrade}}
     • Grade: <strong>{{.LastFinalGrade}}</strong>
     {{end}}
+    {{else}}
+    <strong>Workflow Summary:</strong>
+    Status: <strong>{{.StatusDisplayName}}</strong>
+    {{end}}
+
+    {{if .SmartStepsAR}}
+    <div
+        style="margin-top: 10px; background: #FFFFFF; border: 1px solid #DCEBFF; border-radius: 4px; padding: 10px 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <strong>الخطوات المقترحة:</strong>
+            {{if eq .SmartStepsSource "ai"}}
+            <span
+                style="font-size: 11px; color: #155724; background: #D4EDDA; border: 1px solid #C3E6CB; border-radius: 999px; padding: 2px 8px;">صياغة
+                ذكية</span>
+            {{else}}
+            <span
+                style="font-size: 11px; color: #0C5460; background: #D1ECF1; border: 1px solid #BEE5EB; border-radius: 999px; padding: 2px 8px;">صياغة
+                معيارية</span>
+            {{end}}
+        </div>
+        <ol dir="rtl" style="margin: 8px 0 0; padding-right: 18px;">
+            {{range .SmartStepsAR}}
+            <li style="margin-bottom: 4px;">{{.}}</li>
+            {{end}}
+        </ol>
+    </div>
+    {{end}}
+
+    {{if .IsRefusedRenewal}}
+    <div
+        style="margin-top: 10px; background: #FFF4E6; border: 1px solid #FFD8A8; border-left: 4px solid #FF922B; border-radius: 4px; padding: 10px 12px; color: #8C4A00;">
+        <strong>Renewal Refused:</strong> This returning student is tagged as refused renewal and is tracked in cold
+        leads.
+        {{if .RenewalRefusedAt}}
+        <span> ({{.RenewalRefusedAt}})</span>
+        {{end}}
+    </div>
+    {{end}}
 </div>
-{{end}}
 
 {{if .IsModerator}}
 <div
@@ -319,6 +356,10 @@
                             eq .Detail.PlacementTest.AssignedLevel.Int32 7}}selected{{end}}{{end}}>Level 7</option>
                         <option value="8" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if
                             eq .Detail.PlacementTest.AssignedLevel.Int32 8}}selected{{end}}{{end}}>Level 8</option>
+                        <option value="9" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if
+                            eq .Detail.PlacementTest.AssignedLevel.Int32 9}}selected{{end}}{{end}}>Level 9</option>
+                        <option value="10" {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid}}{{if
+                            eq .Detail.PlacementTest.AssignedLevel.Int32 10}}selected{{end}}{{end}}>Level 10</option>
                     </select>
                     {{if eq .UserRole "admin"}}
                     <small style="color: #E67E22; display: block; margin-top: 5px; font-weight: 500;">⚠️ Only Student
@@ -430,11 +471,17 @@
 
         <!-- 5. Course Payment -->
         <div class="form-section" {{if
-            .IsWaitingForRound}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"
+            .CoursePaymentDisabled}}style="opacity: 0.5; pointer-events: none; background-color: #F5F5F5; border: 1px solid #E0E0E0;"
             {{end}}>
             <h2>Course Payment</h2>
             <div class="section-note">Admin: Add new course payment (supports multiple payments: deposit + top-ups)
             </div>
+            {{if not .CoursePaymentEnabled}}
+            <div
+                style="padding: 12px; background-color: #FFF8E1; border: 1px solid #FFCC80; border-radius: 4px; margin-bottom: 15px; color: #8a6d3b;">
+                {{.CoursePaymentLockedReason}}
+            </div>
+            {{end}}
 
             <!-- Payment Summary (Read-only) -->
             <div style="margin-bottom: 20px; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
@@ -484,8 +531,8 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="payment_bundle">Bundle Selector *</label>
-                    <select id="payment_bundle" name="bundle_id" form="pre-enrolment-form" {{if eq .RemainingBalance
-                        0}}disabled{{end}}>
+                    <select id="payment_bundle" name="bundle_id" form="pre-enrolment-form" {{if
+                        .CoursePaymentDisabled}}disabled{{end}}>
                         <option value="">-- Select bundle --</option>
                         <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
                             .Detail.Offer.BundleLevels.Int32 1)}}selected{{end}}>Bundle 1 (Base: 1300 EGP)</option>
@@ -511,12 +558,12 @@
                     <input type="number" id="payment_discount_value" name="discount_amount" min="0" step="1"
                         form="pre-enrolment-form"
                         value="{{if and .Detail.Offer .Detail.Offer.DiscountValue.Valid}}{{.Detail.Offer.DiscountValue.Int32}}{{end}}"
-                        {{if eq .RemainingBalance 0}}disabled{{end}}>
+                        {{if .CoursePaymentDisabled}}disabled{{end}}>
                 </div>
                 <div class="form-group">
                     <label for="payment_discount_type">Discount Type</label>
-                    <select id="payment_discount_type" name="discount_type" form="pre-enrolment-form" {{if eq
-                        .RemainingBalance 0}}disabled{{end}}>
+                    <select id="payment_discount_type" name="discount_type" form="pre-enrolment-form" {{if
+                        .CoursePaymentDisabled}}disabled{{end}}>
                         <option value="amount" {{if and .Detail.Offer .Detail.Offer.DiscountType.Valid (eq
                             .Detail.Offer.DiscountType.String `amount`)}}selected{{end}}>Amount</option>
                         <option value="percent" {{if and .Detail.Offer .Detail.Offer.DiscountType.Valid (eq
@@ -539,18 +586,30 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="course_payment_type">Payment Type *</label>
-                    <select id="course_payment_type" name="course_payment_type" form="pre-enrolment-form" {{if eq
-                        .RemainingBalance 0}}disabled{{end}}>
+                    <select id="course_payment_type" name="course_payment_type" form="pre-enrolment-form" {{if
+                        .CoursePaymentDisabled}}disabled{{end}}>
                         <option value="">Select type</option>
-                        <option value="deposit">Deposit</option>
-                        <option value="full_payment">Full Payment</option>
-                        <option value="top_up">Top-up</option>
+                        <option value="deposit" {{if eq (index .CoursePaymentInput "type") "deposit"}}selected{{end}}>
+                            Deposit</option>
+                        <option value="full_payment" {{if eq (index .CoursePaymentInput "type")
+                            "full_payment"}}selected{{end}}>Full Payment</option>
+                        <option value="top_up" {{if eq (index .CoursePaymentInput "type") "top_up"}}selected{{end}}>
+                            Top-up</option>
                     </select>
+                    {{if index .CoursePaymentFieldErrors "type"}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{index .CoursePaymentFieldErrors
+                        "type"}}</small>
+                    {{end}}
                 </div>
                 <div class="form-group">
                     <label for="course_payment_amount">Amount (EGP) *</label>
                     <input type="number" id="course_payment_amount" name="payment_amount" min="1" step="1"
-                        form="pre-enrolment-form" {{if eq .RemainingBalance 0}}disabled{{end}}>
+                        form="pre-enrolment-form" value="{{index .CoursePaymentInput "amount"}}" {{if
+                        .CoursePaymentDisabled}}disabled{{end}}>
+                    {{if index .CoursePaymentFieldErrors "amount"}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{index .CoursePaymentFieldErrors
+                        "amount"}}</small>
+                    {{end}}
                     {{if gt .RemainingBalance 0}}
                     <small style="color: #666; display: block; margin-top: 5px;">Auto-filled from final due. You can
                         lower it manually only for Deposit payments.</small>
@@ -561,19 +620,32 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="course_payment_method">Payment Method *</label>
-                    <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" {{if eq
-                        .RemainingBalance 0}}disabled{{end}}>
+                    <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" {{if
+                        .CoursePaymentDisabled}}disabled{{end}}>
                         <option value="">Select method</option>
-                        <option value="vodafone_cash">Vodafone Cash</option>
-                        <option value="bank_transfer">Bank Transfer</option>
-                        <option value="paypal">PayPal</option>
-                        <option value="other">Other</option>
+                        <option value="vodafone_cash" {{if eq (index .CoursePaymentInput "method")
+                            "vodafone_cash"}}selected{{end}}>Vodafone Cash</option>
+                        <option value="bank_transfer" {{if eq (index .CoursePaymentInput "method")
+                            "bank_transfer"}}selected{{end}}>Bank Transfer</option>
+                        <option value="paypal" {{if eq (index .CoursePaymentInput "method") "paypal"}}selected{{end}}>
+                            PayPal</option>
+                        <option value="other" {{if eq (index .CoursePaymentInput "method") "other"}}selected{{end}}>
+                            Other</option>
                     </select>
+                    {{if index .CoursePaymentFieldErrors "method"}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{index .CoursePaymentFieldErrors
+                        "method"}}</small>
+                    {{end}}
                 </div>
                 <div class="form-group">
                     <label for="course_payment_date">Payment Date *</label>
-                    <input type="date" id="course_payment_date" name="course_payment_date" value="{{.Today}}"
-                        max="{{.Today}}" form="pre-enrolment-form" {{if eq .RemainingBalance 0}}disabled{{end}}>
+                    <input type="date" id="course_payment_date" name="course_payment_date" value="{{if index
+                        .CoursePaymentInput "date"}}{{index .CoursePaymentInput "date"}}{{else}}{{.Today}}{{end}}"
+                        max="{{.Today}}" form="pre-enrolment-form" {{if .CoursePaymentDisabled}}disabled{{end}}>
+                    {{if index .CoursePaymentFieldErrors "date"}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{index .CoursePaymentFieldErrors
+                        "date"}}</small>
+                    {{end}}
                 </div>
             </div>
 
@@ -581,8 +653,8 @@
                 <div class="form-group">
                     <label for="course_payment_notes">Notes</label>
                     <input type="text" id="course_payment_notes" name="course_payment_notes"
-                        placeholder="Optional notes..." form="pre-enrolment-form" {{if eq .RemainingBalance
-                        0}}disabled{{end}}>
+                        placeholder="Optional notes..." value="{{index .CoursePaymentInput "notes"}}"
+                        form="pre-enrolment-form" {{if .CoursePaymentDisabled}}disabled{{end}}>
                 </div>
             </div>
 
@@ -785,6 +857,11 @@
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_cold_lead" class="btn btn-secondary"
             style="background-color: #4A5568; border-color: #4A5568; color: white;">Send
             to Cold Leads</button>
+        {{end}}
+        {{if .CanMarkRefusedRenewal}}
+        <button type="submit" form="pre-enrolment-form" name="action" value="mark_refused_renewal"
+            class="btn btn-secondary" style="background-color: #C05621; border-color: #C05621; color: white;">Refused
+            Renewal → Cold</button>
         {{end}}
         {{if .CanMoveWaiting}}
         <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting"

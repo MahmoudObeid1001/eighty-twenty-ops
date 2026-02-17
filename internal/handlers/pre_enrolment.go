@@ -34,7 +34,7 @@ func buildColdLevelOptions(leads []*models.LeadListItem) []int {
 			continue
 		}
 		level := int(item.AssignedLevel.Int32)
-		if level < 1 || level > 8 {
+		if level < 1 || level > 10 {
 			continue
 		}
 		levelsSet[level] = struct{}{}
@@ -48,7 +48,7 @@ func buildColdLevelOptions(leads []*models.LeadListItem) []int {
 }
 
 func filterLeadsByAssignedLevel(leads []*models.LeadListItem, selectedLevel int) []*models.LeadListItem {
-	if selectedLevel < 1 || selectedLevel > 8 {
+	if selectedLevel < 1 || selectedLevel > 10 {
 		return leads
 	}
 	filtered := make([]*models.LeadListItem, 0, len(leads))
@@ -64,7 +64,7 @@ func filterLeadsByAssignedLevel(leads []*models.LeadListItem, selectedLevel int)
 }
 
 func isValidAssignedLevel(level int) bool {
-	return level >= 1 && level <= 8
+	return level >= 1 && level <= 10
 }
 
 func firstNonEmpty(values ...string) string {
@@ -140,6 +140,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 			"waiting":     "Lead moved to waiting list!",
 			"ready":       "Lead marked as ready to start!",
 			"cold":        "Lead sent to cold leads.",
+			"refused":     "Lead marked as refused renewal and moved to cold leads.",
 		}
 		if msg, ok := statusMessages[statusFlashParam]; ok {
 			flashMessage = msg
@@ -547,15 +548,18 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, leadID uuid.UUID, userRole string) (map[string]interface{}, error) {
 	var placementTestRemaining int32 = 0
 	if detail.PlacementTest != nil {
-		if detail.PlacementTest.PlacementTestFee.Valid && detail.PlacementTest.PlacementTestFeePaid.Valid {
-			placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32 - detail.PlacementTest.PlacementTestFeePaid.Int32
-			if placementTestRemaining < 0 {
-				placementTestRemaining = 0
-			}
-		} else if detail.PlacementTest.PlacementTestFee.Valid {
-			placementTestRemaining = detail.PlacementTest.PlacementTestFee.Int32
-		} else {
-			placementTestRemaining = 100
+		feeValue := int32(100)
+		if detail.PlacementTest.PlacementTestFee.Valid {
+			feeValue = detail.PlacementTest.PlacementTestFee.Int32
+		}
+		finalFee := computePlacementTestFinalFee(feeValue, detail.PlacementTest.DiscountValue, detail.PlacementTest.DiscountType)
+		paidValue := int32(0)
+		if detail.PlacementTest.PlacementTestFeePaid.Valid {
+			paidValue = detail.PlacementTest.PlacementTestFeePaid.Int32
+		}
+		placementTestRemaining = finalFee - paidValue
+		if placementTestRemaining < 0 {
+			placementTestRemaining = 0
 		}
 	} else {
 		placementTestRemaining = 100
@@ -705,6 +709,19 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			lastGrade = latest.FinalGrade.String
 		}
 	}
+	latestRefusal, err := models.GetLatestRenewalRefusal(leadID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get latest renewal refusal: %v", err)
+	}
+	isRefusedRenewal := latestRefusal != nil
+	refusedAtText := ""
+	if latestRefusal != nil {
+		refusedAtText = latestRefusal.RefusedAt.Format("2006-01-02")
+	}
+	canMarkRefusedRenewal := userRole == "admin" &&
+		detail.Lead.IsReturning &&
+		creditsRemaining <= 0 &&
+		(detail.Lead.Status == "renewal_pending" || detail.Lead.Status == "offer_sent")
 
 	// Prefill schedule for returning students from latest class_enrollments if schedule is empty.
 	if detail.Lead.IsReturning {
@@ -750,6 +767,18 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"IsFullyPaid":            isFullyPaid,
 		"IsWaitingForRound":      detail.Lead.Status == "waiting_for_round",
 		"CanMoveWaiting":         canUseWaitingFlow(detail),
+		"CoursePaymentEnabled": func() bool {
+			ok, _ := canUseCoursePaymentFlow(detail)
+			return ok
+		}(),
+		"CoursePaymentDisabled": func() bool {
+			ok, _ := canUseCoursePaymentFlow(detail)
+			return !ok || remainingBalance == 0
+		}(),
+		"CoursePaymentLockedReason": func() string {
+			_, reason := canUseCoursePaymentFlow(detail)
+			return reason
+		}(),
 		"CanMarkOfferSent": func() bool {
 			ok, _ := canMarkOfferSent(detail)
 			return ok
@@ -758,25 +787,55 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			_, reason := canMarkOfferSent(detail)
 			return reason
 		}(),
-		"StatusDisplayName": statusInfo.DisplayName,
-		"StatusBgColor":     statusInfo.BgColor,
-		"StatusTextColor":   statusInfo.TextColor,
-		"StatusBorderColor": statusInfo.BorderColor,
-		"CreditsRemaining":  creditsRemaining,
-		"LastOutcome":       lastOutcome,
-		"LastFinalGrade":    lastGrade,
-		"Error":             "",
-		"PhoneError":        "",
-		"ExistingLeadID":    nil,
-		"SuccessMessage":    "",
-		"ShowCancelModal":   false,
+		"StatusDisplayName":     statusInfo.DisplayName,
+		"StatusBgColor":         statusInfo.BgColor,
+		"StatusTextColor":       statusInfo.TextColor,
+		"StatusBorderColor":     statusInfo.BorderColor,
+		"CreditsRemaining":      creditsRemaining,
+		"LastOutcome":           lastOutcome,
+		"LastFinalGrade":        lastGrade,
+		"SmartStepsCodes":       []string{},
+		"SmartStepsAR":          []string{},
+		"SmartStepsSource":      "",
+		"IsRefusedRenewal":      isRefusedRenewal,
+		"RenewalRefusedAt":      refusedAtText,
+		"CanMarkRefusedRenewal": canMarkRefusedRenewal,
+		"Error":                 "",
+		"PhoneError":            "",
+		"ExistingLeadID":        nil,
+		"SuccessMessage":        "",
+		"ShowCancelModal":       false,
+		"CoursePaymentInput": map[string]string{
+			"type":   "",
+			"amount": "",
+			"method": "",
+			"date":   "",
+			"notes":  "",
+		},
+		"CoursePaymentFieldErrors": map[string]string{},
 	}
+	stepCodes, stepArabic, stepSource := h.buildSmartStepsForDetail(detail, isFullyPaid, creditsRemaining, finalPriceValue, totalCoursePaid, lastOutcome)
+	data["SmartStepsCodes"] = stepCodes
+	data["SmartStepsAR"] = stepArabic
+	data["SmartStepsSource"] = stepSource
+
 	return data, nil
 }
 
 // renderDetailWithError fetches the lead, builds detail page data with Error set, and renders.
 // Uses buildDetailViewModel so template context matches Detail() (status, banners, modal flags, etc.).
 func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *http.Request, leadID uuid.UUID, errMsg string) {
+	h.renderDetailWithErrorAndPaymentContext(w, r, leadID, errMsg, nil, nil)
+}
+
+func (h *PreEnrolmentHandler) renderDetailWithErrorAndPaymentContext(
+	w http.ResponseWriter,
+	r *http.Request,
+	leadID uuid.UUID,
+	errMsg string,
+	coursePaymentInput map[string]string,
+	coursePaymentFieldErrors map[string]string,
+) {
 	detail, err := models.GetLeadByID(leadID)
 	if err != nil {
 		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
@@ -786,6 +845,12 @@ func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *ht
 	data, _ := h.buildDetailViewModel(detail, leadID, userRole)
 	data["Error"] = errMsg
 	data["SuccessMessage"] = ""
+	if coursePaymentInput != nil {
+		data["CoursePaymentInput"] = coursePaymentInput
+	}
+	if coursePaymentFieldErrors != nil {
+		data["CoursePaymentFieldErrors"] = coursePaymentFieldErrors
+	}
 	renderTemplate(w, r, "pre_enrolment_detail.html", data)
 }
 
@@ -795,6 +860,37 @@ func normalizeClassTime(raw string) string {
 		return raw[:5]
 	}
 	return raw
+}
+
+func clampInt32(v, min, max int32) int32 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
+func computePlacementTestFinalFee(baseFee int32, discountValue sql.NullInt32, discountType sql.NullString) int32 {
+	fee := baseFee
+	if fee <= 0 {
+		return 0
+	}
+	discount := int32(0)
+	if discountValue.Valid {
+		if discountType.Valid && strings.EqualFold(discountType.String, "percent") {
+			pct := clampInt32(discountValue.Int32, 0, 100)
+			discount = (fee * pct) / 100
+		} else {
+			discount = clampInt32(discountValue.Int32, 0, fee)
+		}
+	}
+	finalFee := fee - discount
+	if finalFee < 0 {
+		return 0
+	}
+	return finalFee
 }
 
 func computedRemainingCredits(lead *models.Lead) int32 {
@@ -821,6 +917,20 @@ func canUseWaitingFlow(detail *models.LeadDetail) bool {
 	hasCredits := computedRemainingCredits(detail.Lead) > 0
 	alreadyInWaitingFlow := detail.Lead.Status == "waiting_for_round" || detail.Lead.Status == "schedule_assigned" || detail.Lead.Status == "ready_to_start"
 	return detail.Lead.IsReturning && (hasCredits || alreadyInWaitingFlow)
+}
+
+func canUseCoursePaymentFlow(detail *models.LeadDetail) (bool, string) {
+	if detail == nil || detail.Lead == nil {
+		return false, "Course payment is locked until lead details are loaded."
+	}
+	switch detail.Lead.Status {
+	case "offer_sent", "booking_confirmed", "deposit_paid":
+		return true, ""
+	case "renewal_pending":
+		return false, "Course payment is locked in renewal pending. Send packages first to move to Offer Sent."
+	default:
+		return false, "Course payment is locked at this stage. Move the lead to Offer Sent first."
+	}
 }
 
 func isReturningCyclePlacementLocked(lead *models.Lead) bool {
@@ -913,6 +1023,47 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Validate placement-test fee settlement against discounted final fee.
+		baseFee := int32(100)
+		paidAmount := int32(0)
+		discountValue := sql.NullInt32{}
+		discountType := sql.NullString{}
+		if existingDetail.PlacementTest != nil {
+			if existingDetail.PlacementTest.PlacementTestFee.Valid {
+				baseFee = existingDetail.PlacementTest.PlacementTestFee.Int32
+			}
+			if existingDetail.PlacementTest.PlacementTestFeePaid.Valid {
+				paidAmount = existingDetail.PlacementTest.PlacementTestFeePaid.Int32
+			}
+			discountValue = existingDetail.PlacementTest.DiscountValue
+			discountType = existingDetail.PlacementTest.DiscountType
+		}
+		if feeStr := strings.TrimSpace(r.FormValue("placement_test_fee")); feeStr != "" {
+			if fee, parseErr := strconv.Atoi(feeStr); parseErr == nil {
+				baseFee = int32(fee)
+			}
+		}
+		if paidStr := strings.TrimSpace(r.FormValue("placement_test_fee_paid")); paidStr != "" {
+			if paid, parseErr := strconv.Atoi(paidStr); parseErr == nil {
+				paidAmount = int32(paid)
+			}
+		}
+		if discountValueStr := strings.TrimSpace(r.FormValue("placement_test_discount_value")); discountValueStr != "" {
+			if dv, parseErr := strconv.Atoi(discountValueStr); parseErr == nil {
+				discountValue = sql.NullInt32{Int32: int32(dv), Valid: true}
+			}
+		}
+		if discountTypeStr := strings.TrimSpace(r.FormValue("placement_test_discount_type")); discountTypeStr != "" {
+			if discountTypeStr == "amount" || discountTypeStr == "percent" {
+				discountType = sql.NullString{String: discountTypeStr, Valid: true}
+			}
+		}
+		requiredFee := computePlacementTestFinalFee(baseFee, discountValue, discountType)
+		if paidAmount < requiredFee {
+			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Placement test fee must be paid in full (%d EGP) before booking the test.", requiredFee))
+			return
+		}
+
 		// Parse and book test
 		var testDateVal sql.NullTime
 		if t, err := time.Parse("2006-01-02", testDate); err == nil {
@@ -969,7 +1120,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			if assignedLevel := r.FormValue("assigned_level"); assignedLevel != "" {
 				level, err := strconv.Atoi(assignedLevel)
 				if err != nil || !isValidAssignedLevel(level) {
-					h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–8.")
+					h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–10.")
 					return
 				}
 				detail.PlacementTest.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
@@ -1161,6 +1312,47 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		h.cfg.Debugf("  ✅ Status updated to cold_lead, redirecting to list")
 		http.Redirect(w, r, "/pre-enrolment?cold=1&status_flash=cold", http.StatusFound)
+		return
+
+	case "mark_refused_renewal":
+		h.cfg.Debugf("  → Action: mark_refused_renewal")
+		if userRole != "admin" {
+			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
+			return
+		}
+
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if !detail.Lead.IsReturning {
+			h.renderDetailWithError(w, r, leadID, "Refused renewal action is only available for returning students.")
+			return
+		}
+		if computedRemainingCredits(detail.Lead) > 0 {
+			h.renderDetailWithError(w, r, leadID, "This student still has prepaid credits. Use waiting flow, not refused renewal.")
+			return
+		}
+		if detail.Lead.Status != "renewal_pending" && detail.Lead.Status != "offer_sent" {
+			h.renderDetailWithError(w, r, leadID, "Refused renewal action is only allowed during renewal flow (renewal pending / offer sent).")
+			return
+		}
+
+		var actorID *uuid.UUID
+		if userIDStr := strings.TrimSpace(middleware.GetUserID(r)); userIDStr != "" {
+			if parsed, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+				actorID = &parsed
+			}
+		}
+		if err := models.MarkRenewalRefusedAndSetCold(leadID, actorID, ""); err != nil {
+			log.Printf("ERROR: Failed to mark renewal refused: %v", err)
+			http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
+			return
+		}
+
+		h.cfg.Debugf("  ✅ Lead marked refused_renewal and moved to cold_lead")
+		http.Redirect(w, r, "/pre-enrolment?cold=1&status_flash=refused", http.StatusFound)
 		return
 
 	case "move_waiting":
@@ -1837,45 +2029,8 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("test_date") != "" || r.FormValue("assigned_level") != "" || r.FormValue("placement_test_fee") != "" {
 		pt := &models.PlacementTest{LeadID: leadID}
 
-		// GUARD: Check if test date/time is being set - require fee payment first
 		testDate := r.FormValue("test_date")
 		testTime := r.FormValue("test_time")
-
-		if testDate != "" || testTime != "" {
-			// Calculate required fee and paid amount
-			requiredFee := 100 // default
-			paidAmount := 0
-
-			// Check existing placement test data
-			if existingDetail.PlacementTest != nil {
-				if existingDetail.PlacementTest.PlacementTestFee.Valid {
-					requiredFee = int(existingDetail.PlacementTest.PlacementTestFee.Int32)
-				}
-				if existingDetail.PlacementTest.PlacementTestFeePaid.Valid {
-					paidAmount = int(existingDetail.PlacementTest.PlacementTestFeePaid.Int32)
-				}
-			}
-
-			// Check if fee is being paid in this request
-			if feeBeingPaidStr := r.FormValue("placement_test_fee_paid"); feeBeingPaidStr != "" {
-				if feePaid, err := strconv.Atoi(feeBeingPaidStr); err == nil {
-					paidAmount = feePaid
-				}
-			}
-
-			// Check if fee is being updated in this request
-			if feeStr := r.FormValue("placement_test_fee"); feeStr != "" {
-				if fee, err := strconv.Atoi(feeStr); err == nil {
-					requiredFee = fee
-				}
-			}
-
-			// Validate that fee is paid in full
-			if paidAmount < requiredFee {
-				h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Placement test fee must be paid in full (%d EGP) before booking the test.", requiredFee))
-				return
-			}
-		}
 
 		if testDate != "" {
 			if t, err := time.Parse("2006-01-02", testDate); err == nil {
@@ -1898,7 +2053,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 
 			level, err := strconv.Atoi(assignedLevel)
 			if err != nil || !isValidAssignedLevel(level) {
-				h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–8.")
+				h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–10.")
 				return
 			}
 			pt.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
@@ -1943,18 +2098,27 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				pt.DiscountType = sql.NullString{String: discountType, Valid: true}
 			}
 		}
+		if existingDetail.PlacementTest != nil {
+			if !pt.DiscountValue.Valid && existingDetail.PlacementTest.DiscountValue.Valid {
+				pt.DiscountValue = existingDetail.PlacementTest.DiscountValue
+			}
+			if !pt.DiscountType.Valid && existingDetail.PlacementTest.DiscountType.Valid {
+				pt.DiscountType = existingDetail.PlacementTest.DiscountType
+			}
+		}
 
-		// Normalize placement test fee/paid: paid must be 0 or equal to fee (default fee = 100).
+		// Normalize placement test fee/paid: paid must be 0 or equal to discounted final fee.
 		feeValue := int32(100)
 		if pt.PlacementTestFee.Valid {
 			feeValue = pt.PlacementTestFee.Int32
 		}
+		finalPlacementFee := computePlacementTestFinalFee(feeValue, pt.DiscountValue, pt.DiscountType)
 		if pt.PlacementTestFeePaid.Valid && pt.PlacementTestFeePaid.Int32 > 0 {
 			if !pt.PlacementTestFee.Valid {
 				pt.PlacementTestFee = sql.NullInt32{Int32: feeValue, Valid: true}
 			}
-			if pt.PlacementTestFeePaid.Int32 != feeValue {
-				pt.PlacementTestFeePaid = sql.NullInt32{Int32: feeValue, Valid: true}
+			if pt.PlacementTestFeePaid.Int32 != finalPlacementFee {
+				pt.PlacementTestFeePaid = sql.NullInt32{Int32: finalPlacementFee, Valid: true}
 			}
 		}
 
@@ -2227,27 +2391,56 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	// Parse course payment fields if provided
 	coursePaymentType := firstNonEmpty(r.FormValue("course_payment_type"), r.FormValue("payment_type"))
 	coursePaymentAmountStr := firstNonEmpty(r.FormValue("payment_amount"), r.FormValue("course_payment_amount"))
-	coursePaymentMethod := r.FormValue("course_payment_method")
-	coursePaymentDateStr := r.FormValue("course_payment_date")
+	coursePaymentMethod := strings.TrimSpace(r.FormValue("course_payment_method"))
+	coursePaymentDateStr := strings.TrimSpace(r.FormValue("course_payment_date"))
 	coursePaymentNotes := r.FormValue("course_payment_notes")
-
-	// Bundle selection updates purchased levels to keep credits aligned with selected deal.
-	if paymentBundleStr != "" {
-		bundleLevels, err := strconv.Atoi(paymentBundleStr)
-		if err != nil || bundleLevels < 1 || bundleLevels > 4 {
-			h.renderDetailWithError(w, r, leadID, "Invalid bundle selection. Please select a valid bundle (1-4 levels).")
+	coursePaymentEnabled, coursePaymentLockReason := canUseCoursePaymentFlow(existingDetail)
+	// Treat course payment as "intentional input" only when explicit payment selectors are touched.
+	// Amount/date may be auto-filled by UI pricing helpers and must not, by themselves, trigger validation.
+	coursePaymentFieldsTouched := coursePaymentType != "" || coursePaymentMethod != ""
+	if coursePaymentFieldsTouched && !coursePaymentEnabled {
+		h.renderDetailWithError(w, r, leadID, coursePaymentLockReason)
+		return
+	}
+	if coursePaymentFieldsTouched {
+		missingFields := make([]string, 0, 4)
+		fieldErrors := make(map[string]string)
+		if coursePaymentType == "" {
+			missingFields = append(missingFields, "Payment Type")
+			fieldErrors["type"] = "Payment type is required."
+		}
+		if coursePaymentAmountStr == "" {
+			missingFields = append(missingFields, "Amount")
+			fieldErrors["amount"] = "Amount is required."
+		}
+		if coursePaymentMethod == "" {
+			missingFields = append(missingFields, "Payment Method")
+			fieldErrors["method"] = "Payment method is required."
+		}
+		if coursePaymentDateStr == "" {
+			missingFields = append(missingFields, "Payment Date")
+			fieldErrors["date"] = "Payment date is required."
+		}
+		if len(missingFields) > 0 {
+			h.renderDetailWithErrorAndPaymentContext(
+				w,
+				r,
+				leadID,
+				fmt.Sprintf(
+					"To save a course payment, complete all required fields (%s), or clear them all if you are not adding a payment.",
+					strings.Join(missingFields, ", "),
+				),
+				map[string]string{
+					"type":   coursePaymentType,
+					"amount": coursePaymentAmountStr,
+					"method": coursePaymentMethod,
+					"date":   coursePaymentDateStr,
+					"notes":  coursePaymentNotes,
+				},
+				fieldErrors,
+			)
 			return
 		}
-
-		// Update leads.levels_purchased_total
-		err = models.UpdateLeadPurchasedLevels(leadID, int32(bundleLevels))
-		if err != nil {
-			log.Printf("ERROR: Failed to update levels_purchased_total: %v", err)
-			http.Error(w, "Failed to update purchase info", http.StatusInternalServerError)
-			return
-		}
-
-		log.Printf("INFO: Updated levels_purchased_total to %d for lead %s", bundleLevels, leadID)
 	}
 
 	// Auto-move to WAITING when payment is recorded (only for admin, only if status is before WAITING)
@@ -2610,7 +2803,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sync finance transactions for course payment (create new LeadPayment if provided)
-	if coursePaymentAmountStr != "" && coursePaymentMethod != "" && coursePaymentDateStr != "" {
+	if coursePaymentFieldsTouched {
 		// Re-evaluate status at payment time (currentStatus was captured at request start).
 		// This avoids false blocks when status was legitimately advanced earlier in this save flow.
 		statusForPaymentGate := currentStatus
@@ -2666,6 +2859,37 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Resolve bundle levels for payment-cycle locking and credits update.
+		var bundleLevels sql.NullInt32
+		if paymentBundleStr != "" {
+			if b, parseErr := strconv.Atoi(paymentBundleStr); parseErr == nil && b >= 1 && b <= 4 {
+				bundleLevels = sql.NullInt32{Int32: int32(b), Valid: true}
+			}
+		}
+		if !bundleLevels.Valid && detail.Offer != nil && detail.Offer.BundleLevels.Valid {
+			bundleLevels = detail.Offer.BundleLevels
+		}
+		if !bundleLevels.Valid && existingDetail.Offer != nil && existingDetail.Offer.BundleLevels.Valid {
+			bundleLevels = existingDetail.Offer.BundleLevels
+		}
+		if !bundleLevels.Valid && existingDetail.Lead.LevelsPurchasedTotal.Valid && existingDetail.Lead.LevelsPurchasedTotal.Int32 > 0 {
+			bundleLevels = sql.NullInt32{Int32: existingDetail.Lead.LevelsPurchasedTotal.Int32, Valid: true}
+		}
+
+		// For returning-cycle payments, lock/initialize cycle BEFORE validation totals
+		// so the first payment is counted in this cycle on subsequent attempts.
+		if existingDetail.Lead.IsReturning {
+			if !bundleLevels.Valid {
+				h.renderDetailWithError(w, r, leadID, "Bundle selection is required before collecting renewal payment.")
+				return
+			}
+			if err := models.UpsertActivePaymentCycle(leadID, bundleLevels.Int32, finalPriceValue); err != nil {
+				log.Printf("ERROR: Failed to upsert active payment cycle (pre-payment): %v", err)
+				h.renderDetailWithError(w, r, leadID, "Couldn't lock payment cycle safely. Please try again.")
+				return
+			}
+		}
+
 		// Get total course paid (current cycle only for returning students)
 		var totalCoursePaid int32
 		if existingDetail.Lead.IsReturning {
@@ -2681,6 +2905,10 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		remainingBalance := finalPriceValue - totalCoursePaid
 		if remainingBalance < 0 {
 			remainingBalance = 0
+		}
+		if remainingBalance == 0 {
+			h.renderDetailWithError(w, r, leadID, "Course is already fully paid for this cycle. Additional payments are not allowed.")
+			return
 		}
 		if int32(amount) > remainingBalance {
 			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Course payment amount (%d) exceeds remaining balance (%d). Total course paid cannot exceed offer final price.", amount, remainingBalance))
@@ -2709,23 +2937,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Update lead credits based on all payments
-		var bundleLevels sql.NullInt32
-		if paymentBundleStr != "" {
-			if b, parseErr := strconv.Atoi(paymentBundleStr); parseErr == nil && b >= 1 && b <= 4 {
-				bundleLevels = sql.NullInt32{Int32: int32(b), Valid: true}
-			}
-		}
-		if !bundleLevels.Valid && detail.Offer != nil && detail.Offer.BundleLevels.Valid {
-			bundleLevels = detail.Offer.BundleLevels
-		}
-		if bundleLevels.Valid {
-			if err := models.UpsertActivePaymentCycle(leadID, bundleLevels.Int32, finalPriceValue); err != nil {
-				log.Printf("ERROR: Failed to upsert active payment cycle: %v", err)
-				h.renderDetailWithError(w, r, leadID, "Couldn't lock payment cycle safely. Please try again.")
-				return
-			}
-		}
+		// Update lead credits based on all payments.
 		err = models.UpdateLeadCreditsFromPayments(leadID, bundleLevels)
 		if err != nil {
 			log.Printf("ERROR: Failed to update lead credits: %v", err)
@@ -2778,7 +2990,7 @@ func (h *PreEnrolmentHandler) MarkTested(w http.ResponseWriter, r *http.Request)
 		if assignedLevel := r.FormValue("assigned_level"); assignedLevel != "" {
 			level, parseErr := strconv.Atoi(assignedLevel)
 			if parseErr != nil || !isValidAssignedLevel(level) {
-				h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–8.")
+				h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–10.")
 				return
 			}
 			detail.PlacementTest.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}

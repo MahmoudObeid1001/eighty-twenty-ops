@@ -368,5 +368,38 @@ func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 		timeline = append(timeline, item)
 	}
 
-	return timeline, nil
+	return dedupeMirroredGradeTimeline(timeline), nil
+}
+
+func dedupeMirroredGradeTimeline(timeline []*TimelineItem) []*TimelineItem {
+	if len(timeline) == 0 {
+		return timeline
+	}
+
+	mirroredNoteIDs := make(map[uuid.UUID]struct{})
+	for _, item := range timeline {
+		if item == nil || item.Type != "grade_note" {
+			continue
+		}
+		mirroredNoteIDs[gradeMirrorNoteID(item.ID)] = struct{}{}
+	}
+
+	if len(mirroredNoteIDs) == 0 {
+		return timeline
+	}
+
+	deduped := make([]*TimelineItem, 0, len(timeline))
+	for _, item := range timeline {
+		if item == nil {
+			continue
+		}
+		if item.Type == "note" {
+			if _, exists := mirroredNoteIDs[item.ID]; exists {
+				continue
+			}
+		}
+		deduped = append(deduped, item)
+	}
+
+	return deduped
 }

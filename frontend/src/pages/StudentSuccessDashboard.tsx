@@ -502,7 +502,7 @@ export default function StudentSuccessDashboard() {
                 style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
               >
                 <option value="">Select level</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((lvl) => (
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((lvl) => (
                   <option key={lvl} value={lvl}>Level {lvl}</option>
                 ))}
               </select>

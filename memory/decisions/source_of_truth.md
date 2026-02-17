@@ -120,6 +120,12 @@
 **Business Rule**: A session cannot be marked completed until attendance is recorded for all applicable students.  
 **Exception**: Late joiners are excluded for sessions before their join session.
 
+### Mentor Pre-Start Class Visibility
+
+**Business Rule**:
+- Mentors can open assigned class workspace and view students/sessions when class is `sent_to_mentor = true` and `round_status = 'not_started'`.
+- This pre-start mentor view is read-only: mentors cannot mark attendance or complete sessions until Mentor Head starts the round (`round_status = 'active'`).
+
 ### Late Joiner Eligibility (Sent-Not-Started Exception)
 
 **Business Rule**: Late Joiner can target classes that are either:
@@ -151,10 +157,20 @@
 **Implementation Invariant**: For returning students, `levels_consumed` is cumulative across cycles, so when a new bundle is purchased, `levels_purchased_total` must be stored as a cumulative target: `levels_consumed_at_purchase + bundle_levels_bought`.  
 **Placement Test Rule**: Returning-cycle leads (`is_returning=true` or statuses `renewal_pending`/`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`) must not be moved back to `test_booked` by Ops actions.
 **Offer Action Rule**: Paid waiting-flow leads (`waiting_for_round`/`schedule_assigned`/`ready_to_start`/`in_classes`) and leads with remaining credits must not be moved to `offer_sent` by quick actions (e.g., `Packages Sent`).
+**Course Payment Stage Rule**: Course-payment entry is locked until lead reaches payment-collection statuses (`offer_sent`, `booking_confirmed`, `deposit_paid`); it stays locked for `renewal_pending`.
+**Renewal Refusal Rule**: Returning leads with consumed entitlement (`remaining credits = 0`) can be explicitly marked as `refused_renewal` and moved to `cold_lead` from pre-enrolment action controls (admin only); refusal must be audit-stored with timestamp.
 **UI**: Pre‑enrolment list shows a **REPEAT** badge if the latest class outcome is `repeated`.  
 **Status**: When remaining credits = 0 after close round, status must be `renewal_pending` (not paid_full).
 
 **Filter**: Pre‑enrolment list includes a Repeat Level filter.
+
+### Placement Test Discount Payment Gate
+
+**Business Rule**:
+- Placement-test payment required amount must be the discounted final fee, not the raw base fee.
+- If final discounted fee is `0`, system must allow booking/save with `paid = 0` and no payment method/date requirement.
+- Generic `save` remains draft-safe (does not enforce booking settlement gate).
+- Explicit booking (`mark_test_booked`) enforces settlement gate using discounted final fee.
 
 ### Pre‑Enrolment Filter Consistency
 
@@ -167,10 +183,15 @@
 - Use canonical stage status values in filter URLs (`RENEWAL_PENDING`, `WAITING_FOR_ROUND`, etc.).
 - Backward compatibility for legacy lowercase status query values is allowed.
 
+**Cold List Marker Rule**:
+- `cold_lead` rows that have a renewal refusal audit record must show `REFUSED RENEWAL` marker in the name cell.
+- `PROMOTED` marker is suppressed when row status is `cold_lead` to keep retargeting context clear.
+
 **Cold Leads Clock Rule**:
 - Cold Leads quick filter must include explicitly marked `status = cold_lead`.
 - For `offer_sent` candidates, timing must use `leads.offer_sent_at` (7+ days) rather than generic `updated_at`.
 - For legacy rows where `offer_sent_at` is null, fallback to `updated_at` is allowed temporarily.
+ - Default pre-enrolment feed must exclude `cold_lead`; cold rows appear only in explicit cold mode (`cold=1`) or explicit `COLD_LEAD` status filter.
 
 **Cold Leads Level Filter Rule**:
 - In Pre-Enrolment when `cold=1`, show one level dropdown for filtering.
@@ -258,17 +279,26 @@
 - Saving/updating a final grade note updates `grades.notes` and mirrors it to `student_notes`.
 - Clearing a final grade note removes the mirrored note from `student_notes`.
 - The mirrored note is mentor-facing (not private) and tied to the same class/session context.
+**Display Rule**:
+- Student timeline/card views must render this as one visible entry.
+- Implementation rule: when `/api/students/:id/notes` is built, drop `type='note'` rows whose `id` equals `gradeMirrorNoteID(grade_note.id)`; keep the `grade_note` row as the single displayed source.
 
 ### Final Grade Automation Rule
 
 **Business Rule**: Final grade is data-driven from session attendance + task completion + participation stars.
 
 **Scoring Algorithm (100 points)**:
-- Attendance (60): if absences in class `>= 2` then `0`, else `60`.
-- Tasks (30): from sessions `2..8` (7 tasks total).
+- Attendance (50): proportional by attendance rate, with severe-absence guard.
+  - If absences in class `> 2` (3+), attendance score is `0`.
+  - Else `attendance_score = (present_sessions / 8) * 50`.
+  - Implemented in backend grade preview calculation (`internal/models/repository.go`), and consumed by grading UI/report card.
+- Tasks (40): from sessions `2..8` (7 tasks total).
   - If completed tasks `<= 1` then `0`.
-  - Else `(completed_tasks / 7) * 30`.
+  - Else `(completed_tasks / 7) * 40`.
 - Participation (10): average stars `(1..5)` across attended sessions, `(avg_stars / 5) * 10`.
+**Data Entry Rule**:
+- Session task completion and participation stars may be entered even if attendance is `ABSENT`.
+- Participation scoring remains computed from attended sessions only; absent-session stars are stored as evidence but do not affect participation average.
 
 **Grade Letter Mapping**:
 - `A`: score `>= 85`
@@ -340,6 +370,17 @@
   - global totals (active mentors, active classes),
   - mentor-level summary (active class count + collective KPI),
   - class-level KPI rows for each active class under each mentor.
+
+### Pre-Enrolment Smart Steps Rule (Arabic)
+**Business Rule**:
+- Pre-enrolment detail includes a compact Arabic "next steps" checklist for all leads (new + returning), directly under the top workflow summary area.
+- The decision logic remains rule-based and deterministic from lead status and payment/schedule/credits context.
+
+**AI Rewrite Guardrail**:
+- Optional AI rewrite may improve Arabic wording only.
+- AI must not add/remove/reorder steps or alter workflow decisions.
+- If AI result is unavailable/invalid, system uses deterministic Arabic templates.
+- AI rewrite is feature-flagged (`SMART_STEPS_AI_ENABLED`) and requires `OPENAI_API_KEY`.
 
 ---
 

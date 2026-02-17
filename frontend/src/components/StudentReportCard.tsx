@@ -81,12 +81,12 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
       <div>Final Grade</div>
     </div>
     <div class="metric">
-      <div class="metric-head"><span>Attendance</span><span>${data.calculation.attendance_score.toFixed(2)}/60 (${data.calculation.absences} Absences)</span></div>
-      <div class="bar"><div class="fill" style="width:${scoreBarWidth(data.calculation.attendance_score, 60)}"></div></div>
+      <div class="metric-head"><span>Attendance</span><span>${data.calculation.attendance_score.toFixed(2)}/50 (${data.calculation.absences} Absences)</span></div>
+      <div class="bar"><div class="fill" style="width:${scoreBarWidth(data.calculation.attendance_score, 50)}"></div></div>
     </div>
     <div class="metric">
-      <div class="metric-head"><span>Tasks</span><span>${data.calculation.task_score.toFixed(2)}/30 (Missed ${data.calculation.missed_tasks} Tasks)</span></div>
-      <div class="bar"><div class="fill tasks" style="width:${scoreBarWidth(data.calculation.task_score, 30)}"></div></div>
+      <div class="metric-head"><span>Tasks</span><span>${data.calculation.task_score.toFixed(2)}/40 (Missed ${data.calculation.missed_tasks} Tasks)</span></div>
+      <div class="bar"><div class="fill tasks" style="width:${scoreBarWidth(data.calculation.task_score, 40)}"></div></div>
     </div>
     <div class="metric">
       <div class="metric-head"><span>Participation</span><span>${data.calculation.participation_score.toFixed(2)}/10 (${data.calculation.average_stars.toFixed(2)} Star Avg)</span></div>
@@ -286,17 +286,17 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
           <div className="metric">
             <div className="metric-head">
               <span>Attendance</span>
-              <span>{data.calculation.attendance_score.toFixed(2)}/60 ({data.calculation.absences} Absences)</span>
+              <span>{data.calculation.attendance_score.toFixed(2)}/50 ({data.calculation.absences} Absences)</span>
             </div>
-            <div className="metric-bar"><div className="metric-fill" style={{ width: scoreBarWidth(data.calculation.attendance_score, 60) }} /></div>
+            <div className="metric-bar"><div className="metric-fill" style={{ width: scoreBarWidth(data.calculation.attendance_score, 50) }} /></div>
           </div>
 
           <div className="metric">
             <div className="metric-head">
               <span>Tasks</span>
-              <span>{data.calculation.task_score.toFixed(2)}/30 (Missed {data.calculation.missed_tasks} Tasks)</span>
+              <span>{data.calculation.task_score.toFixed(2)}/40 (Missed {data.calculation.missed_tasks} Tasks)</span>
             </div>
-            <div className="metric-bar"><div className="metric-fill tasks" style={{ width: scoreBarWidth(data.calculation.task_score, 30) }} /></div>
+            <div className="metric-bar"><div className="metric-fill tasks" style={{ width: scoreBarWidth(data.calculation.task_score, 40) }} /></div>
           </div>
 
           <div className="metric">

@@ -335,7 +335,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			p.remaining_balance, p.amount_paid,
 			o.final_price,
 			COALESCE(last_ce.outcome, '') as last_outcome,
-			COALESCE(last_ce.final_grade, '') as last_final_grade
+			COALESCE(last_ce.final_grade, '') as last_final_grade,
+			COALESCE(last_refusal.refused_at, NULL) as refused_renewal_at
 		FROM leads l
 		LEFT JOIN placement_tests pt ON l.id = pt.lead_id
 		LEFT JOIN payments p ON l.id = p.lead_id
@@ -347,6 +348,13 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			ORDER BY COALESCE(ce.completed_at, ce.enrolled_at) DESC
 			LIMIT 1
 		) last_ce ON true
+		LEFT JOIN LATERAL (
+			SELECT refused_at
+			FROM renewal_refusals rr
+			WHERE rr.lead_id = l.id
+			ORDER BY rr.refused_at DESC
+			LIMIT 1
+		) last_refusal ON true
 		WHERE 1=1
 		AND l.status != 'in_classes'
 		AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
@@ -370,6 +378,9 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 	// - cold candidates still in offer_sent for 7+ days with no remaining credits.
 	if coldFilter == "1" || coldFilter == "true" {
 		query += " AND (l.status = 'cold_lead' OR (l.status = 'offer_sent' AND COALESCE(l.offer_sent_at, l.updated_at) <= NOW() - INTERVAL '7 days' AND COALESCE(l.levels_purchased_total, 0) > 0 AND GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) <= 0))"
+	} else if !strings.EqualFold(statusFilter, "cold_lead") && !strings.EqualFold(statusFilter, StageColdLead) {
+		// Keep cold backlog isolated from default pipeline feed unless user explicitly enters cold mode.
+		query += " AND l.status != 'cold_lead'"
 	}
 
 	// Apply repeat filter
@@ -454,6 +465,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var testDate sql.NullTime
 		var lastOutcome sql.NullString
 		var lastFinalGrade sql.NullString
+		var refusedRenewalAt sql.NullTime
 
 		err := rows.Scan(
 			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.SentToClasses,
@@ -464,6 +476,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			&finalPrice,
 			&lastOutcome,
 			&lastFinalGrade,
+			&refusedRenewalAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan lead: %w", err)
@@ -485,6 +498,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			AssignedLevel:    assignedLevel,
 			LastOutcome:      lastOutcome,
 			LastFinalGrade:   lastFinalGrade,
+			RefusedRenewal:   refusedRenewalAt.Valid,
+			RefusedRenewalAt: refusedRenewalAt,
 			PaymentStatus:    GetPaymentStatus(remainingBalance, amountPaid),
 			PaymentState:     paymentState,
 			NextAction:       GetNextAction(lead.Status),
@@ -1008,6 +1023,68 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 		WHERE id = $2
 	`, status, leadID)
 	return err
+}
+
+// MarkRenewalRefusedAndSetCold moves a returning lead to cold_lead and writes an
+// auditable refusal event for renewal reporting.
+func MarkRenewalRefusedAndSetCold(leadID uuid.UUID, refusedByUserID *uuid.UUID, notes string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin refusal tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET status = 'cold_lead',
+		    sent_to_classes = false,
+		    updated_at = $2
+		WHERE id = $1
+	`, leadID, now)
+	if err != nil {
+		return fmt.Errorf("failed to move lead to cold_lead: %w", err)
+	}
+
+	var refusedBy interface{}
+	if refusedByUserID != nil {
+		refusedBy = *refusedByUserID
+	}
+	_, err = tx.Exec(`
+		INSERT INTO renewal_refusals (id, lead_id, refused_at, refused_by_user_id, reason, notes, created_at)
+		VALUES ($1, $2, $3, $4, 'refused_renewal', $5, $3)
+	`, uuid.New(), leadID, now, refusedBy, strings.TrimSpace(notes))
+	if err != nil {
+		return fmt.Errorf("failed to insert renewal refusal: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func GetLatestRenewalRefusal(leadID uuid.UUID) (*RenewalRefusal, error) {
+	item := &RenewalRefusal{}
+	err := db.DB.QueryRow(`
+		SELECT id, lead_id, refused_at, refused_by_user_id::text, reason, notes, created_at
+		FROM renewal_refusals
+		WHERE lead_id = $1
+		ORDER BY refused_at DESC
+		LIMIT 1
+	`, leadID).Scan(
+		&item.ID,
+		&item.LeadID,
+		&item.RefusedAt,
+		&item.RefusedByUserID,
+		&item.Reason,
+		&item.Notes,
+		&item.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query latest renewal refusal: %w", err)
+	}
+	return item, nil
 }
 
 // UpdateLeadPurchasedLevels updates levels_purchased_total for a lead.
@@ -2703,13 +2780,18 @@ func GetTotalCoursePaidCurrentCycle(leadID uuid.UUID) (int32, error) {
 	}
 
 	// Sum all course payments from lead_payments table since cycle start.
+	// Safety fallback on payment_date avoids missing same-cycle payments when legacy
+	// rows were inserted a few milliseconds before cycle_started_at.
 	var totalPayments sql.NullInt32
 	err = db.DB.QueryRow(`
 		SELECT COALESCE(SUM(amount), 0)
 		FROM lead_payments
 		WHERE lead_id = $1
-		  AND created_at >= $2
-	`, leadID, cycleStart).Scan(&totalPayments)
+		  AND (
+		    created_at >= $2
+		    OR payment_date >= $3::date
+		  )
+	`, leadID, cycleStart, cycleStart).Scan(&totalPayments)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get current-cycle payments: %w", err)
 	}
@@ -4205,14 +4287,16 @@ func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error
 			}
 		}
 
-		attendanceScore := float64(60)
-		if absences >= 2 {
+		attendanceScore := 0.0
+		if absences > 2 {
 			attendanceScore = 0
+		} else {
+			attendanceScore = (float64(attendedSessions) / 8.0) * 50.0
 		}
 
 		taskScore := float64(0)
 		if completedTasks > 1 {
-			taskScore = (float64(completedTasks) / 7.0) * 30.0
+			taskScore = (float64(completedTasks) / 7.0) * 40.0
 		}
 
 		avgParticipation := float64(3)

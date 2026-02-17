@@ -133,6 +133,14 @@
 **Reason**: Prevents unrelated edits from resetting cold-lead timing.  
 **Evidence**: `internal/models/repository.go` (`GetAllLeads`), `internal/handlers/pre_enrolment.go` (detail `ColdEligible`)
 
+### Rule: Cold leads are excluded from default main feed
+**Scope**: Pre-enrolment list when not in explicit cold mode.  
+**Behavior**:
+- Main feed must exclude `status = cold_lead` by default.
+- Cold leads appear only when `cold=1` quick filter is active or when status filter explicitly targets `COLD_LEAD`.
+**Reason**: Reduces Ops confusion by separating retargeting backlog from active pipeline.
+**Evidence**: `internal/models/repository.go` (`GetAllLeads`)
+
 ### Rule: Cold Leads retarget uses one level dropdown to filter the table
 **Scope**: Pre-enrolment list when `cold=1` quick filter is active.  
 **Behavior**:
@@ -157,6 +165,25 @@
 **UI**: Pre‑enrolment list/detail shows remaining credits and last outcome (promoted vs repeated) for returning students.  
 **Purpose**: Ops can immediately see how many levels are left and whether the student should repeat.  
 **Evidence**: `internal/views/pre_enrolment_list.html`, `internal/views/pre_enrolment_detail.html`, `internal/models/repository.go` (`GetAllLeads`, `GetLeadByID`)
+
+### Rule: Pre-enrolment smart steps (Arabic) for lead workflow summary
+**Scope**: Pre-enrolment detail page under top workflow summary banner (all leads).  
+**Behavior**:
+- Show a short Arabic checklist of next actions (`1-4` steps) derived from lead workflow state.
+- Steps are deterministic from status + payment/schedule/credits context (source of truth), not from free-form AI decisions.
+- Content is operational and simple for admins.
+- Applies to both new and returning leads.
+ - Paid/ready states must guide execution actions (send to classes / waiting list / late joiner), not generic "review data" text.
+**Phase split**:
+- Phase 1: deterministic step codes + static Arabic templates.
+- Phase 2: optional AI rewrite layer that only rewrites phrasing, never changes step logic/order/count.
+**Fallback rule**:
+- If AI is disabled/fails/times out/returns invalid format, render phase-1 static Arabic templates.
+**Feature flags**:
+- `SMART_STEPS_AI_ENABLED=true` enables AI rewrite.
+- `OPENAI_API_KEY` provides model access.
+- `OPENAI_MODEL` selects model (`gpt-4o-mini` default).
+**Evidence**: `internal/handlers/pre_enrolment.go`, `internal/views/pre_enrolment_detail.html`
 
 ### Rule: Returning schedule defaults
 **Rule**: Returning students (waiting_for_round / renewal_pending) default their class days/time to the **previous class schedule** (latest class_enrollments), editable by Ops.  
@@ -194,6 +221,37 @@
 **Reason**: These students finish their previous level with credits (e.g., 1 level bundle), so they've already "paid" for the next level upfront.  
 **Evidence**: `internal/handlers/pre_enrolment.go:MarkReady` (bypass logic)
 
+### Rule: Course payment creation is atomic (all-or-none fields)
+**Scope**: Pre-enrolment Course Payment section when adding a new payment row.  
+**Behavior**:
+- Course Payment section is stage-gated. It stays locked for early pipeline statuses and for `renewal_pending`.
+- Course Payment is only enabled once lead is in explicit payment-collection stages (currently `offer_sent`, `booking_confirmed`, `deposit_paid`).
+- Course payment validation is triggered only when core payment intent fields are touched (`payment type`, `amount`, `payment method`).
+- `payment date` may be prefilled by UI defaults and must not alone trigger course-payment validation.
+- Once triggered, all required inputs must be present and valid before creating a payment.
+- Partial payment drafts are rejected with a validation error and must not silently save.
+- `ready_to_start` eligibility is based on real recorded payment/credits state, not incomplete form drafts.
+**Reason**: Prevents leads from appearing operationally paid/ready while no finance-backed payment entry was created.  
+**Evidence**: `internal/handlers/pre_enrolment.go` (`SaveFull`, `mark_ready`)
+
+### Rule: Bundle selection alone must not grant prepaid credits
+**Scope**: Pre-enrolment Course Payment panel (`bundle_id`) during save.  
+**Behavior**:
+- Selecting/changing bundle without recording a valid course payment must not update `leads.levels_purchased_total`.
+- Credit entitlement only changes through successful payment flow (`lead_payments` + credit refresh), not UI draft fields.
+**Reason**: Prevents accidental false `PAID_FULL` state and incorrect smart-step guidance from unsaved/incomplete payment drafts.
+**Evidence**: `internal/handlers/pre_enrolment.go` (`SaveFull`)
+
+### Rule: Full payment is single-shot per cycle (no extra payments after settled)
+**Scope**: Course payments for active cycle in pre-enrolment save.  
+**Behavior**:
+- The active payment cycle must be initialized **before** evaluating remaining balance and inserting a new payment.
+- If cycle remaining balance is `0`, backend must reject any new course payment (`deposit`, `full_payment`, `top_up`).
+- This guard must apply server-side even if UI still displays editable controls due to stale state.
+ - Current-cycle paid total must include cycle payments by `created_at` with a safety fallback that also includes same-cycle `payment_date >= cycle_start::date` to handle legacy timestamp skew.
+**Reason**: Prevents duplicate “paid again” entries that inflate finance ledger after a student is already settled for the cycle.
+**Evidence**: `internal/handlers/pre_enrolment.go` (`SaveFull`), `internal/models/repository.go` (`GetTotalCoursePaidCurrentCycle`, `UpsertActivePaymentCycle`)
+
 ### Rule: Waiting-for-round appears as PAID_FULL in Ops list
 **Behavior**: Returning students with remaining credits in waiting flow (`waiting_for_round`, `schedule_assigned`, `ready_to_start`) are shown as `PAID_FULL` in pre-enrolment payment column/filter even if current-cycle payment snapshot is empty.  
 **Reason**: Their entitlement is prepaid credit, not a new cycle payment yet.  
@@ -206,6 +264,24 @@
 - Returning leads with zero remaining credits unless they are already in waiting flow (`waiting_for_round` / `schedule_assigned` / `ready_to_start`).  
 **Reason**: Prevents status-hopping from `renewal_pending` into `waiting_for_round` and bypassing payment checks.  
 **Evidence**: `internal/handlers/pre_enrolment.go` (`move_waiting` action, `MarkWaiting`)
+
+### Rule: Returning refusal can be moved to cold with explicit marker
+**Scope**: Pre-enrolment detail actions for returning students in renewal flow.  
+**Behavior**:
+- Admin can mark a returning student as `refused_renewal` and move status to `cold_lead` via dedicated action.
+- Action is only valid for returning renewal cases without prepaid entitlement (consumed bundle / no remaining credits), so Ops can retarget later.
+- Refusal is stored in dedicated audit storage (timestamp + actor) for future reporting by period.
+ - Cold Leads list row must surface a visible `REFUSED RENEWAL` marker for those leads to support retargeting prioritization.
+**Reason**: Distinguishes renewal refusals from generic cold leads and preserves analytics for future admin reports.
+**Evidence**: `internal/handlers/pre_enrolment.go` (new action), `internal/models/repository.go` (refusal audit write), `internal/db/migrations` (refusal table)
+
+### Rule: Cold list should not show misleading promotion chip
+**Scope**: Pre-enrolment list row chips under cold-lead workflow.  
+**Behavior**:
+- `PROMOTED` chip is suppressed when lead status is `cold_lead`.
+- For refused-renewal cold leads, `REFUSED RENEWAL` chip is shown instead.
+**Reason**: Cold retargeting screen should emphasize recoverability reason, not previous class outcome.
+**Evidence**: `internal/views/pre_enrolment_list.html`, `internal/models/repository.go` (`GetAllLeads` refusal marker projection)
 
 ### Rule: Waiting for Round UI logic
 **Behavior**: For `waiting_for_round` students:
@@ -398,6 +474,8 @@
 **Persistence**: Notes persist across sessions and rounds  
 **Optional Fields**: Can be linked to specific class_key and session_number  
 **Privacy**: `is_private` flag controls visibility (implementation TBD)  
+**Grade-note display dedupe**: When a final grade note is mirrored into student notes, timeline-style views show one entry only (no duplicate visual rows for mirror + grade source).  
+**Implementation note (2026-02-17)**: API timeline dedupe is ID-based (`student_notes.id == gradeMirrorNoteID(grades.id)`), and keeps the `grade_note` entry as canonical.
 **Evidence**: `migrations/019_create_student_notes.sql`, `internal/models/repository.go` (`AddStudentNote`, `GetStudentNotes`)
 
 ### Rule: Community officer feedback timing
@@ -412,9 +490,10 @@
 **Critical**: The `status = 'in_classes'` filter prevents leads from appearing in rosters before explicit enrollment  
 **See**: `memory/investigations/roster_mechanism_answers.md`
 
-### Rule: Mentor Head pre-round roster visibility (sent classes)
-**Implementation**: Mentor Head/Admin can see `ready_to_start` students for classes that are `sent_to_mentor` and still `round_status = not_started`. Other roles remain `in_classes` only.  
-**Evidence**: `internal/models/repository.go` (`GetStudentsForMentorHeadClass`), `internal/handlers/mentor_head.go`, `internal/handlers/api.go` (Mentor Head dashboard + class workspace).
+### Rule: Pre-round roster visibility for sent classes
+**Implementation**: Mentor Head/Admin/**Mentor** can see `ready_to_start` students for classes that are `sent_to_mentor` and still `round_status = not_started` (pre-start visibility).  
+**Guard**: For `mentor` role, this pre-start view is read-only: mentors cannot mark attendance or complete sessions until round status becomes `active` (after MH starts round).  
+**Evidence**: `internal/models/repository.go` (`GetStudentsForMentorHeadClass`), `internal/handlers/api.go` (class workspace + action guards), `frontend/src/pages/ClassWorkspace.tsx` (pre-start action lock).
 
 ### Rule: sent_to_mentor flag
 **Purpose**: Tracks if class has been sent from ops to mentor head  
@@ -524,6 +603,16 @@
 - `internal/models/repository.go` (ComputeStageFromFormCompletion)
 - `internal/handlers/api.go` (CompletePlacementTest)
 
+### Rule: Placement test discount affects required payment
+**Scope**: Pre-enrolment placement test fee validation.  
+**Behavior**:
+- Required payable amount is computed from discounted final placement-test fee (base fee minus discount), not raw base fee.
+- If discount makes final fee `0` (e.g., 100% discount), paid amount `0` is valid and payment method/date are not required.
+- If final fee > 0, paid amount must cover final fee before "Mark Test Booked" can proceed.
+- The fee-settlement gate is enforced on explicit `mark_test_booked` action (booking intent), not on generic `save` draft action.
+**Reason**: Prevents false "pay full amount" errors when admin intentionally applies full discount.
+**Evidence**: `internal/handlers/pre_enrolment.go` (placement fee validation path)
+
 ---
 
 ## Attendance & Absence
@@ -570,13 +659,17 @@
 - `task_completed` (bool)
 - `participation_score` (1..5 stars)
 **Behavior**: Attendance updates can upsert session performance in the same workflow.  
+**Input Rule**:
+- Task/stars inputs are allowed for both `PRESENT` and `ABSENT` attendance states (ops may track homework/engagement independently from attendance).
+- Only `N/A` attendance remains non-interactive.
 **Evidence**: `internal/db/migrations/058_create_session_performance.sql`, `internal/handlers/api.go` (`MarkAttendance`), `internal/models/repository.go` (session performance upsert/query helpers)
 
 ### Rule: Final grade is auto-calculated from attendance/tasks/participation
 **Algorithm**:
-- Attendance score (60): `0` when absences `>= 2`, else `60`.
-- Task score (30): sessions `2..8` only; if completed tasks `<= 1` then `0`, else `(completed/7)*30`.
+- Attendance score (50): `0` when absences `> 2` (3+), else proportional: `(present_sessions/8)*50`.
+- Task score (40): sessions `2..8` only; if completed tasks `<= 1` then `0`, else `(completed/7)*40`.
 - Participation score (10): average stars over attended sessions; `(avg/5)*10`.
+**Implementation note (2026-02-17)**: Formula is computed in `GetGradePreviewsByClass`; attendance now scales by actual attended sessions instead of flat full points.
 **Grade mapping**:
 - A `>= 85`, B `>= 70`, C `>= 50`, F `< 50`.
 **Submission guard**:
