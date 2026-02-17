@@ -1,4 +1,5 @@
 # Eighty Twenty Operations
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/MahmoudObeid1001/eighty-twenty-ops)
 
 ## Running the Application
 
