@@ -1,7 +1,13 @@
 # SOURCE OF TRUTH - Business Rules
 
-**Last Updated**: 2026-02-13  
+**Last Updated**: 2026-02-18  
 **Status**: Definitive - All implementation must match these rules
+
+---
+
+## Maintenance Notes
+
+- 2026-02-18: Lint/quality cleanup pass (`golangci-lint`) completed. No business rules or runtime behavior were intentionally changed.
 
 ---
 
@@ -252,6 +258,85 @@
    - Override resolution
    - Reopen
    - **Not implemented now** - document as "future"
+
+---
+
+## Reports - Business Intelligence (Admin Dashboard)
+
+### Access Scope
+
+**Business Rule**:
+- BI reports under `/app/reports` are for `admin` and `mentor_head`.
+- Existing mentor-compliance report workflows for Student Success stay unchanged.
+
+### Report 1: Sales Pipeline Efficiency
+
+**Business Questions**:
+- Are leads converting from test-booked to paid?
+- Which leads are stuck in `offer_sent` too long?
+- Are returning students renewing?
+
+**Required Outputs**:
+- Conversion metric for test-booked to paid in recent window.
+- Bottleneck list: leads in `offer_sent` older than 3 days.
+- Renewal rate for `is_returning` students based on new-cycle payment activity.
+
+### Report 2: Financial Leakage & Liability
+
+**Business Questions**:
+- Are there underpaid students already in classes?
+- What is service liability in unused credits?
+- What is the current-round cash pulse?
+
+**Required Outputs**:
+- Ghost students list: `in_classes` with paid amount below current offer/cycle due.
+- Refund/service liability: sum of `remaining_credits × standard_level_price`.
+- Revenue pulse metric: payments collected in current active round.
+
+### Report 3: Retention & Drop-off
+
+**Business Questions**:
+- Who churned after finishing?
+- Who paid but is stalled before scheduling?
+
+**Required Outputs**:
+- Lost list: finished-level students with `remaining_credits = 0` and status `renewal_pending`.
+- Stalled list: finished-level students with `remaining_credits > 0` and status `waiting_for_round`.
+
+### Report 4: Operational Volume
+
+**Business Questions**:
+- Is operating capacity growing or shrinking?
+- How many learners were active in a date range?
+
+**Required Outputs**:
+- Active classes trend by month.
+- Started learners count in selected range:
+  - distinct students whose enrollment started in period (`class_enrollments.joined_at` or fallback `class_enrollments.enrolled_at`)
+  - includes late joiners naturally through enrollment start date.
+- Finished learners count in selected range:
+  - distinct students with completed enrollments in period (`class_enrollments.completed_at` range).
+
+**Implementation Notes (2026-02-18)**:
+- API endpoint: `GET /api/reports/bi?from=YYYY-MM-DD&to=YYYY-MM-DD` (roles: `admin`, `mentor_head`).
+- Date filter defaults to rolling 6-month range when `from`/`to` are omitted.
+- Report 4 learner volume metrics are split for growth analysis:
+  - `started_learners`: distinct `class_enrollments.lead_id` where `enrolled_at` is in range.
+  - `finished_learners`: distinct `class_enrollments.lead_id` where `completed_at` is in range.
+  - This is the quarter-over-quarter source of truth for “entered learning” vs “finished level”.
+- Liability valuation uses bundle-weighted per-credit pricing by purchased bundle tier:
+  - bundle 1 = `1300`
+  - bundle 2 = `1200`
+  - bundle 3 = `1100`
+  - bundle 4 = `1000`
+- Finance dashboard `CREDITS (Remaining Levels)` widget is aligned to BI scope:
+  - include only non-cancelled leads
+  - remaining credits computed as `GREATEST(levels_purchased_total - levels_consumed, 0)`
+  - student breakdown includes zero-credit students (`0/1/2/3+` buckets) to keep totals interpretable
+  - card shows both:
+    - students with credits `> 0`
+    - total students in scope (including `0` credits)
+
 
 ---
 

@@ -178,7 +178,9 @@ func GetComplianceByClassKey(classKey string) ([]*ComplianceClassSession, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load class compliance: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	sessions := make([]*ComplianceClassSession, 0, 8)
 	for rows.Next() {
@@ -330,7 +332,6 @@ func GetMentorComplianceReports(roundStatus string, mentorID *uuid.UUID) ([]*Men
 		)
 	`, i)
 		args = append(args, roundStatus)
-		i++
 	} else {
 		query += `
 		, exclusions AS (
@@ -370,7 +371,9 @@ func GetMentorComplianceReports(roundStatus string, mentorID *uuid.UUID) ([]*Men
 	if err != nil {
 		return nil, fmt.Errorf("failed to query mentor compliance reports: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var out []*MentorComplianceReportRow
 	for rows.Next() {
@@ -438,7 +441,9 @@ func GetMentorComplianceChecklist(mentorID uuid.UUID, roundStatus string) ([]*Me
 	if err != nil {
 		return nil, fmt.Errorf("failed to load mentor compliance checklist: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var out []*MentorComplianceChecklistRow
 	for rows.Next() {
@@ -496,7 +501,6 @@ func GetMentorClassComplianceReports(roundStatus string, mentorID *uuid.UUID) ([
 	if mentorID != nil {
 		query += fmt.Sprintf(" AND COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) = $%d", i)
 		args = append(args, *mentorID)
-		i++
 	}
 	query += `
 		),
@@ -556,7 +560,9 @@ func GetMentorClassComplianceReports(roundStatus string, mentorID *uuid.UUID) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to query mentor class compliance reports: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var out []*MentorClassComplianceReportRow
 	for rows.Next() {

@@ -162,11 +162,14 @@
 <!-- CREDITS Section -->
 <div style="background: white; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
     <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #FFA500; padding-bottom: 12px;">🎫 CREDITS (Remaining Levels)</h2>
+    <p style="margin: 6px 0 0; color: #666; font-size: 13px;">Scope: non-cancelled students only (aligned with BI reports).</p>
     
     <div style="margin: 20px 0;">
         <div style="background: #FFF4E6; padding: 16px; border-radius: 6px; border-left: 4px solid #FFA500;">
             <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Total Remaining Levels</div>
             <div style="font-size: 32px; font-weight: bold; color: #CC6600;">{{.Summary.TotalRemainingLevels}}</div>
+            <div style="margin-top: 4px; font-size: 13px; color: #666;">{{.Summary.StudentsWithCredits}} students with credits &gt; 0</div>
+            <div style="margin-top: 2px; font-size: 13px; color: #666;">{{.Summary.CreditsTracked}} students in scope (including 0 levels)</div>
         </div>
     </div>
 

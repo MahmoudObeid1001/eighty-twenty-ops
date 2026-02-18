@@ -428,7 +428,6 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		query += fmt.Sprintf(" AND (LOWER(l.full_name) LIKE LOWER($%d) OR l.phone LIKE $%d)", argIndex, argIndex)
 		searchPattern := "%" + searchFilter + "%"
 		args = append(args, searchPattern)
-		argIndex++
 	}
 
 	// Default sorting (unless hot filter is active, then we sort after computing flags in Go)
@@ -455,7 +454,9 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 	if err != nil {
 		return nil, fmt.Errorf("failed to query leads: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var leads []*LeadListItem
 	for rows.Next() {
@@ -638,7 +639,9 @@ func GetPlacementTestsForStudentSuccess(showCompleted bool) ([]*PlacementTestQue
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	items := []*PlacementTestQueueItem{}
 	for rows.Next() {
@@ -835,7 +838,9 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	now := time.Now()
 
@@ -1032,7 +1037,9 @@ func MarkRenewalRefusedAndSetCold(leadID uuid.UUID, refusedByUserID *uuid.UUID, 
 	if err != nil {
 		return fmt.Errorf("failed to begin refusal tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	now := time.Now()
 	_, err = tx.Exec(`
@@ -1224,7 +1231,9 @@ func BookPlacementTest(leadID uuid.UUID, testDate sql.NullTime, testTime sql.Nul
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	now := time.Now()
 
@@ -1301,7 +1310,9 @@ func DeleteLead(leadID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Delete related records first (in reverse order of dependencies)
 	// Note: If foreign keys have CASCADE DELETE, some of these may be automatic
@@ -1395,7 +1406,9 @@ func GetEligibleStudentsForClasses() ([]*ClassStudent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query eligible students: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var students []*ClassStudent
 	for rows.Next() {
@@ -1440,7 +1453,9 @@ func GetClassGroups() ([]*ClassGroup, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query class groups: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	// Group by (level, days, time, group_index)
 	groupsMap := make(map[string]*ClassGroup)
@@ -1607,7 +1622,9 @@ func AssignClassGroup(leadID uuid.UUID) (int32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get student's level, days, time
 	// Note: We don't check sent_to_classes here because GetClassGroups already filters for it
@@ -1840,7 +1857,9 @@ func GetAvailableGroupsForMove(leadID uuid.UUID) ([]int32, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query groups: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var availableGroups []int32
 	for rows.Next() {
@@ -1920,7 +1939,9 @@ func GetMoveOptionsForLead(leadID uuid.UUID) ([]MoveClassOption, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query available classes: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	for rows.Next() {
 		var classKey, days, timeStr string
@@ -2294,7 +2315,6 @@ func GetArchivedOpsClasses(classKeyLike string, fromDate, toDate *time.Time) ([]
 	if toDate != nil {
 		query += fmt.Sprintf(" AND hidden_at <= $%d", argN)
 		args = append(args, *toDate)
-		argN++
 	}
 	query += " ORDER BY hidden_at DESC"
 
@@ -2302,7 +2322,7 @@ func GetArchivedOpsClasses(classKeyLike string, fromDate, toDate *time.Time) ([]
 	if err != nil {
 		return nil, fmt.Errorf("failed to query archived classes: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []*ArchivedOpsClass
 	for rows.Next() {
@@ -2340,7 +2360,7 @@ func GetClassGroupWorkflowsBatch(classKeys []string) (map[string]*ClassGroupWork
 	if err != nil {
 		return nil, fmt.Errorf("failed to query class group workflows: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make(map[string]*ClassGroupWorkflow)
 	for rows.Next() {
@@ -2525,7 +2545,9 @@ func UpsertActivePaymentCycle(leadID uuid.UUID, bundleLevels int32, finalPrice i
 	if err != nil {
 		return fmt.Errorf("failed to begin payment cycle tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	var levelsConsumed int32
 	err = tx.QueryRow(`SELECT COALESCE(levels_consumed, 0) FROM leads WHERE id = $1`, leadID).Scan(&levelsConsumed)
@@ -2839,7 +2861,7 @@ func GetLeadPayments(leadID uuid.UUID) ([]*LeadPayment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query lead payments: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var payments []*LeadPayment
 	for rows.Next() {
@@ -2870,7 +2892,7 @@ func GetLeadPaymentsSince(leadID uuid.UUID, since time.Time) ([]*LeadPayment, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to query lead payments since: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var payments []*LeadPayment
 	for rows.Next() {
@@ -2901,7 +2923,7 @@ func GetLeadPaymentsBefore(leadID uuid.UUID, before time.Time) ([]*LeadPayment, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query lead payments before: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var payments []*LeadPayment
 	for rows.Next() {
@@ -2987,7 +3009,9 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 	`, uuid.New(), paymentDateValue, "IN", "course_payment", amount, paymentMethod, leadID, "lead", refIDStr, "course_payment", refKey, payment.Notes, now)
 	if err != nil {
 		// Rollback payment if transaction creation fails
-		db.DB.Exec(`DELETE FROM lead_payments WHERE id = $1`, payment.ID)
+		if _, deleteErr := db.DB.Exec(`DELETE FROM lead_payments WHERE id = $1`, payment.ID); deleteErr != nil {
+			log.Printf("WARNING: failed to rollback lead payment %s: %v", payment.ID, deleteErr)
+		}
 		return nil, fmt.Errorf("failed to create finance transaction: %w", err)
 	}
 
@@ -3403,9 +3427,14 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 	today := time.Now().Format("2006-01-02")
 
 	summary := &FinanceSummary{
-		INByCategory:     make(map[string]int32),
-		OUTByCategory:    make(map[string]int32),
-		CreditsBreakdown: make(map[string]int),
+		INByCategory:  make(map[string]int32),
+		OUTByCategory: make(map[string]int32),
+		CreditsBreakdown: map[string]int{
+			"0":  0,
+			"1":  0,
+			"2":  0,
+			"3+": 0,
+		},
 	}
 
 	// Today's totals
@@ -3441,7 +3470,6 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 	if dateTo.Valid {
 		rangeQuery += fmt.Sprintf(" AND transaction_date <= $%d::date", argIndex)
 		rangeArgs = append(rangeArgs, dateTo.Time.Format("2006-01-02"))
-		argIndex++
 	}
 
 	var rangeIN, rangeOUT sql.NullInt32
@@ -3480,7 +3508,9 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get category breakdown: %w", err)
 	}
-	defer categoryRows.Close()
+	defer func() {
+		_ = categoryRows.Close()
+	}()
 
 	for categoryRows.Next() {
 		var category, txType string
@@ -3496,33 +3526,60 @@ func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
 		}
 	}
 
-	// Credits breakdown (levels remaining)
+	// Credits summary aligned with BI scope:
+	// - non-cancelled leads only
+	// - remaining credits computed as GREATEST(purchased - consumed, 0)
 	var totalRemaining sql.NullInt32
+	var studentsWithCredits sql.NullInt32
+	var creditsTracked sql.NullInt32
 	err = db.DB.QueryRow(`
-		SELECT COALESCE(SUM(levels_purchased_total - COALESCE(levels_consumed, 0)), 0)
-		FROM leads
-		WHERE levels_purchased_total > 0
-	`).Scan(&totalRemaining)
+		WITH credits AS (
+			SELECT
+				status,
+				GREATEST(COALESCE(levels_purchased_total, 0) - COALESCE(levels_consumed, 0), 0) AS remaining_credits
+			FROM leads
+		)
+		SELECT
+			COALESCE(SUM(remaining_credits), 0)::int,
+			COUNT(*) FILTER (WHERE remaining_credits > 0)::int,
+			COUNT(*)::int
+		FROM credits
+		WHERE status <> 'cancelled'
+	`).Scan(&totalRemaining, &studentsWithCredits, &creditsTracked)
 	if err == nil && totalRemaining.Valid {
 		summary.TotalRemainingLevels = totalRemaining.Int32
+	}
+	if err == nil && studentsWithCredits.Valid {
+		summary.StudentsWithCredits = int(studentsWithCredits.Int32)
+	}
+	if err == nil && creditsTracked.Valid {
+		summary.CreditsTracked = int(creditsTracked.Int32)
 	}
 
 	// Credits breakdown by count
 	creditsRows, err := db.DB.Query(`
-		SELECT 
+		WITH credits AS (
+			SELECT
+				status,
+				GREATEST(COALESCE(levels_purchased_total, 0) - COALESCE(levels_consumed, 0), 0) AS remaining_credits
+			FROM leads
+		)
+		SELECT
 			CASE 
-				WHEN (levels_purchased_total - COALESCE(levels_consumed, 0)) = 0 THEN '0'
-				WHEN (levels_purchased_total - COALESCE(levels_consumed, 0)) = 1 THEN '1'
-				WHEN (levels_purchased_total - COALESCE(levels_consumed, 0)) = 2 THEN '2'
+				WHEN remaining_credits = 0 THEN '0'
+				WHEN remaining_credits = 1 THEN '1'
+				WHEN remaining_credits = 2 THEN '2'
 				ELSE '3+'
 			END as bucket,
 			COUNT(*)
-		FROM leads
-		WHERE levels_purchased_total > 0
+		FROM credits
+		WHERE status <> 'cancelled'
 		GROUP BY bucket
 	`)
 	if err == nil {
-		defer creditsRows.Close()
+		defer func() {
+			_ = creditsRows.Close()
+		}()
 		for creditsRows.Next() {
 			var bucket string
 			var count int
@@ -3576,7 +3633,7 @@ func GetCurrentCashBalanceByPaymentMethod() ([]PaymentMethodBalance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get balance by payment method: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var result []PaymentMethodBalance
 	for rows.Next() {
 		var b PaymentMethodBalance
@@ -3637,7 +3694,7 @@ func GetTransactions(dateFrom, dateTo sql.NullTime, transactionTypeFilter, categ
 	if err != nil {
 		return nil, fmt.Errorf("failed to query transactions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var transactions []*Transaction
 	for rows.Next() {
@@ -3707,9 +3764,10 @@ func GroupTransactionsByDay(transactions []*Transaction) []*LedgerDayGroup {
 		group.Transactions = append(group.Transactions, tx)
 
 		// Update totals based on transaction type
-		if tx.TransactionType == "IN" {
+		switch tx.TransactionType {
+		case "IN":
 			group.InTotal += tx.Amount
-		} else if tx.TransactionType == "OUT" {
+		case "OUT":
 			// OUT transactions are already positive amounts in the DB, but we display them as negative
 			// For totals, we sum the absolute value
 			group.OutTotal += tx.Amount
@@ -3748,7 +3806,7 @@ func GetCancelledLeadsSummary() ([]*CancelledLeadSummary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query cancelled leads: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var summaries []*CancelledLeadSummary
 	for rows.Next() {
@@ -3849,7 +3907,7 @@ func GetClassSessions(classKey string) ([]*ClassSession, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query class sessions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var sessions []*ClassSession
 	for rows.Next() {
@@ -3886,7 +3944,9 @@ func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime strin
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get session info
 	var classKey string
@@ -4078,7 +4138,7 @@ func GetAttendanceForSession(sessionID uuid.UUID) ([]*Attendance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query attendance: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var records []*Attendance
 	for rows.Next() {
@@ -4112,7 +4172,7 @@ func GetAttendanceByClassKey(classKey string) (map[uuid.UUID]map[uuid.UUID]*Atte
 	if err != nil {
 		return nil, fmt.Errorf("failed to query attendance by class: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make(map[uuid.UUID]map[uuid.UUID]*Attendance)
 	for rows.Next() {
@@ -4164,7 +4224,7 @@ func GetSessionPerformanceByClassKey(classKey string) (map[uuid.UUID]map[uuid.UU
 	if err != nil {
 		return nil, fmt.Errorf("failed to query session performance by class: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make(map[uuid.UUID]map[uuid.UUID]*SessionPerformance)
 	for rows.Next() {
@@ -4412,7 +4472,7 @@ func GetStudentNotes(leadID uuid.UUID) ([]*StudentNote, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query student notes: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var notes []*StudentNote
 	for rows.Next() {
@@ -4659,7 +4719,7 @@ func GetMentorClasses(mentorUserID uuid.UUID) ([]*ClassGroupWorkflow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query mentor classes: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var classes []*ClassGroupWorkflow
 	for rows.Next() {
@@ -4732,7 +4792,9 @@ func GetMentorReminders(mentorUserID uuid.UUID) ([]*MentorReminder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query attendance reminders: %w", err)
 	}
-	defer attendanceRows.Close()
+	defer func() {
+		_ = attendanceRows.Close()
+	}()
 
 	for attendanceRows.Next() {
 		var classKey, classDays, classTime string
@@ -4800,7 +4862,9 @@ func GetMentorReminders(mentorUserID uuid.UUID) ([]*MentorReminder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query grading reminders: %w", err)
 	}
-	defer gradingRows.Close()
+	defer func() {
+		_ = gradingRows.Close()
+	}()
 
 	for gradingRows.Next() {
 		var classKey, classDays, classTime string
@@ -5001,7 +5065,9 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 	now := time.Now()
 
 	// Get current mentor assigned to the class
@@ -5031,7 +5097,7 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("failed to query students: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var leadIDs []uuid.UUID
 	for rows.Next() {
@@ -5041,7 +5107,9 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 		}
 		leadIDs = append(leadIDs, leadID)
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close student rows: %w", err)
+	}
 
 	// VALIDATION: Ensure all students have grades before closing the round
 	var studentsWithoutGrades int
@@ -5106,7 +5174,9 @@ func ReopenClosedRound(classKey string) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	now := time.Now()
 
@@ -5179,7 +5249,6 @@ func GetArchivedClassGroups(sort string, fromDate, toDate *time.Time) ([]*ClassG
 	if toDate != nil {
 		query += fmt.Sprintf(" AND round_closed_at::date <= $%d", argIndex)
 		args = append(args, toDate.Format("2006-01-02"))
-		argIndex++
 	}
 
 	query += fmt.Sprintf(" ORDER BY round_closed_at %s", order)
@@ -5188,7 +5257,7 @@ func GetArchivedClassGroups(sort string, fromDate, toDate *time.Time) ([]*ClassG
 	if err != nil {
 		return nil, fmt.Errorf("failed to query archived class groups: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var groups []*ClassGroupWorkflow
 	for rows.Next() {
@@ -5255,7 +5324,7 @@ func GetClassFeedbackRecords(classKey string) ([]*StudentSuccessFeedback, error)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []*StudentSuccessFeedback
 	for rows.Next() {
@@ -5316,7 +5385,7 @@ func GetFeedbackCollectedUploadsByClass(classKey string) ([]*FeedbackCollectedUp
 	if err != nil {
 		return nil, fmt.Errorf("failed to query feedback uploads: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []*FeedbackCollectedUpload
 	for rows.Next() {
@@ -5388,7 +5457,7 @@ func GetPendingFeedback(sessionNumber int32) ([]struct {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query pending feedback: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []struct {
 		LeadID   uuid.UUID
@@ -5438,7 +5507,7 @@ func GetAbsenceFollowUpLogs(leadID uuid.UUID) ([]*AbsenceFollowUpLog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query follow-up logs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var logs []*AbsenceFollowUpLog
 	for rows.Next() {
@@ -5476,7 +5545,7 @@ func GetUsersByRole(role string) ([]*User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query users: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var users []*User
 	for rows.Next() {
@@ -5708,7 +5777,7 @@ func GetMentorEvaluationsByRoundStatus(roundStatus string, mentorQuery string, f
 	if err != nil {
 		return nil, fmt.Errorf("failed to query mentor evaluations by class: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	mentorMap := map[uuid.UUID]*MentorEvaluationMentorItem{}
 	order := make([]uuid.UUID, 0)
@@ -5801,7 +5870,7 @@ func GetMentorDirectory() ([]*MentorDirectoryItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query mentor directory: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]*MentorDirectoryItem, 0)
 	for rows.Next() {
@@ -5901,7 +5970,7 @@ func GetMentorProfile(mentorID uuid.UUID) (*MentorProfile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load mentor class history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	history := make([]MentorClassHistoryItem, 0)
 	totalEval := 0
@@ -6005,7 +6074,7 @@ func GetMentorTestimonials(mentorID uuid.UUID) ([]MentorTestimonial, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query mentor testimonials: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]MentorTestimonial, 0)
 	for rows.Next() {
@@ -6130,7 +6199,9 @@ func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluato
 	if err != nil {
 		return fmt.Errorf("failed to begin mentor evaluation upsert tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	updateRes, err := tx.Exec(`
 		UPDATE mentor_evaluations
@@ -6250,7 +6321,7 @@ func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query class groups: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var groups []*ClassGroupWorkflow
 	for rows.Next() {
@@ -6357,7 +6428,7 @@ func GetActiveClassesForStudentSuccess() ([]StudentSuccessClassRow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query active classes: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []StudentSuccessClassRow
 	for rows.Next() {
@@ -6385,7 +6456,7 @@ func GetAttendanceMissedSessions(classKey string) (map[uuid.UUID][]int32, error)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	m := make(map[uuid.UUID][]int32)
 	for rows.Next() {
@@ -6407,7 +6478,7 @@ func GetStudentSuccessClassDetail(classKey string, allowClosed bool) (classGroup
 		return nil, nil, nil, nil, nil, 0, err
 	}
 	if classGroup.RoundStatus != "active" {
-		if !(allowClosed && classGroup.RoundStatus == "closed") {
+		if !allowClosed || classGroup.RoundStatus != "closed" {
 			return nil, nil, nil, nil, nil, 0, fmt.Errorf("class is not active")
 		}
 	}
@@ -6469,7 +6540,7 @@ func GetStudentsInClassGroup(classKey string) ([]*ClassStudent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query students: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var students []*ClassStudent
 	for rows.Next() {
@@ -6509,7 +6580,7 @@ func GetStudentsForMentorHeadClass(classKey string) ([]*ClassStudent, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to query closed class students: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		var students []*ClassStudent
 		for rows.Next() {
@@ -6552,7 +6623,7 @@ func GetStudentsForMentorHeadClass(classKey string) ([]*ClassStudent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query students: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var students []*ClassStudent
 	for rows.Next() {
@@ -6625,7 +6696,7 @@ func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var eligible []*EligibleClass
 	for rows.Next() {
@@ -6684,7 +6755,9 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// 1. Validate current session <= 2
 	var currentSession int32
@@ -6898,7 +6971,9 @@ func UndoLateJoiner(leadID uuid.UUID, userID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// 1. Get late_joiners record for lead
 	var lj LateJoiner
@@ -6988,7 +7063,7 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now()
 
@@ -7120,7 +7195,6 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 	if search != "" {
 		query += fmt.Sprintf(" AND (l.full_name ILIKE $%d OR l.phone ILIKE $%d)", argIdx, argIdx)
 		args = append(args, "%"+search+"%")
-		argIdx++
 	}
 
 	query += " ORDER BY s.session_number DESC, a.created_at DESC"
@@ -7129,7 +7203,7 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query absence feed: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	results := []*AbsenceFeedItem{}
 	for rows.Next() {
@@ -7312,7 +7386,7 @@ func GetFollowUps(classKey string, resolved bool) ([]*FollowUpListItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query follow-ups: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	results := []*FollowUpListItem{}
 	for rows.Next() {
@@ -7402,7 +7476,7 @@ func GetFollowUpsWithComplaints(classKey string, showResolved bool) ([]*FollowUp
 	if err != nil {
 		return nil, fmt.Errorf("failed to query follow-ups: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	results := []*FollowUpListItem{}
 	for rows.Next() {
@@ -7466,7 +7540,7 @@ func GetComplaintsForMentorHead(showResolved bool) ([]*ComplaintListItem, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query complaints: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	results := []*ComplaintListItem{}
 	for rows.Next() {
@@ -7592,7 +7666,7 @@ func GetFollowUpNotes(caseID uuid.UUID) ([]*FollowUpCaseNote, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query notes: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	notes := []*FollowUpCaseNote{}
 	for rows.Next() {
@@ -7725,7 +7799,7 @@ func GetGradesByClassKey(classKey string) ([]Grade, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query grades: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	grades := []Grade{}
 	for rows.Next() {
@@ -7845,7 +7919,7 @@ func GetPendingLateJoinerNotifications(userID uuid.UUID) ([]*LateJoinerNotificat
 	if err != nil {
 		return nil, fmt.Errorf("failed to query notifications: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	notifications := []*LateJoinerNotification{}
 	for rows.Next() {

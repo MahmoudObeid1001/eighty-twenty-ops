@@ -24,7 +24,11 @@ func main() {
 	if err := db.Connect(cfg.DatabaseURL); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("warning: failed to close db: %v", closeErr)
+		}
+	}()
 
 	// Run migrations
 	if err := db.RunMigrations(); err != nil {
@@ -272,13 +276,14 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /api/class -> apiHandler.GetClass [mentor+mentor_head+admin] (backward compatibility)")
 
 	mux.HandleFunc("/api/notes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "admin", "student_success"}, cfg.SessionSecret)(apiHandler.GetNotes)(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "admin", "student_success"}, cfg.SessionSecret)(apiHandler.CreateNote)(w, r)
-		} else if r.Method == http.MethodDelete {
+		case http.MethodDelete:
 			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "admin", "student_success"}, cfg.SessionSecret)(apiHandler.DeleteNote)(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
@@ -396,13 +401,14 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/grades/:id -> apiHandler.UpdateGrade [mentor_head]")
 
 	mux.HandleFunc("/api/grades", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "student_success", "admin"}, cfg.SessionSecret)(apiHandler.GetGradesForClass)(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			middleware.RequireAnyRole([]string{"mentor", "mentor_head"}, cfg.SessionSecret)(apiHandler.CreateGrade)(w, r)
-		} else if r.Method == http.MethodDelete {
+		case http.MethodDelete:
 			middleware.RequireAnyRole([]string{"mentor", "mentor_head"}, cfg.SessionSecret)(apiHandler.DeleteGrade)(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
@@ -475,11 +481,12 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/class/absence-feed -> apiHandler.GetAbsenceFeed")
 
 	mux.HandleFunc("/api/student-success/followups", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetFollowUps)(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.CreateFollowUp)(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
@@ -601,6 +608,11 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors/exclude -> apiHandler.ExcludeMentorReportRow [mentor_head+admin]")
 
+	mux.HandleFunc("/api/reports/bi", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		middleware.RequireAnyRole([]string{"admin", "mentor_head"}, cfg.SessionSecret)(apiHandler.GetBIReports)(w, r)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/bi -> apiHandler.GetBIReports [admin+mentor_head]")
+
 	// Dynamic classes routes /api/classes/{id}/sessions and /api/classes/{id}/sessions/{n}/complete
 	mux.HandleFunc("/api/classes/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -710,13 +722,14 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			cfg.Debugf("  → Calling preEnrolmentHandler.NewForm")
 			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(preEnrolmentHandler.NewForm)(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			cfg.Debugf("  → Calling preEnrolmentHandler.Create")
 			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(preEnrolmentHandler.Create)(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
@@ -739,17 +752,18 @@ func main() {
 			return
 		}
 
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			cfg.Debugf("  → Calling preEnrolmentHandler.Detail")
 			// GET detail - allow admin + moderator + student_success (read-only)
 			middleware.RequireAnyRole([]string{"admin", "moderator", "student_success"}, cfg.SessionSecret)(preEnrolmentHandler.Detail)(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			// All POST requests to /pre-enrolment/{id} go to Update handler
 			// Update handler reads action parameter and routes accordingly
 			cfg.Debugf("  → Calling preEnrolmentHandler.Update (action-based routing)")
 			// Allow admin + moderator (Update handler enforces restrictions per action)
 			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(preEnrolmentHandler.Update)(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
@@ -913,13 +927,14 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			cfg.Debugf("  → Calling financeHandler.NewExpenseForm")
 			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.NewExpenseForm)(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			cfg.Debugf("  → Calling financeHandler.CreateExpense")
 			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.CreateExpense)(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
@@ -1111,13 +1126,14 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			cfg.Debugf("  → Calling hrHandler.MentorsList")
 			middleware.RequireAnyRole([]string{"hr", "admin"}, cfg.SessionSecret)(hrHandler.MentorsList)(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			cfg.Debugf("  → Calling hrHandler.MentorsCreate")
 			middleware.RequireAnyRole([]string{"hr", "admin"}, cfg.SessionSecret)(hrHandler.MentorsCreate)(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))

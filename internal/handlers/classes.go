@@ -56,17 +56,6 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	flashMessage, flashMessageType := flashFromQuery(r)
 
-	// Get class groups
-	groups, err := models.GetClassGroups()
-	if err != nil {
-		log.Printf("ERROR: Failed to get class groups: %v", err)
-		if flashMessage == "" {
-			flashMessage = "Couldn't load classes. Please refresh and try again."
-			flashMessageType = "error"
-		}
-		groups = []*models.ClassGroup{}
-	}
-
 	// Get current round
 	currentRound, err := models.GetCurrentRound()
 	if err != nil {
@@ -113,8 +102,8 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Re-fetch groups after auto-assignment
-	groups, err = models.GetClassGroups()
+	// Fetch groups after auto-assignment
+	groups, err := models.GetClassGroups()
 	if err != nil {
 		log.Printf("ERROR: Failed to re-fetch class groups: %v", err)
 		if flashMessage == "" {
@@ -206,9 +195,10 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var moveErr error
 	if strings.HasPrefix(targetGroupStr, "class_key:") {
 		classKey := strings.TrimPrefix(targetGroupStr, "class_key:")
-		err = models.MoveStudentToClassKey(leadID, classKey)
+		moveErr = models.MoveStudentToClassKey(leadID, classKey)
 	} else {
 		targetGroup, err := strconv.Atoi(targetGroupStr)
 		if err != nil {
@@ -235,10 +225,10 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 			targetGroup = int(maxIndex + 1)
 		}
 
-		err = models.MoveStudentBetweenGroups(leadID, int32(targetGroup))
+		moveErr = models.MoveStudentBetweenGroups(leadID, int32(targetGroup))
 	}
-	if err != nil {
-		log.Printf("ERROR: Failed to move student: %v", err)
+	if moveErr != nil {
+		log.Printf("ERROR: Failed to move student: %v", moveErr)
 		redirectWithError(w, r, "/classes", "We couldn't move this student. Please try again.")
 		return
 	}

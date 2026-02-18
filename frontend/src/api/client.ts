@@ -422,6 +422,81 @@ export interface MentorClassReportItem {
   complaints_count: number
 }
 
+export interface BIBottleneckLead {
+  lead_id: string
+  full_name: string
+  phone: string
+  status: string
+  days_in_status: number
+}
+
+export interface BIGhostStudent {
+  lead_id: string
+  full_name: string
+  phone: string
+  offer_price: number
+  total_paid: number
+  shortfall: number
+  class_status: string
+}
+
+export interface BIRetentionStudent {
+  lead_id: string
+  full_name: string
+  phone: string
+  status: string
+  remaining_credits: number
+  last_level: number
+  last_completed_at: string
+}
+
+export interface BIActiveClassesMonth {
+  month: string
+  classes_count: number
+}
+
+export interface BIReportPayload {
+  generated_at: string
+  filters: {
+    from: string
+    to: string
+  }
+  report1: {
+    conversion: {
+      test_booked_count: number
+      converted_count: number
+      conversion_rate: number
+    }
+    bottleneck: BIBottleneckLead[]
+    renewal: {
+      returning_count: number
+      renewed_count: number
+      renewal_rate: number
+    }
+  }
+  report2: {
+    ghost_students: BIGhostStudent[]
+    refund_liability: {
+      students_count: number
+      total_value: number
+      pricing_model: string
+    }
+    revenue_pulse: {
+      active_round_start?: string
+      total_collected: number
+    }
+  }
+  report3: {
+    lost: BIRetentionStudent[]
+    stalled: BIRetentionStudent[]
+  }
+  report4: {
+    active_classes_by_month: BIActiveClassesMonth[]
+    started_learners: number
+    finished_learners: number
+  }
+}
+
 export const api = {
   getMe: (): Promise<User> => fetchAPI('/me'),
 
@@ -824,6 +899,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  getBIReports: (params: { from?: string; to?: string } = {}): Promise<BIReportPayload> => {
+    const qs = new URLSearchParams()
+    if (params.from) qs.set('from', params.from)
+    if (params.to) qs.set('to', params.to)
+    const query = qs.toString()
+    return fetchAPI(`/reports/bi${query ? `?${query}` : ''}`)
+  },
 }
 
 // Student Profile Types (Milestone 4)

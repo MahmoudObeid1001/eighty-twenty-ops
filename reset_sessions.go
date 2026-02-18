@@ -13,7 +13,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("warning: failed to close db: %v", closeErr)
+		}
+	}()
 
 	res, err := db.Exec("UPDATE class_sessions SET status = 'scheduled'")
 	if err != nil {

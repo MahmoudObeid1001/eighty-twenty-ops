@@ -1,5 +1,13 @@
-import { CSSProperties, Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { api, MentorClassReportItem, MentorReportChecklistItem, MentorReportItem } from '../api/client'
+import { CSSProperties, Fragment, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  api,
+  BIReportPayload,
+  MentorClassReportItem,
+  MentorReportChecklistItem,
+  MentorReportItem,
+} from '../api/client'
+
+type ReportsViewMode = 'bi' | 'mentor'
 
 export default function ReportsPage() {
   const [items, setItems] = useState<MentorReportItem[]>([])
@@ -18,19 +26,52 @@ export default function ReportsPage() {
   const [classRows, setClassRows] = useState<MentorClassReportItem[]>([])
   const checklistRequestRef = useRef(0)
 
+  const today = new Date()
+  const defaultFrom = new Date(today)
+  defaultFrom.setMonth(defaultFrom.getMonth() - 5)
+  defaultFrom.setDate(1)
+
+  const [biFrom, setBIFrom] = useState<string>(formatDateInput(defaultFrom))
+  const [biTo, setBITo] = useState<string>(formatDateInput(today))
+  const [biAppliedFrom, setBIAppliedFrom] = useState<string>(formatDateInput(defaultFrom))
+  const [biAppliedTo, setBIAppliedTo] = useState<string>(formatDateInput(today))
+  const [biLoading, setBILoading] = useState(false)
+  const [biError, setBIError] = useState<string | null>(null)
+  const [biData, setBIData] = useState<BIReportPayload | null>(null)
+
+  const canViewBI = userRole === 'admin' || userRole === 'mentor_head'
+  const canViewMentor = userRole === 'student_success' || userRole === 'mentor_head'
+
+  const [viewMode, setViewMode] = useState<ReportsViewMode>('bi')
+
   useEffect(() => {
     void loadMe()
   }, [])
 
   useEffect(() => {
     if (!userRole) return
-    if (userRole === 'admin') {
-      setLoading(false)
-      setClassesLoading(false)
+    if (canViewBI) {
+      setViewMode('bi')
+      return
+    }
+    if (canViewMentor) {
+      setViewMode('mentor')
+    }
+  }, [userRole, canViewBI, canViewMentor])
+
+  useEffect(() => {
+    if (!userRole || !canViewMentor || viewMode !== 'mentor') {
       return
     }
     void loadReports()
-  }, [mentorFilter, userRole])
+  }, [mentorFilter, userRole, canViewMentor, viewMode])
+
+  useEffect(() => {
+    if (!userRole || !canViewBI || viewMode !== 'bi') {
+      return
+    }
+    void loadBIReports(biAppliedFrom, biAppliedTo)
+  }, [userRole, canViewBI, viewMode, biAppliedFrom, biAppliedTo])
 
   async function loadMe() {
     try {
@@ -42,7 +83,6 @@ export default function ReportsPage() {
   }
 
   async function loadReports() {
-    if (userRole === 'admin') return
     try {
       setLoading(true)
       setClassesLoading(true)
@@ -64,6 +104,19 @@ export default function ReportsPage() {
     } finally {
       setLoading(false)
       setClassesLoading(false)
+    }
+  }
+
+  async function loadBIReports(from: string, to: string) {
+    try {
+      setBILoading(true)
+      setBIError(null)
+      const data = await api.getBIReports({ from, to })
+      setBIData(data)
+    } catch (err) {
+      setBIError(err instanceof Error ? err.message : 'Failed to load BI reports')
+    } finally {
+      setBILoading(false)
     }
   }
 
@@ -115,9 +168,9 @@ export default function ReportsPage() {
       setSelectedClassKey(null)
       setChecklistRows([])
       setChecklistLoading(true)
-      const requestId = ++checklistRequestRef.current
+      const requestID = ++checklistRequestRef.current
       const activeRes = await api.getMentorReportChecklist({ mentor_id: row.mentor_id, round_status: 'active' })
-      if (requestId === checklistRequestRef.current) {
+      if (requestID === checklistRequestRef.current) {
         setChecklistRows(activeRes.items || [])
       }
     } catch (err) {
@@ -134,151 +187,413 @@ export default function ReportsPage() {
     setSelectedClassKey(classKey)
   }
 
+  function applyDateFilter() {
+    if (!biFrom || !biTo) {
+      setBIError('Please select both From and To dates.')
+      return
+    }
+    if (biTo < biFrom) {
+      setBIError('To date must be on or after From date.')
+      return
+    }
+    setBIAppliedFrom(biFrom)
+    setBIAppliedTo(biTo)
+  }
+
   return (
     <>
       <div className="header content-header">
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
-        <h1>Mentor Reports</h1>
+        <h1>Reports</h1>
       </div>
 
-      {userRole === 'admin' && (
-        <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>
-          <h3 style={{ marginTop: 0 }}>Reports Coming Soon</h3>
-          <p style={{ color: '#555', marginBottom: 0 }}>
-            In-round mentor reports are not available for Ops Admin. This tab will include Ops-specific reports later.
-          </p>
+      {canViewBI && canViewMentor && (
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+          <button
+            onClick={() => setViewMode('bi')}
+            style={{
+              ...tabButtonStyle,
+              ...(viewMode === 'bi' ? activeTabButtonStyle : null),
+            }}
+          >
+            Business Intelligence
+          </button>
+          <button
+            onClick={() => setViewMode('mentor')}
+            style={{
+              ...tabButtonStyle,
+              ...(viewMode === 'mentor' ? activeTabButtonStyle : null),
+            }}
+          >
+            Mentor Compliance
+          </button>
         </div>
       )}
-      {userRole !== 'admin' && (
-        <>
 
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 700, color: '#333' }}>Unified Report</span>
-        <select
-          value={mentorFilter}
-          onChange={(e) => setMentorFilter(e.target.value)}
-          style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #ccc', minWidth: '220px' }}
-        >
-          <option value="">All Mentors</option>
-          {mentorOptions.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {error && <div style={{ background: '#f8d7da', color: '#721c24', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{error}</div>}
-
-      <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
-          <thead>
-            <tr style={{ background: '#f8f9fa', textAlign: 'left' }}>
-              <th style={thStyle}>Mentor Name</th>
-              <th style={thStyle}>Active Classes</th>
-              <th style={thStyle}>Compliance %</th>
-              <th style={thStyle}>Avg Delay (min)</th>
-              <th style={thStyle}>Absences</th>
-              <th style={thStyle}>Complaints</th>
-              {canRemove && <th style={thStyle}>Action</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {!loading && items.length === 0 ? (
-              <tr>
-                <td style={emptyStyle} colSpan={canRemove ? 7 : 6}>
-                  No report rows found.
-                </td>
-              </tr>
-            ) : (
-              items.map((row) => (
-                <Fragment key={row.mentor_id}>
-                  <tr>
-                    <td style={tdStyle}>
-                      <button
-                        onClick={() => void openChecklist(row)}
-                        style={{ background: 'none', border: 'none', color: '#0d6efd', cursor: 'pointer', padding: 0, fontSize: 'inherit' }}
-                        title="Open mentor compliance details"
-                      >
-                        {row.mentor_email}
-                      </button>
-                    </td>
-                    <td style={tdStyle}>{row.classes_count}</td>
-                    <td style={tdStyle}>
-                      <ComplianceBar score={row.compliance_score} />
-                    </td>
-                    <td style={tdStyle}>{Number(row.avg_delay_minutes || 0).toFixed(1)}</td>
-                    <td style={tdStyle}>{row.absence_count}</td>
-                    <td style={tdStyle}>{row.complaints_count}</td>
-                    {canRemove && (
-                      <td style={tdStyle}>
-                        <button
-                          onClick={() => void handleRemove(row)}
-                          disabled={removingMentorID === row.mentor_id}
-                          style={{
-                            padding: '6px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid #dc3545',
-                            background: '#fff',
-                            color: '#dc3545',
-                            cursor: removingMentorID === row.mentor_id ? 'not-allowed' : 'pointer',
-                            fontWeight: 600,
-                          }}
-                        >
-                          {removingMentorID === row.mentor_id ? 'Removing...' : 'Remove'}
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                  <tr>
-                    <td style={{ ...tdStyle, background: '#fafbfd' }} colSpan={canRemove ? 7 : 6}>
-                      <MentorClassBreakdownTable
-                        rows={classRowsByMentor.get(row.mentor_id) || []}
-                        loading={classesLoading}
-                        onOpenClass={(classRow) => void openClassChecklist(row, classRow.class_key)}
-                      />
-                    </td>
-                  </tr>
-                </Fragment>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {selectedMentor && (
-        <MentorChecklistModal
-          mentor={selectedMentor}
-          rows={checklistRows}
-          loading={checklistLoading}
-          classKeyFilter={selectedClassKey}
-          onClose={() => {
-            setSelectedMentor(null)
-            setSelectedClassKey(null)
-          }}
-        />
+      {!canViewBI && !canViewMentor && (
+        <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>
+          <h3 style={{ marginTop: 0 }}>No Reports Access</h3>
+          <p style={{ color: '#555', marginBottom: 0 }}>Your role does not have access to reports.</p>
+        </div>
       )}
-      {confirmRemove && (
-        <div onClick={() => setConfirmRemove(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5000, padding: '16px' }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', width: '520px', maxWidth: '100%', boxShadow: '0 12px 30px rgba(0,0,0,0.2)', padding: '20px' }}>
-            <h3 style={{ margin: 0, marginBottom: '8px' }}>Remove Mentor From Report?</h3>
-            <p style={{ margin: 0, color: '#555', lineHeight: 1.5 }}>
-              This will hide <strong>{confirmRemove.mentor_email}</strong> from the report. Data will not be deleted.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-              <button onClick={() => setConfirmRemove(null)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}>
-                Cancel
-              </button>
-              <button onClick={() => void confirmRemoveMentor()} style={{ padding: '8px 14px', borderRadius: '8px', border: 'none', background: '#dc3545', color: 'white', fontWeight: 700, cursor: 'pointer' }}>
-                Yes, Remove
-              </button>
+
+      {canViewBI && viewMode === 'bi' && (
+        <>
+          <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={filterLabelStyle}>From</label>
+                <input type="date" value={biFrom} onChange={(e) => setBIFrom(e.target.value)} style={filterInputStyle} />
+              </div>
+              <div>
+                <label style={filterLabelStyle}>To</label>
+                <input type="date" value={biTo} onChange={(e) => setBITo(e.target.value)} style={filterInputStyle} />
+              </div>
+              <button onClick={applyDateFilter} style={actionBtnStyle}>Apply</button>
             </div>
           </div>
-        </div>
+
+          {biError && <div style={{ background: '#f8d7da', color: '#721c24', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{biError}</div>}
+
+          {biLoading && (
+            <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>Loading BI dashboard...</div>
+          )}
+
+          {!biLoading && biData && (
+            <BIDashboard data={biData} />
+          )}
+        </>
       )}
+
+      {canViewMentor && viewMode === 'mentor' && (
+        <>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, color: '#333' }}>Unified Report</span>
+            <select
+              value={mentorFilter}
+              onChange={(e) => setMentorFilter(e.target.value)}
+              style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #ccc', minWidth: '220px' }}
+            >
+              <option value="">All Mentors</option>
+              {mentorOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {error && <div style={{ background: '#f8d7da', color: '#721c24', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{error}</div>}
+
+          <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', overflow: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+              <thead>
+                <tr style={{ background: '#f8f9fa', textAlign: 'left' }}>
+                  <th style={thStyle}>Mentor Name</th>
+                  <th style={thStyle}>Active Classes</th>
+                  <th style={thStyle}>Compliance %</th>
+                  <th style={thStyle}>Avg Delay (min)</th>
+                  <th style={thStyle}>Absences</th>
+                  <th style={thStyle}>Complaints</th>
+                  {canRemove && <th style={thStyle}>Action</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {!loading && items.length === 0 ? (
+                  <tr>
+                    <td style={emptyStyle} colSpan={canRemove ? 7 : 6}>
+                      No report rows found.
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((row) => (
+                    <Fragment key={row.mentor_id}>
+                      <tr>
+                        <td style={tdStyle}>
+                          <button
+                            onClick={() => void openChecklist(row)}
+                            style={{ background: 'none', border: 'none', color: '#0d6efd', cursor: 'pointer', padding: 0, fontSize: 'inherit' }}
+                            title="Open mentor compliance details"
+                          >
+                            {row.mentor_email}
+                          </button>
+                        </td>
+                        <td style={tdStyle}>{row.classes_count}</td>
+                        <td style={tdStyle}>
+                          <ComplianceBar score={row.compliance_score} />
+                        </td>
+                        <td style={tdStyle}>{Number(row.avg_delay_minutes || 0).toFixed(1)}</td>
+                        <td style={tdStyle}>{row.absence_count}</td>
+                        <td style={tdStyle}>{row.complaints_count}</td>
+                        {canRemove && (
+                          <td style={tdStyle}>
+                            <button
+                              onClick={() => void handleRemove(row)}
+                              disabled={removingMentorID === row.mentor_id}
+                              style={{
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid #dc3545',
+                                background: '#fff',
+                                color: '#dc3545',
+                                cursor: removingMentorID === row.mentor_id ? 'not-allowed' : 'pointer',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {removingMentorID === row.mentor_id ? 'Removing...' : 'Remove'}
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                      <tr>
+                        <td style={{ ...tdStyle, background: '#fafbfd' }} colSpan={canRemove ? 7 : 6}>
+                          <MentorClassBreakdownTable
+                            rows={classRowsByMentor.get(row.mentor_id) || []}
+                            loading={classesLoading}
+                            onOpenClass={(classRow) => void openClassChecklist(row, classRow.class_key)}
+                          />
+                        </td>
+                      </tr>
+                    </Fragment>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {selectedMentor && (
+            <MentorChecklistModal
+              mentor={selectedMentor}
+              rows={checklistRows}
+              loading={checklistLoading}
+              classKeyFilter={selectedClassKey}
+              onClose={() => {
+                setSelectedMentor(null)
+                setSelectedClassKey(null)
+              }}
+            />
+          )}
+          {confirmRemove && (
+            <div onClick={() => setConfirmRemove(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5000, padding: '16px' }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', width: '520px', maxWidth: '100%', boxShadow: '0 12px 30px rgba(0,0,0,0.2)', padding: '20px' }}>
+                <h3 style={{ margin: 0, marginBottom: '8px' }}>Remove Mentor From Report?</h3>
+                <p style={{ margin: 0, color: '#555', lineHeight: 1.5 }}>
+                  This will hide <strong>{confirmRemove.mentor_email}</strong> from the report. Data will not be deleted.
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                  <button onClick={() => setConfirmRemove(null)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button onClick={() => void confirmRemoveMentor()} style={{ padding: '8px 14px', borderRadius: '8px', border: 'none', background: '#dc3545', color: 'white', fontWeight: 700, cursor: 'pointer' }}>
+                    Yes, Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </>
+  )
+}
+
+function BIDashboard({ data }: { data: BIReportPayload }) {
+  const conversion = data.report1.conversion
+  const renewal = data.report1.renewal
+  const liability = data.report2.refund_liability
+  const revenuePulse = data.report2.revenue_pulse
+
+  return (
+    <div style={{ display: 'grid', gap: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        <MetricCard
+          title="Test→Paid (30d)"
+          value={`${conversion.conversion_rate.toFixed(1)}%`}
+          sub={`${conversion.converted_count}/${conversion.test_booked_count} converted`}
+        />
+        <MetricCard
+          title="Returning Renewal Rate"
+          value={`${renewal.renewal_rate.toFixed(1)}%`}
+          sub={`${renewal.renewed_count}/${renewal.returning_count} renewed`}
+        />
+        <MetricCard
+          title="Refund Liability"
+          value={`${liability.total_value.toLocaleString()} EGP`}
+          sub={`${liability.students_count} students · bundle-weighted credit pricing`}
+        />
+        <MetricCard
+          title="Revenue Pulse"
+          value={`${revenuePulse.total_collected.toLocaleString()} EGP`}
+          sub={revenuePulse.active_round_start ? `From ${String(revenuePulse.active_round_start).slice(0, 10)}` : 'No active round'}
+        />
+      </div>
+
+      <ReportPanel title="Report 1 · Bottleneck Leads (offer_sent > 3 days)">
+        <SimpleTable
+          columns={['Name', 'Phone', 'Status', 'Days Stuck']}
+          rows={data.report1.bottleneck.map((row) => [row.full_name, row.phone, row.status, String(row.days_in_status)])}
+          emptyText="No bottlenecks found."
+        />
+      </ReportPanel>
+
+      <ReportPanel title="Report 2 · Ghost Students (in_classes but underpaid)">
+        <SimpleTable
+          columns={['Name', 'Phone', 'Offer Price', 'Paid', 'Shortfall']}
+          rows={data.report2.ghost_students.map((row) => [
+            row.full_name,
+            row.phone,
+            `${row.offer_price} EGP`,
+            `${row.total_paid} EGP`,
+            `${row.shortfall} EGP`,
+          ])}
+          emptyText="No ghost students detected."
+        />
+      </ReportPanel>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+        <ReportPanel title="Report 3 · Lost Students (renewal_pending, 0 credits)">
+          <SimpleTable
+            columns={['Name', 'Phone', 'Last Level', 'Completed']}
+            rows={data.report3.lost.map((row) => [row.full_name, row.phone, `L${row.last_level}`, row.last_completed_at])}
+            emptyText="No lost students in the recent window."
+          />
+        </ReportPanel>
+
+        <ReportPanel title="Report 3 · Stalled Students (waiting_for_round, credits > 0)">
+          <SimpleTable
+            columns={['Name', 'Phone', 'Credits', 'Last Level']}
+            rows={data.report3.stalled.map((row) => [row.full_name, row.phone, String(row.remaining_credits), `L${row.last_level}`])}
+            emptyText="No stalled students found."
+          />
+        </ReportPanel>
+      </div>
+
+      <ReportPanel title={`Report 4 · Active Classes Trend (${data.filters.from} → ${data.filters.to})`}>
+        <ActiveClassesBarChart points={data.report4.active_classes_by_month} />
+        <div style={{ height: '12px' }} />
+        <SimpleTable
+          columns={['Month', 'Active Classes Running']}
+          rows={data.report4.active_classes_by_month.map((row) => [row.month, String(row.classes_count)])}
+          emptyText="No class trend data for selected range."
+        />
+      </ReportPanel>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+        <ReportPanel title="Report 4 · Started Learning in Selected Range">
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#1f2937' }}>{data.report4.started_learners} learners</div>
+          <div style={{ color: '#6b7280', marginTop: '4px' }}>
+            Distinct students who entered learning in the selected period (by enrollment start date, including late joiners).
+          </div>
+        </ReportPanel>
+
+        <ReportPanel title="Report 4 · Finished Level in Selected Range">
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#1f2937' }}>{data.report4.finished_learners} learners</div>
+          <div style={{ color: '#6b7280', marginTop: '4px' }}>
+            Distinct students with a completed class enrollment in the selected period.
+          </div>
+        </ReportPanel>
+      </div>
+    </div>
+  )
+}
+
+function MetricCard({ title, value, sub }: { title: string; value: string; sub: string }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
+      <div style={{ color: '#6b7280', fontSize: '13px', fontWeight: 700 }}>{title}</div>
+      <div style={{ marginTop: '8px', fontSize: '24px', fontWeight: 800, color: '#111827' }}>{value}</div>
+      <div style={{ marginTop: '4px', fontSize: '13px', color: '#6b7280' }}>{sub}</div>
+    </div>
+  )
+}
+
+function ActiveClassesBarChart({ points }: { points: { month: string; classes_count: number }[] }) {
+  if (!points.length) {
+    return <div style={{ color: '#6b7280' }}>No chart data in selected range.</div>
+  }
+
+  const maxValue = Math.max(...points.map((p) => p.classes_count), 1)
+
+  const getBarColor = (index: number): string => {
+    if (index === 0) return '#2563eb'
+    const previous = points[index-1]?.classes_count ?? points[index].classes_count
+    const current = points[index].classes_count
+    if (current > previous) return '#16a34a'
+    if (current < previous) return '#dc2626'
+    return '#f59e0b'
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: '8px' }}>
+      {points.map((point, index) => {
+        const width = Math.max((point.classes_count / maxValue) * 100, point.classes_count > 0 ? 3 : 0)
+        const barColor = getBarColor(index)
+        return (
+          <div key={point.month} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 40px', alignItems: 'center', gap: '8px' }}>
+            <div style={{ fontSize: '12px', color: '#6b7280', fontWeight: 700 }}>{point.month}</div>
+            <div style={{ background: '#e5e7eb', borderRadius: '999px', height: '10px', overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${width}%`,
+                  height: '100%',
+                  background: barColor,
+                }}
+              />
+            </div>
+            <div style={{ fontSize: '12px', color: '#1f2937', fontWeight: 700, textAlign: 'right' }}>{point.classes_count}</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ReportPanel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
+      <h3 style={{ margin: 0, marginBottom: '10px', color: '#1f2937' }}>{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+function SimpleTable({
+  columns,
+  rows,
+  emptyText,
+}: {
+  columns: string[]
+  rows: string[][]
+  emptyText: string
+}) {
+  if (rows.length === 0) {
+    return <div style={{ color: '#6b7280' }}>{emptyText}</div>
+  }
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '520px' }}>
+        <thead>
+          <tr style={{ background: '#f8fafc' }}>
+            {columns.map((column) => (
+              <th key={column} style={{ ...thStyle, borderBottom: '1px solid #e5e7eb' }}>
+                {column}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={`${idx}-${row.join('-')}`}>
+              {row.map((cell, cellIdx) => (
+                <td key={`${idx}-${cellIdx}`} style={tdStyle}>
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -457,6 +772,10 @@ function getSessionSlotLabel(classDays: string, sessionNumber: number): string {
   return sessionNumber%2 === 1 ? parts[0] : parts[1]
 }
 
+function formatDateInput(value: Date): string {
+  return value.toISOString().slice(0, 10)
+}
+
 const thStyle: CSSProperties = {
   padding: '12px',
   borderBottom: '1px solid #ddd',
@@ -494,4 +813,44 @@ const pillStyle: CSSProperties = {
   fontSize: '12px',
   fontWeight: 700,
   padding: '4px 10px',
+}
+
+const tabButtonStyle: CSSProperties = {
+  padding: '8px 14px',
+  borderRadius: '8px',
+  border: '1px solid #ced4da',
+  background: '#fff',
+  color: '#495057',
+  cursor: 'pointer',
+  fontWeight: 700,
+}
+
+const activeTabButtonStyle: CSSProperties = {
+  background: '#0d6efd',
+  color: '#fff',
+  borderColor: '#0d6efd',
+}
+
+const filterLabelStyle: CSSProperties = {
+  display: 'block',
+  fontSize: '12px',
+  color: '#6b7280',
+  marginBottom: '6px',
+  fontWeight: 700,
+}
+
+const filterInputStyle: CSSProperties = {
+  padding: '10px 12px',
+  borderRadius: '8px',
+  border: '1px solid #ccc',
+}
+
+const actionBtnStyle: CSSProperties = {
+  padding: '10px 14px',
+  borderRadius: '8px',
+  border: '1px solid #0d6efd',
+  background: '#0d6efd',
+  color: '#fff',
+  cursor: 'pointer',
+  fontWeight: 700,
 }

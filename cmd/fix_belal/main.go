@@ -19,7 +19,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("warning: failed to close db: %v", closeErr)
+		}
+	}()
 
 	// Fix Belal's status
 	fmt.Println("=== FIXING BELAL'S STATUS ===")

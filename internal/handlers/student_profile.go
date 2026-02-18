@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -27,7 +28,9 @@ func SearchStudents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	if err := json.NewEncoder(w).Encode(results); err != nil {
+		log.Printf("ERROR: Failed to encode search students response: %v", err)
+	}
 }
 
 // parseStudentID extracts the student ID from the URL path
@@ -55,7 +58,9 @@ func GetStudentProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(profile)
+	if err := json.NewEncoder(w).Encode(profile); err != nil {
+		log.Printf("ERROR: Failed to encode student profile response: %v", err)
+	}
 }
 
 // GetStudentHistory handles GET /api/students/:id/history
@@ -73,7 +78,9 @@ func GetStudentHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(history)
+	if err := json.NewEncoder(w).Encode(history); err != nil {
+		log.Printf("ERROR: Failed to encode student history response: %v", err)
+	}
 }
 
 // GetCurrentStatus handles GET /api/students/:id/current-status
@@ -92,9 +99,13 @@ func GetCurrentStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if status == nil {
-		json.NewEncoder(w).Encode(nil)
+		if err := json.NewEncoder(w).Encode(nil); err != nil {
+			log.Printf("ERROR: Failed to encode nil current status response: %v", err)
+		}
 	} else {
-		json.NewEncoder(w).Encode(status)
+		if err := json.NewEncoder(w).Encode(status); err != nil {
+			log.Printf("ERROR: Failed to encode current status response: %v", err)
+		}
 	}
 }
 
@@ -113,5 +124,7 @@ func GetStudentNotes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(notes)
+	if err := json.NewEncoder(w).Encode(notes); err != nil {
+		log.Printf("ERROR: Failed to encode student notes response: %v", err)
+	}
 }

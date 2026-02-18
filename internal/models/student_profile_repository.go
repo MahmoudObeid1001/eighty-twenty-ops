@@ -33,7 +33,7 @@ func SearchStudents(query string) ([]*StudentSearchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to search students: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	results := []*StudentSearchResult{}
 	for rows.Next() {
@@ -113,7 +113,7 @@ func GetAcademicHistory(leadID uuid.UUID) ([]*AcademicHistoryItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get academic history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	history := []*AcademicHistoryItem{}
 	for rows.Next() {
@@ -244,7 +244,7 @@ func GetCurrentClassStatus(leadID uuid.UUID) (*CurrentClassStatus, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get attendance records: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	sessionDetails := []SessionAttendance{}
 	stats := AttendanceStats{}
@@ -266,13 +266,14 @@ func GetCurrentClassStatus(leadID uuid.UUID) (*CurrentClassStatus, error) {
 		})
 
 		// Update stats
-		if status == "PRESENT" {
-			stats.Present++
-		} else if status == "ABSENT" {
-			stats.Absent++
-		} else if status == "LATE" {
-			stats.Late++
-		}
+			switch status {
+			case "PRESENT":
+				stats.Present++
+			case "ABSENT":
+				stats.Absent++
+			case "LATE":
+				stats.Late++
+			}
 		if status != "NOT_MARKED" {
 			stats.Total++
 		}
@@ -336,7 +337,7 @@ func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get notes timeline: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	timeline := []*TimelineItem{}
 	for rows.Next() {

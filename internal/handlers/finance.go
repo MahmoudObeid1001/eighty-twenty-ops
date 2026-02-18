@@ -80,9 +80,15 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("ERROR: Failed to get finance summary: %v", err)
 		summary = &models.FinanceSummary{
-			INByCategory:     map[string]int32{},
-			OUTByCategory:    map[string]int32{},
-			CreditsBreakdown: map[string]int{},
+			INByCategory:        map[string]int32{},
+			OUTByCategory:       map[string]int32{},
+			StudentsWithCredits: 0,
+			CreditsBreakdown: map[string]int{
+				"0":  0,
+				"1":  0,
+				"2":  0,
+				"3+": 0,
+			},
 		}
 		if flashMessage == "" {
 			flashMessage = "Couldn't load the finance summary. Please refresh and try again."

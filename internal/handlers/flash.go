@@ -22,10 +22,6 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, basePath, message
 	redirectWithFlash(w, r, basePath, "error", message)
 }
 
-func redirectWithSuccess(w http.ResponseWriter, r *http.Request, basePath, message string) {
-	redirectWithFlash(w, r, basePath, "success", message)
-}
-
 func redirectWithFlash(w http.ResponseWriter, r *http.Request, basePath, kind, message string) {
 	u, err := url.Parse(basePath)
 	if err != nil {

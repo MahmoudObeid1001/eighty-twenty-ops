@@ -289,6 +289,8 @@ type FinanceSummary struct {
 	INByCategory         map[string]int32
 	OUTByCategory        map[string]int32
 	TotalRemainingLevels int32
+	StudentsWithCredits  int
+	CreditsTracked       int
 	CreditsBreakdown     map[string]int // "0", "1", "2", "3+"
 }
 

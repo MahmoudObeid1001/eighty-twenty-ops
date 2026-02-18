@@ -165,12 +165,14 @@ func TestAfterClassPipeline(t *testing.T) {
 		var isReturning bool
 		var assignedLevel int
 
-		mustQueryRow(t, `
-			SELECT l.status, COALESCE(l.remaining_credits, 0), l.is_returning, pt.assigned_level
-			FROM leads l
-			JOIN placement_tests pt ON pt.lead_id = l.id
-			WHERE l.id = $1
-		`, lead.ID).Scan(&status, &remaining, &isReturning, &assignedLevel)
+			if err := mustQueryRow(t, `
+				SELECT l.status, COALESCE(l.remaining_credits, 0), l.is_returning, pt.assigned_level
+				FROM leads l
+				JOIN placement_tests pt ON pt.lead_id = l.id
+				WHERE l.id = $1
+			`, lead.ID).Scan(&status, &remaining, &isReturning, &assignedLevel); err != nil {
+				t.Fatalf("%s: failed to load lead status snapshot: %v", lead.Name, err)
+			}
 
 		if status != lead.ExpectedStatus {
 			t.Fatalf("%s: expected status %s, got %s", lead.Name, lead.ExpectedStatus, status)
@@ -186,10 +188,12 @@ func TestAfterClassPipeline(t *testing.T) {
 		}
 
 		var outcome, finalGrade sql.NullString
-		mustQueryRow(t, `
-			SELECT outcome, final_grade FROM class_enrollments
-			WHERE lead_id = $1 AND class_key = $2
-		`, lead.ID, classKey).Scan(&outcome, &finalGrade)
+			if err := mustQueryRow(t, `
+				SELECT outcome, final_grade FROM class_enrollments
+				WHERE lead_id = $1 AND class_key = $2
+			`, lead.ID, classKey).Scan(&outcome, &finalGrade); err != nil {
+				t.Fatalf("%s: failed to load class enrollment outcome: %v", lead.Name, err)
+			}
 
 		if !outcome.Valid || outcome.String != lead.ExpectedOutcome {
 			t.Fatalf("%s: expected outcome %s, got %s", lead.Name, lead.ExpectedOutcome, outcome.String)
@@ -200,10 +204,12 @@ func TestAfterClassPipeline(t *testing.T) {
 
 		var classDaysVal, classTimeVal sql.NullString
 		var classGroupIndex sql.NullInt32
-		mustQueryRow(t, `
-			SELECT class_days, class_time::text, class_group_index
-			FROM scheduling WHERE lead_id = $1
-		`, lead.ID).Scan(&classDaysVal, &classTimeVal, &classGroupIndex)
+			if err := mustQueryRow(t, `
+				SELECT class_days, class_time::text, class_group_index
+				FROM scheduling WHERE lead_id = $1
+			`, lead.ID).Scan(&classDaysVal, &classTimeVal, &classGroupIndex); err != nil {
+				t.Fatalf("%s: failed to load scheduling row: %v", lead.Name, err)
+			}
 
 		if classDaysVal.Valid || classTimeVal.Valid || classGroupIndex.Valid {
 			t.Fatalf("%s: expected scheduling detached (NULLs), got days=%v time=%v group=%v", lead.Name, classDaysVal, classTimeVal, classGroupIndex)

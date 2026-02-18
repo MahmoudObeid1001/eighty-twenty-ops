@@ -19,7 +19,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("warning: failed to close db: %v", closeErr)
+		}
+	}()
 
 	// Find Belal
 	fmt.Println("=== SEARCHING FOR BELAL ===")
@@ -44,7 +48,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("warning: failed to close rows: %v", closeErr)
+		}
+	}()
 
 	for rows.Next() {
 		var id, name, phone, status, level, days, time, groupIdx string
@@ -77,7 +85,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer rows2.Close()
+	defer func() {
+		if closeErr := rows2.Close(); closeErr != nil {
+			log.Printf("warning: failed to close rows2: %v", closeErr)
+		}
+	}()
 
 	for rows2.Next() {
 		var id, classKey, reason, name string
@@ -105,7 +117,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer rows3.Close()
+	defer func() {
+		if closeErr := rows3.Close(); closeErr != nil {
+			log.Printf("warning: failed to close rows3: %v", closeErr)
+		}
+	}()
 
 	for rows3.Next() {
 		var classKey, roundStatus string

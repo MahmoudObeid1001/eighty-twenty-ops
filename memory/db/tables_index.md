@@ -188,6 +188,7 @@ All tables have UNIQUE `lead_id` - one record per lead.
 | **Mentor Evaluations** | mentor_evaluations, class_groups, mentor_assignments, mentor_session_checks, users (mentors) |
 | **Mentor Directory & Profile** | users, mentor_assignments, class_groups, mentor_evaluations, mentor_session_checks, class_sessions |
 | **Mentor Testimonials** | mentor_testimonials, users (mentor + creator), class_groups |
+| **BI Reports Dashboard** | leads, placement_tests, offers, lead_payments, payment_cycles, class_groups, class_enrollments |
 
 ---
 

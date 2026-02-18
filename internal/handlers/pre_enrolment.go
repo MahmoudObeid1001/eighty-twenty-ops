@@ -546,7 +546,7 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 // buildDetailViewModel returns the shared detail page data map used by both Detail() and renderDetailWithError.
 // Callers merge overrides (Error, SuccessMessage, ShowCancelModal, PhoneError, ExistingLeadID, PlacementTestPaid).
 func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, leadID uuid.UUID, userRole string) (map[string]interface{}, error) {
-	var placementTestRemaining int32 = 0
+	var placementTestRemaining int32
 	if detail.PlacementTest != nil {
 		feeValue := int32(100)
 		if detail.PlacementTest.PlacementTestFee.Valid {
@@ -1517,7 +1517,9 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(`{"success": false, "error": "Failed to send lead to classes"}`))
+				if _, writeErr := w.Write([]byte(`{"success": false, "error": "Failed to send lead to classes"}`)); writeErr != nil {
+					log.Printf("ERROR: Failed to write send-to-classes error response: %v", writeErr)
+				}
 				return
 			}
 			http.Error(w, "Couldn't send this lead to classes. Please try again.", http.StatusInternalServerError)
@@ -1529,7 +1531,9 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"success": true, "message": "Lead sent to classes board successfully"}`))
+			if _, writeErr := w.Write([]byte(`{"success": true, "message": "Lead sent to classes board successfully"}`)); writeErr != nil {
+				log.Printf("ERROR: Failed to write send-to-classes success response: %v", writeErr)
+			}
 			return
 		}
 		http.Redirect(w, r, "/pre-enrolment?sentToClasses=1", http.StatusFound)
@@ -1573,16 +1577,8 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Calculate unused credits value for students with remaining credits
-			var unusedCreditsValue int32 = 0
-			var calculatedRemainingCredits int32 = 0
+			var unusedCreditsValue int32
 			if hasRemainingCredits {
-				// Calculate dynamic remaining credits for display
-				if detail.Lead.LevelsPurchasedTotal.Valid && detail.Lead.LevelsConsumed.Valid {
-					calculatedRemainingCredits = detail.Lead.LevelsPurchasedTotal.Int32 - detail.Lead.LevelsConsumed.Int32
-					if calculatedRemainingCredits < 0 {
-						calculatedRemainingCredits = 0
-					}
-				}
 				breakdown, refundErr := models.GetUnusedCreditsRefundBreakdown(leadID)
 				if refundErr != nil {
 					log.Printf("ERROR: Failed to calculate unused credits refund: %v", refundErr)
@@ -1590,9 +1586,6 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				unusedCreditsValue = breakdown.UnusedCreditsValue
-				if breakdown.RemainingCredits > 0 {
-					calculatedRemainingCredits = breakdown.RemainingCredits
-				}
 			}
 
 			// Total refundable amount = current cycle payments + unused credits value
@@ -2536,7 +2529,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			creditsRemaining = 0
 		}
 
-		if !(detail.Lead.IsReturning && creditsRemaining > 0) {
+		if !detail.Lead.IsReturning || creditsRemaining <= 0 {
 			var totalCoursePaid int32
 			if detail.Lead.IsReturning {
 				totalCoursePaid, err = models.GetTotalCoursePaidCurrentCycle(leadID)

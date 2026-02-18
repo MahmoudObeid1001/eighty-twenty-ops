@@ -52,9 +52,11 @@
 | `/api/absence-cases/:id/resolve` | POST | student_success, mentor_head, admin | `apiHandler.ResolveFollowUp` | `main.go:377-389` |
 | `/api/compliance/check` | POST | student_success | `apiHandler.UpsertComplianceCheck` | `main.go` |
 | `/api/compliance/class/:class_key` | GET | student_success | `apiHandler.GetComplianceByClass` | `main.go` |
-| `/api/reports/mentors` | GET | student_success, mentor_head, admin, manager | `apiHandler.GetMentorReports` | `main.go` |
-| `/api/reports/mentors/checklist` | GET | student_success, mentor_head, admin, manager | `apiHandler.GetMentorReportChecklist` | `main.go` |
-| `/api/reports/mentors/exclude` | POST | mentor_head, admin | `apiHandler.ExcludeMentorReportRow` | `main.go` |
+| `/api/reports/mentors` | GET | student_success, mentor_head, manager | `apiHandler.GetMentorReports` | `main.go` |
+| `/api/reports/mentors/checklist` | GET | student_success, mentor_head, manager | `apiHandler.GetMentorReportChecklist` | `main.go` |
+| `/api/reports/mentors/classes` | GET | student_success, mentor_head, manager | `apiHandler.GetMentorClassReports` | `main.go` |
+| `/api/reports/mentors/exclude` | POST | mentor_head, manager | `apiHandler.ExcludeMentorReportRow` | `main.go` |
+| `/api/reports/bi` | GET | admin, mentor_head | `apiHandler.GetBIReports` | `main.go` |
 | `/api/classes/:id/sessions` | GET | mentor, mentor_head, admin, student_success | `apiHandler.ListClassSessions` | `main.go:391-406` |
 | `/api/classes/:id/sessions/:n/complete` | POST | mentor, mentor_head, admin, student_success | `apiHandler.CompleteSessionByNumber` (deprecated) | `main.go:391-406` |
 | `/api/grades/preview` | GET | mentor, mentor_head, student_success, admin | `apiHandler.GetGradesPreview` | `main.go` |

@@ -214,7 +214,9 @@ func (h *PreEnrolmentHandler) rewriteSmartStepsArabic(codes []string, templateSt
 	if err != nil {
 		return templateSteps, false, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return templateSteps, false, fmt.Errorf("openai status %d", resp.StatusCode)

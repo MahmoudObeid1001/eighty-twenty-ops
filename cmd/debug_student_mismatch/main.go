@@ -15,7 +15,11 @@ func main() {
 	if err := db.Connect(cfg.DatabaseURL); err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("warning: failed to close db: %v", closeErr)
+		}
+	}()
 
 	// Get a class with students
 	var classKey string

@@ -364,9 +364,10 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := attendedStr
-	if status == "true" {
+	switch status {
+	case "true":
 		status = "PRESENT"
-	} else if status == "false" {
+	case "false":
 		status = "ABSENT"
 	}
 

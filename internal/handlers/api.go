@@ -2111,7 +2111,7 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"scope":   scope,
+		"scope": scope,
 		"filters": map[string]interface{}{
 			"q":    mentorQuery,
 			"from": r.URL.Query().Get("from"),
@@ -2287,9 +2287,10 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 			hasS4 := make(map[uuid.UUID]bool)
 			hasS8 := make(map[uuid.UUID]bool)
 			for _, f := range feedbackRecords {
-				if f.SessionNumber == 4 {
+				switch f.SessionNumber {
+				case 4:
 					hasS4[f.LeadID] = true
-				} else if f.SessionNumber == 8 {
+				case 8:
 					hasS8[f.LeadID] = true
 				}
 			}
@@ -2647,9 +2648,10 @@ func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Reque
 			FeedbackText:     f.FeedbackText,
 			FollowUpRequired: f.FollowUpRequired,
 		}
-		if f.SessionNumber == 4 {
+		switch f.SessionNumber {
+		case 4:
 			sf.S4 = entry
-		} else if f.SessionNumber == 8 {
+		case 8:
 			sf.S8 = entry
 		}
 	}
@@ -3270,7 +3272,9 @@ func (h *APIHandler) UploadFeedbackCollected(w http.ResponseWriter, r *http.Requ
 		jsonError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	// Save file under web/static/uploads/feedback_collected
 	workDir, _ := os.Getwd()
@@ -3289,7 +3293,9 @@ func (h *APIHandler) UploadFeedbackCollected(w http.ResponseWriter, r *http.Requ
 		jsonError(w, http.StatusInternalServerError, "Failed to save file")
 		return
 	}
-	defer dst.Close()
+	defer func() {
+		_ = dst.Close()
+	}()
 	size, err := io.Copy(dst, file)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, "Failed to write file")
@@ -3764,7 +3770,9 @@ func (h *APIHandler) GetLateJoinNotifications(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(notifications)
+	if err := json.NewEncoder(w).Encode(notifications); err != nil {
+		log.Printf("ERROR: Failed to encode late-join notifications response: %v", err)
+	}
 }
 
 func (h *APIHandler) AcknowledgeLateJoinNotification(w http.ResponseWriter, r *http.Request) {
@@ -4077,4 +4085,51 @@ func (h *APIHandler) GetMentorClassReports(w http.ResponseWriter, r *http.Reques
 			"mentor_id":    mentorIDStr,
 		},
 	})
+}
+
+// GET /api/reports/bi?from=YYYY-MM-DD&to=YYYY-MM-DD
+func (h *APIHandler) GetBIReports(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	now := time.Now()
+	defaultFrom := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -5, 0)
+	defaultTo := now
+
+	fromDate := defaultFrom
+	toDate := defaultTo
+
+	if fromRaw := strings.TrimSpace(r.URL.Query().Get("from")); fromRaw != "" {
+		parsed, err := time.Parse("2006-01-02", fromRaw)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid from date format (expected YYYY-MM-DD)")
+			return
+		}
+		fromDate = parsed
+	}
+
+	if toRaw := strings.TrimSpace(r.URL.Query().Get("to")); toRaw != "" {
+		parsed, err := time.Parse("2006-01-02", toRaw)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid to date format (expected YYYY-MM-DD)")
+			return
+		}
+		toDate = parsed
+	}
+
+	if toDate.Before(fromDate) {
+		jsonError(w, http.StatusBadRequest, "to date must be on or after from date")
+		return
+	}
+
+	report, err := models.GetBIReportPayload(fromDate, toDate)
+	if err != nil {
+		log.Printf("ERROR: Failed to load BI reports: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load BI reports")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, report)
 }

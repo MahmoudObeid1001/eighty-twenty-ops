@@ -60,9 +60,10 @@
 | Update complaint status | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Resolve complaint | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Reports** | | | | | | | |
-| View mentor reports dashboard | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| View mentor reports dashboard | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| View BI reports dashboard | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Enter mentor compliance checks | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Remove mentor row from reports | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Remove mentor row from reports | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Finance** | | | | | | | |
 | View dashboard | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Community Officer** | | | | | | | |

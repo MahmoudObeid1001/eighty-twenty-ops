@@ -49,7 +49,11 @@ func main() {
 	if err := db.Connect(cfg.DatabaseURL); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("warning: failed to close db: %v", closeErr)
+		}
+	}()
 
 	// Do NOT run migrations - assume DB is already set up
 

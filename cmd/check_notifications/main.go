@@ -19,7 +19,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("warning: failed to close db: %v", closeErr)
+		}
+	}()
 
 	// Check late joiner notifications
 	fmt.Println("=== LATE JOINER NOTIFICATIONS ===")
@@ -43,7 +47,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("warning: failed to close rows: %v", closeErr)
+		}
+	}()
 
 	count := 0
 	for rows.Next() {
