@@ -45,3 +45,4 @@ Thumbs.db
 
 # Runtime generated uploads
 web/static/uploads/
+bin/
