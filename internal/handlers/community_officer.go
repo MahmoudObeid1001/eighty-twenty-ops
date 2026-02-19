@@ -28,7 +28,7 @@ func (h *StudentSuccessHandler) Dashboard(w http.ResponseWriter, r *http.Request
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "student_success" && userRole != "admin" {
+	if userRole != "student_success" && userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/student-success", "You don't have permission to do this.")
 		return
 	}
@@ -68,13 +68,13 @@ func (h *StudentSuccessHandler) Dashboard(w http.ResponseWriter, r *http.Request
 	}
 
 	data := map[string]interface{}{
-		"Title":              "Community Officer – Eighty Twenty",
-		"PendingFeedback4":   pending4,
-		"PendingFeedback8":   pending8,
-		"IsAdmin":            userRole == "admin",
-		"IsModerator":        userRole == "moderator",
-		"FlashMessage":       flashMessage,
-		"FlashMessageType":   flashMessageType,
+		"Title":            "Community Officer – Eighty Twenty",
+		"PendingFeedback4": pending4,
+		"PendingFeedback8": pending8,
+		"IsAdmin":          userRole == "admin",
+		"IsModerator":      userRole == "moderator",
+		"FlashMessage":     flashMessage,
+		"FlashMessageType": flashMessageType,
 	}
 
 	renderTemplate(w, r, "student_success.html", data)
@@ -88,7 +88,7 @@ func (h *StudentSuccessHandler) SubmitFeedback(w http.ResponseWriter, r *http.Re
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "student_success" && userRole != "admin" {
+	if userRole != "student_success" && userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/student-success", "You don't have permission to do this.")
 		return
 	}
@@ -131,7 +131,7 @@ func (h *StudentSuccessHandler) LogFollowUp(w http.ResponseWriter, r *http.Reque
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "student_success" && userRole != "admin" {
+	if userRole != "student_success" && userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/student-success", "You don't have permission to do this.")
 		return
 	}

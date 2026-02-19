@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -22,6 +23,8 @@ func RoleHomePath(role string) string {
 	switch role {
 	case "admin", "moderator":
 		return "/pre-enrolment"
+	case "manager":
+		return "/app/staff"
 	case "mentor_head":
 		return "/mentor-head"
 	case "mentor":
@@ -61,6 +64,8 @@ func roleCanAccessPath(role, path string) bool {
 	}
 	switch role {
 	case "admin":
+		return true
+	case "manager":
 		return true
 	case "moderator":
 		return path == "/pre-enrolment" || strings.HasPrefix(path, "/pre-enrolment/")
@@ -175,6 +180,23 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	http.SetCookie(w, cookie)
 
+	if user.MustChangePassword {
+		if expectsJSON(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":                      true,
+				"require_password_change": true,
+				"setup_path":              "/app/setup-password",
+			}); err != nil {
+				log.Printf("LOGIN: failed to encode password-change response: %v", err)
+			}
+			return
+		}
+		http.Redirect(w, r, "/app/setup-password", http.StatusFound)
+		return
+	}
+
 	if next != "" && isSafeRedirectPath(next) && roleCanAccessPath(user.Role, next) {
 		if h.cfg.FrontendOrigin != "" && strings.HasPrefix(next, "/") {
 			next = h.cfg.FrontendOrigin + next
@@ -187,6 +209,74 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		home = h.cfg.FrontendOrigin + home
 	}
 	http.Redirect(w, r, home, http.StatusFound)
+}
+
+func expectsJSON(r *http.Request) bool {
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	return strings.Contains(accept, "application/json") || strings.Contains(contentType, "application/json")
+}
+
+func (h *AuthHandler) ForceChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID := middleware.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+	user, err := models.GetUserByID(userID)
+	if err != nil || user == nil {
+		http.Error(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+	if !user.MustChangePassword {
+		http.Error(w, "Password change is not required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	req.NewPassword = strings.TrimSpace(req.NewPassword)
+	if len(req.NewPassword) < 6 {
+		http.Error(w, "Password must be at least 6 characters", http.StatusBadRequest)
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	if err := models.ForceChangeUserPassword(userID, string(hash)); err != nil {
+		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		return
+	}
+
+	cookie, err := middleware.CreateSessionCookie(user.ID.String(), user.Email, user.Role, h.cfg.SessionSecret)
+	if err != nil {
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, cookie)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"redirect": RoleHomePath(user.Role),
+	}); err != nil {
+		log.Printf("AUTH: failed to encode force-change response: %v", err)
+	}
 }
 
 // LearningRedirect redirects authenticated users to their role-specific Learning home.

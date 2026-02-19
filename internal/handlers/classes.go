@@ -42,7 +42,7 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		renderTemplate(w, r, "access_restricted.html", data)
 		return
 	}
-	if userRole != "admin" && userRole != "mentor_head" {
+	if userRole != "admin" && userRole != "mentor_head" && userRole != "manager" {
 		w.WriteHeader(http.StatusForbidden)
 		data := map[string]interface{}{
 			"Title":       "Access Restricted – Eighty Twenty",
@@ -176,7 +176,7 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
@@ -245,7 +245,7 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
@@ -321,7 +321,7 @@ func (h *ClassesHandler) ReturnFromMentor(w http.ResponseWriter, r *http.Request
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
@@ -351,7 +351,7 @@ func (h *ClassesHandler) ArchiveClass(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/classes", "You don't have permission to do this.")
 		return
 	}
@@ -386,7 +386,7 @@ func (h *ClassesHandler) UnarchiveClass(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/classes/archived", "You don't have permission to do this.")
 		return
 	}
@@ -414,7 +414,7 @@ func (h *ClassesHandler) Archived(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" && userRole != "mentor_head" {
+	if userRole != "admin" && userRole != "mentor_head" && userRole != "manager" {
 		redirectWithError(w, r, "/classes", "You don't have permission to access this page.")
 		return
 	}

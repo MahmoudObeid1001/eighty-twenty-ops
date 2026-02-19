@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"eighty-twenty-ops/internal/models"
 )
 
 type contextKey string
@@ -96,8 +98,32 @@ func RequireAuth(next http.HandlerFunc, secret string) http.HandlerFunc {
 		ctx = context.WithValue(ctx, UserEmailKey, userEmail)
 		ctx = context.WithValue(ctx, UserRoleKey, userRole)
 
+		user, err := models.GetUserByID(userID)
+		if err != nil || user == nil {
+			redirectToLoginWithNext(w, r)
+			return
+		}
+
+		if user.MustChangePassword && !passwordSetupAllowedPath(r.URL.Path) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":"Password setup required","require_password_change":true}`))
+				return
+			}
+			http.Redirect(w, r, "/app/setup-password", http.StatusFound)
+			return
+		}
+
 		next(w, r.WithContext(ctx))
 	}
+}
+
+func passwordSetupAllowedPath(path string) bool {
+	return path == "/logout" ||
+		path == "/api/me" ||
+		path == "/api/auth/force-change-password" ||
+		strings.HasPrefix(path, "/app/setup-password")
 }
 
 func GetUserID(r *http.Request) string {
@@ -126,6 +152,10 @@ func RequireRole(allowedRoles []string, secret string) func(http.HandlerFunc) ht
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 			userRole := GetUserRole(r)
+			if userRole == "manager" {
+				next(w, r)
+				return
+			}
 			allowed := false
 			for _, role := range allowedRoles {
 				if userRole == role {

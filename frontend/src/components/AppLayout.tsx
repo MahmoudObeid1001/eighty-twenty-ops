@@ -20,6 +20,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
   async function loadUser() {
     try {
       const userData = await api.getMe()
+      if (userData.must_change_password && location.pathname !== '/setup-password') {
+        window.location.href = '/app/setup-password'
+        return
+      }
       setUser(userData)
     } catch (err) {
       console.error('Failed to load user:', err)
@@ -76,6 +80,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     if (role === 'mentor_head') return '/mentor-head'
     if (role === 'hr') return '/hr/mentors'
     if (role === 'student_success') return '/student-success'
+    if (role === 'manager') return '/mentor-head'
     return '/mentor'
   }
 
@@ -93,7 +98,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
         <nav className="app-nav" style={{ flex: 1 }}>
           <ul className="app-nav-list">
-            {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success') && (
+            {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success' || role === 'manager') && (
               <li>
                 <Link
                   to={getLearningLink()}
@@ -112,21 +117,21 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
-            {role === 'mentor_head' && (
+            {(role === 'mentor_head' || role === 'manager') && (
               <li>
                 <Link to="/mentor-head/evaluations" className={isActive('/mentor-head/evaluations') ? 'active' : ''}>
                   Mentor Evaluations
                 </Link>
               </li>
             )}
-            {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success' || role === 'admin' || role === 'moderator') && (
+            {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success' || role === 'admin' || role === 'moderator' || role === 'manager') && (
               <li>
                 <Link to="/students" className={isActive('/students') ? 'active' : ''}>
                   Students
                 </Link>
               </li>
             )}
-            {(role === 'student_success' || role === 'mentor_head' || role === 'admin') && (
+            {(role === 'student_success' || role === 'mentor_head' || role === 'admin' || role === 'manager') && (
               <li>
                 <Link
                   to="/reports"
@@ -138,15 +143,22 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
-            {(role === 'mentor_head' || role === 'admin') && (
+            {(role === 'mentor_head' || role === 'admin' || role === 'manager') && (
               <li>
                 <Link to="/mentors" className={isActive('/mentors') ? 'active' : ''}>
                   Mentors
                 </Link>
               </li>
             )}
-            {role === 'admin' && (
+            {(role === 'admin' || role === 'manager') && (
               <>
+                {role === 'manager' && (
+                  <li>
+                    <Link to="/staff" className={isActive('/staff') ? 'active' : ''}>
+                      Staff Management
+                    </Link>
+                  </li>
+                )}
                 <li>
                   <a href="/pre-enrolment">Pre-Enrolment</a>
                 </li>

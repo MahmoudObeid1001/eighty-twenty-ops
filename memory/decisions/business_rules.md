@@ -567,7 +567,10 @@
 
 ### Rule: Returning student cancellation includes unused credits refund
 **Scope**: Pre-Enrolment cancellations for ANY student with `remaining_credits > 0` (includes `IsReturning`, `renewal_pending`, `waiting_for_round`)  
-**Calculation**: `TotalRefundableAmount = current_cycle_payments + (remaining_credits × price_per_level)`  
+**Calculation**:
+- `UnusedCreditsValue` is computed from carryover bundle valuation logic.
+- If `UnusedCreditsValue > 0`: `TotalRefundableAmount = UnusedCreditsValue` (no double-count).
+- Else: `TotalRefundableAmount = current_cycle_payments`.
 **Price Source**: Original bundle purchase price from `offers.final_price` ÷ `levels_purchased_total`  
 **Behavior**: Even if current-cycle payments = 0, the refund modal appears if unused credits exist  
 **Modal Display**: Shows breakdown of current cycle payments, unused credits value, and total refundable amount  

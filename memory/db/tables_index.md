@@ -11,11 +11,12 @@
 ### `users`
 **Purpose**: System users with role-based access  
 **Features**: Authentication, authorization, audit trails, mentor directory identity source  
-**Key Fields**: email (login), password_hash, role, full_name, phone  
+**Key Fields**: email (login), password_hash, role, full_name, phone, must_change_password  
 **Rules**:
 - For `role='mentor'`, `full_name` and `phone` are required (DB check constraint).
 - Legacy mentor rows are backfilled with generated phone values.
-**Evidence**: `migrations/001_init.sql:4-10`, `migrations/056_add_user_profile_fields_for_mentors.sql`
+- Users created by manager can be flagged `must_change_password = true` and are blocked until force-change is completed.
+**Evidence**: `migrations/001_init.sql:4-10`, `migrations/056_add_user_profile_fields_for_mentors.sql`, `migrations/060_reactivate_manager_and_force_password_change.sql`
 
 ### `leads`
 **Purpose**: Student pipeline from lead creation → in classes  

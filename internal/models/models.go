@@ -8,13 +8,14 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID
-	Email        string
-	FullName     sql.NullString
-	Phone        sql.NullString
-	PasswordHash string
-	Role         string
-	CreatedAt    time.Time
+	ID                 uuid.UUID
+	Email              string
+	FullName           sql.NullString
+	Phone              sql.NullString
+	PasswordHash       string
+	Role               string
+	MustChangePassword bool
+	CreatedAt          time.Time
 }
 
 type Lead struct {

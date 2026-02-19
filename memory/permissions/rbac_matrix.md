@@ -11,6 +11,8 @@
 
 ## Role Capabilities Matrix
 
+> Manager Override Rule: `manager` has full access to all protected features/routes regardless of per-row role checks.
+
 | Feature | admin | moderator | mentor_head | mentor | community_officer | hr | student_success |
 |---------|-------|-----------|-------------|---------|-------------------|-----|-----------------|
 | **Pre-Enrolment** | | | | | | | |
@@ -93,6 +95,16 @@
 - **Exception**: Cannot unassign mentors (mentor_head only)
 - **Exception**: Cannot view/edit mentor evaluations (mentor_head only)
 
+### Manager Privileges
+
+**Evidence**: `internal/middleware/auth.go` (RequireAnyRole override), manager-only endpoints in `main.go`
+
+- Manager bypasses role list checks in `RequireAnyRole`.
+- Manager can access all Admin, Mentor Head, Mentor, HR, Student Success, and Moderator protected pages/APIs.
+- Manager is the only role allowed to create users in Staff Management.
+- Manager can list all users (`GET /api/manager/users`) and create users with temporary passwords (`POST /api/manager/users`).
+- Manager can remove users (`DELETE /api/manager/users/:id`) with self-delete blocked.
+
 ### Shared Access student_success + mentor_head
 
 **Evidence**: `main.go:312-389`
@@ -131,6 +143,7 @@ Allowed: `mentor`, `mentor_head`, `admin`, `student_success`
 | `community_officer` | Community engagement | `migrations/014_add_mentor_roles.sql` |
 | `hr` | HR operations for mentors | `migrations/023_add_hr_role.sql` |
 | `student_success` | Student support and follow-ups | `migrations/028_add_student_success_role.sql` |
+| `manager` | Full-system owner + staff provisioning | `migrations/060_reactivate_manager_and_force_password_change.sql` |
 
 ---
 

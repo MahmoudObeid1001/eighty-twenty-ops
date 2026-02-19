@@ -1061,8 +1061,7 @@
                     <input type="number" id="refund_amount" name="refund_amount" min="1"
                         max="{{.TotalRefundableAmount}}" value="{{.TotalRefundableAmount}}" step="1" required>
                     <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalRefundableAmount}} EGP
-                        {{if gt .UnusedCreditsValue 0}}({{.TotalCoursePaid}} current cycle + {{.UnusedCreditsValue}}
-                        unused credits){{end}}</small>
+                        {{if gt .UnusedCreditsValue 0}}(based on unused credits valuation){{end}}</small>
                     {{if or (eq .ErrorCode "refund_required") (eq .ErrorCode "invalid_amount") (eq .ErrorCode
                     "amount_exceeds")}}
                     <small style="color: #dc3545; display: block; margin-top: 5px;">{{.Error}}</small>

@@ -1266,9 +1266,9 @@ func GetUserByEmail(email string) (*User, error) {
 	user := &User{}
 	// Case-insensitive lookup so login works regardless of email case (e.g. HR stores normalized, seed may not).
 	err := db.DB.QueryRow(`
-		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(must_change_password, false), created_at
 		FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-	`, email).Scan(&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.CreatedAt)
+	`, email).Scan(&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.MustChangePassword, &user.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1276,6 +1276,10 @@ func GetUserByEmail(email string) (*User, error) {
 }
 
 func CreateUser(email, passwordHash, role, fullName, phone string) (*User, error) {
+	return CreateUserWithMustChange(email, passwordHash, role, fullName, phone, false)
+}
+
+func CreateUserWithMustChange(email, passwordHash, role, fullName, phone string, mustChangePassword bool) (*User, error) {
 	userID := uuid.New()
 	fullName = strings.TrimSpace(fullName)
 	phone = strings.TrimSpace(phone)
@@ -1288,19 +1292,20 @@ func CreateUser(email, passwordHash, role, fullName, phone string) (*User, error
 		phoneVal = sql.NullString{String: phone, Valid: true}
 	}
 	_, err := db.DB.Exec(`
-		INSERT INTO users (id, email, full_name, phone, password_hash, role, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-	`, userID, email, fullNameVal, phoneVal, passwordHash, role)
+		INSERT INTO users (id, email, full_name, phone, password_hash, role, must_change_password, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+	`, userID, email, fullNameVal, phoneVal, passwordHash, role, mustChangePassword)
 	if err != nil {
 		return nil, err
 	}
 	return &User{
-		ID:           userID,
-		Email:        email,
-		FullName:     fullNameVal,
-		Phone:        phoneVal,
-		PasswordHash: passwordHash,
-		Role:         role,
+		ID:                 userID,
+		Email:              email,
+		FullName:           fullNameVal,
+		Phone:              phoneVal,
+		PasswordHash:       passwordHash,
+		Role:               role,
+		MustChangePassword: mustChangePassword,
 	}, nil
 }
 
@@ -3141,7 +3146,7 @@ func CreateCancelRefundIdempotent(leadID uuid.UUID, amount int32, paymentMethod 
 
 // GetCancelRefundableAmount returns the maximum refundable amount for the cancel-lead flow.
 // It must stay aligned with pre-enrolment cancel modal calculation:
-// total refundable = current-cycle course paid + unused credits value (for leads with remaining credits).
+// use unused-credits valuation when present; otherwise fallback to course paid.
 func GetCancelRefundableAmount(leadID uuid.UUID) (int32, error) {
 	lead, err := GetLeadByID(leadID)
 	if err != nil {
@@ -3180,7 +3185,10 @@ func GetCancelRefundableAmount(leadID uuid.UUID) (int32, error) {
 		}
 	}
 
-	return totalCoursePaid + unusedCreditsValue, nil
+	if unusedCreditsValue > 0 {
+		return unusedCreditsValue, nil
+	}
+	return totalCoursePaid, nil
 }
 
 // CancelLead soft-cancels a lead (sets status to cancelled, does not delete)
@@ -5537,7 +5545,7 @@ func GetAbsenceFollowUpLogs(leadID uuid.UUID) ([]*AbsenceFollowUpLog, error) {
 // GetUsersByRole returns all users with a specific role
 func GetUsersByRole(role string) ([]*User, error) {
 	rows, err := db.DB.Query(`
-		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(must_change_password, false), created_at
 		FROM users
 		WHERE role = $1
 		ORDER BY email
@@ -5550,7 +5558,7 @@ func GetUsersByRole(role string) ([]*User, error) {
 	var users []*User
 	for rows.Next() {
 		u := &User{}
-		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.MustChangePassword, &u.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
 		users = append(users, u)
@@ -6258,10 +6266,10 @@ func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluato
 func GetUserByID(userID string) (*User, error) {
 	u := &User{}
 	err := db.DB.QueryRow(`
-		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(must_change_password, false), created_at
 		FROM users
 		WHERE id = $1
-	`, userID).Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	`, userID).Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.MustChangePassword, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -6269,6 +6277,56 @@ func GetUserByID(userID string) (*User, error) {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 	return u, nil
+}
+
+func GetAllUsers() ([]*User, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(must_change_password, false), created_at
+		FROM users
+		ORDER BY created_at DESC, email ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	users := make([]*User, 0, 32)
+	for rows.Next() {
+		u := &User{}
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.MustChangePassword, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan user row: %w", err)
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+func ForceChangeUserPassword(userID string, passwordHash string) error {
+	_, err := db.DB.Exec(`
+		UPDATE users
+		SET password_hash = $2,
+		    must_change_password = false
+		WHERE id = $1
+	`, userID, passwordHash)
+	if err != nil {
+		return fmt.Errorf("failed to update user password: %w", err)
+	}
+	return nil
+}
+
+func DeleteUserByID(userID string) error {
+	result, err := db.DB.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to verify deleted user: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // GetClassGroupByKey returns a class group by class_key

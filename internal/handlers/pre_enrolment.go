@@ -506,8 +506,8 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		data["ConsumedValueForRefund"] = consumedValueForRefund
 		data["OriginalPaidForRefund"] = originalPaidForRefund
 
-		// Total refundable amount = current cycle payments + unused credits value
-		totalRefundableAmount := totalCoursePaid + unusedCreditsValue
+		// Total refundable amount uses unused-credits valuation when present (no double count).
+		totalRefundableAmount := computeCancelRefundableAmount(totalCoursePaid, unusedCreditsValue)
 		data["TotalRefundableAmount"] = totalRefundableAmount
 
 		// Get offer final price for remaining balance calculation
@@ -913,6 +913,15 @@ func computedRemainingCredits(lead *models.Lead) int32 {
 	return 0
 }
 
+func computeCancelRefundableAmount(totalCoursePaid, unusedCreditsValue int32) int32 {
+	// Unused-credits value is already a final refundable amount for carryover-credit cases.
+	// Adding it to current-cycle paid would double count.
+	if unusedCreditsValue > 0 {
+		return unusedCreditsValue
+	}
+	return totalCoursePaid
+}
+
 func canUseWaitingFlow(detail *models.LeadDetail) bool {
 	hasCredits := computedRemainingCredits(detail.Lead) > 0
 	alreadyInWaitingFlow := detail.Lead.Status == "waiting_for_round" || detail.Lead.Status == "schedule_assigned" || detail.Lead.Status == "ready_to_start"
@@ -1316,7 +1325,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	case "mark_refused_renewal":
 		h.cfg.Debugf("  → Action: mark_refused_renewal")
-		if userRole != "admin" {
+		if userRole != "admin" && userRole != "manager" {
 			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
 			return
 		}
@@ -1588,8 +1597,8 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				unusedCreditsValue = breakdown.UnusedCreditsValue
 			}
 
-			// Total refundable amount = current cycle payments + unused credits value
-			totalRefundableAmount := totalCoursePaid + unusedCreditsValue
+			// Total refundable amount uses unused-credits valuation when present (no double count).
+			totalRefundableAmount := computeCancelRefundableAmount(totalCoursePaid, unusedCreditsValue)
 
 			// CRITICAL SAFEGUARD: Detect leakage for returning students with credits
 			// If a returning student has credits but refund calculation returned 0, this is a bug
@@ -1742,8 +1751,8 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			originalPaidForRefund = breakdown.OriginalPaidValue
 		}
 
-		// Total refundable amount = current cycle payments + unused credits value
-		totalRefundableAmount := totalCoursePaid + unusedCreditsValue
+		// Total refundable amount uses unused-credits valuation when present (no double count).
+		totalRefundableAmount := computeCancelRefundableAmount(totalCoursePaid, unusedCreditsValue)
 
 		// Get offer final price for remaining balance calculation
 		// Get offer final price for remaining balance calculation

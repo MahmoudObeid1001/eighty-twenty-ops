@@ -7,6 +7,28 @@
 
 ## Maintenance Notes
 
+- 2026-02-20: Staff Management enhancement implemented for manager user removal.
+  - Removal action is manager-only from `/app/staff`.
+  - API route: `DELETE /api/manager/users/:id`.
+  - Safety guards:
+    - manager cannot delete themselves.
+    - if user has FK-linked records, deletion is blocked with a conflict response.
+- 2026-02-20: Cancel-refund total fix for returning students with remaining credits.
+  - `unused_credits_value` is already a final refundable amount; it must not be added to `current_cycle_paid`.
+  - Cancel modal and backend validator now compute:
+    - if `unused_credits_value > 0` => `total_refundable = unused_credits_value`
+    - else => `total_refundable = total_course_paid`
+- 2026-02-19: Manager role + staff provisioning implemented:
+  - DB migration `060_reactivate_manager_and_force_password_change.sql` added `users.must_change_password` and reactivated `manager` in role constraint.
+  - Manager APIs added: `GET /api/manager/users`, `POST /api/manager/users`.
+  - First-login setup endpoint added: `POST /api/auth/force-change-password`.
+  - Login flow now redirects `must_change_password=true` users to `/app/setup-password`.
+  - Frontend added `/app/staff` (manager-only navigation) and `/app/setup-password`.
+- 2026-02-19: Manager role re-activation approved.
+  - Manager is now the top-privilege role ("god mode") with route-level bypass over role checks.
+  - Only Manager can create staff users from Staff Management.
+  - New users are created with a temporary password and `must_change_password = true`.
+  - Users flagged with `must_change_password = true` are blocked from normal app/API flows until they set a permanent password.
 - 2026-02-18: Lint/quality cleanup pass (`golangci-lint`) completed. No business rules or runtime behavior were intentionally changed.
 - 2026-02-19: Mobile compatibility polish added as CSS-only responsive overrides (no workflow/business-logic changes). Desktop behavior remains source-of-truth baseline.
 - 2026-02-19: SSR views mobile polish extended to `/pre-enrolment`, `/finance`, and `/classes` via template class hooks + media-query CSS only (no server/business logic changes).
@@ -53,8 +75,17 @@
 - DB enforces mentor profile completeness (`role='mentor'` requires non-empty name and phone).
 
 ### Manager
-**Status**: Future feature (Tier 3)  
-**Current**: Not implemented
+**Status**: Active
+**Purpose**: Full-system owner role with global access and staff provisioning authority
+
+**Responsibilities**:
+- Access every protected route (middleware bypass over explicit role lists)
+- Create staff users with temporary passwords
+- Force first-login password setup for newly created users
+
+**Security Rules**:
+- `must_change_password = true` users cannot access business endpoints/pages until password setup is completed.
+- Allowed while blocked: authentication context endpoints required for setup, force-change password action, logout.
 
 ---
 
@@ -229,6 +260,7 @@
 **Business Rule**: Cancel flow refund checks must use computed remaining credits (`levels_purchased_total - levels_consumed`), not stale cached values.  
 **Required behavior**: If computed remaining credits > 0, cancellation must enforce refund modal/validation for unused credits value.
 **Cycle Scope Rule**: In cancel flow, unused-credit valuation for returning students must be derived from pre-cycle carryover entitlement (latest payment before current cycle start), while current-cycle paid cash is calculated separately via current-cycle payment totals. This avoids cross-cycle mixing.
+**No Double-Count Rule**: When unused-credit valuation is present, it is the refundable total for that case and must not be added again to current-cycle paid.
 **Implementation Rule**: The system persists explicit cycle records in `payment_cycles`. Refund and current-cycle paid computations should read cycle boundaries from `payment_cycles.started_at` when present (legacy fallback allowed only for older rows without cycle records).
 
 ---

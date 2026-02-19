@@ -33,7 +33,7 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		w.WriteHeader(http.StatusForbidden)
 		data := map[string]interface{}{
 			"Title":       "Access Restricted – Eighty Twenty",
@@ -193,7 +193,7 @@ func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) 
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
@@ -227,7 +227,7 @@ func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 
 	// Admin only
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/finance", "You don't have permission to do this.")
 		return
 	}
@@ -282,7 +282,7 @@ func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/finance", "You don't have permission to do this.")
 		return
 	}

@@ -13,17 +13,20 @@ func IsModerator(r *http.Request) bool {
 
 // IsAdmin returns true if the current user has the admin role.
 func IsAdmin(r *http.Request) bool {
-	return middleware.GetUserRole(r) == "admin"
+	role := middleware.GetUserRole(r)
+	return role == "admin" || role == "manager"
 }
 
 // IsMentorHead returns true if the current user has the mentor_head role.
 func IsMentorHead(r *http.Request) bool {
-	return middleware.GetUserRole(r) == "mentor_head"
+	role := middleware.GetUserRole(r)
+	return role == "mentor_head" || role == "manager"
 }
 
 // IsMentor returns true if the current user has the mentor role.
 func IsMentor(r *http.Request) bool {
-	return middleware.GetUserRole(r) == "mentor"
+	role := middleware.GetUserRole(r)
+	return role == "mentor" || role == "manager"
 }
 
 // IsCommunityOfficer returns true if the current user has the community_officer role.
@@ -33,5 +36,6 @@ func IsCommunityOfficer(r *http.Request) bool {
 
 // IsHR returns true if the current user has the hr role.
 func IsHR(r *http.Request) bool {
-	return middleware.GetUserRole(r) == "hr"
+	role := middleware.GetUserRole(r)
+	return role == "hr" || role == "manager"
 }

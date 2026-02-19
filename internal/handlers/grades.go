@@ -91,7 +91,7 @@ func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
-	} else if userRole != "mentor_head" {
+	} else if userRole != "mentor_head" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Only mentors and mentor heads can create grades")
 		return
 	}
@@ -154,7 +154,7 @@ func (h *APIHandler) GetGradesPreview(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You can only view grade previews for your assigned classes")
 			return
 		}
-	} else if userRole != "mentor_head" && userRole != "student_success" && userRole != "admin" {
+	} else if userRole != "mentor_head" && userRole != "student_success" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -203,7 +203,7 @@ func (h *APIHandler) DeleteGrade(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
 			return
 		}
-	} else if userRole != "mentor_head" {
+	} else if userRole != "mentor_head" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Only mentors and mentor heads can delete grades")
 		return
 	}
@@ -295,7 +295,7 @@ func (h *APIHandler) GetGradesForClass(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You can only view grades for your assigned classes")
 			return
 		}
-	} else if userRole != "mentor_head" && userRole != "student_success" && userRole != "admin" {
+	} else if userRole != "mentor_head" && userRole != "student_success" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}

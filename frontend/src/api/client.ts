@@ -38,6 +38,7 @@ export interface User {
   email: string
   name: string
   role: string
+  must_change_password?: boolean
 }
 
 export interface MentorDirectoryItem {
@@ -907,6 +908,36 @@ export const api = {
     const query = qs.toString()
     return fetchAPI(`/reports/bi${query ? `?${query}` : ''}`)
   },
+
+  forceChangePassword: (newPassword: string): Promise<{ ok: boolean; redirect: string }> =>
+    fetchAPI('/auth/force-change-password', {
+      method: 'POST',
+      body: JSON.stringify({ new_password: newPassword }),
+    }),
+
+  getStaffUsers: (): Promise<{ users: StaffUser[] }> => fetchAPI('/manager/users'),
+
+  createStaffUser: (payload: {
+    full_name: string
+    email: string
+    role: string
+    temporary_password: string
+  }): Promise<{
+    id: string
+    email: string
+    full_name: string
+    role: string
+    must_change_password: boolean
+  }> =>
+    fetchAPI('/manager/users', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteStaffUser: (userId: string): Promise<{ ok: boolean }> =>
+    fetchAPI(`/manager/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    }),
 }
 
 // Student Profile Types (Milestone 4)
@@ -977,6 +1008,15 @@ export interface LateJoinerNotification {
   full_name: string
   class_key: string
   joined_at_session_number: number
+  created_at: string
+}
+
+export interface StaffUser {
+  id: string
+  full_name: string
+  email: string
+  role: string
+  must_change_password: boolean
   created_at: string
 }
 

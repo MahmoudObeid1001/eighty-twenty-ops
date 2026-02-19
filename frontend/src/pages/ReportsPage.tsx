@@ -39,8 +39,8 @@ export default function ReportsPage() {
   const [biError, setBIError] = useState<string | null>(null)
   const [biData, setBIData] = useState<BIReportPayload | null>(null)
 
-  const canViewBI = userRole === 'admin' || userRole === 'mentor_head'
-  const canViewMentor = userRole === 'student_success' || userRole === 'mentor_head'
+  const canViewBI = userRole === 'admin' || userRole === 'mentor_head' || userRole === 'manager'
+  const canViewMentor = userRole === 'student_success' || userRole === 'mentor_head' || userRole === 'manager'
 
   const [viewMode, setViewMode] = useState<ReportsViewMode>('bi')
 

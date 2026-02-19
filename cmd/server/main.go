@@ -58,6 +58,9 @@ func main() {
 	if err := seedHRUser(cfg); err != nil {
 		log.Printf("Warning: Failed to seed hr user: %v", err)
 	}
+	if err := seedManagerUser(cfg); err != nil {
+		log.Printf("Warning: Failed to seed manager user: %v", err)
+	}
 
 	// Initialize handlers
 	handlers.SetConfig(cfg) // Set config for template debug logging
@@ -613,6 +616,27 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/reports/bi -> apiHandler.GetBIReports [admin+mentor_head]")
 
+	mux.HandleFunc("/api/manager/users", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(apiHandler.GetManagerUsers)(w, r)
+		case http.MethodPost:
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(apiHandler.CreateManagerUser)(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/manager/users -> manager staff APIs [manager]")
+
+	mux.HandleFunc("/api/manager/users/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(apiHandler.DeleteManagerUser)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/manager/users/:id -> manager remove user API [manager]")
+
 	// Dynamic classes routes /api/classes/{id}/sessions and /api/classes/{id}/sessions/{n}/complete
 	mux.HandleFunc("/api/classes/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -712,6 +736,15 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /logout -> authHandler.Logout (GET/POST)")
+
+	mux.HandleFunc("/api/auth/force-change-password", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAuth(authHandler.ForceChangePassword, cfg.SessionSecret)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/auth/force-change-password -> authHandler.ForceChangePassword [RequireAuth]")
 
 	// Protected routes - register specific routes BEFORE catch-all
 	// /pre-enrolment/new - allow admin + moderator
@@ -1353,5 +1386,22 @@ func seedStudentSuccessUser(cfg *config.Config) error {
 		return fmt.Errorf("failed to create student_success user: %w", err)
 	}
 	log.Printf("Created default student_success user: %s", cfg.StudentSuccessEmail)
+	return nil
+}
+
+func seedManagerUser(cfg *config.Config) error {
+	_, err := models.GetUserByEmail(cfg.ManagerEmail)
+	if err == nil {
+		return nil
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(cfg.ManagerPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+	_, err = models.CreateUser(cfg.ManagerEmail, string(hashedPassword), "manager", "Manager", "")
+	if err != nil {
+		return fmt.Errorf("failed to create manager user: %w", err)
+	}
+	log.Printf("Created default manager user: %s", cfg.ManagerEmail)
 	return nil
 }

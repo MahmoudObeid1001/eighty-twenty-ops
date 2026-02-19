@@ -28,7 +28,7 @@ func (h *HRHandler) MentorsList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "hr" && userRole != "admin" {
+	if userRole != "hr" && userRole != "admin" && userRole != "manager" {
 		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
@@ -52,7 +52,7 @@ func (h *HRHandler) MentorsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "hr" && userRole != "admin" {
+	if userRole != "hr" && userRole != "admin" && userRole != "manager" {
 		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}

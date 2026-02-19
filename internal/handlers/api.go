@@ -21,6 +21,7 @@ import (
 	"eighty-twenty-ops/internal/models"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type APIHandler struct {
@@ -78,17 +79,167 @@ func (h *APIHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"id":    userID,
-		"email": userEmail,
-		"name":  userName,
-		"role":  userRole,
+		"id":                   userID,
+		"email":                userEmail,
+		"name":                 userName,
+		"role":                 userRole,
+		"must_change_password": user != nil && user.MustChangePassword,
 	})
+}
+
+// GET /api/manager/users - list users for manager
+func (h *APIHandler) GetManagerUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	users, err := models.GetAllUsers()
+	if err != nil {
+		log.Printf("ERROR: failed to list users: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load users")
+		return
+	}
+
+	type userRow struct {
+		ID                 string `json:"id"`
+		FullName           string `json:"full_name"`
+		Email              string `json:"email"`
+		Role               string `json:"role"`
+		MustChangePassword bool   `json:"must_change_password"`
+		CreatedAt          string `json:"created_at"`
+	}
+	rows := make([]userRow, 0, len(users))
+	for _, u := range users {
+		name := strings.TrimSpace(u.FullName.String)
+		if name == "" {
+			name = u.Email
+		}
+		rows = append(rows, userRow{
+			ID:                 u.ID.String(),
+			FullName:           name,
+			Email:              u.Email,
+			Role:               u.Role,
+			MustChangePassword: u.MustChangePassword,
+			CreatedAt:          u.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"users": rows})
+}
+
+// POST /api/manager/users - create user with temporary password
+func (h *APIHandler) CreateManagerUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		FullName          string `json:"full_name"`
+		Email             string `json:"email"`
+		Role              string `json:"role"`
+		TemporaryPassword string `json:"temporary_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	req.FullName = strings.TrimSpace(req.FullName)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.Role = strings.TrimSpace(req.Role)
+	req.TemporaryPassword = strings.TrimSpace(req.TemporaryPassword)
+
+	allowedRoles := map[string]bool{
+		"admin":           true,
+		"mentor_head":     true,
+		"mentor":          true,
+		"hr":              true,
+		"student_success": true,
+		"moderator":       true,
+	}
+
+	if req.FullName == "" || req.Email == "" || req.Role == "" || req.TemporaryPassword == "" {
+		jsonError(w, http.StatusBadRequest, "full_name, email, role, and temporary_password are required")
+		return
+	}
+	if !allowedRoles[req.Role] {
+		jsonError(w, http.StatusBadRequest, "Invalid role")
+		return
+	}
+
+	if _, err := models.GetUserByEmail(req.Email); err == nil {
+		jsonError(w, http.StatusConflict, "Email already exists")
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.TemporaryPassword), bcrypt.DefaultCost)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "Failed to hash password")
+		return
+	}
+
+	user, err := models.CreateUserWithMustChange(req.Email, string(hash), req.Role, req.FullName, "", true)
+	if err != nil {
+		log.Printf("ERROR: failed to create manager user: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to create user")
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"id":                   user.ID.String(),
+		"email":                user.Email,
+		"full_name":            req.FullName,
+		"role":                 user.Role,
+		"must_change_password": true,
+	})
+}
+
+// DELETE /api/manager/users/:id - remove a user (manager only)
+func (h *APIHandler) DeleteManagerUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	currentUserID := middleware.GetUserID(r)
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "manager" || parts[2] != "users" {
+		http.NotFound(w, r)
+		return
+	}
+	targetUserID := strings.TrimSpace(parts[3])
+	if targetUserID == "" {
+		jsonError(w, http.StatusBadRequest, "User id is required")
+		return
+	}
+	if targetUserID == currentUserID {
+		jsonError(w, http.StatusBadRequest, "Manager cannot remove their own account")
+		return
+	}
+
+	if err := models.DeleteUserByID(targetUserID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			jsonError(w, http.StatusNotFound, "User not found")
+			return
+		}
+		// Foreign-key / dependency safety: prevent deletion of users linked to existing records.
+		if strings.Contains(strings.ToLower(err.Error()), "violates foreign key constraint") {
+			jsonError(w, http.StatusConflict, "User cannot be removed because they are linked to existing records")
+			return
+		}
+		log.Printf("ERROR: failed to delete user %s: %v", targetUserID, err)
+		jsonError(w, http.StatusInternalServerError, "Failed to remove user")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // GET /api/mentor/classes - returns classes for current mentor
 func (h *APIHandler) GetMentorClasses(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor or Admin access required")
 		return
 	}
@@ -140,7 +291,7 @@ func (h *APIHandler) GetMentorClasses(w http.ResponseWriter, r *http.Request) {
 // GET /api/mentor-head/mentors - returns all mentors
 func (h *APIHandler) GetMentors(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -176,7 +327,7 @@ func (h *APIHandler) GetMentorDirectory(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -222,7 +373,7 @@ func (h *APIHandler) GetMentorProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -313,7 +464,7 @@ func (h *APIHandler) CreateMentorTestimonial(w http.ResponseWriter, r *http.Requ
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -365,7 +516,7 @@ func (h *APIHandler) CreateMentorTestimonial(w http.ResponseWriter, r *http.Requ
 // GET /api/mentor-head/classes - returns classes grouped by mentor
 func (h *APIHandler) GetMentorHeadClasses(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -474,7 +625,7 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -697,7 +848,7 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "Round has not started yet. Attendance is locked for mentors until Mentor Head starts the round.")
 			return
 		}
-	} else if userRole != "admin" && userRole != "student_success" && userRole != "mentor_head" {
+	} else if userRole != "admin" && userRole != "student_success" && userRole != "mentor_head" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -790,7 +941,7 @@ func (h *APIHandler) CompleteSession(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "Round has not started yet. Session completion is locked for mentors until Mentor Head starts the round.")
 			return
 		}
-	} else if userRole != "admin" && userRole != "student_success" && userRole != "mentor_head" {
+	} else if userRole != "admin" && userRole != "student_success" && userRole != "mentor_head" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -852,7 +1003,7 @@ func (h *APIHandler) GetNotes(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -944,7 +1095,7 @@ func (h *APIHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -1021,7 +1172,7 @@ func (h *APIHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusForbidden, "Forbidden: You can only delete your own notes")
 			return
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -1038,7 +1189,7 @@ func (h *APIHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 // GET /api/student?student_id=... or ?lead_id=... - returns student profile (+ report payload when class_key is provided)
 func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
+	if userRole != "mentor" && userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -1305,7 +1456,7 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 // GET /api/mentor-head/dashboard - returns dashboard data (classes + mentors)
 func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -1419,7 +1570,7 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 // GET /api/mentor-head/archive - returns closed classes grouped by mentor
 func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -1549,7 +1700,7 @@ func (h *APIHandler) AssignMentor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -1671,7 +1822,7 @@ func (h *APIHandler) ReturnToOps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -1716,7 +1867,7 @@ func (h *APIHandler) UnassignMentor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" {
+	if userRole != "mentor_head" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head access required")
 		return
 	}
@@ -1792,7 +1943,7 @@ func (h *APIHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -1877,7 +2028,7 @@ func (h *APIHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -1950,7 +2101,7 @@ func (h *APIHandler) ReopenRound(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
 		return
 	}
@@ -1994,7 +2145,7 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" {
+	if userRole != "mentor_head" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head access required")
 		return
 	}
@@ -2129,7 +2280,7 @@ func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Reque
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" {
+	if userRole != "mentor_head" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head access required")
 		return
 	}
@@ -2230,7 +2381,7 @@ func (h *APIHandler) GetStudentSuccessClasses(w http.ResponseWriter, r *http.Req
 		return
 	}
 	role := middleware.GetUserRole(r)
-	if role != "student_success" {
+	if role != "student_success" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
 		return
 	}
@@ -2357,7 +2508,7 @@ func (h *APIHandler) GetMentorReminders(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Mentor or Admin access required")
 		return
 	}
@@ -2703,7 +2854,7 @@ func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Reque
 // GET /api/student-success/class/absence-feed?class_key=...
 func (h *APIHandler) GetAbsenceFeed(w http.ResponseWriter, r *http.Request) {
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "mentor_head" && role != "admin" {
+	if role != "student_success" && role != "mentor_head" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -2744,7 +2895,7 @@ func (h *APIHandler) GetFollowUps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "mentor_head" && role != "admin" {
+	if role != "student_success" && role != "mentor_head" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -2783,7 +2934,7 @@ func (h *APIHandler) ResolveAbsence(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "mentor_head" && role != "admin" {
+	if role != "student_success" && role != "mentor_head" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -2824,7 +2975,7 @@ func (h *APIHandler) CreateFollowUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "mentor_head" && role != "admin" {
+	if role != "student_success" && role != "mentor_head" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -2872,7 +3023,7 @@ func (h *APIHandler) PostFollowUpUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "mentor_head" && role != "admin" {
+	if role != "student_success" && role != "mentor_head" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -3034,7 +3185,7 @@ func (h *APIHandler) CompleteSessionByNumber(w http.ResponseWriter, r *http.Requ
 			jsonError(w, http.StatusBadRequest, "Round has not started yet. Session completion is locked for mentors until Mentor Head starts the round.")
 			return
 		}
-	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" {
+	} else if userRole != "mentor_head" && userRole != "admin" && userRole != "student_success" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Insufficient permissions")
 		return
 	}
@@ -3060,7 +3211,7 @@ func (h *APIHandler) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "admin" {
+	if role != "student_success" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Student Success or Admin access required")
 		return
 	}
@@ -3106,7 +3257,7 @@ func (h *APIHandler) UpdateFeedbackStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "admin" {
+	if role != "student_success" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Student Success or Admin access required")
 		return
 	}
@@ -3156,7 +3307,7 @@ func (h *APIHandler) GetFeedbackCollected(w http.ResponseWriter, r *http.Request
 		return
 	}
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "mentor_head" && role != "admin" {
+	if role != "student_success" && role != "mentor_head" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden")
 		return
 	}
@@ -3237,7 +3388,7 @@ func (h *APIHandler) UploadFeedbackCollected(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	role := middleware.GetUserRole(r)
-	if role != "student_success" {
+	if role != "student_success" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden")
 		return
 	}
@@ -3328,7 +3479,7 @@ func (h *APIHandler) DeleteFeedbackCollected(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "mentor_head" && role != "admin" {
+	if role != "student_success" && role != "mentor_head" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden")
 		return
 	}
@@ -3390,7 +3541,7 @@ func (h *APIHandler) CreateComplaint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "admin" {
+	if role != "student_success" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
 		return
 	}
@@ -3444,7 +3595,7 @@ func (h *APIHandler) GetFollowUpsWithComplaints(w http.ResponseWriter, r *http.R
 	}
 
 	role := middleware.GetUserRole(r)
-	if role != "student_success" && role != "admin" {
+	if role != "student_success" && role != "admin" && role != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
 		return
 	}
@@ -3658,7 +3809,7 @@ func (h *APIHandler) GetEligibleClassesForLateJoin(w http.ResponseWriter, r *htt
 // AddLateJoiner adds a student to an active class.
 func (h *APIHandler) AddLateJoiner(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Admin access required")
 		return
 	}
@@ -3717,7 +3868,7 @@ func (h *APIHandler) AddLateJoiner(w http.ResponseWriter, r *http.Request) {
 // UndoLateJoiner reverts a late join action.
 func (h *APIHandler) UndoLateJoiner(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Admin access required")
 		return
 	}

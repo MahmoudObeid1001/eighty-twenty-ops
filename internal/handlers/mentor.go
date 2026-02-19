@@ -47,7 +47,7 @@ func (h *MentorHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
@@ -135,7 +135,7 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
@@ -153,7 +153,7 @@ func (h *MentorHandler) ClassDetail(w http.ResponseWriter, r *http.Request) {
 	// Verify mentor is assigned to this class
 	userIDStr := middleware.GetUserID(r)
 	mentorUserID, err := uuid.Parse(userIDStr)
-	if err == nil && userRole != "admin" {
+	if err == nil && userRole != "admin" && userRole != "manager" {
 		assignment, err := models.GetMentorAssignment(classKey)
 		if err != nil || assignment == nil || assignment.MentorUserID != mentorUserID {
 			redirectWithError(w, r, "/mentor", "You aren't assigned to this class.")
@@ -340,7 +340,7 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
@@ -374,7 +374,7 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	// Verify mentor is assigned to this session's class
 	userIDStr := middleware.GetUserID(r)
 	mentorUserID, _ := uuid.Parse(userIDStr)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		session, err := models.GetSessionByID(sessionID)
 		if err != nil || session == nil {
 			redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Session not found. Please refresh and try again.")
@@ -419,7 +419,7 @@ func (h *MentorHandler) EnterGrade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
@@ -463,7 +463,7 @@ func (h *MentorHandler) EnterGrade(w http.ResponseWriter, r *http.Request) {
 	// Verify mentor is assigned
 	userIDStr := middleware.GetUserID(r)
 	mentorUserID, _ := uuid.Parse(userIDStr)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		assignment, err := models.GetMentorAssignment(classKey)
 		if err != nil || assignment == nil || assignment.MentorUserID != mentorUserID {
 			redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "You aren't assigned to this class.")
@@ -505,7 +505,7 @@ func (h *MentorHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" && userRole != "mentor_head" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "mentor_head" && userRole != "manager" {
 		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
@@ -588,7 +588,7 @@ func (h *MentorHandler) CompleteSession(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/mentor", "You don't have permission to do this.")
 		return
 	}
@@ -607,7 +607,7 @@ func (h *MentorHandler) CompleteSession(w http.ResponseWriter, r *http.Request) 
 	// Verify mentor is assigned
 	userIDStr := middleware.GetUserID(r)
 	mentorUserID, _ := uuid.Parse(userIDStr)
-	if userRole != "admin" {
+	if userRole != "admin" && userRole != "manager" {
 		session, err := models.GetSessionByID(sessionID)
 		if err != nil || session == nil {
 			redirectWithError(w, r, mentorClassURL("/mentor/class", classKey, r), "Session not found. Please refresh and try again.")

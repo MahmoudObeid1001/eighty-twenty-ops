@@ -9,10 +9,16 @@ import StudentSuccessClass from './pages/StudentSuccessClass'
 import StudentsPage from './pages/StudentsPage'
 import ReportsPage from './pages/ReportsPage'
 import MentorsPage from './pages/MentorsPage'
+import StaffManagementPage from './pages/StaffManagementPage'
+import SetupPasswordPage from './pages/SetupPasswordPage'
 
 function App() {
   const location = useLocation()
   const classKey = new URLSearchParams(location.search).get('class_key')
+
+  if (location.pathname === '/setup-password') {
+    return <SetupPasswordPage />
+  }
 
   return (
     <AppLayout>
@@ -27,6 +33,7 @@ function App() {
         <Route path="/students" element={<StudentsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/mentors" element={<MentorsPage />} />
+        <Route path="/staff" element={<StaffManagementPage />} />
         <Route path="/" element={<Navigate to={classKey ? `/student-success/class?class_key=${classKey}` : "/mentor"} replace />} />
       </Routes>
     </AppLayout>

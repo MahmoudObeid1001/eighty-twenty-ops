@@ -308,7 +308,7 @@ erDiagram
 
 | Table | Created In | Modified In |
 |-------|------------|-------------|
-| `users` | `001_init.sql:4-10` | `014_add_mentor_roles.sql`, `023_add_hr_role.sql`, `028_add_student_success_role.sql`, `035_add_manager_role.sql`, `056_add_user_profile_fields_for_mentors.sql` (added `full_name`, `phone`, mentor required-profile check) |
+| `users` | `001_init.sql:4-10` | `014_add_mentor_roles.sql`, `023_add_hr_role.sql`, `028_add_student_success_role.sql`, `035_add_manager_role.sql`, `056_add_user_profile_fields_for_mentors.sql` (added `full_name`, `phone`, mentor required-profile check), `060_reactivate_manager_and_force_password_change.sql` (added `must_change_password`, active manager role constraint) |
 | `leads` | `001_init.sql:13-26` | `004_classes_board.sql` (added `in_classes` status), `013_add_paused_status.sql` (added `paused`) |
 | `placement_tests` | `001_init.sql:29-39` | `003_assigned_level_1_to_8.sql` (changed level constraint 1-4 → 1-8) |
 | `offers` | `001_init.sql:42-51` | - |
@@ -356,7 +356,8 @@ erDiagram
 ### Check Constraints
 **Evidence**: Inline in CREATE TABLE statements
 
-- `users.role` must be one of: admin, moderator, community_officer, mentor_head, mentor, hr, student_success *(manager was added and removed)*
+- `users.role` must be one of: admin, moderator, mentor_head, mentor, hr, student_success, manager
+- `users.must_change_password` controls forced first-login password setup for manager-provisioned accounts
 - `users_mentor_profile_required`: when `role='mentor'`, both `full_name` and `phone` must be non-empty
 - `leads.status` has extensive pipeline states (lead_created → in_classes)
 - `placement_tests.assigned_level` must be 1-8 *(changed from 1-4)*

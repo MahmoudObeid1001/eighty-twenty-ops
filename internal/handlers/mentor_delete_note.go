@@ -21,7 +21,7 @@ func (h *MentorHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor" && userRole != "admin" && userRole != "mentor_head" {
+	if userRole != "mentor" && userRole != "admin" && userRole != "mentor_head" && userRole != "manager" {
 		http.Error(w, "You don't have permission to do this.", http.StatusForbidden)
 		return
 	}
@@ -56,7 +56,7 @@ func (h *MentorHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 
 	// Permission check: mentors can only delete their own notes, mentor_head/admin can delete any
 	currentUserID := middleware.GetUserID(r)
-	if userRole != "mentor_head" && userRole != "admin" {
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
 		// Regular mentor: must be the creator
 		if !note.CreatedByUserID.Valid || note.CreatedByUserID.String != currentUserID {
 			http.Error(w, "You can only delete your own notes.", http.StatusForbidden)
@@ -84,7 +84,7 @@ func (h *MentorHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	if studentID == "" {
 		studentID = r.FormValue("student_id")
 	}
-	
+
 	var basePath string
 	if userRole == "mentor_head" {
 		basePath = "/mentor-head/class"

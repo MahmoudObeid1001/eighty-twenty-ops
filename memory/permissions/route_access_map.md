@@ -57,6 +57,10 @@
 | `/api/reports/mentors/classes` | GET | student_success, mentor_head, manager | `apiHandler.GetMentorClassReports` | `main.go` |
 | `/api/reports/mentors/exclude` | POST | mentor_head, manager | `apiHandler.ExcludeMentorReportRow` | `main.go` |
 | `/api/reports/bi` | GET | admin, mentor_head | `apiHandler.GetBIReports` | `main.go` |
+| `/api/manager/users` | GET | manager | `apiHandler.GetManagerUsers` | `main.go` |
+| `/api/manager/users` | POST | manager | `apiHandler.CreateManagerUser` | `main.go` |
+| `/api/manager/users/:id` | DELETE | manager | `apiHandler.DeleteManagerUser` | `main.go` |
+| `/api/auth/force-change-password` | POST | Authenticated (`must_change_password=true`) | `authHandler.ForceChangePassword` | `main.go` |
 | `/api/classes/:id/sessions` | GET | mentor, mentor_head, admin, student_success | `apiHandler.ListClassSessions` | `main.go:391-406` |
 | `/api/classes/:id/sessions/:n/complete` | POST | mentor, mentor_head, admin, student_success | `apiHandler.CompleteSessionByNumber` (deprecated) | `main.go:391-406` |
 | `/api/grades/preview` | GET | mentor, mentor_head, student_success, admin | `apiHandler.GetGradesPreview` | `main.go` |
@@ -105,6 +109,8 @@
 | `/app/student-success` | `StudentSuccessDashboard` | student_success | `App.tsx`, `AppLayout.tsx` |
 | `/app/reports` | `ReportsPage` | student_success, mentor_head, admin | `App.tsx`, `AppLayout.tsx` |
 | `/app/admin/mentors` | `AdminMentorsPage` | admin | `App.tsx`, `AppLayout.tsx` |
+| `/app/staff` | `StaffManagementPage` | manager | `App.tsx`, `AppLayout.tsx` |
+| `/app/setup-password` | `SetupPasswordPage` | Authenticated users with `must_change_password=true` | `App.tsx` |
 
 ---
 
@@ -115,8 +121,14 @@
 2. **`RequireAnyRole([]string{...})`** - Checks if user's role is in allowed list
 3. **Handler** - Executes business logic
 
+### Forced Password Setup Gate
+- If `users.must_change_password = true`, user is blocked from normal app/API endpoints.
+- Allowed endpoints while blocked: password setup endpoint(s), auth context endpoint(s) needed for setup, and logout.
+- After successful password setup, `must_change_password` is set to `false` and full role access resumes.
+
 ### Role Inheritance
 - **`admin`** typically has access to most routes (except specific mentor_head-only)
+- **`manager`** bypasses role middleware checks and is intended to have full protected-route access
 - **`moderator`** has read access to pre-enrolment and finances but gets 403 on write operations
 - **`mentor_head`** can access mentor-head dashboard + mentor class workspace (read-only classes board)
 - **`student_success`** has access to absence feeds and follow-ups shared with mentor_head
