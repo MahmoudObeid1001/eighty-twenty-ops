@@ -581,6 +581,305 @@ table tbody tr.row-cancelled:hover {
     
     .sidebar {
         width: 100%;
+        min-height: unset;
+        border-right: none;
+        border-bottom: 1px solid #8C8C8C;
+        padding: 12px 0;
+    }
+
+    .sidebar .brand-block {
+        margin-bottom: 10px;
+        padding: 10px 14px 12px;
+    }
+
+    .app-nav-list {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        padding: 0 10px;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .app-nav-list li {
+        margin-bottom: 0;
+        flex: 0 0 auto;
+    }
+
+    .app-nav-list li a {
+        border-radius: 8px;
+        padding: 10px 12px;
+        white-space: nowrap;
+    }
+
+    .app-sidebar-footer {
+        border-top: none !important;
+        padding: 10px !important;
+    }
+
+    .main-content {
+        padding: 16px;
+        padding-right: 64px;
+    }
+
+    .header {
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 16px;
+        padding-bottom: 10px;
+    }
+
+    .header h1 {
+        font-size: 22px;
+        line-height: 1.3;
+    }
+
+    .main-content .content-header .app-logo {
+        max-height: 3.2em;
+        margin-right: 10px;
+    }
+
+    .workspace-tabs {
+        gap: 10px !important;
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 2px;
+    }
+
+    .session-chip-row {
+        overflow-x: auto;
+        flex-wrap: nowrap !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .session-chip-row button {
+        flex: 0 0 auto;
+    }
+
+    .workspace-student-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .workspace-grading {
+        padding: 14px !important;
+    }
+
+    .workspace-grade-row {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 12px !important;
+    }
+
+    .workspace-grade-controls {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .workspace-grade-note-input {
+        width: 100% !important;
+        min-width: 0;
+    }
+
+    .workspace-grade-select {
+        min-width: 120px;
+    }
+
+    .bi-metrics-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .bi-dual-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .report-panel {
+        padding: 12px !important;
+    }
+
+    .simple-table {
+        min-width: 460px !important;
+    }
+
+    .pre-enrolment-detail-header {
+        align-items: flex-start !important;
+    }
+
+    .pre-enrolment-detail-header-left {
+        flex-wrap: wrap;
+        row-gap: 6px;
+    }
+
+    .pre-enrolment-status-banner {
+        width: 100%;
+        text-align: center;
+        font-size: 14px !important;
+        padding: 10px 12px !important;
+    }
+
+    .finance-filter-bar {
+        align-items: stretch;
+    }
+
+    .finance-filter-bar .filter-form {
+        width: 100%;
+    }
+
+    .finance-filter-cta {
+        margin-left: 0 !important;
+        width: 100%;
+    }
+
+    .finance-filter-cta .btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    .finance-breakdown-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .classes-topbar,
+    .classes-archived-topbar {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 10px;
+    }
+
+    .classes-topbar-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 8px !important;
+    }
+
+    .classes-topbar-actions .btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    .class-cards-grid {
+        scroll-snap-type: x mandatory;
+    }
+
+    .class-card {
+        flex: 0 0 calc(100vw - 52px) !important;
+        max-width: calc(100vw - 52px) !important;
+        scroll-snap-align: start;
+    }
+
+    .class-card h3 {
+        font-size: 14px !important;
+    }
+
+    .class-card li {
+        flex-wrap: wrap;
+        gap: 8px !important;
+    }
+
+    .class-card li > div:last-child {
+        width: 100%;
+    }
+
+    .class-card li > div:last-child form,
+    .class-card li > div:last-child select {
+        width: 100%;
+    }
+
+    .classes-archived-filter-form {
+        grid-template-columns: 1fr !important;
+    }
+
+    .classes-archived-filter-form > div:last-child .btn {
+        width: 100%;
+    }
+
+    .pre-enrolment-modal-overlay {
+        padding: 12px;
+    }
+
+    .pre-enrolment-modal-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 16px !important;
+    }
+
+    .pre-enrolment-modal-actions {
+        flex-direction: column;
+        gap: 8px !important;
+    }
+
+    .pre-enrolment-modal-actions .btn {
+        width: 100%;
+    }
+
+    .action-column {
+        white-space: normal;
+    }
+
+    .action-buttons-row {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .table-container > table {
+        min-width: 760px;
+    }
+
+    table th,
+    table td {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+
+    .class-card > div:first-child {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .class-card > div:first-child > div:first-child {
+        flex-wrap: wrap;
+        row-gap: 4px;
+    }
+
+    .class-card > div:first-child h3,
+    .class-card > div:first-child p {
+        white-space: normal !important;
+    }
+
+    .class-card li > div:first-child {
+        flex-wrap: wrap !important;
+        row-gap: 4px;
+    }
+
+    .class-card li > div:first-child > div {
+        white-space: normal !important;
+        flex-wrap: wrap !important;
+    }
+
+    .workspace-toast {
+        left: 12px !important;
+        right: 12px !important;
+        bottom: 12px !important;
+        width: auto !important;
+        max-width: none !important;
+    }
+
+    .bi-filter-row > div {
+        width: 100%;
+    }
+
+    .bi-filter-row input[type="date"] {
+        width: 100%;
+    }
+
+    .bi-filter-row .btn,
+    .bi-filter-row button {
+        width: 100%;
+        text-align: center;
     }
     
     .form-row {

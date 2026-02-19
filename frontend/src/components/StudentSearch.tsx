@@ -47,7 +47,7 @@ export default function StudentSearch() {
 
     return (
         <>
-            <div ref={searchRef} style={{ position: 'relative', width: '400px' }}>
+            <div ref={searchRef} style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
                 <input
                     type="text"
                     placeholder="Search students by name or phone..."

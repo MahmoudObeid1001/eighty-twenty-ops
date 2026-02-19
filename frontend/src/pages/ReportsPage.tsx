@@ -240,7 +240,7 @@ export default function ReportsPage() {
       {canViewBI && viewMode === 'bi' && (
         <>
           <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>
+            <div className="bi-filter-row" style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>
               <div>
                 <label style={filterLabelStyle}>From</label>
                 <input type="date" value={biFrom} onChange={(e) => setBIFrom(e.target.value)} style={filterInputStyle} />
@@ -404,8 +404,8 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
   const revenuePulse = data.report2.revenue_pulse
 
   return (
-    <div style={{ display: 'grid', gap: '14px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+    <div className="bi-dashboard" style={{ display: 'grid', gap: '14px' }}>
+      <div className="bi-metrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <MetricCard
           title="Test→Paid (30d)"
           value={`${conversion.conversion_rate.toFixed(1)}%`}
@@ -450,7 +450,7 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
         />
       </ReportPanel>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+      <div className="bi-dual-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
         <ReportPanel title="Report 3 · Lost Students (renewal_pending, 0 credits)">
           <SimpleTable
             columns={['Name', 'Phone', 'Last Level', 'Completed']}
@@ -478,7 +478,7 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
         />
       </ReportPanel>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+      <div className="bi-dual-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
         <ReportPanel title="Report 4 · Started Learning in Selected Range">
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#1f2937' }}>{data.report4.started_learners} learners</div>
           <div style={{ color: '#6b7280', marginTop: '4px' }}>
@@ -550,7 +550,7 @@ function ActiveClassesBarChart({ points }: { points: { month: string; classes_co
 
 function ReportPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
+    <section className="report-panel" style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
       <h3 style={{ margin: 0, marginBottom: '10px', color: '#1f2937' }}>{title}</h3>
       {children}
     </section>
@@ -571,7 +571,7 @@ function SimpleTable({
   }
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '520px' }}>
+      <table className="simple-table" style={{ width: '100%', borderCollapse: 'collapse', minWidth: '520px' }}>
         <thead>
           <tr style={{ background: '#f8fafc' }}>
             {columns.map((column) => (

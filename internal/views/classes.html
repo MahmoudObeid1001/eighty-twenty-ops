@@ -12,11 +12,11 @@
 </div>
 {{end}}
 
-<div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+<div class="classes-topbar" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
     <div>
         <strong>Current Round: {{.CurrentRound}}</strong>
     </div>
-    <div style="display: flex; gap: 12px; align-items: center;">
+    <div class="classes-topbar-actions" style="display: flex; gap: 12px; align-items: center;">
         <a href="/classes/archived" class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;">Archived
             Classes</a>
         {{if .IsClassesReadOnly}}

@@ -1,7 +1,7 @@
 {{define "pre_enrolment_detail_content"}}
 <!-- Header -->
-<div class="header content-header" style="display: flex; justify-content: space-between; align-items: center;">
-    <div style="display: flex; align-items: center; gap: 10px;">
+<div class="header content-header pre-enrolment-detail-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="pre-enrolment-detail-header-left" style="display: flex; align-items: center; gap: 10px;">
         <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
         <h1 style="margin: 0;">Pre-Enrolment Detail</h1>
         {{if .Detail.Lead.IsReturning}}
@@ -17,7 +17,7 @@
         {{end}}
     </div>
     <!-- Unified Status Banner (top-right) -->
-    <div
+    <div class="pre-enrolment-status-banner"
         style="background-color: {{.StatusBgColor}}; color: {{.StatusTextColor}}; border: 2px solid {{.StatusBorderColor}}; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px;">
         {{.StatusDisplayName}}
     </div>
@@ -987,9 +987,9 @@
     {{end}}
 
     {{if and .ShowCancelModal (not .IsModerator)}}
-    <div id="cancelModal"
+    <div id="cancelModal" class="pre-enrolment-modal-overlay"
         style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
-        <div
+        <div class="pre-enrolment-modal-card"
             style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
             <h2 style="margin-top: 0; color: #dc3545;">⚠️ Cancel Lead: {{.Detail.Lead.FullName}}</h2>
             <p style="color: #666;">Cancelling this lead will mark it as cancelled. If the lead has course payments, a
@@ -1101,7 +1101,7 @@
                         lead was cancelled</small>
                 </div>
 
-                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <div class="pre-enrolment-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
                     <button type="submit" class="btn"
                         style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm Cancel
                         & Refund</button>
@@ -1113,7 +1113,7 @@
             <p style="color: #666; margin: 20px 0;">This lead has no course payments, so no refund is needed.</p>
             <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
                 <input type="hidden" name="action" value="cancel">
-                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <div class="pre-enrolment-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
                     <button type="submit" class="btn"
                         style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm
                         Cancel</button>
@@ -1127,9 +1127,9 @@
     {{end}}
 
     <!-- Late Join Modal -->
-    <div id="lateJoinModal"
+    <div id="lateJoinModal" class="pre-enrolment-modal-overlay"
         style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: none; align-items: center; justify-content: center;">
-        <div
+        <div class="pre-enrolment-modal-card"
             style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 95%; max-height: 90vh; overflow-y: auto;">
             <h2 style="margin-top: 0; color: #6c5ce7;">Add as Late Joiner</h2>
             <p style="color: #666;">Student will join an eligible class in session 1 or 2 (active, or sent to Mentor
@@ -1150,7 +1150,7 @@
                 <small style="color: #666; display: block; margin-top: 5px;">Minimum 10 characters.</small>
             </div>
 
-            <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <div class="pre-enrolment-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
                 <button type="button" id="confirm-late-join-btn" class="btn"
                     style="background-color: #6c5ce7; border-color: #6c5ce7; color: white; flex: 1;"
                     onclick="confirmLateJoin()">Confirm Join</button>

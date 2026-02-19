@@ -91,8 +91,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
 
 
-        <nav style={{ flex: 1 }}>
-          <ul>
+        <nav className="app-nav" style={{ flex: 1 }}>
+          <ul className="app-nav-list">
             {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success') && (
               <li>
                 <Link
@@ -165,7 +165,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             )}
           </ul>
         </nav>
-        <div style={{ padding: '20px', borderTop: '1px solid #8C8C8C', marginTop: 'auto' }}>
+        <div className="app-sidebar-footer" style={{ padding: '20px', borderTop: '1px solid #8C8C8C', marginTop: 'auto' }}>
           <a
             href="/logout"
             className="btn btn-secondary"

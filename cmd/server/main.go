@@ -1172,6 +1172,9 @@ func main() {
 	reactFS := http.FileServer(http.Dir(reactAppDir))
 	mux.Handle("/app/assets/", http.StripPrefix("/app/", reactFS))
 	cfg.Debugf("ROUTE REGISTERED: /app/assets/ -> React static assets from frontend/dist")
+	// Serve React app public static files from /app/static/*
+	mux.Handle("/app/static/", http.StripPrefix("/app/", reactFS))
+	cfg.Debugf("ROUTE REGISTERED: /app/static/ -> React public static files from frontend/dist")
 
 	// Catch-all handler for /app/* - serves index.html for SPA routing
 	// This must be registered AFTER all other routes to avoid shadowing /api/*, /login, etc.

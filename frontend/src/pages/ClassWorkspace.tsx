@@ -299,7 +299,7 @@ export default function ClassWorkspace() {
   const mentorPreStartLocked = userRole === 'mentor' && classData.class.round_status !== 'active'
 
   return (
-    <>
+    <div className="class-workspace">
       <div className="header content-header">
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
         <h1>
@@ -326,6 +326,7 @@ export default function ClassWorkspace() {
 
       {actionError && (
         <div
+          className="workspace-toast workspace-toast-error"
           style={{
             position: 'fixed',
             bottom: '24px',
@@ -351,6 +352,7 @@ export default function ClassWorkspace() {
 
       {actionSuccess && (
         <div
+          className="workspace-toast workspace-toast-success"
           style={{
             position: 'fixed',
             bottom: '24px',
@@ -413,7 +415,7 @@ export default function ClassWorkspace() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '24px', borderBottom: '1px solid #dee2e6', marginBottom: '24px' }}>
+      <div className="workspace-tabs" style={{ display: 'flex', gap: '24px', borderBottom: '1px solid #dee2e6', marginBottom: '24px' }}>
         <button
           onClick={() => setActiveTab('sessions')}
           style={{
@@ -499,7 +501,7 @@ export default function ClassWorkspace() {
       {activeTab === 'sessions' && (
         <>
           <div style={{ marginBottom: '24px' }}>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', background: '#f8f9fa', padding: '12px', borderRadius: '12px' }}>
+            <div className="session-chip-row" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', background: '#f8f9fa', padding: '12px', borderRadius: '12px' }}>
               {classData.sessions.map((s) => {
                 const isSelected = s.session_number === selectedSessionNumber
                 const statusColor = s.status === 'completed' ? '#28a745' : s.status === 'scheduled' ? '#007bff' : '#6c757d'
@@ -554,7 +556,7 @@ export default function ClassWorkspace() {
           <div style={{ display: 'flex', gap: '20px', position: 'relative' }}>
             <div style={{ flex: 1 }}>
               <h2 style={{ fontSize: '18px', marginBottom: '16px' }}>Students</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+              <div className="workspace-student-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
                 {classData.students.map((student) => {
                   const status = selectedSession ? student.attendance?.[selectedSession.id] : undefined
                   const perf = selectedSession ? student.session_performance?.[selectedSession.id] : undefined
@@ -705,7 +707,7 @@ export default function ClassWorkspace() {
       )}
 
       {activeTab === 'grades' && (
-        <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #dee2e6' }}>
+        <div className="workspace-grading" style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #dee2e6' }}>
           <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Final Class Grading</h2>
           <p style={{ color: '#666', marginBottom: '24px', fontSize: '14px' }}>
             Grades are calculated from attendance, tasks, and participation. Save commits the calculated values.
@@ -745,6 +747,7 @@ export default function ClassWorkspace() {
 
               return (
                 <div
+                  className="workspace-grade-row"
                   key={student.lead_id}
                   style={{
                     display: 'flex',
@@ -788,7 +791,7 @@ export default function ClassWorkspace() {
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <div className="workspace-grade-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     {/*
                       Interaction gate:
                       - UI remains interactive for mentors/MH unless class is archived/closed.
@@ -800,6 +803,7 @@ export default function ClassWorkspace() {
                         <>
                     {userRole === 'mentor_head' && (
                       <select
+                        className="workspace-grade-select"
                         value={currentGrade.grade || calculatedGrade}
                         disabled={!canInteractGradeFields}
                         onChange={(e) => {
@@ -829,6 +833,7 @@ export default function ClassWorkspace() {
                     )}
 
                     <input
+                      className="workspace-grade-note-input"
                       type="text"
                       placeholder="Add final notes..."
                       value={currentGrade.notes}
@@ -991,6 +996,6 @@ export default function ClassWorkspace() {
       {canOpenCompliance && (
         <ComplianceModal open={complianceOpen} classKey={classKey} onClose={() => setComplianceOpen(false)} />
       )}
-    </>
+    </div>
   )
 }

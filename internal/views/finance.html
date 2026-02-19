@@ -26,7 +26,7 @@
 </div>
 
 <!-- Filter Bar -->
-<div class="filter-bar">
+<div class="filter-bar finance-filter-bar">
     <form method="GET" action="/finance" class="filter-form">
         <label style="font-size: 13px; font-weight: 500;">From:</label>
         <input type="date" name="from" class="filter-select" value="{{if .DateFrom.Valid}}{{.DateFrom.Time.Format "2006-01-02"}}{{end}}" style="height: 38px;">
@@ -59,7 +59,7 @@
         </select>
         <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
     </form>
-    <div style="margin-left: auto;">
+    <div class="finance-filter-cta" style="margin-left: auto;">
         <a href="/finance/new-expense" class="btn btn-primary">New Expense</a>
     </div>
 </div>
@@ -108,7 +108,7 @@
     <!-- Breakdown by Category -->
     <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <h3 style="margin-top: 0; color: #666; font-size: 16px;">Breakdown by Category</h3>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="finance-breakdown-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
             <div>
                 <h4 style="color: #0066CC; margin-bottom: 12px;">Income (IN)</h4>
                 <table style="width: 100%; font-size: 14px;">

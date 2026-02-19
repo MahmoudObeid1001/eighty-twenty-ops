@@ -8,6 +8,18 @@
 ## Maintenance Notes
 
 - 2026-02-18: Lint/quality cleanup pass (`golangci-lint`) completed. No business rules or runtime behavior were intentionally changed.
+- 2026-02-19: Mobile compatibility polish added as CSS-only responsive overrides (no workflow/business-logic changes). Desktop behavior remains source-of-truth baseline.
+- 2026-02-19: SSR views mobile polish extended to `/pre-enrolment`, `/finance`, and `/classes` via template class hooks + media-query CSS only (no server/business logic changes).
+- 2026-02-19: Pre-enrolment cancel/late-join modals and list action rows received extra small-screen layout hardening (stacked actions, full-width mobile dialog body).
+- 2026-02-19: Mobile hardening pass added responsive handling for React BI filter controls and Class Workspace toast alerts (to avoid off-screen fixed notices on narrow devices).
+- 2026-02-19: Deployment safety fix for React CSS path:
+  - React shell now references `./static/main.css` in source, which builds to `/app/static/main.css`.
+  - Backend serves `/app/static/*` from `frontend/dist` to avoid cross-origin/localhost CSS leakage in production.
+- 2026-02-19: Mobile CSS hardening for dense data views:
+  - SSR table containers enforce horizontal scroll with mobile `min-width` table strategy.
+  - Classes cards allow header/meta wrapping on small screens to prevent clipped schedule/student text.
+- 2026-02-19: Mobile safe-area rule added for fixed floating UI overlays:
+  - `main-content` gets extra right padding on small screens to keep controls readable/clickable when third-party floating widgets are present.
 
 ---
 
@@ -336,6 +348,16 @@
   - card shows both:
     - students with credits `> 0`
     - total students in scope (including `0` credits)
+
+### Responsive UI Safety Rule
+
+**Business Rule**:
+- Mobile-friendliness is a presentation-layer enhancement only.
+- Existing desktop layout/behavior is the baseline and must not be changed by responsive work.
+
+**Implementation Rule**:
+- Prefer media-query CSS overrides and class hooks.
+- Do not alter server/business flow, status transitions, scoring, or permission gates for responsive changes.
 
 
 ---
