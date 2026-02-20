@@ -104,6 +104,7 @@
 - Manager is the only role allowed to create users in Staff Management.
 - Manager can list all users (`GET /api/manager/users`) and create users with temporary passwords (`POST /api/manager/users`).
 - Manager can remove users (`DELETE /api/manager/users/:id`) with self-delete blocked.
+- Manager can deactivate users (`POST /api/manager/users/:id/deactivate`) for safe offboarding when records are linked.
 
 ### Shared Access student_success + mentor_head
 

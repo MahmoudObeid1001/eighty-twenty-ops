@@ -171,6 +171,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		loginError("Invalid email or password")
 		return
 	}
+	if !user.IsActive {
+		loginError("This account has been deactivated. Contact your manager.")
+		return
+	}
 
 	cookie, err := middleware.CreateSessionCookie(user.ID.String(), user.Email, user.Role, h.cfg.SessionSecret)
 	if err != nil {

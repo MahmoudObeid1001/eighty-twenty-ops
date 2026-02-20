@@ -103,6 +103,23 @@ func RequireAuth(next http.HandlerFunc, secret string) http.HandlerFunc {
 			redirectToLoginWithNext(w, r)
 			return
 		}
+		if !user.IsActive {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "eighty_twenty_session",
+				Value:    "",
+				Path:     "/",
+				HttpOnly: true,
+				MaxAge:   -1,
+			})
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":"Account is deactivated"}`))
+				return
+			}
+			redirectToLoginWithNext(w, r)
+			return
+		}
 
 		if user.MustChangePassword && !passwordSetupAllowedPath(r.URL.Path) {
 			if strings.HasPrefix(r.URL.Path, "/api/") {

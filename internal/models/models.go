@@ -14,6 +14,7 @@ type User struct {
 	Phone              sql.NullString
 	PasswordHash       string
 	Role               string
+	IsActive           bool
 	MustChangePassword bool
 	CreatedAt          time.Time
 }

@@ -7,9 +7,15 @@
 
 ## Maintenance Notes
 
+- 2026-02-20: Staff Management deactivation flow added for offboarding users.
+  - New column: `users.is_active` (default `true`) via migration `061_add_users_is_active.sql`.
+  - Manager can deactivate linked users: `POST /api/manager/users/:id/deactivate`.
+  - Deactivated users cannot log in and are blocked by auth middleware from protected APIs/pages.
+  - Staff Management now uses deactivate-first workflow; hard delete remains for fully unlinked users only.
 - 2026-02-20: Staff Management enhancement implemented for manager user removal.
   - Removal action is manager-only from `/app/staff`.
   - API route: `DELETE /api/manager/users/:id`.
+  - Delete handler now parses user id by route prefix (`/api/manager/users/`) instead of strict segment count, preventing false `404 Not Found` on valid delete requests.
   - Safety guards:
     - manager cannot delete themselves.
     - if user has FK-linked records, deletion is blocked with a conflict response.

@@ -629,6 +629,10 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /api/manager/users -> manager staff APIs [manager]")
 
 	mux.HandleFunc("/api/manager/users/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/deactivate") {
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(apiHandler.DeactivateManagerUser)(w, r)
+			return
+		}
 		if r.Method == http.MethodDelete {
 			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(apiHandler.DeleteManagerUser)(w, r)
 			return
@@ -636,6 +640,7 @@ func main() {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/manager/users/:id -> manager remove user API [manager]")
+	cfg.Debugf("ROUTE REGISTERED: /api/manager/users/:id/deactivate -> manager deactivate user API [manager]")
 
 	// Dynamic classes routes /api/classes/{id}/sessions and /api/classes/{id}/sessions/{n}/complete
 	mux.HandleFunc("/api/classes/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {

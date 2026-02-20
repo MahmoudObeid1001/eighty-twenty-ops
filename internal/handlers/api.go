@@ -106,6 +106,7 @@ func (h *APIHandler) GetManagerUsers(w http.ResponseWriter, r *http.Request) {
 		FullName           string `json:"full_name"`
 		Email              string `json:"email"`
 		Role               string `json:"role"`
+		IsActive           bool   `json:"is_active"`
 		MustChangePassword bool   `json:"must_change_password"`
 		CreatedAt          string `json:"created_at"`
 	}
@@ -120,6 +121,7 @@ func (h *APIHandler) GetManagerUsers(w http.ResponseWriter, r *http.Request) {
 			FullName:           name,
 			Email:              u.Email,
 			Role:               u.Role,
+			IsActive:           u.IsActive,
 			MustChangePassword: u.MustChangePassword,
 			CreatedAt:          u.CreatedAt.Format(time.RFC3339),
 		})
@@ -203,14 +205,18 @@ func (h *APIHandler) DeleteManagerUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	currentUserID := middleware.GetUserID(r)
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) != 4 || parts[0] != "api" || parts[1] != "manager" || parts[2] != "users" {
-		http.NotFound(w, r)
+	const routePrefix = "/api/manager/users/"
+	if !strings.HasPrefix(r.URL.Path, routePrefix) {
+		jsonError(w, http.StatusBadRequest, "Invalid user delete route")
 		return
 	}
-	targetUserID := strings.TrimSpace(parts[3])
+	targetUserID := strings.Trim(strings.TrimPrefix(r.URL.Path, routePrefix), "/")
 	if targetUserID == "" {
 		jsonError(w, http.StatusBadRequest, "User id is required")
+		return
+	}
+	if strings.Contains(targetUserID, "/") {
+		jsonError(w, http.StatusBadRequest, "Invalid user id")
 		return
 	}
 	if targetUserID == currentUserID {
@@ -230,6 +236,45 @@ func (h *APIHandler) DeleteManagerUser(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("ERROR: failed to delete user %s: %v", targetUserID, err)
 		jsonError(w, http.StatusInternalServerError, "Failed to remove user")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// POST /api/manager/users/:id/deactivate - deactivate a user (manager only)
+func (h *APIHandler) DeactivateManagerUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	currentUserID := middleware.GetUserID(r)
+	const routePrefix = "/api/manager/users/"
+	if !strings.HasPrefix(r.URL.Path, routePrefix) || !strings.HasSuffix(r.URL.Path, "/deactivate") {
+		jsonError(w, http.StatusBadRequest, "Invalid user deactivate route")
+		return
+	}
+
+	targetPath := strings.Trim(strings.TrimPrefix(r.URL.Path, routePrefix), "/")
+	targetPath = strings.TrimSuffix(targetPath, "/deactivate")
+	targetUserID := strings.Trim(targetPath, "/")
+	if targetUserID == "" || strings.Contains(targetUserID, "/") {
+		jsonError(w, http.StatusBadRequest, "Invalid user id")
+		return
+	}
+	if targetUserID == currentUserID {
+		jsonError(w, http.StatusBadRequest, "Manager cannot deactivate their own account")
+		return
+	}
+
+	if err := models.DeactivateUserByID(targetUserID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			jsonError(w, http.StatusNotFound, "User not found")
+			return
+		}
+		log.Printf("ERROR: failed to deactivate user %s: %v", targetUserID, err)
+		jsonError(w, http.StatusInternalServerError, "Failed to deactivate user")
 		return
 	}
 

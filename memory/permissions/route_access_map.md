@@ -60,6 +60,7 @@
 | `/api/manager/users` | GET | manager | `apiHandler.GetManagerUsers` | `main.go` |
 | `/api/manager/users` | POST | manager | `apiHandler.CreateManagerUser` | `main.go` |
 | `/api/manager/users/:id` | DELETE | manager | `apiHandler.DeleteManagerUser` | `main.go` |
+| `/api/manager/users/:id/deactivate` | POST | manager | `apiHandler.DeactivateManagerUser` | `main.go` |
 | `/api/auth/force-change-password` | POST | Authenticated (`must_change_password=true`) | `authHandler.ForceChangePassword` | `main.go` |
 | `/api/classes/:id/sessions` | GET | mentor, mentor_head, admin, student_success | `apiHandler.ListClassSessions` | `main.go:391-406` |
 | `/api/classes/:id/sessions/:n/complete` | POST | mentor, mentor_head, admin, student_success | `apiHandler.CompleteSessionByNumber` (deprecated) | `main.go:391-406` |

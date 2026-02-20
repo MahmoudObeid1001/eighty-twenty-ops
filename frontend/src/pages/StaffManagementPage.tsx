@@ -18,6 +18,9 @@ export default function StaffManagementPage() {
   const [success, setSuccess] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  const [deactivatingUserId, setDeactivatingUserId] = useState<string | null>(null)
+  const [pendingDeleteUser, setPendingDeleteUser] = useState<StaffUser | null>(null)
+  const [pendingDeactivateUser, setPendingDeactivateUser] = useState<StaffUser | null>(null)
 
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -85,8 +88,6 @@ export default function StaffManagementPage() {
   }
 
   async function removeUser(user: StaffUser) {
-    const confirmed = window.confirm(`Remove user \"${user.full_name}\" (${user.email})?`)
-    if (!confirmed) return
     try {
       setDeletingUserId(user.id)
       setError(null)
@@ -98,6 +99,23 @@ export default function StaffManagementPage() {
       setError(err instanceof Error ? err.message : 'Failed to remove user')
     } finally {
       setDeletingUserId(null)
+      setPendingDeleteUser(null)
+    }
+  }
+
+  async function deactivateUser(user: StaffUser) {
+    try {
+      setDeactivatingUserId(user.id)
+      setError(null)
+      setSuccess(null)
+      await api.deactivateStaffUser(user.id)
+      setSuccess('User deactivated successfully.')
+      await loadUsers()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to deactivate user')
+    } finally {
+      setDeactivatingUserId(null)
+      setPendingDeactivateUser(null)
     }
   }
 
@@ -138,20 +156,38 @@ export default function StaffManagementPage() {
                   <td style={tdStyle}>{u.full_name}</td>
                   <td style={tdStyle}>{u.email}</td>
                   <td style={tdStyle}>{u.role}</td>
-                  <td style={tdStyle}>{u.must_change_password ? 'Must change on first login' : 'Active'}</td>
+                  <td style={tdStyle}>
+                    {!u.is_active ? 'Deactivated' : (u.must_change_password ? 'Must change on first login' : 'Active')}
+                  </td>
                   <td style={tdStyle}>{new Date(u.created_at).toLocaleString()}</td>
                   <td style={tdStyle}>
                     <button
                       type="button"
-                      disabled={u.id === currentUserId || deletingUserId === u.id}
-                      onClick={() => void removeUser(u)}
+                      disabled={u.id === currentUserId || !u.is_active || deactivatingUserId === u.id}
+                      onClick={() => setPendingDeactivateUser(u)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #fd7e14',
+                        background: '#fff',
+                        color: '#fd7e14',
+                        cursor: u.id === currentUserId || !u.is_active || deactivatingUserId === u.id ? 'not-allowed' : 'pointer',
+                        marginRight: 8,
+                      }}
+                    >
+                      {deactivatingUserId === u.id ? 'Deactivating...' : (!u.is_active ? 'Deactivated' : (u.id === currentUserId ? 'Current User' : 'Deactivate'))}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={u.id === currentUserId || deletingUserId === u.id || u.is_active}
+                      onClick={() => setPendingDeleteUser(u)}
                       style={{
                         padding: '6px 10px',
                         borderRadius: 6,
                         border: '1px solid #dc3545',
                         background: '#fff',
                         color: '#dc3545',
-                        cursor: u.id === currentUserId || deletingUserId === u.id ? 'not-allowed' : 'pointer',
+                        cursor: u.id === currentUserId || deletingUserId === u.id || u.is_active ? 'not-allowed' : 'pointer',
                       }}
                     >
                       {deletingUserId === u.id ? 'Removing...' : (u.id === currentUserId ? 'Current User' : 'Remove')}
@@ -192,6 +228,66 @@ export default function StaffManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteUser && (
+        <div
+          onClick={() => setPendingDeleteUser(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, background: '#fff', borderRadius: 10, padding: 18 }}>
+            <h3 style={{ marginTop: 0, marginBottom: 8 }}>Confirm User Removal</h3>
+            <p style={{ marginTop: 0, color: '#495057', lineHeight: 1.4 }}>
+              Remove <strong>{pendingDeleteUser.full_name}</strong> ({pendingDeleteUser.email})?
+            </p>
+            <p style={{ marginTop: 0, color: '#6c757d', fontSize: 14 }}>
+              This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button type="button" onClick={() => setPendingDeleteUser(null)} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid #adb5bd', background: '#fff' }}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingUserId === pendingDeleteUser.id}
+                onClick={() => void removeUser(pendingDeleteUser)}
+                style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid #dc3545', background: '#dc3545', color: '#fff', fontWeight: 700 }}
+              >
+                {deletingUserId === pendingDeleteUser.id ? 'Removing...' : 'Remove User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeactivateUser && (
+        <div
+          onClick={() => setPendingDeactivateUser(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, background: '#fff', borderRadius: 10, padding: 18 }}>
+            <h3 style={{ marginTop: 0, marginBottom: 8 }}>Confirm User Deactivation</h3>
+            <p style={{ marginTop: 0, color: '#495057', lineHeight: 1.4 }}>
+              Deactivate <strong>{pendingDeactivateUser.full_name}</strong> ({pendingDeactivateUser.email})?
+            </p>
+            <p style={{ marginTop: 0, color: '#6c757d', fontSize: 14 }}>
+              The user will be blocked from login and protected pages. Historical records stay intact.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button type="button" onClick={() => setPendingDeactivateUser(null)} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid #adb5bd', background: '#fff' }}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deactivatingUserId === pendingDeactivateUser.id}
+                onClick={() => void deactivateUser(pendingDeactivateUser)}
+                style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid #fd7e14', background: '#fd7e14', color: '#fff', fontWeight: 700 }}
+              >
+                {deactivatingUserId === pendingDeactivateUser.id ? 'Deactivating...' : 'Deactivate User'}
+              </button>
+            </div>
           </div>
         </div>
       )}

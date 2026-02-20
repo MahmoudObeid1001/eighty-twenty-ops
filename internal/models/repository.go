@@ -1266,9 +1266,9 @@ func GetUserByEmail(email string) (*User, error) {
 	user := &User{}
 	// Case-insensitive lookup so login works regardless of email case (e.g. HR stores normalized, seed may not).
 	err := db.DB.QueryRow(`
-		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(must_change_password, false), created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(is_active, true), COALESCE(must_change_password, false), created_at
 		FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-	`, email).Scan(&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.MustChangePassword, &user.CreatedAt)
+	`, email).Scan(&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.IsActive, &user.MustChangePassword, &user.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -5545,9 +5545,10 @@ func GetAbsenceFollowUpLogs(leadID uuid.UUID) ([]*AbsenceFollowUpLog, error) {
 // GetUsersByRole returns all users with a specific role
 func GetUsersByRole(role string) ([]*User, error) {
 	rows, err := db.DB.Query(`
-		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(must_change_password, false), created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(is_active, true), COALESCE(must_change_password, false), created_at
 		FROM users
 		WHERE role = $1
+		  AND COALESCE(is_active, true) = true
 		ORDER BY email
 	`, role)
 	if err != nil {
@@ -5558,7 +5559,7 @@ func GetUsersByRole(role string) ([]*User, error) {
 	var users []*User
 	for rows.Next() {
 		u := &User{}
-		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.MustChangePassword, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.IsActive, &u.MustChangePassword, &u.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
 		users = append(users, u)
@@ -6266,10 +6267,10 @@ func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluato
 func GetUserByID(userID string) (*User, error) {
 	u := &User{}
 	err := db.DB.QueryRow(`
-		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(must_change_password, false), created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(is_active, true), COALESCE(must_change_password, false), created_at
 		FROM users
 		WHERE id = $1
-	`, userID).Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.MustChangePassword, &u.CreatedAt)
+	`, userID).Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.IsActive, &u.MustChangePassword, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -6281,7 +6282,7 @@ func GetUserByID(userID string) (*User, error) {
 
 func GetAllUsers() ([]*User, error) {
 	rows, err := db.DB.Query(`
-		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(must_change_password, false), created_at
+		SELECT id, email, COALESCE(full_name, ''), COALESCE(phone, ''), password_hash, role, COALESCE(is_active, true), COALESCE(must_change_password, false), created_at
 		FROM users
 		ORDER BY created_at DESC, email ASC
 	`)
@@ -6293,7 +6294,7 @@ func GetAllUsers() ([]*User, error) {
 	users := make([]*User, 0, 32)
 	for rows.Next() {
 		u := &User{}
-		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.MustChangePassword, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Phone, &u.PasswordHash, &u.Role, &u.IsActive, &u.MustChangePassword, &u.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan user row: %w", err)
 		}
 		users = append(users, u)
@@ -6322,6 +6323,21 @@ func DeleteUserByID(userID string) error {
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to verify deleted user: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func DeactivateUserByID(userID string) error {
+	result, err := db.DB.Exec(`UPDATE users SET is_active = false WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to deactivate user: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to verify deactivated user: %w", err)
 	}
 	if rowsAffected == 0 {
 		return sql.ErrNoRows

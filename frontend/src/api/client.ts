@@ -938,6 +938,11 @@ export const api = {
     fetchAPI(`/manager/users/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
     }),
+
+  deactivateStaffUser: (userId: string): Promise<{ ok: boolean }> =>
+    fetchAPI(`/manager/users/${encodeURIComponent(userId)}/deactivate`, {
+      method: 'POST',
+    }),
 }
 
 // Student Profile Types (Milestone 4)
@@ -1016,6 +1021,7 @@ export interface StaffUser {
   full_name: string
   email: string
   role: string
+  is_active: boolean
   must_change_password: boolean
   created_at: string
 }
