@@ -763,10 +763,10 @@ func main() {
 		switch r.Method {
 		case http.MethodGet:
 			cfg.Debugf("  → Calling preEnrolmentHandler.NewForm")
-			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(preEnrolmentHandler.NewForm)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "moderator", "manager"}, cfg.SessionSecret)(preEnrolmentHandler.NewForm)(w, r)
 		case http.MethodPost:
 			cfg.Debugf("  → Calling preEnrolmentHandler.Create")
-			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(preEnrolmentHandler.Create)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "moderator", "manager"}, cfg.SessionSecret)(preEnrolmentHandler.Create)(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -794,13 +794,13 @@ func main() {
 		case http.MethodGet:
 			cfg.Debugf("  → Calling preEnrolmentHandler.Detail")
 			// GET detail - allow admin + moderator + student_success (read-only)
-			middleware.RequireAnyRole([]string{"admin", "moderator", "student_success"}, cfg.SessionSecret)(preEnrolmentHandler.Detail)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "moderator", "student_success", "manager"}, cfg.SessionSecret)(preEnrolmentHandler.Detail)(w, r)
 		case http.MethodPost:
 			// All POST requests to /pre-enrolment/{id} go to Update handler
 			// Update handler reads action parameter and routes accordingly
 			cfg.Debugf("  → Calling preEnrolmentHandler.Update (action-based routing)")
 			// Allow admin + moderator (Update handler enforces restrictions per action)
-			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(preEnrolmentHandler.Update)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "moderator", "manager"}, cfg.SessionSecret)(preEnrolmentHandler.Update)(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -818,7 +818,7 @@ func main() {
 		}
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling preEnrolmentHandler.List")
-			middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(preEnrolmentHandler.List)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "moderator", "manager"}, cfg.SessionSecret)(preEnrolmentHandler.List)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
