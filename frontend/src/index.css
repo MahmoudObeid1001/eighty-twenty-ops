@@ -240,6 +240,110 @@ body {
     margin-bottom: 30px;
 }
 
+.ss-placement-cards {
+    display: none;
+}
+
+.ss-placement-card {
+    border: 1px solid #e6e6e6;
+    border-radius: 12px;
+    background: #fff;
+    padding: 16px;
+}
+
+.ss-placement-card + .ss-placement-card {
+    margin-top: 12px;
+}
+
+.ss-placement-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.ss-placement-card-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #333;
+}
+
+.ss-placement-card-phone {
+    margin-top: 4px;
+    font-size: 14px;
+    color: #666;
+}
+
+.ss-placement-card-type {
+    white-space: nowrap;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #eef5ff;
+    color: #0052a3;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.ss-placement-card-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.ss-placement-card-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ss-placement-card-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b7280;
+}
+
+.ss-placement-card-value {
+    font-size: 15px;
+    color: #333;
+}
+
+.ss-placement-card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.ss-placement-card-primary,
+.ss-placement-card-secondary {
+    min-height: 42px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.ss-placement-card-primary {
+    border: 1px solid #007bff;
+    background: #fff;
+    color: #007bff;
+}
+
+.ss-placement-card-secondary {
+    border: 1px solid #6c757d;
+    background: #fff;
+    color: #6c757d;
+}
+
 /* Flash message */
 .flash-message {
     background-color: #D4EDDA;
@@ -903,6 +1007,54 @@ table tbody tr.row-cancelled:hover {
     .bi-filter-row button {
         width: 100%;
         text-align: center;
+    }
+
+    .ss-dashboard-banner {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+
+    .ss-dashboard-banner-button {
+        width: 100%;
+    }
+
+    .ss-dashboard-toolbar {
+        align-items: stretch !important;
+    }
+
+    .ss-dashboard-description {
+        width: 100%;
+        font-size: 15px;
+        line-height: 1.5;
+    }
+
+    .ss-dashboard-tabs {
+        width: 100%;
+    }
+
+    .ss-dashboard-tab-button {
+        flex: 1 1 0;
+    }
+
+    .ss-placement-controls {
+        justify-content: flex-start !important;
+    }
+
+    .ss-placement-table-wrap {
+        display: none;
+    }
+
+    .ss-placement-cards {
+        display: block;
+    }
+
+    .ss-placement-card-meta {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .ss-placement-card-actions {
+        grid-template-columns: 1fr;
     }
     
     .form-row {

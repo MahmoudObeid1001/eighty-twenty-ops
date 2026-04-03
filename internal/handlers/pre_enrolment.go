@@ -2951,6 +2951,11 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if existingDetail.Lead.Status == "lead_created" {
+		http.Redirect(w, r, "/pre-enrolment?saved=1", http.StatusFound)
+		return
+	}
+
 	// Redirect back to detail page to show saved changes
 	http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?saved=1", leadID.String()), http.StatusFound)
 }

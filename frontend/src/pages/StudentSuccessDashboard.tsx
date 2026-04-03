@@ -205,12 +205,13 @@ export default function StudentSuccessDashboard() {
       )}
 
       {pendingPlacementCount > 0 && (
-        <div style={{ background: '#E6F7FF', border: '2px solid #4EC6E0', color: '#0052A3', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+        <div className="ss-dashboard-banner" style={{ background: '#E6F7FF', border: '2px solid #4EC6E0', color: '#0052A3', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
           <div>
             <strong>{pendingPlacementCount}</strong> new placement test{pendingPlacementCount !== 1 ? 's' : ''} need results.
           </div>
           <button
             onClick={() => setActiveTab('placement_tests')}
+            className="ss-dashboard-banner-button"
             style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #0052A3', background: '#fff', color: '#0052A3', cursor: 'pointer', fontWeight: 600 }}
           >
             View Placement Tests
@@ -218,15 +219,16 @@ export default function StudentSuccessDashboard() {
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
-        <p style={{ margin: 0, color: '#666' }}>
+      <div className="ss-dashboard-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
+        <p className="ss-dashboard-description" style={{ margin: 0, color: '#666' }}>
           {activeTab === 'classes'
             ? 'Active classes only (round started). Grouped by mentor.'
             : 'Leads with placement tests scheduled by Ops. Record level and notes after the test.'}
         </p>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className="ss-dashboard-tabs" style={{ display: 'flex', gap: '8px' }}>
           <button
             onClick={() => setActiveTab('classes')}
+            className="ss-dashboard-tab-button"
             style={{
               padding: '8px 14px',
               borderRadius: '6px',
@@ -241,6 +243,7 @@ export default function StudentSuccessDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('placement_tests')}
+            className="ss-dashboard-tab-button"
             style={{
               padding: '8px 14px',
               borderRadius: '6px',
@@ -397,7 +400,7 @@ export default function StudentSuccessDashboard() {
 
         {activeTab === 'placement_tests' && (
           <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div className="ss-placement-controls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <div />
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#333' }}>
                 <input
@@ -421,7 +424,8 @@ export default function StudentSuccessDashboard() {
                 <p>{showCompletedTests ? 'No completed placement tests.' : 'No placement tests waiting.'}</p>
               </div>
             ) : (
-              <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px', overflow: 'hidden' }}>
+              <>
+              <div className="ss-placement-table-wrap" style={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px', overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                   <thead>
                     <tr style={{ textAlign: 'left', background: '#f8f9fa' }}>
@@ -469,6 +473,50 @@ export default function StudentSuccessDashboard() {
                   </tbody>
                 </table>
               </div>
+              <div className="ss-placement-cards">
+                {placementTests.map((item) => (
+                  <div key={item.lead_id} className="ss-placement-card">
+                    <div className="ss-placement-card-head">
+                      <div>
+                        <div className="ss-placement-card-name">{item.full_name}</div>
+                        <div className="ss-placement-card-phone">{item.phone}</div>
+                      </div>
+                      <div className="ss-placement-card-type">{item.test_type || '-'}</div>
+                    </div>
+                    <div className="ss-placement-card-meta">
+                      <div className="ss-placement-card-field">
+                        <span className="ss-placement-card-label">Test Date</span>
+                        <span className="ss-placement-card-value">{item.test_date || '-'}</span>
+                      </div>
+                      <div className="ss-placement-card-field">
+                        <span className="ss-placement-card-label">Test Time</span>
+                        <span className="ss-placement-card-value">{item.test_time || '-'}</span>
+                      </div>
+                    </div>
+                    <div className="ss-placement-card-actions">
+                      <button
+                        onClick={() => {
+                          setResultModal({ open: true, item, error: undefined })
+                          setAssignedLevel(item.assigned_level ?? '')
+                          setTestNotes(item.test_notes ?? '')
+                        }}
+                        className="ss-placement-card-primary"
+                      >
+                        Record Result
+                      </button>
+                      <a
+                        href={`/pre-enrolment/${item.lead_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ss-placement-card-secondary"
+                      >
+                        Open Lead
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              </>
             )}
           </>
         )}
