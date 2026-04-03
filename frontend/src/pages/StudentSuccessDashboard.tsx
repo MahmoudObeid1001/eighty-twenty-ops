@@ -89,7 +89,14 @@ export default function StudentSuccessDashboard() {
 
   function buildWhatsAppLink(phone: string) {
     const digits = phone.replace(/\D/g, '')
-    return `https://wa.me/${digits}`
+    let normalized = digits
+    if (normalized.startsWith('00')) {
+      normalized = normalized.slice(2)
+    }
+    if (normalized.startsWith('0')) {
+      normalized = `20${normalized.slice(1)}`
+    }
+    return `https://wa.me/${normalized}`
   }
 
   function groupByMentor(list: StudentSuccessClass[]): Group[] {
