@@ -1992,6 +1992,10 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cfg.Debugf("  ✅ Moderator save successful")
+		if existingDetail.Lead.Status == "lead_created" {
+			http.Redirect(w, r, "/pre-enrolment?saved=1", http.StatusFound)
+			return
+		}
 		http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?saved=1", leadID.String()), http.StatusFound)
 		return
 	}
