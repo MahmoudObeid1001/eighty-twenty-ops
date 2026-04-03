@@ -250,6 +250,14 @@
                 <td>{{.NextAction}}</td>
                 <td class="action-column">
                     <div class="action-buttons-row">
+                        {{if .Lead.Phone}}
+                        <a href="{{whatsappLink .Lead.Phone}}" target="_blank" rel="noopener noreferrer"
+                            class="btn btn-small"
+                            style="background: #25D366; color: white; border: 1px solid #25D366;"
+                            title="Open WhatsApp">
+                            WhatsApp
+                        </a>
+                        {{end}}
                         <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
                         {{if and (not $.IsModerator) (eq $s "ready_to_start") (not .Lead.SentToClasses)
                         .AssignedLevel.Valid}}

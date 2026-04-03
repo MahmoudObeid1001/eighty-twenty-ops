@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -71,6 +72,19 @@ func initTemplates() {
 
 		funcMap := template.FuncMap{
 			"urlquery": url.QueryEscape,
+			"whatsappLink": func(phone string) string {
+				digitsOnly := regexp.MustCompile(`\D`).ReplaceAllString(strings.TrimSpace(phone), "")
+				if strings.HasPrefix(digitsOnly, "00") {
+					digitsOnly = strings.TrimPrefix(digitsOnly, "00")
+				}
+				if strings.HasPrefix(digitsOnly, "0") {
+					digitsOnly = "20" + strings.TrimPrefix(digitsOnly, "0")
+				}
+				if digitsOnly == "" {
+					return ""
+				}
+				return "https://wa.me/" + digitsOnly
+			},
 			"len": func(slice interface{}) int {
 				switch v := slice.(type) {
 				case []interface{}:
