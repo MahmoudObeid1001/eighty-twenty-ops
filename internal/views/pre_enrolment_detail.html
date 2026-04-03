@@ -131,6 +131,9 @@
 <!-- Main form for full edit - uses single endpoint with action parameter -->
 <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="pre-enrolment-form">
     <input type="hidden" name="status" value="{{.Detail.Lead.Status}}">
+    {{if .ReturnToListAfterSave}}
+    <input type="hidden" name="return_to_list" value="1">
+    {{end}}
 
     {{if .IsReadOnly}}
     <div class="form-section" style="border: 1px solid #b3e5fc; background: #e3f2fd;">

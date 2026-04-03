@@ -312,7 +312,7 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s", lead.ID.String()), http.StatusFound)
+	http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?new=1", lead.ID.String()), http.StatusFound)
 }
 
 func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +371,7 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		data["ReadOnlyReason"] = "Lead already sent to classes."
 	}
 	data["IsReadOnly"] = isReadOnly
+	data["ReturnToListAfterSave"] = r.URL.Query().Get("new") == "1"
 
 	errorMsg := ""
 	errorCode := ""
@@ -845,6 +846,7 @@ func (h *PreEnrolmentHandler) renderDetailWithErrorAndPaymentContext(
 	data, _ := h.buildDetailViewModel(detail, leadID, userRole)
 	data["Error"] = errMsg
 	data["SuccessMessage"] = ""
+	data["ReturnToListAfterSave"] = r.URL.Query().Get("new") == "1" || r.FormValue("return_to_list") == "1"
 	if coursePaymentInput != nil {
 		data["CoursePaymentInput"] = coursePaymentInput
 	}
@@ -1913,6 +1915,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.cfg.Debugf("💾 SaveFull: leadID=%s, userRole=%s", leadID, userRole)
+	returnToListAfterSave := r.FormValue("return_to_list") == "1"
 
 	// Validate basic lead fields (name and phone are required)
 	// Load existing lead first to get current values if form fields are missing
@@ -1992,7 +1995,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cfg.Debugf("  ✅ Moderator save successful")
-		if existingDetail.Lead.Status == "lead_created" {
+		if returnToListAfterSave || existingDetail.Lead.Status == "lead_created" {
 			http.Redirect(w, r, "/pre-enrolment?saved=1", http.StatusFound)
 			return
 		}
@@ -2951,7 +2954,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if existingDetail.Lead.Status == "lead_created" {
+	if returnToListAfterSave || existingDetail.Lead.Status == "lead_created" {
 		http.Redirect(w, r, "/pre-enrolment?saved=1", http.StatusFound)
 		return
 	}
