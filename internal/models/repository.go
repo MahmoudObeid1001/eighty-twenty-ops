@@ -1443,7 +1443,7 @@ func GetClassGroups() ([]*ClassGroup, error) {
 		LEFT JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE (l.status = 'ready_to_start' OR l.status = 'in_classes')
@@ -1846,7 +1846,7 @@ func GetAvailableGroupsForMove(leadID uuid.UUID) ([]int32, error) {
 		LEFT JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE l.status = 'ready_to_start'
@@ -1920,7 +1920,7 @@ func GetMoveOptionsForLead(leadID uuid.UUID) ([]MoveClassOption, error) {
 		WITH counts AS (
 			SELECT pt.assigned_level AS level,
 			       s.class_days AS class_days,
-			       s.class_time::text AS class_time,
+			       TO_CHAR(s.class_time, 'HH24:MI') AS class_time,
 			       COALESCE(s.class_group_index, 1) AS class_number,
 			       COUNT(*) AS student_count
 			FROM leads l
@@ -1928,13 +1928,13 @@ func GetMoveOptionsForLead(leadID uuid.UUID) ([]MoveClassOption, error) {
 			INNER JOIN scheduling s ON l.id = s.lead_id
 			WHERE l.status = 'ready_to_start'
 			  AND l.sent_to_classes = true
-			GROUP BY pt.assigned_level, s.class_days, s.class_time::text, COALESCE(s.class_group_index, 1)
+			GROUP BY pt.assigned_level, s.class_days, TO_CHAR(s.class_time, 'HH24:MI'), COALESCE(s.class_group_index, 1)
 		)
 		SELECT cg.class_key, cg.class_days, cg.class_time, cg.class_number, COALESCE(c.student_count, 0)
 		FROM class_groups cg
 		LEFT JOIN counts c ON c.level = cg.level
 		  AND c.class_days = cg.class_days
-		  AND c.class_time = cg.class_time
+		  AND c.class_time = LEFT(cg.class_time, 5)
 		  AND c.class_number = cg.class_number
 		WHERE cg.level = $1
 		  AND COALESCE(cg.sent_to_mentor, false) = false
@@ -2228,7 +2228,7 @@ func ReturnClassGroupFromMentor(classKey string) error {
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE l.id = s.lead_id
@@ -3976,7 +3976,7 @@ func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime strin
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE cg.class_key = $1
@@ -4021,7 +4021,7 @@ func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime strin
 				INNER JOIN class_groups cg ON (
 					cg.level = (SELECT pt.assigned_level FROM placement_tests pt WHERE pt.lead_id = s.lead_id)
 					AND cg.class_days = s.class_days
-					AND cg.class_time = s.class_time::text::text
+					AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 					AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 				)
 				WHERE cg.class_key = $2
@@ -4584,7 +4584,7 @@ func GetRefundableAmount(leadID uuid.UUID) (int32, error) {
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE s.lead_id = $1
@@ -4780,7 +4780,7 @@ func GetMentorReminders(mentorUserID uuid.UUID) ([]*MentorReminder, error) {
 			  WHERE l.status = 'in_classes'
 				AND pt.assigned_level = cg.level
 				AND s.class_days = cg.class_days
-				AND cg.class_time = s.class_time::text
+				AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 				AND COALESCE(s.class_group_index, 1) = COALESCE(cg.class_number, 1)
 				AND NOT EXISTS (
 					SELECT 1 FROM attendance a
@@ -4855,7 +4855,7 @@ func GetMentorReminders(mentorUserID uuid.UUID) ([]*MentorReminder, error) {
 			  WHERE l.status = 'in_classes'
 				AND pt.assigned_level = cg.level
 				AND s.class_days = cg.class_days
-				AND cg.class_time = s.class_time::text
+				AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 				AND COALESCE(s.class_group_index, 1) = COALESCE(cg.class_number, 1)
 				AND NOT EXISTS (
 					SELECT 1 FROM grades g
@@ -5096,7 +5096,7 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE cg.class_key = $1
@@ -5451,7 +5451,7 @@ func GetPendingFeedback(sessionNumber int32) ([]struct {
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		INNER JOIN class_sessions cs ON cs.class_key = cg.class_key AND cs.session_number = $1
@@ -6449,7 +6449,7 @@ func GetActiveClassesForStudentSuccess() ([]StudentSuccessClassRow, error) {
 				   INNER JOIN placement_tests pt ON pt.lead_id = l.id
 				   WHERE pt.assigned_level = cg.level
 				     AND s.class_days = cg.class_days
-				     AND s.class_time::text = cg.class_time
+				     AND TO_CHAR(s.class_time, 'HH24:MI') = LEFT(cg.class_time, 5)
 				     AND COALESCE(s.class_group_index, 1) = COALESCE(cg.class_number, 1)
 				     AND (
 					     -- Manual flag (not the automated absence one)
@@ -6477,7 +6477,7 @@ func GetActiveClassesForStudentSuccess() ([]StudentSuccessClassRow, error) {
 				   INNER JOIN placement_tests pt ON pt.lead_id = l.id
 				   WHERE pt.assigned_level = cg.level
 				     AND s.class_days = cg.class_days
-				     AND s.class_time::text = cg.class_time
+				     AND TO_CHAR(s.class_time, 'HH24:MI') = LEFT(cg.class_time, 5)
 				     AND COALESCE(s.class_group_index, 1) = COALESCE(cg.class_number, 1)
 				     AND (
 					     (l.high_priority = TRUE AND l.high_priority_reason NOT LIKE '%3+ sessions%')
@@ -6603,7 +6603,7 @@ func GetStudentsInClassGroup(classKey string) ([]*ClassStudent, error) {
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		LEFT JOIN late_joiners lj ON lj.lead_id = l.id AND lj.class_key = cg.class_key
@@ -6678,7 +6678,7 @@ func GetStudentsForMentorHeadClass(classKey string) ([]*ClassStudent, error) {
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		LEFT JOIN late_joiners lj ON lj.lead_id = l.id AND lj.class_key = cg.class_key
@@ -6797,7 +6797,7 @@ func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 			INNER JOIN class_groups cg ON (
 				cg.level = pt.assigned_level
 				AND cg.class_days = s.class_days
-				AND cg.class_time = s.class_time::text
+				AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 				AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 			)
 			WHERE cg.class_key = $1
@@ -6885,7 +6885,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE cg.class_key = $1
@@ -7204,7 +7204,7 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 		INNER JOIN class_groups cg ON (
 			cg.level = pt.assigned_level
 			AND cg.class_days = s.class_days
-			AND cg.class_time = s.class_time::text
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
 		WHERE l.id = s.lead_id
