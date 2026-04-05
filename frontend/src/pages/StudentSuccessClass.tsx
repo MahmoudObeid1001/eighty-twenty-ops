@@ -60,11 +60,6 @@ function FeedbackCheckpoint({ classKey, students, onUpdate, canEdit }: { classKe
   const [modalError, setModalError] = useState<string | null>(null)
   const [optimisticStatus, setOptimisticStatus] = useState<Record<string, boolean>>({})
 
-  const buildWhatsAppLink = (phone: string) => {
-    const digits = phone.replace(/\D/g, '')
-    return `https://wa.me/${digits}`
-  }
-
   useEffect(() => {
     setOptimisticStatus({})
   }, [students])
@@ -154,21 +149,21 @@ function FeedbackCheckpoint({ classKey, students, onUpdate, canEdit }: { classKe
                           target="_blank"
                           rel="noopener noreferrer"
                           title="Open WhatsApp"
+                          aria-label={`Open WhatsApp chat for ${s.full_name}`}
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            width: '22px',
-                            height: '22px',
-                            borderRadius: '50%',
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '999px',
                             background: '#25D366',
                             color: 'white',
-                            fontSize: '12px',
                             textDecoration: 'none',
-                            fontWeight: 700,
+                            boxShadow: '0 2px 8px rgba(37, 211, 102, 0.28)',
                           }}
                         >
-                          W
+                          <WhatsAppIcon />
                         </a>
                       )}
                       {s.joined_at_session_number && (
@@ -948,8 +943,8 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
                         </td>
                         <td style={{ padding: '12px' }}>
                           <div style={{ display: 'flex', gap: '8px' }}>
-                            <a href={`https://wa.me/${item.studentPhone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Open WhatsApp" style={{ padding: '4px', borderRadius: '4px', background: '#25D366', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', textDecoration: 'none' }}>
-                              W
+                            <a href={buildWhatsAppLink(item.studentPhone)} target="_blank" rel="noopener noreferrer" title="Open WhatsApp" aria-label={`Open WhatsApp chat for ${item.studentName}`} style={{ padding: '4px', borderRadius: '999px', background: '#25D366', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', textDecoration: 'none', boxShadow: '0 2px 8px rgba(37, 211, 102, 0.28)' }}>
+                              <WhatsAppIcon />
                             </a>
                             <button onClick={() => onOpenFollowUp(item)} title="Add Follow-up Note" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #007bff', background: '#fff', color: '#007bff', fontSize: '11px', cursor: 'pointer' }}>
                               Follow up
@@ -1165,5 +1160,23 @@ function ComplaintModal({ classKey, onClose, onSuccess }: { classKey: string; on
         </div>
       </div>
     </div>
+  )
+}
+
+function buildWhatsAppLink(phone: string) {
+  let normalized = phone.replace(/\D/g, '')
+  if (normalized.startsWith('00')) {
+    normalized = normalized.slice(2)
+  } else if (normalized.startsWith('0')) {
+    normalized = `20${normalized.slice(1)}`
+  }
+  return `https://wa.me/${normalized}`
+}
+
+function WhatsAppIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M20.52 3.48A11.86 11.86 0 0 0 12.06 0C5.5 0 .16 5.34.16 11.9c0 2.1.55 4.15 1.58 5.95L0 24l6.33-1.66a11.83 11.83 0 0 0 5.72 1.46h.01c6.56 0 11.9-5.34 11.9-11.9 0-3.18-1.24-6.17-3.44-8.42Zm-8.46 18.3h-.01a9.9 9.9 0 0 1-5.05-1.39l-.36-.21-3.76.99 1-3.66-.24-.38a9.88 9.88 0 0 1-1.52-5.23c0-5.46 4.45-9.9 9.92-9.9 2.65 0 5.13 1.03 7 2.9a9.83 9.83 0 0 1 2.9 7c0 5.47-4.45 9.9-9.88 9.9Zm5.43-7.42c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.17.2-.35.22-.64.08-.3-.15-1.24-.46-2.36-1.47-.88-.78-1.47-1.75-1.64-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.18.2-.3.3-.5.1-.2.05-.38-.02-.53-.08-.15-.68-1.63-.93-2.23-.24-.58-.5-.5-.68-.5h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.11 3.23 5.12 4.52.72.31 1.28.5 1.72.64.72.23 1.37.2 1.88.12.57-.08 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.42-.08-.12-.28-.2-.58-.35Z" />
+    </svg>
   )
 }
