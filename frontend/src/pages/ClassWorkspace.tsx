@@ -149,7 +149,7 @@ export default function ClassWorkspace() {
     const currentStatus = student.attendance?.[sessionId]
     if (!currentStatus || currentStatus === 'N/A') return
     const currentPerf = student.session_performance?.[sessionId]
-    const taskCompleted = nextTaskCompleted ?? currentPerf?.task_completed ?? true
+    const taskCompleted = nextTaskCompleted ?? currentPerf?.task_completed ?? false
     const participationScore = nextParticipationScore ?? currentPerf?.participation_score ?? 3
     await handleMarkAttendance(sessionId, leadId, currentStatus, taskCompleted, participationScore)
   }
@@ -561,7 +561,7 @@ export default function ClassWorkspace() {
                   const status = selectedSession ? student.attendance?.[selectedSession.id] : undefined
                   const perf = selectedSession ? student.session_performance?.[selectedSession.id] : undefined
                   const isNA = status === 'N/A'
-                  const taskCompleted = perf?.task_completed ?? true
+                  const taskCompleted = perf?.task_completed ?? false
                   const participationScore = perf?.participation_score ?? 3
                   const isUpdating = updating === `${student.lead_id}-${selectedSession?.id}`
 

@@ -914,8 +914,8 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Session performance upsert (grading automation inputs).
-	// Legacy-safe defaults are used when old clients omit these fields.
-	taskCompleted := true
+	// Missing task input should not silently mark homework as done.
+	taskCompleted := false
 	if req.TaskCompleted != nil {
 		taskCompleted = *req.TaskCompleted
 	}
@@ -1393,7 +1393,7 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 			if s.SessionNumber == 1 {
 				row.TaskDisplay = "➖"
 			} else {
-				taskCompleted := true
+				taskCompleted := false
 				if byLead, ok := perfBySession[s.ID]; ok {
 					if perf, ok := byLead[studentID]; ok && perf != nil {
 						taskCompleted = perf.TaskCompleted

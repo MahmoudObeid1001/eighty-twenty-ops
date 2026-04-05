@@ -4281,7 +4281,7 @@ func round2(v float64) float64 {
 
 // GetGradePreviewsByClass computes deterministic grading breakdown for each student in a class.
 // Legacy-safe defaults:
-// - missing task rows count as completed for sessions 2..8
+// - missing task rows count as not completed for sessions 2..8
 // - missing participation score defaults to 3/5 for attended sessions
 func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error) {
 	students, err := GetStudentsInClassGroup(classKey)
@@ -4334,7 +4334,7 @@ func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error
 			}
 
 			if session.SessionNumber >= 2 && session.SessionNumber <= 8 {
-				taskCompleted := true
+				taskCompleted := false
 				if perf != nil {
 					taskCompleted = perf.TaskCompleted
 				} else {
