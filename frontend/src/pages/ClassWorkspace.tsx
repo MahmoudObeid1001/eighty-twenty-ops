@@ -330,13 +330,13 @@ export default function ClassWorkspace() {
   const firstSession = classData.sessions.find((s) => s.session_number === 1) || classData.sessions[0] || null
   const hasCompletedSessions = classData.sessions.some((s) => s.status === 'completed')
   const canShiftRoundStartDate = (userRole === 'mentor_head' || userRole === 'manager') && classData.class.round_status !== 'closed' && classData.sessions.length > 0
-  const expectedStartDay = classData.class.days === 'Sat/Tues'
-    ? 'Saturday'
+  const allowedStartDays = classData.class.days === 'Sat/Tues'
+    ? 'Saturday or Tuesday'
     : classData.class.days === 'Sun/Wed'
-      ? 'Sunday'
+      ? 'Sunday or Wednesday'
       : classData.class.days === 'Mon/Thu'
-        ? 'Monday'
-        : 'the first class day'
+        ? 'Monday or Thursday'
+        : 'one of the class days'
 
   return (
     <div className="class-workspace">
@@ -1045,7 +1045,7 @@ export default function ClassWorkspace() {
             {firstSession && (
               <div style={{ background: '#f8f9fa', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '14px', color: '#444' }}>
                 <div><strong>Current session 1 date:</strong> {firstSession.scheduled_date}</div>
-                <div><strong>Expected weekday:</strong> {expectedStartDay} for {classData.class.days} classes</div>
+                <div><strong>Allowed weekdays:</strong> {allowedStartDays} for {classData.class.days} classes</div>
               </div>
             )}
             <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>New first-session date</label>
@@ -1064,7 +1064,7 @@ export default function ClassWorkspace() {
               }}
             />
             <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
-              The backend will reject dates that do not land on the correct first class day.
+              The backend will reject dates that do not land on one of the class days.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button

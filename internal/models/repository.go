@@ -4084,12 +4084,12 @@ func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUser
 		return fmt.Errorf("cannot change start date for a closed class")
 	}
 
-	expectedWeekday, ok := expectedRoundStartWeekday(classDays)
+	allowedWeekdays, ok := allowedRoundStartWeekdays(classDays)
 	if !ok {
 		return fmt.Errorf("unsupported class_days value %q", classDays)
 	}
-	if newStartDate.Weekday() != expectedWeekday {
-		return fmt.Errorf("start date must be a %s for %s classes", weekdayLabel(expectedWeekday), classDays)
+	if !containsWeekday(allowedWeekdays, newStartDate.Weekday()) {
+		return fmt.Errorf("start date must be %s for %s classes", weekdayListLabel(allowedWeekdays), classDays)
 	}
 
 	var sessionCount, completedCount int
@@ -4166,17 +4166,34 @@ func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUser
 	return tx.Commit()
 }
 
-func expectedRoundStartWeekday(classDays string) (time.Weekday, bool) {
+func allowedRoundStartWeekdays(classDays string) ([]time.Weekday, bool) {
 	switch strings.TrimSpace(classDays) {
 	case "Sat/Tues":
-		return time.Saturday, true
+		return []time.Weekday{time.Saturday, time.Tuesday}, true
 	case "Sun/Wed":
-		return time.Sunday, true
+		return []time.Weekday{time.Sunday, time.Wednesday}, true
 	case "Mon/Thu":
-		return time.Monday, true
+		return []time.Weekday{time.Monday, time.Thursday}, true
 	default:
-		return time.Sunday, false
+		return nil, false
 	}
+}
+
+func containsWeekday(days []time.Weekday, target time.Weekday) bool {
+	for _, day := range days {
+		if day == target {
+			return true
+		}
+	}
+	return false
+}
+
+func weekdayListLabel(days []time.Weekday) string {
+	labels := make([]string, 0, len(days))
+	for _, day := range days {
+		labels = append(labels, weekdayLabel(day))
+	}
+	return strings.Join(labels, " or ")
 }
 
 func weekdayLabel(day time.Weekday) string {
