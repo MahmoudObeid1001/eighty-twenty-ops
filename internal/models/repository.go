@@ -4109,9 +4109,14 @@ func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUser
 		return fmt.Errorf("cannot change start date after session completion has begun")
 	}
 
+	sessionDates, err := buildClassSessionDates(classDays, newStartDate, 8)
+	if err != nil {
+		return err
+	}
+
 	now := time.Now()
 	for i := 1; i <= 8; i++ {
-		sessionDate := newStartDate.AddDate(0, 0, (i-1)*7)
+		sessionDate := sessionDates[i-1]
 		_, err = tx.Exec(`
 			UPDATE class_sessions
 			SET scheduled_date = $1,
@@ -4147,7 +4152,7 @@ func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUser
 	_, err = tx.Exec(`
 		UPDATE scheduling s
 		SET start_date = $1,
-		    start_time = COALESCE(start_time, class_time),
+		    start_time = COALESCE(s.start_time, s.class_time),
 		    updated_at = $2
 		FROM placement_tests pt,
 		     class_groups cg
@@ -4163,6 +4168,41 @@ func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUser
 	}
 
 	return tx.Commit()
+}
+
+func buildClassSessionDates(classDays string, startDate time.Time, count int) ([]time.Time, error) {
+	if count <= 0 {
+		return nil, nil
+	}
+
+	allowedWeekdays, ok := allowedRoundStartWeekdays(classDays)
+	if !ok {
+		return nil, fmt.Errorf("unsupported class_days value %q", classDays)
+	}
+
+	current := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
+	if !containsWeekday(allowedWeekdays, current.Weekday()) {
+		return nil, fmt.Errorf("start date must be %s for %s classes", weekdayListLabel(allowedWeekdays), classDays)
+	}
+
+	sessionDates := make([]time.Time, 0, count)
+	sessionDates = append(sessionDates, current)
+	for len(sessionDates) < count {
+		current = nextScheduledClassDate(current, allowedWeekdays)
+		sessionDates = append(sessionDates, current)
+	}
+
+	return sessionDates, nil
+}
+
+func nextScheduledClassDate(from time.Time, allowedWeekdays []time.Weekday) time.Time {
+	current := from.AddDate(0, 0, 1)
+	for {
+		if containsWeekday(allowedWeekdays, current.Weekday()) {
+			return time.Date(current.Year(), current.Month(), current.Day(), 0, 0, 0, 0, current.Location())
+		}
+		current = current.AddDate(0, 0, 1)
+	}
 }
 
 func allowedRoundStartWeekdays(classDays string) ([]time.Weekday, bool) {

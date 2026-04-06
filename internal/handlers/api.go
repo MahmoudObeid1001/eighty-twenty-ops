@@ -2123,7 +2123,7 @@ func (h *APIHandler) ShiftRoundStartDate(w http.ResponseWriter, r *http.Request)
 			strings.Contains(msg, "cannot change start date for a closed class"):
 			jsonError(w, http.StatusBadRequest, msg)
 		default:
-			jsonError(w, http.StatusInternalServerError, "Failed to change class start date")
+			jsonError(w, http.StatusInternalServerError, msg)
 		}
 		return
 	}

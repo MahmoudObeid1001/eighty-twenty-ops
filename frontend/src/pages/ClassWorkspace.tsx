@@ -1040,7 +1040,7 @@ export default function ClassWorkspace() {
           >
             <h3 style={{ marginTop: 0, marginBottom: '8px' }}>Change class start date</h3>
             <p style={{ marginTop: 0, marginBottom: '16px', color: '#555' }}>
-              This shifts the full 8-session schedule for this class. It is only allowed before any session is completed.
+              This shifts the full 8-session schedule for this class. It is allowed even if session 1 date already passed, as long as no session has been completed yet.
             </p>
             {firstSession && (
               <div style={{ background: '#f8f9fa', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '14px', color: '#444' }}>
