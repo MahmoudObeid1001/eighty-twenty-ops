@@ -4149,14 +4149,13 @@ func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUser
 		SET start_date = $1,
 		    start_time = COALESCE(start_time, class_time),
 		    updated_at = $2
-		FROM placement_tests pt
-		INNER JOIN class_groups cg ON (
-			cg.level = pt.assigned_level
-			AND cg.class_days = s.class_days
-			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-		)
+		FROM placement_tests pt,
+		     class_groups cg
 		WHERE pt.lead_id = s.lead_id
+		  AND cg.level = pt.assigned_level
+		  AND cg.class_days = s.class_days
+		  AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
+		  AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		  AND cg.class_key = $3
 	`, newStartDate, now, classKey)
 	if err != nil {
