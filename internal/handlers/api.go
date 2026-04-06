@@ -2135,6 +2135,93 @@ func (h *APIHandler) ShiftRoundStartDate(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// POST /api/mentor-head/reschedule-session - changes one session's date/time
+func (h *APIHandler) RescheduleClassSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Manager access required")
+		return
+	}
+
+	var req struct {
+		ClassKey  string `json:"class_key"`
+		SessionID string `json:"session_id"`
+		NewDate   string `json:"new_date"`
+		NewTime   string `json:"new_time"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	req.ClassKey = strings.TrimSpace(req.ClassKey)
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	req.NewDate = strings.TrimSpace(req.NewDate)
+	req.NewTime = strings.TrimSpace(req.NewTime)
+	if req.ClassKey == "" || req.SessionID == "" || req.NewDate == "" || req.NewTime == "" {
+		jsonError(w, http.StatusBadRequest, "class_key, session_id, new_date, and new_time are required")
+		return
+	}
+
+	sessionID, err := uuid.Parse(req.SessionID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid session_id")
+		return
+	}
+
+	newDate, err := time.Parse("2006-01-02", req.NewDate)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "new_date must be in YYYY-MM-DD format")
+		return
+	}
+	if _, err := time.Parse("15:04", req.NewTime); err != nil {
+		jsonError(w, http.StatusBadRequest, "new_time must be in HH:MM format")
+		return
+	}
+
+	sessions, err := models.GetClassSessions(req.ClassKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to load sessions for %s: %v", req.ClassKey, err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load class sessions")
+		return
+	}
+
+	var target *models.ClassSession
+	for _, s := range sessions {
+		if s != nil && s.ID == sessionID {
+			target = s
+			break
+		}
+	}
+	if target == nil {
+		jsonError(w, http.StatusNotFound, "Session not found in this class")
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(target.Status), "completed") {
+		jsonError(w, http.StatusBadRequest, "Completed sessions cannot be rescheduled")
+		return
+	}
+
+	if err := models.CancelAndRescheduleSession(sessionID, newDate, req.NewTime); err != nil {
+		log.Printf("ERROR: Failed to reschedule session %s for class %s: %v", req.SessionID, req.ClassKey, err)
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ok":         true,
+		"class_key":  req.ClassKey,
+		"session_id": req.SessionID,
+		"new_date":   req.NewDate,
+		"new_time":   req.NewTime,
+	})
+}
+
 // POST /api/mentor-head/close-round - closes a round
 func (h *APIHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

@@ -246,6 +246,15 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/shift-start-date -> apiHandler.ShiftRoundStartDate [mentor_head+manager]")
 
+	mux.HandleFunc("/api/mentor-head/reschedule-session", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.RescheduleClassSession)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/reschedule-session -> apiHandler.RescheduleClassSession [mentor_head+manager]")
+
 	mux.HandleFunc("/api/mentor-head/close-round", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.CloseRound)(w, r)

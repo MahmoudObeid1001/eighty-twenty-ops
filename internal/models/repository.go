@@ -4049,6 +4049,7 @@ func CancelAndRescheduleSession(sessionID uuid.UUID, newDate time.Time, newTime 
 	_, err = db.DB.Exec(`
 		UPDATE class_sessions
 		SET scheduled_date = $1, scheduled_time = $2, scheduled_end_time = $3,
+		    actual_date = NULL, actual_time = NULL, actual_end_time = NULL, completed_at = NULL,
 		    status = 'scheduled', updated_at = $4
 		WHERE id = $5
 	`, newDate, newTime, endTime, now, sessionID)

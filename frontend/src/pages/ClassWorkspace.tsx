@@ -6,6 +6,27 @@ import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import ComplianceModal from '../components/ComplianceModal'
 import StudentReportCard from '../components/StudentReportCard'
 
+function formatSessionDateLabel(value: string) {
+  const date = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    weekday: 'short',
+  }).format(date)
+}
+
+function formatSessionTimeLabel(value: string) {
+  if (!value) return ''
+  const normalized = value.length === 5 ? `${value}:00` : value
+  const date = new Date(`2000-01-01T${normalized}`)
+  if (Number.isNaN(date.getTime())) return value.slice(0, 5)
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
+}
+
 export default function ClassWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams()
   const classKey = searchParams.get('class_key') || ''
@@ -54,6 +75,10 @@ export default function ClassWorkspace() {
   const [shiftStartModalOpen, setShiftStartModalOpen] = useState(false)
   const [shiftStartDate, setShiftStartDate] = useState('')
   const [shiftStartSaving, setShiftStartSaving] = useState(false)
+  const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduleTime, setRescheduleTime] = useState('')
+  const [rescheduleSaving, setRescheduleSaving] = useState(false)
 
   async function handleOpenReport(leadId: string) {
     try {
@@ -205,6 +230,34 @@ export default function ClassWorkspace() {
     }
   }
 
+  function handleOpenRescheduleModal() {
+    if (!selectedSession) return
+    setRescheduleDate(selectedSession.scheduled_date)
+    setRescheduleTime(String(selectedSession.scheduled_time || '').slice(0, 5))
+    setRescheduleModalOpen(true)
+  }
+
+  async function handleRescheduleSession() {
+    if (!selectedSession || !rescheduleDate || !rescheduleTime) {
+      setActionError('Choose both a new date and time.')
+      return
+    }
+
+    try {
+      setRescheduleSaving(true)
+      setActionError(null)
+      setActionSuccess(null)
+      await api.rescheduleSession(classKey, selectedSession.id, rescheduleDate, rescheduleTime)
+      await loadClass(true)
+      setRescheduleModalOpen(false)
+      setActionSuccess(`Session ${selectedSession.session_number} moved to ${rescheduleDate} at ${rescheduleTime}.`)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to reschedule session')
+    } finally {
+      setRescheduleSaving(false)
+    }
+  }
+
   function normalizeGrade(v?: { grade: string; notes: string }) {
     return {
       grade: v?.grade || '',
@@ -330,6 +383,7 @@ export default function ClassWorkspace() {
   const firstSession = classData.sessions.find((s) => s.session_number === 1) || classData.sessions[0] || null
   const hasCompletedSessions = classData.sessions.some((s) => s.status === 'completed')
   const canShiftRoundStartDate = (userRole === 'mentor_head' || userRole === 'manager') && classData.class.round_status !== 'closed' && classData.sessions.length > 0
+  const canRescheduleSelectedSession = (userRole === 'mentor_head' || userRole === 'manager') && !!selectedSession && selectedSession.status !== 'completed' && classData.class.round_status !== 'closed'
   const allowedStartDays = classData.class.days === 'Sat/Tues'
     ? 'Saturday or Tuesday'
     : classData.class.days === 'Sun/Wed'
@@ -571,8 +625,9 @@ export default function ClassWorkspace() {
                     onClick={() => setSelectedSessionNumber(s.session_number)}
                     style={{
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: '4px',
                       padding: '8px 16px',
                       borderRadius: '8px',
                       border: isSelected ? 'none' : `2px solid ${statusColor}`,
@@ -584,13 +639,64 @@ export default function ClassWorkspace() {
                       boxShadow: isSelected ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
                     }}
                   >
-                    S{s.session_number}
-                    <span style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.8 }}>{s.status}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>S{s.session_number}</span>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.8 }}>{s.status}</span>
+                    </span>
+                    <span style={{ fontSize: '12px', opacity: 0.92 }}>
+                      {formatSessionDateLabel(s.scheduled_date)}
+                    </span>
+                    <span style={{ fontSize: '11px', opacity: 0.85 }}>
+                      {formatSessionTimeLabel(s.scheduled_time)}
+                    </span>
                   </button>
                 )
               })}
             </div>
           </div>
+
+          {selectedSession && (
+            <div
+              style={{
+                marginBottom: '20px',
+                padding: '14px 16px',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '16px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: '#1f2937', marginBottom: '4px' }}>
+                  Session {selectedSession.session_number} schedule
+                </div>
+                <div style={{ fontSize: '14px', color: '#475569' }}>
+                  {formatSessionDateLabel(selectedSession.scheduled_date)} at {formatSessionTimeLabel(selectedSession.scheduled_time)}
+                </div>
+              </div>
+              {canRescheduleSelectedSession && (
+                <button
+                  onClick={handleOpenRescheduleModal}
+                  disabled={rescheduleSaving}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #0d6efd',
+                    background: 'white',
+                    color: '#0d6efd',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reschedule Session
+                </button>
+              )}
+            </div>
+          )}
 
           {selectedSession && selectedSession.status === 'scheduled' && classData.class.round_status !== 'closed' && (
             <div style={{ marginBottom: '24px' }}>
@@ -1095,6 +1201,111 @@ export default function ClassWorkspace() {
                 }}
               >
                 {shiftStartSaving ? 'Changing...' : 'Change Start Date'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rescheduleModalOpen && selectedSession && (
+        <div
+          onClick={() => {
+            if (rescheduleSaving) return
+            setRescheduleModalOpen(false)
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 3000,
+            padding: '16px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '480px',
+              maxWidth: '100%',
+              boxShadow: '0 12px 30px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: '8px' }}>Reschedule session {selectedSession.session_number}</h3>
+            <p style={{ marginTop: 0, marginBottom: '16px', color: '#555' }}>
+              Change only this session&apos;s date and time. Completed sessions stay locked.
+            </p>
+            <div style={{ background: '#f8f9fa', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '14px', color: '#444' }}>
+              <div><strong>Current date:</strong> {selectedSession.scheduled_date}</div>
+              <div><strong>Current time:</strong> {String(selectedSession.scheduled_time || '').slice(0, 5)}</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>New date</label>
+                <input
+                  type="date"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  disabled={rescheduleSaving}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #ced4da',
+                    fontSize: '14px',
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>New time</label>
+                <input
+                  type="time"
+                  value={rescheduleTime}
+                  onChange={(e) => setRescheduleTime(e.target.value)}
+                  disabled={rescheduleSaving}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #ced4da',
+                    fontSize: '14px',
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={() => setRescheduleModalOpen(false)}
+                disabled={rescheduleSaving}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid #ced4da',
+                  background: 'white',
+                  cursor: rescheduleSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRescheduleSession}
+                disabled={rescheduleSaving || !rescheduleDate || !rescheduleTime}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: '#0d6efd',
+                  color: 'white',
+                  fontWeight: 700,
+                  cursor: rescheduleSaving || !rescheduleDate || !rescheduleTime ? 'not-allowed' : 'pointer',
+                  opacity: rescheduleSaving || !rescheduleDate || !rescheduleTime ? 0.7 : 1,
+                }}
+              >
+                {rescheduleSaving ? 'Saving...' : 'Save Session Date'}
               </button>
             </div>
           </div>

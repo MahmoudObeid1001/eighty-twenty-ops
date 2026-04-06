@@ -582,6 +582,17 @@ export const api = {
       body: JSON.stringify({ class_key: classKey, new_start_date: newStartDate }),
     }),
 
+  rescheduleSession: (
+    classKey: string,
+    sessionId: string,
+    newDate: string,
+    newTime: string,
+  ): Promise<{ ok: boolean; class_key: string; session_id: string; new_date: string; new_time: string }> =>
+    fetchAPI('/mentor-head/reschedule-session', {
+      method: 'POST',
+      body: JSON.stringify({ class_key: classKey, session_id: sessionId, new_date: newDate, new_time: newTime }),
+    }),
+
   closeRound: (classKey: string): Promise<{ ok: boolean }> =>
     fetchAPI('/mentor-head/close-round', {
       method: 'POST',
