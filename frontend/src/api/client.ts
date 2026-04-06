@@ -576,6 +576,12 @@ export const api = {
       body: JSON.stringify({ class_key: classKey }),
     }),
 
+  shiftRoundStartDate: (classKey: string, newStartDate: string): Promise<{ ok: boolean; class_key: string; new_start_date: string }> =>
+    fetchAPI('/mentor-head/shift-start-date', {
+      method: 'POST',
+      body: JSON.stringify({ class_key: classKey, new_start_date: newStartDate }),
+    }),
+
   closeRound: (classKey: string): Promise<{ ok: boolean }> =>
     fetchAPI('/mentor-head/close-round', {
       method: 'POST',

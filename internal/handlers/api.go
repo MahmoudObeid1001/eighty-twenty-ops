@@ -2065,6 +2065,76 @@ func (h *APIHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// POST /api/mentor-head/shift-start-date - shifts the full class schedule by changing session 1 date
+func (h *APIHandler) ShiftRoundStartDate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Manager access required")
+		return
+	}
+
+	var req struct {
+		ClassKey     string `json:"class_key"`
+		NewStartDate string `json:"new_start_date"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	req.ClassKey = strings.TrimSpace(req.ClassKey)
+	req.NewStartDate = strings.TrimSpace(req.NewStartDate)
+	if req.ClassKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+	if req.NewStartDate == "" {
+		jsonError(w, http.StatusBadRequest, "new_start_date is required")
+		return
+	}
+
+	newStartDate, err := time.Parse("2006-01-02", req.NewStartDate)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "new_start_date must be in YYYY-MM-DD format")
+		return
+	}
+
+	changedByID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid authenticated user")
+		return
+	}
+
+	if err := models.ShiftClassRoundStart(req.ClassKey, newStartDate, changedByID); err != nil {
+		log.Printf("ERROR: Failed to shift class start date for %s: %v", req.ClassKey, err)
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "class not found"):
+			jsonError(w, http.StatusNotFound, "Class not found")
+		case strings.Contains(msg, "must be a"),
+			strings.Contains(msg, "cannot change start date before the round is started"),
+			strings.Contains(msg, "cannot change start date after session completion has begun"),
+			strings.Contains(msg, "cannot change start date for a closed class"):
+			jsonError(w, http.StatusBadRequest, msg)
+		default:
+			jsonError(w, http.StatusInternalServerError, "Failed to change class start date")
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ok":             true,
+		"class_key":      req.ClassKey,
+		"new_start_date": newStartDate.Format("2006-01-02"),
+	})
+}
+
 // POST /api/mentor-head/close-round - closes a round
 func (h *APIHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

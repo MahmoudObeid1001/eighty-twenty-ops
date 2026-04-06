@@ -4058,6 +4058,148 @@ func CancelAndRescheduleSession(sessionID uuid.UUID, newDate time.Time, newTime 
 	return nil
 }
 
+// ShiftClassRoundStart changes the first session date for a class and moves the full
+// 8-session schedule with it. It is only allowed before any session is completed.
+func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUserID uuid.UUID) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var classDays, classTime, roundStatus string
+	err = tx.QueryRow(`
+		SELECT class_days, class_time, COALESCE(round_status, 'not_started')
+		FROM class_groups
+		WHERE class_key = $1
+	`, classKey).Scan(&classDays, &classTime, &roundStatus)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("class not found")
+	}
+	if err != nil {
+		return fmt.Errorf("failed to load class details: %w", err)
+	}
+
+	if roundStatus == "closed" {
+		return fmt.Errorf("cannot change start date for a closed class")
+	}
+
+	expectedWeekday, ok := expectedRoundStartWeekday(classDays)
+	if !ok {
+		return fmt.Errorf("unsupported class_days value %q", classDays)
+	}
+	if newStartDate.Weekday() != expectedWeekday {
+		return fmt.Errorf("start date must be a %s for %s classes", weekdayLabel(expectedWeekday), classDays)
+	}
+
+	var sessionCount, completedCount int
+	err = tx.QueryRow(`
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE status = 'completed')
+		FROM class_sessions
+		WHERE class_key = $1
+	`, classKey).Scan(&sessionCount, &completedCount)
+	if err != nil {
+		return fmt.Errorf("failed to inspect class sessions: %w", err)
+	}
+	if sessionCount == 0 {
+		return fmt.Errorf("cannot change start date before the round is started")
+	}
+	if completedCount > 0 {
+		return fmt.Errorf("cannot change start date after session completion has begun")
+	}
+
+	now := time.Now()
+	for i := 1; i <= 8; i++ {
+		sessionDate := newStartDate.AddDate(0, 0, (i-1)*7)
+		_, err = tx.Exec(`
+			UPDATE class_sessions
+			SET scheduled_date = $1,
+			    updated_at = $2
+			WHERE class_key = $3
+			  AND session_number = $4
+		`, sessionDate, now, classKey, i)
+		if err != nil {
+			return fmt.Errorf("failed to update session %d: %w", i, err)
+		}
+	}
+
+	parsedTime, err := parseSessionClock(classTime)
+	if err != nil {
+		return fmt.Errorf("failed to parse class time %q: %w", classTime, err)
+	}
+	roundStartedAt := time.Date(
+		newStartDate.Year(), newStartDate.Month(), newStartDate.Day(),
+		parsedTime.Hour(), parsedTime.Minute(), 0, 0, time.UTC,
+	)
+
+	_, err = tx.Exec(`
+		UPDATE class_groups
+		SET round_started_at = $1,
+		    round_started_by = $2,
+		    updated_at = $3
+		WHERE class_key = $4
+	`, roundStartedAt, changedByUserID, now, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to update class group: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE scheduling s
+		SET start_date = $1,
+		    start_time = COALESCE(start_time, class_time),
+		    updated_at = $2
+		FROM placement_tests pt
+		INNER JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		WHERE pt.lead_id = s.lead_id
+		  AND cg.class_key = $3
+	`, newStartDate, now, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to update scheduling start dates: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func expectedRoundStartWeekday(classDays string) (time.Weekday, bool) {
+	switch strings.TrimSpace(classDays) {
+	case "Sat/Tues":
+		return time.Saturday, true
+	case "Sun/Wed":
+		return time.Sunday, true
+	case "Mon/Thu":
+		return time.Monday, true
+	default:
+		return time.Sunday, false
+	}
+}
+
+func weekdayLabel(day time.Weekday) string {
+	switch day {
+	case time.Saturday:
+		return "Saturday"
+	case time.Sunday:
+		return "Sunday"
+	case time.Monday:
+		return "Monday"
+	case time.Tuesday:
+		return "Tuesday"
+	case time.Wednesday:
+		return "Wednesday"
+	case time.Thursday:
+		return "Thursday"
+	case time.Friday:
+		return "Friday"
+	default:
+		return day.String()
+	}
+}
+
 func parseSessionClock(value string) (time.Time, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

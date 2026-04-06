@@ -51,6 +51,9 @@ export default function ClassWorkspace() {
   const [reportOpen, setReportOpen] = useState(false)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportData, setReportData] = useState<StudentReportCardData | null>(null)
+  const [shiftStartModalOpen, setShiftStartModalOpen] = useState(false)
+  const [shiftStartDate, setShiftStartDate] = useState('')
+  const [shiftStartSaving, setShiftStartSaving] = useState(false)
 
   async function handleOpenReport(leadId: string) {
     try {
@@ -172,6 +175,33 @@ export default function ClassWorkspace() {
       setLoading(false)
       setConfirmSessionId(null)
       setConfirmSessionNumber(null)
+    }
+  }
+
+  function handleOpenShiftStartModal() {
+    if (!classData) return
+    const firstSession = classData.sessions.find((s) => s.session_number === 1) || classData.sessions[0]
+    setShiftStartDate(firstSession?.scheduled_date || '')
+    setShiftStartModalOpen(true)
+  }
+
+  async function handleShiftRoundStartDate() {
+    if (!shiftStartDate) {
+      setActionError('Select a new start date first.')
+      return
+    }
+    try {
+      setShiftStartSaving(true)
+      setActionError(null)
+      setActionSuccess(null)
+      await api.shiftRoundStartDate(classKey, shiftStartDate)
+      await loadClass(true)
+      setShiftStartModalOpen(false)
+      setActionSuccess(`Class start date moved to ${shiftStartDate}. All scheduled sessions were shifted.`)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to change class start date')
+    } finally {
+      setShiftStartSaving(false)
     }
   }
 
@@ -297,6 +327,16 @@ export default function ClassWorkspace() {
 
   const selectedSession = classData.sessions.find((s) => s.session_number === selectedSessionNumber)
   const mentorPreStartLocked = userRole === 'mentor' && classData.class.round_status !== 'active'
+  const firstSession = classData.sessions.find((s) => s.session_number === 1) || classData.sessions[0] || null
+  const hasCompletedSessions = classData.sessions.some((s) => s.status === 'completed')
+  const canShiftRoundStartDate = (userRole === 'mentor_head' || userRole === 'manager') && classData.class.round_status !== 'closed' && classData.sessions.length > 0
+  const expectedStartDay = classData.class.days === 'Sat/Tues'
+    ? 'Saturday'
+    : classData.class.days === 'Sun/Wed'
+      ? 'Sunday'
+      : classData.class.days === 'Mon/Thu'
+        ? 'Monday'
+        : 'the first class day'
 
   return (
     <div className="class-workspace">
@@ -494,6 +534,26 @@ export default function ClassWorkspace() {
             title="Open mentor compliance checklist"
           >
             Compliance
+          </button>
+        )}
+        {canShiftRoundStartDate && (
+          <button
+            onClick={handleOpenShiftStartModal}
+            disabled={hasCompletedSessions || shiftStartSaving}
+            style={{
+              marginLeft: 'auto',
+              padding: '8px 12px',
+              borderRadius: '8px',
+              border: '1px solid #fd7e14',
+              background: hasCompletedSessions ? '#f8f9fa' : '#fff4e5',
+              color: hasCompletedSessions ? '#6c757d' : '#c65d00',
+              fontWeight: 700,
+              cursor: hasCompletedSessions ? 'not-allowed' : 'pointer',
+              opacity: hasCompletedSessions ? 0.7 : 1,
+            }}
+            title={hasCompletedSessions ? 'Start date can only be changed before any session is completed.' : 'Move the full 8-session schedule by changing session 1 date.'}
+          >
+            Change Start Date
           </button>
         )}
       </div>
@@ -944,6 +1004,97 @@ export default function ClassWorkspace() {
                 }}
               >
                 Yes, complete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shiftStartModalOpen && (
+        <div
+          onClick={() => {
+            if (shiftStartSaving) return
+            setShiftStartModalOpen(false)
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 3000,
+            padding: '16px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '480px',
+              maxWidth: '100%',
+              boxShadow: '0 12px 30px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: '8px' }}>Change class start date</h3>
+            <p style={{ marginTop: 0, marginBottom: '16px', color: '#555' }}>
+              This shifts the full 8-session schedule for this class. It is only allowed before any session is completed.
+            </p>
+            {firstSession && (
+              <div style={{ background: '#f8f9fa', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '14px', color: '#444' }}>
+                <div><strong>Current session 1 date:</strong> {firstSession.scheduled_date}</div>
+                <div><strong>Expected weekday:</strong> {expectedStartDay} for {classData.class.days} classes</div>
+              </div>
+            )}
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>New first-session date</label>
+            <input
+              type="date"
+              value={shiftStartDate}
+              onChange={(e) => setShiftStartDate(e.target.value)}
+              disabled={shiftStartSaving}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: '1px solid #ced4da',
+                fontSize: '14px',
+                marginBottom: '16px',
+              }}
+            />
+            <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
+              The backend will reject dates that do not land on the correct first class day.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={() => setShiftStartModalOpen(false)}
+                disabled={shiftStartSaving}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid #ced4da',
+                  background: 'white',
+                  cursor: shiftStartSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleShiftRoundStartDate}
+                disabled={shiftStartSaving || !shiftStartDate}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: '#fd7e14',
+                  color: 'white',
+                  fontWeight: 700,
+                  cursor: shiftStartSaving || !shiftStartDate ? 'not-allowed' : 'pointer',
+                  opacity: shiftStartSaving || !shiftStartDate ? 0.7 : 1,
+                }}
+              >
+                {shiftStartSaving ? 'Changing...' : 'Change Start Date'}
               </button>
             </div>
           </div>
