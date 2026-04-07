@@ -498,6 +498,61 @@ export interface BIReportPayload {
   }
 }
 
+export interface DailyReportClassRow {
+  session_id: string
+  class_key: string
+  class_label: string
+  mentor_id: string
+  mentor_email: string
+  session_number: number
+  scheduled_date: string
+  scheduled_time: string
+  actual_time: string
+  session_status: string
+  report_status: string
+  punctuality_status: string
+  delay_minutes: number
+  expected_students: number
+  absent_students: number
+}
+
+export interface DailyReportPayload {
+  report_date: string
+  ready_at: string
+  generated_at: string
+  classes_scheduled: number
+  classes_taught: number
+  classes_missing_report: number
+  expected_students: number
+  absent_students: number
+  class_rows: DailyReportClassRow[]
+}
+
+export interface DailyReportNotification {
+  report_date: string
+  ready_at: string
+  classes_scheduled: number
+  classes_taught: number
+  classes_missing_report: number
+  absent_students: number
+  expected_students: number
+}
+
+export interface ComplaintNotification {
+  id: string
+  class_key: string
+  student_name: string
+  student_phone: string
+  urgency: string
+  created_at: string
+  unread_count: number
+}
+
+export interface OpsNotificationSummary {
+  daily_report?: DailyReportNotification
+  complaint?: ComplaintNotification
+}
+
 export const api = {
   getMe: (): Promise<User> => fetchAPI('/me'),
 
@@ -835,6 +890,14 @@ export const api = {
       method: 'POST',
     }),
 
+  getOpsNotifications: (): Promise<OpsNotificationSummary> =>
+    fetchAPI('/notifications/ops'),
+
+  markComplaintRead: (complaintId: string): Promise<{ ok: boolean }> =>
+    fetchAPI(`/notifications/complaints/${encodeURIComponent(complaintId)}/read`, {
+      method: 'POST',
+    }),
+
   // Mentor Directory API (Mentor Head/Admin)
   getMentors: (): Promise<{ mentors: MentorDirectoryItem[] }> =>
     fetchAPI('/mentors'),
@@ -925,6 +988,19 @@ export const api = {
     const query = qs.toString()
     return fetchAPI(`/reports/bi${query ? `?${query}` : ''}`)
   },
+
+  getDailyReport: (date?: string): Promise<DailyReportPayload> => {
+    const qs = new URLSearchParams()
+    if (date) qs.set('date', date)
+    const query = qs.toString()
+    return fetchAPI(`/reports/daily${query ? `?${query}` : ''}`)
+  },
+
+  markDailyReportRead: (reportDate: string): Promise<{ ok: boolean }> =>
+    fetchAPI('/reports/daily/read', {
+      method: 'POST',
+      body: JSON.stringify({ report_date: reportDate }),
+    }),
 
   forceChangePassword: (newPassword: string): Promise<{ ok: boolean; redirect: string }> =>
     fetchAPI('/auth/force-change-password', {

@@ -320,6 +320,24 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /api/student -> apiHandler.GetStudent [mentor+mentor_head+admin+manager]")
 
 	// Notification Routes
+	mux.HandleFunc("/api/notifications/ops", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetOpsNotifications)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/notifications/ops -> apiHandler.GetOpsNotifications [mentor_head+manager]")
+
+	mux.HandleFunc("/api/notifications/complaints/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/read") && r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.MarkComplaintNotificationRead)(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/notifications/complaints/:id/read -> apiHandler.MarkComplaintNotificationRead [mentor_head+manager]")
+
 	mux.HandleFunc("/api/notifications/late-join/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/acknowledge") {
 			if r.Method == http.MethodPost {
@@ -562,7 +580,7 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorHeadComplaints)(w, r)
+		middleware.RequireAnyRole([]string{"mentor_head", "manager", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorHeadComplaints)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/complaints -> apiHandler.GetMentorHeadComplaints")
 
@@ -572,7 +590,7 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(func(w http.ResponseWriter, r *http.Request) {
+		middleware.RequireAnyRole([]string{"mentor_head", "manager", "admin"}, cfg.SessionSecret)(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, "/update") {
 				apiHandler.UpdateComplaintStatusHandler(w, r)
 			} else if strings.HasSuffix(r.URL.Path, "/resolve") {
@@ -627,12 +645,30 @@ func main() {
 	mux.HandleFunc("/api/reports/mentors/exclude", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.ExcludeMentorReportRow)(w, r)
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors/exclude -> apiHandler.ExcludeMentorReportRow [mentor_head+admin]")
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/mentors/exclude -> apiHandler.ExcludeMentorReportRow [mentor_head+manager]")
+
+	mux.HandleFunc("/api/reports/daily", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetDailyReport)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/daily -> apiHandler.GetDailyReport [mentor_head+manager]")
+
+	mux.HandleFunc("/api/reports/daily/read", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.MarkDailyReportRead)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/daily/read -> apiHandler.MarkDailyReportRead [mentor_head+manager]")
 
 	mux.HandleFunc("/api/reports/bi", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"admin", "mentor_head"}, cfg.SessionSecret)(apiHandler.GetBIReports)(w, r)
+		middleware.RequireAnyRole([]string{"admin", "mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetBIReports)(w, r)
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/reports/bi -> apiHandler.GetBIReports [admin+mentor_head]")
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/bi -> apiHandler.GetBIReports [admin+mentor_head+manager]")
 
 	mux.HandleFunc("/api/manager/users", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

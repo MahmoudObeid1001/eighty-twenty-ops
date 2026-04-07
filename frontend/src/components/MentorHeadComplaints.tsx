@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type ComplaintListItem } from '../api/client'
 
-export default function MentorHeadComplaints() {
+export default function MentorHeadComplaints({ openComplaintId }: { openComplaintId?: string }) {
     const [complaints, setComplaints] = useState<ComplaintListItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -15,6 +15,23 @@ export default function MentorHeadComplaints() {
     useEffect(() => {
         loadComplaints()
     }, [showResolved])
+
+    useEffect(() => {
+        if (!openComplaintId || complaints.length === 0) {
+            return
+        }
+        const target = complaints.find((complaint) => complaint.id === openComplaintId)
+        if (target) {
+            openComplaint(target)
+        }
+    }, [openComplaintId, complaints])
+
+    function openComplaint(complaint: ComplaintListItem) {
+        setViewComplaint(complaint)
+        void api.markComplaintRead(complaint.id).catch((err) => {
+            console.warn('Failed to mark complaint read:', err)
+        })
+    }
 
     async function loadComplaints() {
         try {
@@ -145,7 +162,7 @@ export default function MentorHeadComplaints() {
                                                 }}
                                                 onClick={() => {
                                                     if (complaint.complaint_text || complaint.last_note) {
-                                                        setViewComplaint(complaint)
+                                                        openComplaint(complaint)
                                                     }
                                                 }}
                                                 title={complaint.complaint_text || complaint.last_note || ''}
@@ -205,7 +222,7 @@ export default function MentorHeadComplaints() {
                                                     </>
                                                 )}
                                                 <button
-                                                    onClick={() => setViewComplaint(complaint)}
+                                                    onClick={() => openComplaint(complaint)}
                                                     style={{
                                                         padding: '4px 10px',
                                                         borderRadius: '4px',

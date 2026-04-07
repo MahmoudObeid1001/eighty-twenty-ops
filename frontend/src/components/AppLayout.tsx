@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api, User } from '../api/client'
 import LateJoinerBanner from './LateJoinerBanner'
+import OpsNotificationBanner from './OpsNotificationBanner'
 
 interface AppLayoutProps {
   children: ReactNode
@@ -197,6 +198,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       </aside>
       <main className="main-content">
         <LateJoinerBanner userRole={role} />
+        <OpsNotificationBanner userRole={role} />
         {children}
       </main>
     </div>

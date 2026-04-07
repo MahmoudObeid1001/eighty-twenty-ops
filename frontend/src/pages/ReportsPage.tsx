@@ -1,15 +1,20 @@
 import { CSSProperties, Fragment, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   api,
   BIReportPayload,
+  DailyReportPayload,
   MentorClassReportItem,
   MentorReportChecklistItem,
   MentorReportItem,
 } from '../api/client'
 
-type ReportsViewMode = 'bi' | 'mentor'
+type ReportsViewMode = 'bi' | 'mentor' | 'daily'
 
 export default function ReportsPage() {
+  const [searchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const requestedDate = searchParams.get('date')
   const [items, setItems] = useState<MentorReportItem[]>([])
   const [mentorFilter, setMentorFilter] = useState<string>('')
   const [loading, setLoading] = useState(true)
@@ -38,9 +43,14 @@ export default function ReportsPage() {
   const [biLoading, setBILoading] = useState(false)
   const [biError, setBIError] = useState<string | null>(null)
   const [biData, setBIData] = useState<BIReportPayload | null>(null)
+  const [dailyDate, setDailyDate] = useState<string>(requestedDate || '')
+  const [dailyLoading, setDailyLoading] = useState(false)
+  const [dailyError, setDailyError] = useState<string | null>(null)
+  const [dailyData, setDailyData] = useState<DailyReportPayload | null>(null)
 
   const canViewBI = userRole === 'admin' || userRole === 'mentor_head' || userRole === 'manager'
   const canViewMentor = userRole === 'student_success' || userRole === 'mentor_head' || userRole === 'manager'
+  const canViewDaily = userRole === 'mentor_head' || userRole === 'manager'
 
   const [viewMode, setViewMode] = useState<ReportsViewMode>('bi')
 
@@ -50,14 +60,26 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (!userRole) return
+    if (requestedTab === 'daily' && canViewDaily) {
+      if (requestedDate) {
+        setDailyDate(requestedDate)
+      }
+      setViewMode('daily')
+      void loadDailyReport(requestedDate || undefined)
+      return
+    }
     if (canViewBI) {
       setViewMode('bi')
+      return
+    }
+    if (canViewDaily) {
+      setViewMode('daily')
       return
     }
     if (canViewMentor) {
       setViewMode('mentor')
     }
-  }, [userRole, canViewBI, canViewMentor])
+  }, [userRole, canViewBI, canViewDaily, canViewMentor, requestedTab, requestedDate])
 
   useEffect(() => {
     if (!userRole || !canViewMentor || viewMode !== 'mentor') {
@@ -72,6 +94,13 @@ export default function ReportsPage() {
     }
     void loadBIReports(biAppliedFrom, biAppliedTo)
   }, [userRole, canViewBI, viewMode, biAppliedFrom, biAppliedTo])
+
+  useEffect(() => {
+    if (!userRole || !canViewDaily || viewMode !== 'daily') {
+      return
+    }
+    void loadDailyReport(dailyDate || undefined)
+  }, [userRole, canViewDaily, viewMode])
 
   async function loadMe() {
     try {
@@ -117,6 +146,20 @@ export default function ReportsPage() {
       setBIError(err instanceof Error ? err.message : 'Failed to load BI reports')
     } finally {
       setBILoading(false)
+    }
+  }
+
+  async function loadDailyReport(date?: string) {
+    try {
+      setDailyLoading(true)
+      setDailyError(null)
+      const data = await api.getDailyReport(date)
+      setDailyData(data)
+      setDailyDate(data.report_date)
+    } catch (err) {
+      setDailyError(err instanceof Error ? err.message : 'Failed to load daily report')
+    } finally {
+      setDailyLoading(false)
     }
   }
 
@@ -200,6 +243,20 @@ export default function ReportsPage() {
     setBIAppliedTo(biTo)
   }
 
+  function applyDailyDateFilter() {
+    if (!dailyDate) {
+      setDailyError('Please select a report date.')
+      return
+    }
+    void loadDailyReport(dailyDate)
+  }
+
+  const reportTabs = [
+    canViewBI ? { key: 'bi' as const, label: 'Business Intelligence' } : null,
+    canViewDaily ? { key: 'daily' as const, label: 'Daily Reports' } : null,
+    canViewMentor ? { key: 'mentor' as const, label: 'Mentor Compliance' } : null,
+  ].filter(Boolean) as { key: ReportsViewMode; label: string }[]
+
   return (
     <>
       <div className="header content-header">
@@ -207,26 +264,20 @@ export default function ReportsPage() {
         <h1>Reports</h1>
       </div>
 
-      {canViewBI && canViewMentor && (
+      {reportTabs.length > 1 && (
         <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
-          <button
-            onClick={() => setViewMode('bi')}
-            style={{
-              ...tabButtonStyle,
-              ...(viewMode === 'bi' ? activeTabButtonStyle : null),
-            }}
-          >
-            Business Intelligence
-          </button>
-          <button
-            onClick={() => setViewMode('mentor')}
-            style={{
-              ...tabButtonStyle,
-              ...(viewMode === 'mentor' ? activeTabButtonStyle : null),
-            }}
-          >
-            Mentor Compliance
-          </button>
+          {reportTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setViewMode(tab.key)}
+              style={{
+                ...tabButtonStyle,
+                ...(viewMode === tab.key ? activeTabButtonStyle : null),
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -262,6 +313,33 @@ export default function ReportsPage() {
           {!biLoading && biData && (
             <BIDashboard data={biData} />
           )}
+        </>
+      )}
+
+      {canViewDaily && viewMode === 'daily' && (
+        <>
+          <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={filterLabelStyle}>Report Date</label>
+                <input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} style={filterInputStyle} />
+              </div>
+              <button onClick={applyDailyDateFilter} style={actionBtnStyle}>Load Daily Report</button>
+              {dailyData && (
+                <span style={{ color: '#6b7280', fontSize: '13px', paddingBottom: '10px' }}>
+                  Ready at {formatDateTime(dailyData.ready_at)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {dailyError && <div style={{ background: '#f8d7da', color: '#721c24', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{dailyError}</div>}
+
+          {dailyLoading && (
+            <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>Loading daily report...</div>
+          )}
+
+          {!dailyLoading && dailyData && <DailyReportView data={dailyData} />}
         </>
       )}
 
@@ -494,6 +572,112 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
         </ReportPanel>
       </div>
     </div>
+  )
+}
+
+function DailyReportView({ data }: { data: DailyReportPayload }) {
+  return (
+    <div style={{ display: 'grid', gap: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        <MetricCard
+          title="Classes Taught"
+          value={`${data.classes_taught}/${data.classes_scheduled}`}
+          sub={`${data.classes_missing_report} mentor report(s) missing`}
+        />
+        <MetricCard
+          title="Student Absence"
+          value={`${data.absent_students}/${data.expected_students}`}
+          sub="Absent out of students expected today"
+        />
+        <MetricCard
+          title="Report Date"
+          value={data.report_date}
+          sub={`Generated ${formatDateTime(data.generated_at)}`}
+        />
+      </div>
+
+      <ReportPanel title="Daily Classes">
+        {data.class_rows.length === 0 ? (
+          <div style={{ color: '#6b7280' }}>No active sessions were scheduled for this date.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '980px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={thStyle}>Class</th>
+                  <th style={thStyle}>Mentor</th>
+                  <th style={thStyle}>Session</th>
+                  <th style={thStyle}>Scheduled</th>
+                  <th style={thStyle}>Report</th>
+                  <th style={thStyle}>Punctuality</th>
+                  <th style={thStyle}>Absence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.class_rows.map((row) => (
+                  <tr key={row.session_id}>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: 700 }}>{row.class_label}</div>
+                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.class_key}</div>
+                    </td>
+                    <td style={tdStyle}>{row.mentor_email || 'Unassigned'}</td>
+                    <td style={tdStyle}>S{row.session_number}</td>
+                    <td style={tdStyle}>
+                      {row.scheduled_date} · {trimClock(row.scheduled_time)}
+                    </td>
+                    <td style={tdStyle}>
+                      <StatusPill status={row.report_status} />
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ display: 'grid', gap: '4px' }}>
+                        <StatusPill status={row.punctuality_status} />
+                        {row.report_status === 'filled' && (
+                          <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                            {row.delay_minutes} min delay · actual {trimClock(row.actual_time) || '-'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td style={tdStyle}>
+                      {row.absent_students}/{row.expected_students}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ReportPanel>
+    </div>
+  )
+}
+
+function StatusPill({ status }: { status: string }) {
+  const normalized = String(status || '').toLowerCase()
+  const palette =
+    normalized === 'filled' || normalized === 'on_time'
+      ? { background: '#dcfce7', color: '#166534', border: '#bbf7d0' }
+      : normalized === 'late'
+        ? { background: '#fef3c7', color: '#92400e', border: '#fde68a' }
+        : { background: '#fee2e2', color: '#991b1b', border: '#fecaca' }
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        width: 'fit-content',
+        padding: '4px 10px',
+        borderRadius: '999px',
+        border: `1px solid ${palette.border}`,
+        background: palette.background,
+        color: palette.color,
+        fontSize: '12px',
+        fontWeight: 800,
+        textTransform: 'capitalize',
+      }}
+    >
+      {normalized.replace(/_/g, ' ')}
+    </span>
   )
 }
 
@@ -774,6 +958,17 @@ function getSessionSlotLabel(classDays: string, sessionNumber: number): string {
 
 function formatDateInput(value: Date): string {
   return value.toISOString().slice(0, 10)
+}
+
+function formatDateTime(value: string): string {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleString()
+}
+
+function trimClock(value: string): string {
+  return String(value || '').slice(0, 5)
 }
 
 const thStyle: CSSProperties = {

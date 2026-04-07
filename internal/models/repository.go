@@ -8158,6 +8158,316 @@ func UpdateAbsencePriority(leadID uuid.UUID, classKey string) error {
 	return err
 }
 
+// LatestReadyDailyReportWindow returns the latest report date whose banner is ready.
+// Daily reports become ready at 02:00 Europe/Helsinki on the next day.
+func LatestReadyDailyReportWindow(now time.Time) (time.Time, time.Time) {
+	loc, err := time.LoadLocation("Europe/Helsinki")
+	if err != nil {
+		loc = time.Local
+	}
+	hel := now.In(loc)
+	today := time.Date(hel.Year(), hel.Month(), hel.Day(), 0, 0, 0, 0, loc)
+	reportDate := today.AddDate(0, 0, -1)
+	readyAt := time.Date(hel.Year(), hel.Month(), hel.Day(), 2, 0, 0, 0, loc)
+	if hel.Before(readyAt) {
+		reportDate = reportDate.AddDate(0, 0, -1)
+		readyAt = readyAt.AddDate(0, 0, -1)
+	}
+	return reportDate, readyAt
+}
+
+// GetDailyReportPayload builds the Mentor Head/Manager daily report for a date.
+func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
+	loc, err := time.LoadLocation("Europe/Helsinki")
+	if err != nil {
+		loc = time.Local
+	}
+	normalizedDate := time.Date(inputDate.Year(), inputDate.Month(), inputDate.Day(), 0, 0, 0, 0, loc)
+	readyAt := normalizedDate.AddDate(0, 0, 1).Add(2 * time.Hour)
+
+	rows, err := db.DB.Query(`
+		SELECT cs.id, cs.class_key, cs.session_number, cs.scheduled_date,
+		       COALESCE(cs.scheduled_time::TEXT, '') AS scheduled_time,
+		       cs.actual_date,
+		       COALESCE(cs.actual_time::TEXT, '') AS actual_time,
+		       cs.status,
+		       ma.mentor_user_id::TEXT,
+		       COALESCE(u.email, 'Unassigned') AS mentor_email,
+		       cg.level, cg.class_days, cg.class_time, cg.class_number
+		FROM class_sessions cs
+		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
+		LEFT JOIN users u ON u.id = ma.mentor_user_id
+		WHERE cs.scheduled_date = $1
+		  AND COALESCE(cg.round_status, 'not_started') = 'active'
+		ORDER BY cs.scheduled_time, cg.level, cg.class_number, cs.class_key
+	`, normalizedDate.Format("2006-01-02"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query daily report sessions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	report := &DailyReportPayload{
+		ReportDate:  normalizedDate.Format("2006-01-02"),
+		ReadyAt:     readyAt.Format(time.RFC3339),
+		GeneratedAt: time.Now().Format(time.RFC3339),
+		ClassRows:   []*DailyReportClassRow{},
+	}
+
+	for rows.Next() {
+		var scheduledDate time.Time
+		var actualDate sql.NullTime
+		var mentorIDStr sql.NullString
+		var level, classNumber int32
+		var classDays, classTime string
+		row := &DailyReportClassRow{}
+
+		if err := rows.Scan(
+			&row.SessionID,
+			&row.ClassKey,
+			&row.SessionNumber,
+			&scheduledDate,
+			&row.ScheduledTime,
+			&actualDate,
+			&row.ActualTime,
+			&row.SessionStatus,
+			&mentorIDStr,
+			&row.MentorEmail,
+			&level,
+			&classDays,
+			&classTime,
+			&classNumber,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan daily report session: %w", err)
+		}
+
+		row.ScheduledDate = scheduledDate.Format("2006-01-02")
+		row.ClassLabel = fmt.Sprintf("Level %d · %s · %s · Class %d", level, classDays, classTime, classNumber)
+		if mentorIDStr.Valid && mentorIDStr.String != "" {
+			if mentorID, err := uuid.Parse(mentorIDStr.String); err == nil {
+				row.MentorID = mentorID
+			}
+		}
+
+		expected, err := countExpectedStudentsForSession(row.ClassKey, row.SessionNumber)
+		if err != nil {
+			return nil, err
+		}
+		absent, err := countAbsentStudentsForSession(row.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		row.ExpectedStudents = expected
+		row.AbsentStudents = absent
+
+		row.ReportStatus = "missing"
+		row.PunctualityStatus = "not_filled"
+		if strings.EqualFold(row.SessionStatus, "completed") {
+			row.ReportStatus = "filled"
+			row.DelayMinutes = computeDailyReportDelayMinutes(row.ScheduledDate, row.ScheduledTime, actualDate, row.ActualTime)
+			if row.DelayMinutes > 0 {
+				row.PunctualityStatus = "late"
+			} else {
+				row.PunctualityStatus = "on_time"
+			}
+			report.ClassesTaught++
+		} else {
+			report.ClassesMissingReport++
+		}
+
+		report.ClassesScheduled++
+		report.ExpectedStudents += row.ExpectedStudents
+		report.AbsentStudents += row.AbsentStudents
+		report.ClassRows = append(report.ClassRows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate daily report sessions: %w", err)
+	}
+
+	return report, nil
+}
+
+func countExpectedStudentsForSession(classKey string, sessionNumber int32) (int, error) {
+	var count int
+	err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM leads l
+		INNER JOIN scheduling s ON s.lead_id = l.id
+		INNER JOIN placement_tests pt ON pt.lead_id = l.id
+		INNER JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		WHERE cg.class_key = $1
+		  AND l.status = 'in_classes'
+		  AND NOT EXISTS (
+			  SELECT 1 FROM late_joiners lj
+			  WHERE lj.lead_id = l.id
+			    AND lj.class_key = cg.class_key
+			    AND $2 < lj.joined_at_session_number
+		  )
+	`, classKey, sessionNumber).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count expected students for %s S%d: %w", classKey, sessionNumber, err)
+	}
+	return count, nil
+}
+
+func countAbsentStudentsForSession(sessionID uuid.UUID) (int, error) {
+	var count int
+	err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM attendance
+		WHERE session_id = $1
+		  AND status = 'ABSENT'
+	`, sessionID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count absent students for session %s: %w", sessionID, err)
+	}
+	return count, nil
+}
+
+func computeDailyReportDelayMinutes(scheduledDate, scheduledTime string, actualDate sql.NullTime, actualTime string) int {
+	if strings.TrimSpace(scheduledDate) == "" || strings.TrimSpace(scheduledTime) == "" || strings.TrimSpace(actualTime) == "" {
+		return 0
+	}
+	loc, err := time.LoadLocation("Africa/Cairo")
+	if err != nil {
+		loc = time.Local
+	}
+	scheduledDay, err := time.ParseInLocation("2006-01-02", scheduledDate, loc)
+	if err != nil {
+		return 0
+	}
+	scheduledClock, err := parseSessionClock(scheduledTime)
+	if err != nil {
+		return 0
+	}
+	actualClock, err := parseSessionClock(actualTime)
+	if err != nil {
+		return 0
+	}
+	actualDay := scheduledDay
+	if actualDate.Valid {
+		y, m, d := actualDate.Time.In(loc).Date()
+		actualDay = time.Date(y, m, d, 0, 0, 0, 0, loc)
+	}
+	scheduledAt := time.Date(scheduledDay.Year(), scheduledDay.Month(), scheduledDay.Day(), scheduledClock.Hour(), scheduledClock.Minute(), 0, 0, loc)
+	actualAt := time.Date(actualDay.Year(), actualDay.Month(), actualDay.Day(), actualClock.Hour(), actualClock.Minute(), 0, 0, loc)
+	delay := int(actualAt.Sub(scheduledAt).Minutes())
+	if delay < 0 {
+		return 0
+	}
+	return delay
+}
+
+// MarkDailyReportRead marks a ready daily report banner as read for a user.
+func MarkDailyReportRead(userID uuid.UUID, reportDate time.Time) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO daily_report_reads (user_id, report_date, read_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (user_id, report_date) DO UPDATE SET read_at = EXCLUDED.read_at
+	`, userID, reportDate.Format("2006-01-02"))
+	if err != nil {
+		return fmt.Errorf("failed to mark daily report read: %w", err)
+	}
+	return nil
+}
+
+// MarkComplaintRead marks a complaint banner as read for a user.
+func MarkComplaintRead(userID uuid.UUID, complaintID uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO complaint_reads (user_id, complaint_id, read_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (user_id, complaint_id) DO UPDATE SET read_at = EXCLUDED.read_at
+	`, userID, complaintID)
+	if err != nil {
+		return fmt.Errorf("failed to mark complaint read: %w", err)
+	}
+	return nil
+}
+
+// GetOpsNotificationSummary returns unread daily-report and complaint banners for MH/Manager.
+func GetOpsNotificationSummary(userID uuid.UUID, now time.Time) (*OpsNotificationSummary, error) {
+	summary := &OpsNotificationSummary{}
+	reportDate, readyAt := LatestReadyDailyReportWindow(now)
+
+	var reportRead bool
+	if err := db.DB.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM daily_report_reads
+			WHERE user_id = $1 AND report_date = $2
+		)
+	`, userID, reportDate.Format("2006-01-02")).Scan(&reportRead); err != nil {
+		return nil, fmt.Errorf("failed to check daily report read state: %w", err)
+	}
+
+	if !reportRead {
+		report, err := GetDailyReportPayload(reportDate)
+		if err != nil {
+			return nil, err
+		}
+		if report.ClassesScheduled > 0 {
+			summary.DailyReport = &DailyReportNotification{
+				ReportDate:           report.ReportDate,
+				ReadyAt:              readyAt.Format(time.RFC3339),
+				ClassesScheduled:     report.ClassesScheduled,
+				ClassesTaught:        report.ClassesTaught,
+				ClassesMissingReport: report.ClassesMissingReport,
+				AbsentStudents:       report.AbsentStudents,
+				ExpectedStudents:     report.ExpectedStudents,
+			}
+		}
+	}
+
+	complaint, err := GetUnreadComplaintNotification(userID)
+	if err != nil {
+		return nil, err
+	}
+	summary.Complaint = complaint
+	return summary, nil
+}
+
+// GetUnreadComplaintNotification returns the newest unread active complaint for a user.
+func GetUnreadComplaintNotification(userID uuid.UUID) (*ComplaintNotification, error) {
+	var unreadCount int
+	if err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM followups f
+		LEFT JOIN complaint_reads cr ON cr.complaint_id = f.id AND cr.user_id = $1
+		WHERE f.type = 'complaint'
+		  AND f.deleted_at IS NULL
+		  AND f.resolved = false
+		  AND cr.id IS NULL
+	`, userID).Scan(&unreadCount); err != nil {
+		return nil, fmt.Errorf("failed to count unread complaints: %w", err)
+	}
+	if unreadCount == 0 {
+		return nil, nil
+	}
+
+	n := &ComplaintNotification{UnreadCount: unreadCount}
+	err := db.DB.QueryRow(`
+		SELECT f.id, f.class_key, COALESCE(l.full_name, 'Unknown') AS student_name,
+		       COALESCE(f.student_phone, ''), COALESCE(f.urgency, 'medium'), f.created_at
+		FROM followups f
+		LEFT JOIN leads l ON l.id = f.lead_id
+		LEFT JOIN complaint_reads cr ON cr.complaint_id = f.id AND cr.user_id = $1
+		WHERE f.type = 'complaint'
+		  AND f.deleted_at IS NULL
+		  AND f.resolved = false
+		  AND cr.id IS NULL
+		ORDER BY f.created_at DESC
+		LIMIT 1
+	`, userID).Scan(&n.ID, &n.ClassKey, &n.StudentName, &n.StudentPhone, &n.Urgency, &n.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unread complaint notification: %w", err)
+	}
+	return n, nil
+}
+
 // LateJoinerNotification represents a notification for a late joiner event.
 type LateJoinerNotification struct {
 	ID                    uuid.UUID  `json:"id"`

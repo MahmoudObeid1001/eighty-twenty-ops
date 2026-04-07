@@ -638,6 +638,64 @@ type ComplaintListItem struct {
 	Notes         []*FollowUpCaseNote `json:"notes"`
 }
 
+// DailyReportPayload is the operational daily class report shown to Mentor Head and Manager.
+type DailyReportPayload struct {
+	ReportDate           string                 `json:"report_date"`
+	ReadyAt              string                 `json:"ready_at"`
+	GeneratedAt          string                 `json:"generated_at"`
+	ClassesScheduled     int                    `json:"classes_scheduled"`
+	ClassesTaught        int                    `json:"classes_taught"`
+	ClassesMissingReport int                    `json:"classes_missing_report"`
+	ExpectedStudents     int                    `json:"expected_students"`
+	AbsentStudents       int                    `json:"absent_students"`
+	ClassRows            []*DailyReportClassRow `json:"class_rows"`
+}
+
+// DailyReportClassRow summarizes one class session expected on the report date.
+type DailyReportClassRow struct {
+	SessionID         uuid.UUID `json:"session_id"`
+	ClassKey          string    `json:"class_key"`
+	ClassLabel        string    `json:"class_label"`
+	MentorID          uuid.UUID `json:"mentor_id"`
+	MentorEmail       string    `json:"mentor_email"`
+	SessionNumber     int32     `json:"session_number"`
+	ScheduledDate     string    `json:"scheduled_date"`
+	ScheduledTime     string    `json:"scheduled_time"`
+	ActualTime        string    `json:"actual_time"`
+	SessionStatus     string    `json:"session_status"`
+	ReportStatus      string    `json:"report_status"`
+	PunctualityStatus string    `json:"punctuality_status"`
+	DelayMinutes      int       `json:"delay_minutes"`
+	ExpectedStudents  int       `json:"expected_students"`
+	AbsentStudents    int       `json:"absent_students"`
+}
+
+// OpsNotificationSummary contains the Mentor Head/Manager banners that still need user attention.
+type OpsNotificationSummary struct {
+	DailyReport *DailyReportNotification `json:"daily_report,omitempty"`
+	Complaint   *ComplaintNotification   `json:"complaint,omitempty"`
+}
+
+type DailyReportNotification struct {
+	ReportDate           string `json:"report_date"`
+	ReadyAt              string `json:"ready_at"`
+	ClassesScheduled     int    `json:"classes_scheduled"`
+	ClassesTaught        int    `json:"classes_taught"`
+	ClassesMissingReport int    `json:"classes_missing_report"`
+	AbsentStudents       int    `json:"absent_students"`
+	ExpectedStudents     int    `json:"expected_students"`
+}
+
+type ComplaintNotification struct {
+	ID           uuid.UUID `json:"id"`
+	ClassKey     string    `json:"class_key"`
+	StudentName  string    `json:"student_name"`
+	StudentPhone string    `json:"student_phone"`
+	Urgency      string    `json:"urgency"`
+	CreatedAt    time.Time `json:"created_at"`
+	UnreadCount  int       `json:"unread_count"`
+}
+
 // LateJoiner represents an audit record for a student who joined a class after session 1
 type LateJoiner struct {
 	ID                      uuid.UUID      `json:"id"`

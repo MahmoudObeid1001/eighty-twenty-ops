@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type MentorHeadDashboard as MentorHeadDashboardData, MentorHeadClass } from '../api/client'
 import MentorHeadComplaints from '../components/MentorHeadComplaints'
 
@@ -22,6 +22,15 @@ export default function MentorHeadDashboard() {
     classKey: null,
   })
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const openComplaintId = searchParams.get('complaint_id') || undefined
+
+  useEffect(() => {
+    if (requestedTab === 'complaints') {
+      setActiveTab('complaints')
+    }
+  }, [requestedTab])
 
   useEffect(() => {
     loadData()
@@ -44,7 +53,7 @@ export default function MentorHeadDashboard() {
       if (activeTab === 'active') {
         const data = await api.getMentorHeadDashboard()
         setDashboard(data)
-      } else {
+      } else if (activeTab === 'archive') {
         const archivedData = await api.getMentorHeadArchive(
           archiveSort,
           archiveFrom || undefined,
@@ -699,7 +708,7 @@ export default function MentorHeadDashboard() {
           </div>
         )
       ) : activeTab === 'complaints' ? (
-        <MentorHeadComplaints />
+        <MentorHeadComplaints openComplaintId={openComplaintId} />
       ) : null}
 
       {closeConfirm.open && (

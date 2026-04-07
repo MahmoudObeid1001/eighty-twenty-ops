@@ -3968,6 +3968,75 @@ func (h *APIHandler) ResolveComplaintHandler(w http.ResponseWriter, r *http.Requ
 	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
 }
 
+// GetOpsNotifications returns Manager/Mentor Head operational notification banners.
+func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "mentor_head" && role != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	summary, err := models.GetOpsNotificationSummary(userID, time.Now())
+	if err != nil {
+		log.Printf("ERROR: Failed to load ops notifications: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load notifications")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, summary)
+}
+
+// MarkComplaintNotificationRead marks one complaint notification as read for the current user.
+func (h *APIHandler) MarkComplaintNotificationRead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "mentor_head" && role != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	prefix := "/api/notifications/complaints/"
+	if !strings.HasPrefix(r.URL.Path, prefix) || !strings.HasSuffix(r.URL.Path, "/read") {
+		jsonError(w, http.StatusBadRequest, "Invalid request path")
+		return
+	}
+	idPart := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, prefix), "/read")
+	complaintID, err := uuid.Parse(idPart)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid complaint ID")
+		return
+	}
+
+	if err := models.MarkComplaintRead(userID, complaintID); err != nil {
+		log.Printf("ERROR: Failed to mark complaint notification read: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to mark complaint read")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // GetEligibleClassesForLateJoin returns classes a student is eligible to join.
 func (h *APIHandler) GetEligibleClassesForLateJoin(w http.ResponseWriter, r *http.Request) {
 	// Canonical path: /api/pre-enrolment/:leadId/late-join-eligible-classes
@@ -4438,6 +4507,80 @@ func (h *APIHandler) GetMentorClassReports(w http.ResponseWriter, r *http.Reques
 			"mentor_id":    mentorIDStr,
 		},
 	})
+}
+
+// GET /api/reports/daily?date=YYYY-MM-DD
+func (h *APIHandler) GetDailyReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "mentor_head" && role != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	reportDate, _ := models.LatestReadyDailyReportWindow(time.Now())
+	if raw := strings.TrimSpace(r.URL.Query().Get("date")); raw != "" {
+		parsed, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid date format (expected YYYY-MM-DD)")
+			return
+		}
+		reportDate = parsed
+	}
+
+	report, err := models.GetDailyReportPayload(reportDate)
+	if err != nil {
+		log.Printf("ERROR: Failed to load daily report: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load daily report")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, report)
+}
+
+// POST /api/reports/daily/read
+func (h *APIHandler) MarkDailyReportRead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "mentor_head" && role != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req struct {
+		ReportDate string `json:"report_date"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	reportDate, err := time.Parse("2006-01-02", strings.TrimSpace(req.ReportDate))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid report_date format (expected YYYY-MM-DD)")
+		return
+	}
+
+	if err := models.MarkDailyReportRead(userID, reportDate); err != nil {
+		log.Printf("ERROR: Failed to mark daily report read: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to mark daily report read")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // GET /api/reports/bi?from=YYYY-MM-DD&to=YYYY-MM-DD
