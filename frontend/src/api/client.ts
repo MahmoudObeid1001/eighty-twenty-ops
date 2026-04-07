@@ -512,6 +512,8 @@ export interface DailyReportClassRow {
   report_status: string
   punctuality_status: string
   delay_minutes: number
+  compliance_checked: boolean
+  mentor_absent: boolean
   expected_students: number
   absent_students: number
 }

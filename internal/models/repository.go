@@ -8193,11 +8193,15 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 		       cs.status,
 		       ma.mentor_user_id::TEXT,
 		       COALESCE(u.email, 'Unassigned') AS mentor_email,
-		       cg.level, cg.class_days, cg.class_time, cg.class_number
+		       cg.level, cg.class_days, cg.class_time, cg.class_number,
+		       (msc.id IS NOT NULL) AS compliance_checked,
+		       COALESCE(msc.delay_minutes, 0) AS ss_delay_minutes,
+		       COALESCE(msc.is_absent, false) AS mentor_absent
 		FROM class_sessions cs
 		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
 		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
 		LEFT JOIN users u ON u.id = ma.mentor_user_id
+		LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
 		WHERE cs.scheduled_date = $1
 		  AND COALESCE(cg.round_status, 'not_started') = 'active'
 		ORDER BY cs.scheduled_time, cg.level, cg.class_number, cs.class_key
@@ -8220,6 +8224,7 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 		var mentorIDStr sql.NullString
 		var level, classNumber int32
 		var classDays, classTime string
+		var ssDelayMinutes int
 		row := &DailyReportClassRow{}
 
 		if err := rows.Scan(
@@ -8237,6 +8242,9 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 			&classDays,
 			&classTime,
 			&classNumber,
+			&row.ComplianceChecked,
+			&ssDelayMinutes,
+			&row.MentorAbsent,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan daily report session: %w", err)
 		}
@@ -8261,18 +8269,22 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 		row.AbsentStudents = absent
 
 		row.ReportStatus = "missing"
-		row.PunctualityStatus = "not_filled"
+		row.PunctualityStatus = "ss_check_missing"
 		if strings.EqualFold(row.SessionStatus, "completed") {
 			row.ReportStatus = "filled"
-			row.DelayMinutes = computeDailyReportDelayMinutes(row.ScheduledDate, row.ScheduledTime, actualDate, row.ActualTime)
-			if row.DelayMinutes > 0 {
+			report.ClassesTaught++
+		} else {
+			report.ClassesMissingReport++
+		}
+		if row.ComplianceChecked {
+			row.DelayMinutes = ssDelayMinutes
+			if row.MentorAbsent {
+				row.PunctualityStatus = "absent"
+			} else if row.DelayMinutes > 0 {
 				row.PunctualityStatus = "late"
 			} else {
 				row.PunctualityStatus = "on_time"
 			}
-			report.ClassesTaught++
-		} else {
-			report.ClassesMissingReport++
 		}
 
 		report.ClassesScheduled++

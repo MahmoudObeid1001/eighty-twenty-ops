@@ -666,6 +666,8 @@ type DailyReportClassRow struct {
 	ReportStatus      string    `json:"report_status"`
 	PunctualityStatus string    `json:"punctuality_status"`
 	DelayMinutes      int       `json:"delay_minutes"`
+	ComplianceChecked bool      `json:"compliance_checked"`
+	MentorAbsent      bool      `json:"mentor_absent"`
 	ExpectedStudents  int       `json:"expected_students"`
 	AbsentStudents    int       `json:"absent_students"`
 }

@@ -631,9 +631,14 @@ function DailyReportView({ data }: { data: DailyReportPayload }) {
                     <td style={tdStyle}>
                       <div style={{ display: 'grid', gap: '4px' }}>
                         <StatusPill status={row.punctuality_status} />
-                        {row.report_status === 'filled' && (
+                        {row.compliance_checked && !row.mentor_absent && (
                           <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                            {row.delay_minutes} min delay · actual {trimClock(row.actual_time) || '-'}
+                            {row.delay_minutes} min delay
+                          </span>
+                        )}
+                        {!row.compliance_checked && row.report_status === 'filled' && (
+                          <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                            Mentor actual {trimClock(row.actual_time) || '-'}
                           </span>
                         )}
                       </div>
@@ -659,6 +664,8 @@ function StatusPill({ status }: { status: string }) {
       ? { background: '#dcfce7', color: '#166534', border: '#bbf7d0' }
       : normalized === 'late'
         ? { background: '#fef3c7', color: '#92400e', border: '#fde68a' }
+        : normalized === 'ss_check_missing'
+          ? { background: '#e0f2fe', color: '#075985', border: '#bae6fd' }
         : { background: '#fee2e2', color: '#991b1b', border: '#fecaca' }
   return (
     <span
