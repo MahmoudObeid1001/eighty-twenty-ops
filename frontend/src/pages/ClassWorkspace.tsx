@@ -21,6 +21,9 @@ function formatSessionTimeLabel(value: string) {
   const normalized = value.length === 5 ? `${value}:00` : value
   const date = new Date(`2000-01-01T${normalized}`)
   if (Number.isNaN(date.getTime())) return value.slice(0, 5)
+  if (date.getHours() > 0 && date.getHours() < 12) {
+    date.setHours(date.getHours() + 12)
+  }
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
@@ -250,7 +253,7 @@ export default function ClassWorkspace() {
       await api.rescheduleSession(classKey, selectedSession.id, rescheduleDate, rescheduleTime)
       await loadClass(true)
       setRescheduleModalOpen(false)
-      setActionSuccess(`Session ${selectedSession.session_number} moved to ${rescheduleDate} at ${rescheduleTime}.`)
+      setActionSuccess(`Session ${selectedSession.session_number} moved to ${rescheduleDate} at ${formatSessionTimeLabel(rescheduleTime)}.`)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to reschedule session')
     } finally {
@@ -330,6 +333,9 @@ export default function ClassWorkspace() {
       if (!s.scheduled_time) return false
 
       const sessionDateTime = new Date(`${s.scheduled_date}T${s.scheduled_time}`)
+      if (sessionDateTime.getHours() > 0 && sessionDateTime.getHours() < 12) {
+        sessionDateTime.setHours(sessionDateTime.getHours() + 12)
+      }
       sessionDateTime.setHours(sessionDateTime.getHours() + 2)
       const diffHours = (now.getTime() - sessionDateTime.getTime()) / (1000 * 60 * 60)
 
@@ -1241,7 +1247,7 @@ export default function ClassWorkspace() {
             </p>
             <div style={{ background: '#f8f9fa', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '14px', color: '#444' }}>
               <div><strong>Current date:</strong> {selectedSession.scheduled_date}</div>
-              <div><strong>Current time:</strong> {String(selectedSession.scheduled_time || '').slice(0, 5)}</div>
+              <div><strong>Current time:</strong> {formatSessionTimeLabel(selectedSession.scheduled_time)}</div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
               <div>

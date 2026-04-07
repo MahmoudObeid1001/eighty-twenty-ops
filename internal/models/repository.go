@@ -4271,6 +4271,13 @@ func parseSessionClock(value string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid time format: %s", value)
 }
 
+func normalizeBusinessPMClock(clock time.Time) time.Time {
+	if clock.Hour() > 0 && clock.Hour() < 12 {
+		return clock.Add(12 * time.Hour)
+	}
+	return clock
+}
+
 // ComputeSessionEndTime builds the scheduled session end datetime from a ClassSession.
 func ComputeSessionEndTime(session *ClassSession) (time.Time, error) {
 	if session == nil {
@@ -4282,12 +4289,12 @@ func ComputeSessionEndTime(session *ClassSession) (time.Time, error) {
 	}
 	year, month, day := session.ScheduledDate.Date()
 	var baseTime string
-	useEndTime := false
-	if session.ScheduledEndTime.Valid {
-		baseTime = session.ScheduledEndTime.String
-		useEndTime = true
-	} else if session.ScheduledTime.Valid {
+	startBased := false
+	if session.ScheduledTime.Valid {
 		baseTime = session.ScheduledTime.String
+		startBased = true
+	} else if session.ScheduledEndTime.Valid {
+		baseTime = session.ScheduledEndTime.String
 	}
 	if baseTime == "" {
 		return time.Time{}, fmt.Errorf("session time is missing")
@@ -4296,8 +4303,9 @@ func ComputeSessionEndTime(session *ClassSession) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
+	parsed = normalizeBusinessPMClock(parsed)
 	end := time.Date(year, month, day, parsed.Hour(), parsed.Minute(), parsed.Second(), 0, loc)
-	if !useEndTime {
+	if startBased {
 		end = end.Add(2 * time.Hour)
 	}
 	return end, nil

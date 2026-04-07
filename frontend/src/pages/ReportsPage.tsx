@@ -623,7 +623,7 @@ function DailyReportView({ data }: { data: DailyReportPayload }) {
                     <td style={tdStyle}>{row.mentor_email || 'Unassigned'}</td>
                     <td style={tdStyle}>S{row.session_number}</td>
                     <td style={tdStyle}>
-                      {row.scheduled_date} · {trimClock(row.scheduled_time)}
+                      {row.scheduled_date} · {formatBusinessTimeLabel(row.scheduled_time)}
                     </td>
                     <td style={tdStyle}>
                       <StatusPill status={row.report_status} />
@@ -638,7 +638,7 @@ function DailyReportView({ data }: { data: DailyReportPayload }) {
                         )}
                         {!row.compliance_checked && row.report_status === 'filled' && (
                           <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                            Mentor actual {trimClock(row.actual_time) || '-'}
+                            Mentor actual {formatBusinessTimeLabel(row.actual_time) || '-'}
                           </span>
                         )}
                       </div>
@@ -825,7 +825,7 @@ function MentorClassBreakdownTable({
               </button>
             </td>
             <td style={subTdStyle}>
-              {row.class_days} @ {String(row.class_time || '').slice(0, 5)}
+              {row.class_days} @ {formatBusinessTimeLabel(row.class_time)}
             </td>
             <td style={subTdStyle}>
               <ComplianceBar score={row.compliance_score} />
@@ -916,7 +916,7 @@ function MentorChecklistModal({
                         <tr key={`${row.class_key}-${row.session_number}-${idx}`}>
                           <td style={tdStyle}>S{row.session_number}</td>
                           <td style={tdStyle}>
-                            {row.scheduled_date || '-'} ({getSessionSlotLabel(row.class_days, row.session_number)}) @ {String(row.scheduled_time || '').slice(0, 5)}
+                            {row.scheduled_date || '-'} ({getSessionSlotLabel(row.class_days, row.session_number)}) @ {formatBusinessTimeLabel(row.scheduled_time)}
                           </td>
                           <td style={tdStyle}>{row.reminder_1d ? '✓' : '—'}</td>
                           <td style={tdStyle}>{row.reminder_1h ? '✓' : '—'}</td>
@@ -974,8 +974,18 @@ function formatDateTime(value: string): string {
   return parsed.toLocaleString()
 }
 
-function trimClock(value: string): string {
-  return String(value || '').slice(0, 5)
+function formatBusinessTimeLabel(value: string): string {
+  if (!value) return ''
+  const raw = String(value).slice(0, 5)
+  const [hourRaw, minuteRaw] = raw.split(':')
+  const hour = Number(hourRaw)
+  if (!Number.isFinite(hour)) return raw
+  const displayHour = hour > 0 && hour < 12 ? hour + 12 : hour
+  const date = new Date(2000, 0, 1, displayHour, Number(minuteRaw || 0), 0)
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
 }
 
 const thStyle: CSSProperties = {

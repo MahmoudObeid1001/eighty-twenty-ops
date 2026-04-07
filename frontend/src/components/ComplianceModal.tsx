@@ -1,6 +1,20 @@
 import { CSSProperties, useEffect, useMemo, useState } from 'react'
 import { api, ComplianceClassSession } from '../api/client'
 
+function formatBusinessTimeLabel(value?: string) {
+  if (!value) return ''
+  const raw = String(value).slice(0, 5)
+  const [hourRaw, minuteRaw] = raw.split(':')
+  const hour = Number(hourRaw)
+  if (!Number.isFinite(hour)) return raw
+  const displayHour = hour > 0 && hour < 12 ? hour + 12 : hour
+  const date = new Date(2000, 0, 1, displayHour, Number(minuteRaw || 0), 0)
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
+}
+
 type EditableRow = {
   session_number: number
   class_session_id?: string
@@ -181,7 +195,7 @@ export default function ComplianceModal({ open, classKey, onClose }: ComplianceM
                       <td style={tdStyle}>S{row.session_number}</td>
                       <td style={tdStyle}>
                         {row.scheduled_date ? `${row.scheduled_date} (${getSessionSlotLabel(classDays, row.session_number)})` : '-'}{' '}
-                        {row.scheduled_time ? `@ ${row.scheduled_time.slice(0, 5)}` : ''}
+                        {row.scheduled_time ? `@ ${formatBusinessTimeLabel(row.scheduled_time)}` : ''}
                         {row.status ? <div style={{ fontSize: '11px', color: '#777', textTransform: 'uppercase' }}>{row.status}</div> : null}
                       </td>
                       <td style={tdStyle}>
