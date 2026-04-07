@@ -14,6 +14,7 @@ import (
 
 	"eighty-twenty-ops/internal/config"
 	"eighty-twenty-ops/internal/db"
+	"eighty-twenty-ops/internal/models"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -68,14 +69,14 @@ type summary struct {
 
 func main() {
 	var (
-		classesPath      = flag.String("classes", "data/import/current_round/classes_final.csv", "Path to classes CSV")
-		mentorsPath      = flag.String("mentors", "data/import/current_round/mentors_final.csv", "Path to mentors CSV")
-		studentsPath     = flag.String("students", "data/import/current_round/students_ready_for_import.csv", "Path to students CSV")
-		apply            = flag.Bool("apply", false, "Write changes to the database")
-		mentorTempPass   = flag.String("mentor-temp-password", "", "Temporary password for newly created mentor accounts (required with --apply)")
-		satStart         = flag.String("sat-start", "2026-04-04", "Start date for Sat/Tues classes (YYYY-MM-DD)")
-		sunStart         = flag.String("sun-start", "2026-04-05", "Start date for Sun/Wed classes (YYYY-MM-DD)")
-		monStart         = flag.String("mon-start", "2026-04-06", "Start date for Mon/Thu classes (YYYY-MM-DD)")
+		classesPath    = flag.String("classes", "data/import/current_round/classes_final.csv", "Path to classes CSV")
+		mentorsPath    = flag.String("mentors", "data/import/current_round/mentors_final.csv", "Path to mentors CSV")
+		studentsPath   = flag.String("students", "data/import/current_round/students_ready_for_import.csv", "Path to students CSV")
+		apply          = flag.Bool("apply", false, "Write changes to the database")
+		mentorTempPass = flag.String("mentor-temp-password", "", "Temporary password for newly created mentor accounts (required with --apply)")
+		satStart       = flag.String("sat-start", "2026-04-04", "Start date for Sat/Tues classes (YYYY-MM-DD)")
+		sunStart       = flag.String("sun-start", "2026-04-05", "Start date for Sun/Wed classes (YYYY-MM-DD)")
+		monStart       = flag.String("mon-start", "2026-04-06", "Start date for Mon/Thu classes (YYYY-MM-DD)")
 	)
 	flag.Parse()
 
@@ -114,13 +115,13 @@ func main() {
 	}
 
 	params := importParams{
-		Mentors:          mentors,
-		Classes:          classes,
-		Students:         students,
-		Apply:            *apply,
-		MentorTempPass:   *mentorTempPass,
-		CurrentRound:     currentRound,
-		CreatedByUserID:  adminUserID,
+		Mentors:         mentors,
+		Classes:         classes,
+		Students:        students,
+		Apply:           *apply,
+		MentorTempPass:  *mentorTempPass,
+		CurrentRound:    currentRound,
+		CreatedByUserID: adminUserID,
 		StartDateByDays: map[string]time.Time{
 			"Sat/Tues": satDate,
 			"Sun/Wed":  sunDate,
@@ -388,6 +389,11 @@ func upsertClassGroup(tx *sql.Tx, row classRow, startDate time.Time, createdByUs
 }
 
 func ensureClassSessions(tx *sql.Tx, row classRow, startDate time.Time, dryRun bool) (int, error) {
+	sessionDates, err := models.BuildClassSessionDates(row.ClassDays, startDate, 8)
+	if err != nil {
+		return 0, err
+	}
+
 	if dryRun {
 		var existing int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM class_sessions WHERE class_key = $1`, row.ClassKey).Scan(&existing); err != nil {
@@ -407,7 +413,7 @@ func ensureClassSessions(tx *sql.Tx, row classRow, startDate time.Time, dryRun b
 
 	inserted := 0
 	for i := 1; i <= 8; i++ {
-		sessionDate := startDate.AddDate(0, 0, (i-1)*7)
+		sessionDate := sessionDates[i-1]
 		res, err := tx.Exec(`
 			INSERT INTO class_sessions (
 				id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time, status, created_at, updated_at

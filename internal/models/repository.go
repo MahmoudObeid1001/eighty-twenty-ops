@@ -3863,9 +3863,23 @@ func GetCancelledLeadsTotals() (totalPlacementTest, totalCoursePaid, totalRefund
 // Milestone 2: Active Classes Repository Functions
 // ============================================================================
 
-// CreateClassSessions creates 8 sessions for a class when round starts
-// Sessions are scheduled weekly (every 7 days) starting from startDate
+// CreateClassSessions creates 8 sessions for a class when round starts.
+// Sessions follow the class's two-days-per-week cadence, e.g. Mon/Thu.
 func CreateClassSessions(classKey string, startDate time.Time, startTime string) error {
+	var classDays string
+	if err := db.DB.QueryRow(`
+		SELECT class_days
+		FROM class_groups
+		WHERE class_key = $1
+	`, classKey).Scan(&classDays); err != nil {
+		return fmt.Errorf("failed to load class days: %w", err)
+	}
+
+	sessionDates, err := BuildClassSessionDates(classDays, startDate, 8)
+	if err != nil {
+		return err
+	}
+
 	// Parse start time to calculate end time (default 2 hours duration)
 	// Try multiple formats to handle HH:MM and HH:MM:SS
 	startTimeParsed, err := time.Parse("15:04", startTime)
@@ -3880,7 +3894,7 @@ func CreateClassSessions(classKey string, startDate time.Time, startTime string)
 
 	now := time.Now()
 	for i := 1; i <= 8; i++ {
-		sessionDate := startDate.AddDate(0, 0, (i-1)*7) // Weekly sessions
+		sessionDate := sessionDates[i-1]
 		_, err := db.DB.Exec(`
 			INSERT INTO class_sessions (id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time, status, created_at, updated_at)
 			VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'scheduled', $6, $6)
@@ -4110,7 +4124,7 @@ func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUser
 		return fmt.Errorf("cannot change start date after session completion has begun")
 	}
 
-	sessionDates, err := buildClassSessionDates(classDays, newStartDate, 8)
+	sessionDates, err := BuildClassSessionDates(classDays, newStartDate, 8)
 	if err != nil {
 		return err
 	}
@@ -4171,7 +4185,7 @@ func ShiftClassRoundStart(classKey string, newStartDate time.Time, changedByUser
 	return tx.Commit()
 }
 
-func buildClassSessionDates(classDays string, startDate time.Time, count int) ([]time.Time, error) {
+func BuildClassSessionDates(classDays string, startDate time.Time, count int) ([]time.Time, error) {
 	if count <= 0 {
 		return nil, nil
 	}
@@ -4194,6 +4208,10 @@ func buildClassSessionDates(classDays string, startDate time.Time, count int) ([
 	}
 
 	return sessionDates, nil
+}
+
+func buildClassSessionDates(classDays string, startDate time.Time, count int) ([]time.Time, error) {
+	return BuildClassSessionDates(classDays, startDate, count)
 }
 
 func nextScheduledClassDate(from time.Time, allowedWeekdays []time.Weekday) time.Time {
@@ -7377,6 +7395,20 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 	}
 
 	// 2. Create 8 sessions
+	var classDays string
+	err = tx.QueryRow(`
+		SELECT class_days
+		FROM class_groups
+		WHERE class_key = $1
+	`, classKey).Scan(&classDays)
+	if err != nil {
+		return fmt.Errorf("failed to load class days: %w", err)
+	}
+	sessionDates, err := BuildClassSessionDates(classDays, startDate, 8)
+	if err != nil {
+		return err
+	}
+
 	// Parse time ensuring HH:MM format
 	parsedTime, err := time.Parse("15:04", startTime)
 	if err != nil {
@@ -7389,7 +7421,7 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 	formattedTime := parsedTime.Format("15:04")
 
 	for i := 1; i <= 8; i++ {
-		sessionDate := startDate.AddDate(0, 0, (i-1)*7)
+		sessionDate := sessionDates[i-1]
 		sessionID := uuid.New()
 
 		_, err := tx.Exec(`
