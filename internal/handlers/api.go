@@ -19,6 +19,7 @@ import (
 	"eighty-twenty-ops/internal/db"
 	"eighty-twenty-ops/internal/middleware"
 	"eighty-twenty-ops/internal/models"
+	"eighty-twenty-ops/internal/util"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -3987,7 +3988,7 @@ func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	summary, err := models.GetOpsNotificationSummary(userID, time.Now())
+	summary, err := models.GetOpsNotificationSummary(userID, util.CairoNow())
 	if err != nil {
 		log.Printf("ERROR: Failed to load ops notifications: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load notifications")
@@ -4522,9 +4523,9 @@ func (h *APIHandler) GetDailyReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reportDate, _ := models.LatestReadyDailyReportWindow(time.Now())
+	reportDate, _ := models.LatestReadyDailyReportWindow(util.CairoNow())
 	if raw := strings.TrimSpace(r.URL.Query().Get("date")); raw != "" {
-		parsed, err := time.Parse("2006-01-02", raw)
+		parsed, err := util.ParseDateCairo(raw)
 		if err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid date format (expected YYYY-MM-DD)")
 			return
@@ -4568,7 +4569,7 @@ func (h *APIHandler) MarkDailyReportRead(w http.ResponseWriter, r *http.Request)
 		jsonError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	reportDate, err := time.Parse("2006-01-02", strings.TrimSpace(req.ReportDate))
+	reportDate, err := util.ParseDateCairo(strings.TrimSpace(req.ReportDate))
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, "Invalid report_date format (expected YYYY-MM-DD)")
 		return
@@ -4583,6 +4584,39 @@ func (h *APIHandler) MarkDailyReportRead(w http.ResponseWriter, r *http.Request)
 	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// GET /api/reports/manager-ops?date=YYYY-MM-DD
+func (h *APIHandler) GetManagerOpsReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	reportDate := util.CairoNow()
+	if raw := strings.TrimSpace(r.URL.Query().Get("date")); raw != "" {
+		parsed, err := util.ParseDateCairo(raw)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid date format (expected YYYY-MM-DD)")
+			return
+		}
+		reportDate = parsed
+	}
+
+	report, err := models.GetManagerOpsPayload(reportDate)
+	if err != nil {
+		log.Printf("ERROR: Failed to load manager ops report: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load manager ops report")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, report)
+}
+
 // GET /api/reports/bi?from=YYYY-MM-DD&to=YYYY-MM-DD
 func (h *APIHandler) GetBIReports(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -4590,7 +4624,7 @@ func (h *APIHandler) GetBIReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
+	now := util.CairoNow()
 	defaultFrom := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -5, 0)
 	defaultTo := now
 
@@ -4598,7 +4632,7 @@ func (h *APIHandler) GetBIReports(w http.ResponseWriter, r *http.Request) {
 	toDate := defaultTo
 
 	if fromRaw := strings.TrimSpace(r.URL.Query().Get("from")); fromRaw != "" {
-		parsed, err := time.Parse("2006-01-02", fromRaw)
+		parsed, err := util.ParseDateCairo(fromRaw)
 		if err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid from date format (expected YYYY-MM-DD)")
 			return
@@ -4607,7 +4641,7 @@ func (h *APIHandler) GetBIReports(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if toRaw := strings.TrimSpace(r.URL.Query().Get("to")); toRaw != "" {
-		parsed, err := time.Parse("2006-01-02", toRaw)
+		parsed, err := util.ParseDateCairo(toRaw)
 		if err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid to date format (expected YYYY-MM-DD)")
 			return

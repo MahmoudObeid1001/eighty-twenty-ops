@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"eighty-twenty-ops/internal/db"
+	"eighty-twenty-ops/internal/util"
 )
 
 type BISalesConversion struct {
@@ -93,7 +94,7 @@ type BIReportPayload struct {
 
 func GetBIReportPayload(fromDate, toDate time.Time) (*BIReportPayload, error) {
 	payload := &BIReportPayload{
-		GeneratedAt: time.Now(),
+		GeneratedAt: util.CairoNow(),
 	}
 	payload.Filters.From = fromDate.Format("2006-01-02")
 	payload.Filters.To = toDate.Format("2006-01-02")

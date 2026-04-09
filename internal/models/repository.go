@@ -3432,7 +3432,7 @@ func EnsureFinanceLedgerSync() error {
 
 // GetFinanceSummary returns aggregated finance data for today and date range
 func GetFinanceSummary(dateFrom, dateTo sql.NullTime) (*FinanceSummary, error) {
-	today := time.Now().Format("2006-01-02")
+	today := util.FormatDateCairo(util.CairoNow())
 
 	summary := &FinanceSummary{
 		INByCategory:  make(map[string]int32),
@@ -8199,17 +8199,14 @@ func UpdateAbsencePriority(leadID uuid.UUID, classKey string) error {
 }
 
 // LatestReadyDailyReportWindow returns the latest report date whose banner is ready.
-// Daily reports become ready at 02:00 Europe/Helsinki on the next day.
+// Daily reports become ready at 02:00 Africa/Cairo on the next day.
 func LatestReadyDailyReportWindow(now time.Time) (time.Time, time.Time) {
-	loc, err := time.LoadLocation("Europe/Helsinki")
-	if err != nil {
-		loc = time.Local
-	}
-	hel := now.In(loc)
-	today := time.Date(hel.Year(), hel.Month(), hel.Day(), 0, 0, 0, 0, loc)
+	loc := util.CairoLocation()
+	cairoNow := now.In(loc)
+	today := time.Date(cairoNow.Year(), cairoNow.Month(), cairoNow.Day(), 0, 0, 0, 0, loc)
 	reportDate := today.AddDate(0, 0, -1)
-	readyAt := time.Date(hel.Year(), hel.Month(), hel.Day(), 2, 0, 0, 0, loc)
-	if hel.Before(readyAt) {
+	readyAt := time.Date(cairoNow.Year(), cairoNow.Month(), cairoNow.Day(), 2, 0, 0, 0, loc)
+	if cairoNow.Before(readyAt) {
 		reportDate = reportDate.AddDate(0, 0, -1)
 		readyAt = readyAt.AddDate(0, 0, -1)
 	}
@@ -8218,11 +8215,7 @@ func LatestReadyDailyReportWindow(now time.Time) (time.Time, time.Time) {
 
 // GetDailyReportPayload builds the Mentor Head/Manager daily report for a date.
 func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
-	loc, err := time.LoadLocation("Europe/Helsinki")
-	if err != nil {
-		loc = time.Local
-	}
-	normalizedDate := time.Date(inputDate.Year(), inputDate.Month(), inputDate.Day(), 0, 0, 0, 0, loc)
+	normalizedDate := util.CairoStartOfDay(inputDate)
 	readyAt := normalizedDate.AddDate(0, 0, 1).Add(2 * time.Hour)
 
 	rows, err := db.DB.Query(`
@@ -8254,7 +8247,7 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 	report := &DailyReportPayload{
 		ReportDate:  normalizedDate.Format("2006-01-02"),
 		ReadyAt:     readyAt.Format(time.RFC3339),
-		GeneratedAt: time.Now().Format(time.RFC3339),
+		GeneratedAt: util.CairoNow().Format(time.RFC3339),
 		ClassRows:   []*DailyReportClassRow{},
 	}
 
@@ -8339,6 +8332,163 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 	return report, nil
 }
 
+// GetManagerOpsPayload builds a manager-only operational view for one Cairo business day.
+func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
+	reportDate := util.CairoStartOfDay(inputDate)
+	now := util.CairoNow()
+
+	rows, err := db.DB.Query(`
+		SELECT cs.id, cs.class_key, cs.session_number, cs.scheduled_date,
+		       COALESCE(cs.scheduled_time::TEXT, '') AS scheduled_time,
+		       COALESCE(cs.actual_time::TEXT, '') AS actual_time,
+		       cs.status,
+		       ma.mentor_user_id::TEXT,
+		       COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, 'Unassigned') AS mentor_name,
+		       COALESCE(u.email, 'Unassigned') AS mentor_email,
+		       cg.level, cg.class_days, cg.class_time, cg.class_number,
+		       (msc.id IS NOT NULL) AS compliance_checked,
+		       COALESCE(msc.delay_minutes, 0) AS delay_minutes,
+		       COALESCE(msc.is_absent, false) AS mentor_absent,
+		       COALESCE(att.marked_count, 0) AS attendance_marked,
+		       COALESCE(att.attended_count, 0) AS attended_students,
+		       COALESCE(att.absent_count, 0) AS absent_students
+		FROM class_sessions cs
+		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
+		LEFT JOIN users u ON u.id = ma.mentor_user_id
+		LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*)::int AS marked_count,
+				COUNT(*) FILTER (WHERE a.status IN ('PRESENT', 'LATE'))::int AS attended_count,
+				COUNT(*) FILTER (WHERE a.status = 'ABSENT')::int AS absent_count
+			FROM attendance a
+			WHERE a.session_id = cs.id
+		) att ON true
+		WHERE cs.scheduled_date = $1
+		  AND COALESCE(cg.round_status, 'not_started') = 'active'
+		ORDER BY cs.scheduled_time, cg.level, cg.class_number, cs.class_key
+	`, reportDate.Format("2006-01-02"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query manager ops sessions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	payload := &ManagerOpsPayload{
+		ReportDate:  reportDate.Format("2006-01-02"),
+		Timezone:    util.CairoTimeZone,
+		GeneratedAt: now.Format(time.RFC3339),
+		SessionRows: []*ManagerOpsSessionRow{},
+	}
+
+	for rows.Next() {
+		var mentorIDStr sql.NullString
+		var scheduledDate time.Time
+		var level, classNumber int32
+		var classDays, classTime string
+
+		row := &ManagerOpsSessionRow{}
+		if err := rows.Scan(
+			&row.SessionID,
+			&row.ClassKey,
+			&row.SessionNumber,
+			&scheduledDate,
+			&row.ScheduledTime,
+			&row.ActualTime,
+			&row.SessionStatus,
+			&mentorIDStr,
+			&row.MentorName,
+			&row.MentorEmail,
+			&level,
+			&classDays,
+			&classTime,
+			&classNumber,
+			&row.ComplianceChecked,
+			&row.DelayMinutes,
+			&row.MentorAbsent,
+			&row.AttendanceMarked,
+			&row.AttendedStudents,
+			&row.AbsentStudents,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan manager ops session: %w", err)
+		}
+
+		row.ScheduledDate = scheduledDate.Format("2006-01-02")
+		row.ClassLabel = fmt.Sprintf("Level %d · %s · %s · Class %d", level, classDays, classTime, classNumber)
+		if mentorIDStr.Valid && mentorIDStr.String != "" {
+			if mentorID, err := uuid.Parse(mentorIDStr.String); err == nil {
+				row.MentorID = mentorID
+			}
+		}
+
+		expected, err := countExpectedStudentsForSession(row.ClassKey, row.SessionNumber)
+		if err != nil {
+			return nil, err
+		}
+		row.ExpectedStudents = expected
+		row.AttendanceStatus = computeManagerAttendanceStatus(expected, row.AttendanceMarked)
+		row.SessionPhase = computeManagerSessionPhase(reportDate, row.ScheduledTime, row.SessionStatus, now)
+		row.MentorStatus = computeManagerMentorStatus(row.ComplianceChecked, row.MentorAbsent, row.DelayMinutes)
+
+		payload.Summary.SessionsScheduled++
+		payload.Summary.ExpectedStudents += row.ExpectedStudents
+		payload.Summary.AttendedStudents += row.AttendedStudents
+		if row.SessionStatus == "completed" {
+			payload.Summary.SessionsCompleted++
+		}
+		if row.SessionPhase == "live_now" {
+			payload.Summary.SessionsLiveNow++
+		}
+		if row.AttendanceStatus == "done" || row.AttendanceStatus == "none_expected" {
+			payload.Summary.SessionsAttendanceDone++
+		} else {
+			payload.Summary.SessionsAttendancePending++
+		}
+		switch row.MentorStatus {
+		case "late":
+			payload.Summary.LateMentorSessions++
+		case "absent":
+			payload.Summary.AbsentMentorSessions++
+		case "not_checked":
+			payload.Summary.UncheckedMentorSessions++
+		}
+
+		payload.SessionRows = append(payload.SessionRows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate manager ops sessions: %w", err)
+	}
+
+	sort.SliceStable(payload.SessionRows, func(i, j int) bool {
+		left := managerSessionPhasePriority(payload.SessionRows[i].SessionPhase)
+		right := managerSessionPhasePriority(payload.SessionRows[j].SessionPhase)
+		if left != right {
+			return left < right
+		}
+		if payload.SessionRows[i].ScheduledTime != payload.SessionRows[j].ScheduledTime {
+			return payload.SessionRows[i].ScheduledTime < payload.SessionRows[j].ScheduledTime
+		}
+		return payload.SessionRows[i].ClassKey < payload.SessionRows[j].ClassKey
+	})
+
+	revenue, payingLeads, err := getRevenueInForBusinessDate(reportDate)
+	if err != nil {
+		return nil, err
+	}
+	payload.Summary.TodayRevenue = revenue
+	payload.Summary.PayingLeadsCount = payingLeads
+
+	placementScheduled, placementCompleted, err := getPlacementTestProgressForDate(reportDate)
+	if err != nil {
+		return nil, err
+	}
+	payload.Summary.PlacementTestsScheduled = placementScheduled
+	payload.Summary.PlacementTestsCompleted = placementCompleted
+	payload.Summary.PlacementTestsPending = placementScheduled - placementCompleted
+
+	return payload, nil
+}
+
 func countExpectedStudentsForSession(classKey string, sessionNumber int32) (int, error) {
 	var count int
 	err := db.DB.QueryRow(`
@@ -8385,10 +8535,7 @@ func computeDailyReportDelayMinutes(scheduledDate, scheduledTime string, actualD
 	if strings.TrimSpace(scheduledDate) == "" || strings.TrimSpace(scheduledTime) == "" || strings.TrimSpace(actualTime) == "" {
 		return 0
 	}
-	loc, err := time.LoadLocation("Africa/Cairo")
-	if err != nil {
-		loc = time.Local
-	}
+	loc := util.CairoLocation()
 	scheduledDay, err := time.ParseInLocation("2006-01-02", scheduledDate, loc)
 	if err != nil {
 		return 0
@@ -8413,6 +8560,115 @@ func computeDailyReportDelayMinutes(scheduledDate, scheduledTime string, actualD
 		return 0
 	}
 	return delay
+}
+
+func computeManagerAttendanceStatus(expectedStudents, attendanceMarked int) string {
+	switch {
+	case expectedStudents <= 0:
+		return "none_expected"
+	case attendanceMarked <= 0:
+		return "not_started"
+	case attendanceMarked < expectedStudents:
+		return "partial"
+	default:
+		return "done"
+	}
+}
+
+func computeManagerMentorStatus(complianceChecked, mentorAbsent bool, delayMinutes int) string {
+	if !complianceChecked {
+		return "not_checked"
+	}
+	if mentorAbsent {
+		return "absent"
+	}
+	if delayMinutes > 0 {
+		return "late"
+	}
+	return "on_time"
+}
+
+func computeManagerSessionPhase(reportDate time.Time, scheduledTime, sessionStatus string, now time.Time) string {
+	if sessionStatus == "completed" {
+		return "completed"
+	}
+
+	day := util.CairoStartOfDay(reportDate)
+	today := util.CairoStartOfDay(now)
+	if day.Before(today) {
+		return "ended_unfinished"
+	}
+	if day.After(today) {
+		return "upcoming"
+	}
+
+	clock, err := parseSessionClock(scheduledTime)
+	if err != nil {
+		return "scheduled"
+	}
+	clock = normalizeBusinessPMClock(clock)
+	loc := util.CairoLocation()
+	startAt := time.Date(day.Year(), day.Month(), day.Day(), clock.Hour(), clock.Minute(), 0, 0, loc)
+	endAt := startAt.Add(2 * time.Hour)
+	current := now.In(loc)
+	if current.Before(startAt) {
+		return "upcoming"
+	}
+	if current.After(endAt) {
+		return "ended_unfinished"
+	}
+	return "live_now"
+}
+
+func managerSessionPhasePriority(phase string) int {
+	switch phase {
+	case "live_now":
+		return 0
+	case "ended_unfinished":
+		return 1
+	case "upcoming":
+		return 2
+	case "completed":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func getRevenueInForBusinessDate(reportDate time.Time) (int32, int, error) {
+	var total sql.NullInt32
+	var payingLeads int
+	if err := db.DB.QueryRow(`
+		SELECT
+			COALESCE(SUM(amount), 0)::int,
+			COUNT(DISTINCT lead_id)::int
+		FROM transactions
+		WHERE transaction_date = $1::date
+		  AND transaction_type = 'IN'
+	`, reportDate.Format("2006-01-02")).Scan(&total, &payingLeads); err != nil {
+		return 0, 0, fmt.Errorf("failed to load daily revenue: %w", err)
+	}
+	if !total.Valid {
+		return 0, payingLeads, nil
+	}
+	return total.Int32, payingLeads, nil
+}
+
+func getPlacementTestProgressForDate(reportDate time.Time) (int, int, error) {
+	var scheduled int
+	var completed int
+	if err := db.DB.QueryRow(`
+		SELECT
+			COUNT(*)::int AS scheduled_count,
+			COUNT(*) FILTER (WHERE pt.assigned_level IS NOT NULL)::int AS completed_count
+		FROM placement_tests pt
+		INNER JOIN leads l ON l.id = pt.lead_id
+		WHERE pt.test_date = $1::date
+		  AND l.status != 'cancelled'
+	`, reportDate.Format("2006-01-02")).Scan(&scheduled, &completed); err != nil {
+		return 0, 0, fmt.Errorf("failed to load placement test progress: %w", err)
+	}
+	return scheduled, completed, nil
 }
 
 // MarkDailyReportRead marks a ready daily report banner as read for a user.

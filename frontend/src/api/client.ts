@@ -530,6 +530,56 @@ export interface DailyReportPayload {
   class_rows: DailyReportClassRow[]
 }
 
+export interface ManagerOpsSummary {
+  sessions_scheduled: number
+  sessions_live_now: number
+  sessions_completed: number
+  sessions_attendance_done: number
+  sessions_attendance_pending: number
+  expected_students: number
+  attended_students: number
+  today_revenue: number
+  paying_leads_count: number
+  placement_tests_scheduled: number
+  placement_tests_completed: number
+  placement_tests_pending: number
+  late_mentor_sessions: number
+  absent_mentor_sessions: number
+  unchecked_mentor_sessions: number
+}
+
+export interface ManagerOpsSessionRow {
+  session_id: string
+  class_key: string
+  class_label: string
+  mentor_id: string
+  mentor_name: string
+  mentor_email: string
+  session_number: number
+  scheduled_date: string
+  scheduled_time: string
+  actual_time: string
+  session_status: string
+  session_phase: string
+  mentor_status: string
+  delay_minutes: number
+  compliance_checked: boolean
+  mentor_absent: boolean
+  expected_students: number
+  attendance_marked: number
+  attended_students: number
+  absent_students: number
+  attendance_status: string
+}
+
+export interface ManagerOpsPayload {
+  report_date: string
+  timezone: string
+  generated_at: string
+  summary: ManagerOpsSummary
+  session_rows: ManagerOpsSessionRow[]
+}
+
 export interface DailyReportNotification {
   report_date: string
   ready_at: string
@@ -996,6 +1046,13 @@ export const api = {
     if (date) qs.set('date', date)
     const query = qs.toString()
     return fetchAPI(`/reports/daily${query ? `?${query}` : ''}`)
+  },
+
+  getManagerOpsReport: (date?: string): Promise<ManagerOpsPayload> => {
+    const qs = new URLSearchParams()
+    if (date) qs.set('date', date)
+    const query = qs.toString()
+    return fetchAPI(`/reports/manager-ops${query ? `?${query}` : ''}`)
   },
 
   markDailyReportRead: (reportDate: string): Promise<{ ok: boolean }> =>

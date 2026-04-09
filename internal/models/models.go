@@ -672,6 +672,57 @@ type DailyReportClassRow struct {
 	AbsentStudents    int       `json:"absent_students"`
 }
 
+// ManagerOpsPayload is the manager-only daily operations view for a single Cairo business day.
+type ManagerOpsPayload struct {
+	ReportDate  string                  `json:"report_date"`
+	Timezone    string                  `json:"timezone"`
+	GeneratedAt string                  `json:"generated_at"`
+	Summary     ManagerOpsSummary       `json:"summary"`
+	SessionRows []*ManagerOpsSessionRow `json:"session_rows"`
+}
+
+type ManagerOpsSummary struct {
+	SessionsScheduled         int   `json:"sessions_scheduled"`
+	SessionsLiveNow           int   `json:"sessions_live_now"`
+	SessionsCompleted         int   `json:"sessions_completed"`
+	SessionsAttendanceDone    int   `json:"sessions_attendance_done"`
+	SessionsAttendancePending int   `json:"sessions_attendance_pending"`
+	ExpectedStudents          int   `json:"expected_students"`
+	AttendedStudents          int   `json:"attended_students"`
+	TodayRevenue              int32 `json:"today_revenue"`
+	PayingLeadsCount          int   `json:"paying_leads_count"`
+	PlacementTestsScheduled   int   `json:"placement_tests_scheduled"`
+	PlacementTestsCompleted   int   `json:"placement_tests_completed"`
+	PlacementTestsPending     int   `json:"placement_tests_pending"`
+	LateMentorSessions        int   `json:"late_mentor_sessions"`
+	AbsentMentorSessions      int   `json:"absent_mentor_sessions"`
+	UncheckedMentorSessions   int   `json:"unchecked_mentor_sessions"`
+}
+
+type ManagerOpsSessionRow struct {
+	SessionID         uuid.UUID `json:"session_id"`
+	ClassKey          string    `json:"class_key"`
+	ClassLabel        string    `json:"class_label"`
+	MentorID          uuid.UUID `json:"mentor_id"`
+	MentorName        string    `json:"mentor_name"`
+	MentorEmail       string    `json:"mentor_email"`
+	SessionNumber     int32     `json:"session_number"`
+	ScheduledDate     string    `json:"scheduled_date"`
+	ScheduledTime     string    `json:"scheduled_time"`
+	ActualTime        string    `json:"actual_time"`
+	SessionStatus     string    `json:"session_status"`
+	SessionPhase      string    `json:"session_phase"`
+	MentorStatus      string    `json:"mentor_status"`
+	DelayMinutes      int       `json:"delay_minutes"`
+	ComplianceChecked bool      `json:"compliance_checked"`
+	MentorAbsent      bool      `json:"mentor_absent"`
+	ExpectedStudents  int       `json:"expected_students"`
+	AttendanceMarked  int       `json:"attendance_marked"`
+	AttendedStudents  int       `json:"attended_students"`
+	AbsentStudents    int       `json:"absent_students"`
+	AttendanceStatus  string    `json:"attendance_status"`
+}
+
 // OpsNotificationSummary contains the Mentor Head/Manager banners that still need user attention.
 type OpsNotificationSummary struct {
 	DailyReport *DailyReportNotification `json:"daily_report,omitempty"`

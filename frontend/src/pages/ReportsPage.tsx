@@ -4,12 +4,14 @@ import {
   api,
   BIReportPayload,
   DailyReportPayload,
+  ManagerOpsPayload,
   MentorClassReportItem,
   MentorReportChecklistItem,
   MentorReportItem,
 } from '../api/client'
 
-type ReportsViewMode = 'bi' | 'mentor' | 'daily'
+type ReportsViewMode = 'bi' | 'mentor' | 'daily' | 'ops'
+const CAIRO_TIME_ZONE = 'Africa/Cairo'
 
 export default function ReportsPage() {
   const [searchParams] = useSearchParams()
@@ -47,10 +49,15 @@ export default function ReportsPage() {
   const [dailyLoading, setDailyLoading] = useState(false)
   const [dailyError, setDailyError] = useState<string | null>(null)
   const [dailyData, setDailyData] = useState<DailyReportPayload | null>(null)
+  const [opsDate, setOpsDate] = useState<string>(requestedDate || '')
+  const [opsLoading, setOpsLoading] = useState(false)
+  const [opsError, setOpsError] = useState<string | null>(null)
+  const [opsData, setOpsData] = useState<ManagerOpsPayload | null>(null)
 
   const canViewBI = userRole === 'admin' || userRole === 'mentor_head' || userRole === 'manager'
   const canViewMentor = userRole === 'student_success' || userRole === 'mentor_head' || userRole === 'manager'
   const canViewDaily = userRole === 'mentor_head' || userRole === 'manager'
+  const canViewManagerOps = userRole === 'manager'
 
   const [viewMode, setViewMode] = useState<ReportsViewMode>('bi')
 
@@ -60,12 +67,24 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (!userRole) return
+    if (requestedTab === 'ops' && canViewManagerOps) {
+      if (requestedDate) {
+        setOpsDate(requestedDate)
+      }
+      setViewMode('ops')
+      void loadManagerOps(requestedDate || undefined)
+      return
+    }
     if (requestedTab === 'daily' && canViewDaily) {
       if (requestedDate) {
         setDailyDate(requestedDate)
       }
       setViewMode('daily')
       void loadDailyReport(requestedDate || undefined)
+      return
+    }
+    if (canViewManagerOps) {
+      setViewMode('ops')
       return
     }
     if (canViewBI) {
@@ -79,7 +98,7 @@ export default function ReportsPage() {
     if (canViewMentor) {
       setViewMode('mentor')
     }
-  }, [userRole, canViewBI, canViewDaily, canViewMentor, requestedTab, requestedDate])
+  }, [userRole, canViewBI, canViewDaily, canViewManagerOps, canViewMentor, requestedTab, requestedDate])
 
   useEffect(() => {
     if (!userRole || !canViewMentor || viewMode !== 'mentor') {
@@ -101,6 +120,13 @@ export default function ReportsPage() {
     }
     void loadDailyReport(dailyDate || undefined)
   }, [userRole, canViewDaily, viewMode])
+
+  useEffect(() => {
+    if (!userRole || !canViewManagerOps || viewMode !== 'ops') {
+      return
+    }
+    void loadManagerOps(opsDate || undefined)
+  }, [userRole, canViewManagerOps, viewMode])
 
   async function loadMe() {
     try {
@@ -160,6 +186,20 @@ export default function ReportsPage() {
       setDailyError(err instanceof Error ? err.message : 'Failed to load daily report')
     } finally {
       setDailyLoading(false)
+    }
+  }
+
+  async function loadManagerOps(date?: string) {
+    try {
+      setOpsLoading(true)
+      setOpsError(null)
+      const data = await api.getManagerOpsReport(date)
+      setOpsData(data)
+      setOpsDate(data.report_date)
+    } catch (err) {
+      setOpsError(err instanceof Error ? err.message : 'Failed to load manager ops report')
+    } finally {
+      setOpsLoading(false)
     }
   }
 
@@ -251,7 +291,16 @@ export default function ReportsPage() {
     void loadDailyReport(dailyDate)
   }
 
+  function applyOpsDateFilter() {
+    if (!opsDate) {
+      setOpsError('Please select an operations date.')
+      return
+    }
+    void loadManagerOps(opsDate)
+  }
+
   const reportTabs = [
+    canViewManagerOps ? { key: 'ops' as const, label: 'Manager Ops' } : null,
     canViewBI ? { key: 'bi' as const, label: 'Business Intelligence' } : null,
     canViewDaily ? { key: 'daily' as const, label: 'Daily Reports' } : null,
     canViewMentor ? { key: 'mentor' as const, label: 'Mentor Compliance' } : null,
@@ -281,11 +330,38 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {!canViewBI && !canViewMentor && (
+      {!canViewManagerOps && !canViewBI && !canViewMentor && !canViewDaily && (
         <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>
           <h3 style={{ marginTop: 0 }}>No Reports Access</h3>
           <p style={{ color: '#555', marginBottom: 0 }}>Your role does not have access to reports.</p>
         </div>
+      )}
+
+      {canViewManagerOps && viewMode === 'ops' && (
+        <>
+          <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={filterLabelStyle}>Operations Date</label>
+                <input type="date" value={opsDate} onChange={(e) => setOpsDate(e.target.value)} style={filterInputStyle} />
+              </div>
+              <button onClick={applyOpsDateFilter} style={actionBtnStyle}>Load Manager Ops</button>
+              {opsData && (
+                <span style={{ color: '#6b7280', fontSize: '13px', paddingBottom: '10px' }}>
+                  Timezone {opsData.timezone} · Generated {formatDateTime(opsData.generated_at)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {opsError && <div style={{ background: '#f8d7da', color: '#721c24', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{opsError}</div>}
+
+          {opsLoading && (
+            <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>Loading manager ops...</div>
+          )}
+
+          {!opsLoading && opsData && <ManagerOpsView data={opsData} />}
+        </>
       )}
 
       {canViewBI && viewMode === 'bi' && (
@@ -575,6 +651,141 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
   )
 }
 
+function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
+  const summary = data.summary
+  const sessionsMissingCompletion = Math.max(summary.sessions_scheduled - summary.sessions_completed, 0)
+  const attentionCards = [
+    { label: 'Mentors Late', value: summary.late_mentor_sessions, tone: '#92400e', background: '#fef3c7' },
+    { label: 'Mentors Absent', value: summary.absent_mentor_sessions, tone: '#991b1b', background: '#fee2e2' },
+    { label: 'Mentor Checks Missing', value: summary.unchecked_mentor_sessions, tone: '#075985', background: '#e0f2fe' },
+    { label: 'Attendance Pending', value: summary.sessions_attendance_pending, tone: '#7c2d12', background: '#ffedd5' },
+    { label: 'Sessions Unfinished', value: sessionsMissingCompletion, tone: '#7f1d1d', background: '#fee2e2' },
+    { label: 'Placement Tests Pending', value: summary.placement_tests_pending, tone: '#1d4ed8', background: '#dbeafe' },
+  ]
+
+  return (
+    <div style={{ display: 'grid', gap: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        <MetricCard
+          title="Live Sessions"
+          value={`${summary.sessions_live_now}/${summary.sessions_scheduled}`}
+          sub={`${summary.sessions_completed} completed so far`}
+        />
+        <MetricCard
+          title="Attendance Coverage"
+          value={`${summary.sessions_attendance_done}/${summary.sessions_scheduled}`}
+          sub={`${summary.sessions_attendance_pending} sessions still missing attendance`}
+        />
+        <MetricCard
+          title="Students Attended"
+          value={`${summary.attended_students}/${summary.expected_students}`}
+          sub="Present or late out of students expected"
+        />
+        <MetricCard
+          title="Cash In"
+          value={`${summary.today_revenue.toLocaleString()} EGP`}
+          sub={`${summary.paying_leads_count} paying lead${summary.paying_leads_count === 1 ? '' : 's'}`}
+        />
+        <MetricCard
+          title="Placement Tests"
+          value={`${summary.placement_tests_completed}/${summary.placement_tests_scheduled}`}
+          sub={`${summary.placement_tests_pending} still waiting for results`}
+        />
+      </div>
+
+      <ReportPanel title="Needs Attention">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          {attentionCards.map((item) => (
+            <div key={item.label} style={{ borderRadius: '12px', padding: '14px', background: item.background, color: item.tone, border: '1px solid rgba(0,0,0,0.06)' }}>
+              <div style={{ fontSize: '13px', fontWeight: 800 }}>{item.label}</div>
+              <div style={{ marginTop: '6px', fontSize: '28px', fontWeight: 900 }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </ReportPanel>
+
+      <ReportPanel title={`Sessions for ${data.report_date}`}>
+        {data.session_rows.length === 0 ? (
+          <div style={{ color: '#6b7280' }}>No active sessions scheduled for this Cairo business day.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1240px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={thStyle}>Phase</th>
+                  <th style={thStyle}>Class</th>
+                  <th style={thStyle}>Mentor</th>
+                  <th style={thStyle}>Session</th>
+                  <th style={thStyle}>Schedule</th>
+                  <th style={thStyle}>Mentor Status</th>
+                  <th style={thStyle}>Attendance</th>
+                  <th style={thStyle}>Completion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.session_rows.map((row) => (
+                  <tr key={row.session_id}>
+                    <td style={tdStyle}>
+                      <StatusPill status={row.session_phase} />
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: 700 }}>{row.class_label}</div>
+                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.class_key}</div>
+                      <a href={`/app/mentor-head/class?class_key=${encodeURIComponent(row.class_key)}`} style={{ color: '#0d6efd', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
+                        Open class
+                      </a>
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: 700 }}>{row.mentor_name || row.mentor_email || 'Unassigned'}</div>
+                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.mentor_email || 'No mentor assigned'}</div>
+                    </td>
+                    <td style={tdStyle}>S{row.session_number}</td>
+                    <td style={tdStyle}>
+                      <div>{row.scheduled_date}</div>
+                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{formatBusinessTimeLabel(row.scheduled_time)}</div>
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ display: 'grid', gap: '4px' }}>
+                        <StatusPill status={row.mentor_status} />
+                        {row.compliance_checked && !row.mentor_absent && (
+                          <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                            {row.delay_minutes} min delay
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ display: 'grid', gap: '4px' }}>
+                        <StatusPill status={row.attendance_status} />
+                        <span style={{ color: '#1f2937', fontSize: '12px' }}>
+                          {row.attended_students}/{row.expected_students} attended
+                        </span>
+                        <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                          {row.attendance_marked} marked · {row.absent_students} absent
+                        </span>
+                      </div>
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ display: 'grid', gap: '4px' }}>
+                        <StatusPill status={row.session_status} />
+                        {row.actual_time && (
+                          <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                            Actual {formatBusinessTimeLabel(row.actual_time)}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ReportPanel>
+    </div>
+  )
+}
+
 function DailyReportView({ data }: { data: DailyReportPayload }) {
   return (
     <div style={{ display: 'grid', gap: '14px' }}>
@@ -660,13 +871,15 @@ function DailyReportView({ data }: { data: DailyReportPayload }) {
 function StatusPill({ status }: { status: string }) {
   const normalized = String(status || '').toLowerCase()
   const palette =
-    normalized === 'filled' || normalized === 'on_time'
+    normalized === 'filled' || normalized === 'on_time' || normalized === 'done' || normalized === 'completed' || normalized === 'live_now'
       ? { background: '#dcfce7', color: '#166534', border: '#bbf7d0' }
-      : normalized === 'late'
+      : normalized === 'late' || normalized === 'partial' || normalized === 'upcoming'
         ? { background: '#fef3c7', color: '#92400e', border: '#fde68a' }
-        : normalized === 'ss_check_missing'
+        : normalized === 'ss_check_missing' || normalized === 'not_checked' || normalized === 'not_started' || normalized === 'scheduled'
           ? { background: '#e0f2fe', color: '#075985', border: '#bae6fd' }
-        : { background: '#fee2e2', color: '#991b1b', border: '#fecaca' }
+          : normalized === 'none_expected'
+            ? { background: '#f3f4f6', color: '#4b5563', border: '#d1d5db' }
+            : { background: '#fee2e2', color: '#991b1b', border: '#fecaca' }
   return (
     <span
       style={{
@@ -971,7 +1184,14 @@ function formatDateTime(value: string): string {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
+  return parsed.toLocaleString(undefined, {
+    timeZone: CAIRO_TIME_ZONE,
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function formatBusinessTimeLabel(value: string): string {
