@@ -151,6 +151,7 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 		"pre_enrolment_new.html":    "pre_enrolment_new_content",
 		"pre_enrolment_list.html":   "pre_enrolment_list_content",
 		"pre_enrolment_detail.html": "pre_enrolment_detail_content",
+		"private_track_list.html":   "private_track_list_content",
 		"classes.html":              "classes_content",
 		"classes_archived.html":     "classes_archived_content",
 		"finance.html":              "finance_content",

@@ -41,6 +41,7 @@
     <form method="GET" action="/pre-enrolment" class="filter-form">
         <input type="text" name="search" placeholder="Search by name or phone..." id="search" value="{{.SearchFilter}}"
             class="filter-search">
+        {{if .OpsQueueFilter}}<input type="hidden" name="ops_queue" value="{{.OpsQueueFilter}}">{{end}}
 
         {{$sf := .StatusFilter}}
         <select name="status" id="status-filter" onchange="this.form.submit()" class="filter-select">
@@ -100,6 +101,7 @@
     {{$isHP := eq .FollowUpFilter "high_priority"}}
     {{$isRepeat := eq .RepeatFilter "1"}}
     {{$isCold := or (eq .ColdFilter "1") (eq .ColdFilter "true")}}
+    {{$isPrivateTrack := eq .OpsQueueFilter "private_track"}}
     <div class="quick-filters">
         {{$isHot := or (eq .HotFilter "1") (eq .HotFilter "hot")}}
         <a href="/pre-enrolment?{{if not $isHot}}hot=1{{end}}{{if $search}}{{if not $isHot}}&{{end}}search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
@@ -139,6 +141,11 @@
             class="quick-filter-btn {{if $isRepeat}}active{{end}}" data-filter-key="repeat" data-filter-value="1"
             style="{{if $isRepeat}}background-color: #F8D7DA; color: #721c24; border-color: #F8D7DA;{{end}}">Repeat
             Level</a>
+
+        <a href="/pre-enrolment?ops_queue=private_track{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isPrivateTrack}}active{{end}}" data-filter-key="ops_queue"
+            data-filter-value="private_track"
+            style="{{if $isPrivateTrack}}background-color: #0d6efd; color: white; border-color: #0d6efd;{{end}}">Private Track</a>
     </div>
 </div>
 
@@ -230,6 +237,13 @@
                     {{else}}{{$stage = $s}}{{end}}
 
                     <span class="badge {{$s}} {{if $isCancelled}}badge-cancelled{{end}}">{{$stage}}</span>
+                    {{if .Lead.OpsQueueReason.Valid}}
+                    {{if eq .Lead.OpsQueueReason.String "private_track"}}
+                    <span class="badge" style="background-color: #0d6efd; color: white; margin-left: 5px;">PRIVATE TRACK</span>
+                    {{else if eq .Lead.OpsQueueReason.String "refund_review"}}
+                    <span class="badge" style="background-color: #dc3545; color: white; margin-left: 5px;">REFUND REVIEW</span>
+                    {{end}}
+                    {{end}}
 
                     {{if and .FollowUpDue (not $isCancelled)}}
                     {{$hl := .HotLevel}}
@@ -265,6 +279,12 @@
                             data-lead-id="{{.Lead.ID}}">
                             <input type="hidden" name="action" value="send_to_classes">
                             <button type="submit" class="btn btn-success btn-small">Send to Classes</button>
+                        </form>
+                        {{end}}
+                        {{if and (not $.IsModerator) (not $isCancelled) (not .Lead.OpsQueueReason.Valid)}}
+                        <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" style="display: inline;">
+                            <input type="hidden" name="action" value="send_private_track">
+                            <button type="submit" class="btn btn-small" style="background: #0d6efd; color: white; border: 1px solid #0d6efd;">Send to Private Track</button>
                         </form>
                         {{end}}
                         {{if and (not $.IsModerator) (not $isCancelled)}}

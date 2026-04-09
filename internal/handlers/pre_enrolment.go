@@ -100,6 +100,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	coldFilter := r.URL.Query().Get("cold")
 	coldLevelFilter := r.URL.Query().Get("cold_level")
 	repeatFilter := r.URL.Query().Get("repeat")
+	opsQueueFilter := r.URL.Query().Get("ops_queue")
 	includeCancelled := r.URL.Query().Get("include_cancelled") == "1" || r.URL.Query().Get("include_cancelled") == "true"
 	// When explicitly filtering by status=cancelled, include cancelled even if checkbox off
 	if statusFilter == "cancelled" {
@@ -151,7 +152,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	h.cfg.Debugf("List: statusFilter=%q, searchFilter=%q, paymentFilter=%q, hotFilter=%q, followUpFilter=%q, includeCancelled=%v, returningFilter=%q, coldFilter=%q, repeatFilter=%q", statusFilter, searchFilter, paymentFilter, hotFilter, followUpFilter, includeCancelled, returningFilter, coldFilter, repeatFilter)
 
 	// Get filtered leads
-	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter, returningFilter, coldFilter, repeatFilter)
+	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter, returningFilter, coldFilter, repeatFilter, opsQueueFilter)
 	if err != nil {
 		log.Printf("ERROR: Failed to load leads: %v", err)
 		if flashMessage == "" {
@@ -181,7 +182,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		followUpCount = len(leads)
 	} else {
 		// Get all leads to count hot leads accurately (exclude cancelled)
-		allLeads, err := models.GetAllLeads("", "", "", "", false, "", "", "", "")
+		allLeads, err := models.GetAllLeads("", "", "", "", false, "", "", "", "", "")
 		if err == nil {
 			for _, lead := range allLeads {
 				if lead.FollowUpDue {
@@ -193,7 +194,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	// Count tested leads for "New test results" banner
 	testedResultsCount := 0
-	if testedLeads, err := models.GetAllLeads("TESTED", "", "", "", false, "", "", "", ""); err == nil {
+	if testedLeads, err := models.GetAllLeads("TESTED", "", "", "", false, "", "", "", "", ""); err == nil {
 		testedResultsCount = len(testedLeads)
 	}
 
@@ -213,6 +214,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"ReturningFilter":    returningFilter,
 		"ColdFilter":         coldFilter,
 		"RepeatFilter":       repeatFilter,
+		"OpsQueueFilter":     opsQueueFilter,
 		"IncludeCancelled":   includeCancelled,
 		"FollowUpCount":      followUpCount,
 		"FollowUpFilter":     followUpFilter,
@@ -1394,6 +1396,21 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		h.cfg.Debugf("  ✅ Status updated to waiting_for_round, redirecting to list")
 		http.Redirect(w, r, "/pre-enrolment?status_flash=waiting", http.StatusFound)
+		return
+
+	case "send_private_track":
+		h.cfg.Debugf("  → Action: send_private_track")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to move this lead to private track.", http.StatusForbidden)
+			return
+		}
+
+		if err := models.SendLeadToPrivateTrack(leadID); err != nil {
+			redirectWithError(w, r, "/pre-enrolment", err.Error())
+			return
+		}
+
+		redirectWithFlash(w, r, "/pre-enrolment", "success", "Lead moved to Private Track.")
 		return
 
 	case "mark_ready":

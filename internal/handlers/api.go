@@ -767,7 +767,7 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 			Attendance:         make(map[string]string),
 			SessionPerformance: make(map[string]map[string]interface{}),
 		}
-		if s.JoinedAtSessionNumber.Valid {
+		if s.JoinedAtSessionNumber.Valid && s.JoinedAtSessionNumber.Int32 > 1 {
 			joined := s.JoinedAtSessionNumber.Int32
 			swa.JoinedAtSessionNumber = &joined
 		}
@@ -810,6 +810,137 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 		Students:      studentList,
 		Sessions:      sessionList,
 	})
+}
+
+func (h *APIHandler) GetClassTransferOptions(w http.ResponseWriter, r *http.Request) {
+	leadIDStr := strings.TrimSpace(r.URL.Query().Get("lead_id"))
+	sourceClassKey := strings.TrimSpace(r.URL.Query().Get("source_class_key"))
+	if leadIDStr == "" || sourceClassKey == "" {
+		jsonError(w, http.StatusBadRequest, "lead_id and source_class_key are required")
+		return
+	}
+
+	leadID, err := uuid.Parse(leadIDStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+
+	options, err := models.GetEligibleTransferClasses(leadID, sourceClassKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to load class transfer options: %v", err)
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"options": options,
+	})
+}
+
+func (h *APIHandler) TransferClassStudent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		LeadID         string `json:"lead_id"`
+		SourceClassKey string `json:"source_class_key"`
+		TargetClassKey string `json:"target_class_key"`
+		Reason         string `json:"reason"`
+		Notes          string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	leadID, err := uuid.Parse(strings.TrimSpace(req.LeadID))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid user session")
+		return
+	}
+
+	result, err := models.TransferStudentBetweenActiveClasses(
+		leadID,
+		strings.TrimSpace(req.SourceClassKey),
+		strings.TrimSpace(req.TargetClassKey),
+		strings.TrimSpace(req.Reason),
+		req.Notes,
+		userID,
+	)
+	if err != nil {
+		log.Printf("ERROR: Failed to transfer class student: %v", err)
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := map[string]interface{}{
+		"ok":                               true,
+		"lead_id":                          result.LeadID.String(),
+		"source_class_key":                 result.SourceClassKey,
+		"source_exit_after_session_number": result.SourceExitAfterSessionNumber,
+		"reason":                           result.Reason,
+	}
+	if result.TargetClassKey.Valid {
+		resp["target_class_key"] = result.TargetClassKey.String
+	}
+	if result.TargetJoinedAtSessionNumber.Valid {
+		resp["target_joined_at_session_number"] = result.TargetJoinedAtSessionNumber.Int32
+	}
+
+	jsonResponse(w, http.StatusOK, resp)
+}
+
+func (h *APIHandler) ReturnClassStudentToAdmin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		LeadID         string `json:"lead_id"`
+		SourceClassKey string `json:"source_class_key"`
+		Reason         string `json:"reason"`
+		Notes          string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	leadID, err := uuid.Parse(strings.TrimSpace(req.LeadID))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid user session")
+		return
+	}
+
+	result, err := models.ReturnStudentToAdminFromClass(
+		leadID,
+		strings.TrimSpace(req.SourceClassKey),
+		strings.TrimSpace(req.Reason),
+		req.Notes,
+		userID,
+	)
+	if err != nil {
+		log.Printf("ERROR: Failed to return class student to admin: %v", err)
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := map[string]interface{}{
+		"ok":                               true,
+		"lead_id":                          result.LeadID.String(),
+		"source_class_key":                 result.SourceClassKey,
+		"source_exit_after_session_number": result.SourceExitAfterSessionNumber,
+		"reason":                           result.Reason,
+	}
+	if result.OpsQueueReason.Valid {
+		resp["ops_queue_reason"] = result.OpsQueueReason.String
+	}
+
+	jsonResponse(w, http.StatusOK, resp)
 }
 
 // MarkAttendance handles JSON POST to mark student attendance
@@ -902,6 +1033,17 @@ func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	// Log incoming payload for debugging
 	log.Printf("MarkAttendance Payload: SessionID=%s, LeadID=%s, Status=%s, ClassKey=%s, UserID=%s",
 		req.SessionID, req.LeadID, req.Status, req.ClassKey, userIDStr)
+
+	applicable, err := models.IsLeadApplicableToClassSession(leadID, sessionID)
+	if err != nil {
+		log.Printf("ERROR: Failed attendance applicability check: %v", err)
+		jsonError(w, http.StatusBadRequest, "Student is not applicable for this class session")
+		return
+	}
+	if !applicable {
+		jsonError(w, http.StatusBadRequest, "Student is not applicable for this class session")
+		return
+	}
 
 	enforceDeadline := userRole == "mentor"
 	if err := models.MarkAttendance(sessionID, leadID, req.Status, req.Notes, userID, enforceDeadline); err != nil {

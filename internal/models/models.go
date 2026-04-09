@@ -26,6 +26,7 @@ type Lead struct {
 	Source               sql.NullString
 	Notes                sql.NullString
 	Status               string
+	OpsQueueReason       sql.NullString
 	SentToClasses        bool           // Whether student has been manually sent to classes board
 	LevelsPurchasedTotal sql.NullInt32  // Total levels purchased (from bundles)
 	LevelsConsumed       sql.NullInt32  // Levels consumed (when rounds start)
@@ -226,6 +227,42 @@ type ClassStudent struct {
 type MoveClassOption struct {
 	Value string
 	Label string
+}
+
+type ClassMembership struct {
+	ID                     uuid.UUID
+	LeadID                 uuid.UUID
+	ClassKey               string
+	JoinedAtSessionNumber  int32
+	LeftAfterSessionNumber sql.NullInt32
+	JoinReason             string
+	LeaveReason            sql.NullString
+	AddedByUserID          sql.NullString
+	RemovedByUserID        sql.NullString
+	RemovedAt              sql.NullTime
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+type ClassTransferOption struct {
+	ClassKey          string `json:"class_key"`
+	Level             int32  `json:"level"`
+	ClassDays         string `json:"class_days"`
+	ClassTime         string `json:"class_time"`
+	ClassNumber       int32  `json:"class_number"`
+	RoundStatus       string `json:"round_status"`
+	CurrentSession    int32  `json:"current_session"`
+	CurrentEnrollment int32  `json:"current_enrollment"`
+}
+
+type ClassRosterChangeResult struct {
+	LeadID                       uuid.UUID
+	SourceClassKey               string
+	TargetClassKey               sql.NullString
+	SourceExitAfterSessionNumber int32
+	TargetJoinedAtSessionNumber  sql.NullInt32
+	Reason                       string
+	OpsQueueReason               sql.NullString
 }
 
 // Transaction represents a financial transaction (IN or OUT)

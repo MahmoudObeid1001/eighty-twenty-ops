@@ -69,6 +69,13 @@ func ValidateSessionCookie(cookie *http.Cookie, secret string) (userID, userEmai
 }
 
 func redirectToLoginWithNext(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"Authentication required"}`))
+		return
+	}
+
 	next := r.URL.Path
 	if r.URL.RawQuery != "" {
 		next += "?" + r.URL.RawQuery

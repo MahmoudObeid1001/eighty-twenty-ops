@@ -388,6 +388,16 @@ func (h *MentorHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	markedByUserID, _ := uuid.Parse(userIDStr)
+	applicable, err := models.IsLeadApplicableToClassSession(leadID, sessionID)
+	if err != nil {
+		log.Printf("ERROR: Failed attendance applicability check: %v", err)
+		redirectWithError(w, r, mentorClassURL("/mentor/class", r.FormValue("class_key"), r), "This student is no longer applicable for that session.")
+		return
+	}
+	if !applicable {
+		redirectWithError(w, r, mentorClassURL("/mentor/class", r.FormValue("class_key"), r), "This student is no longer applicable for that session.")
+		return
+	}
 	enforceDeadline := userRole == "mentor"
 	if err := models.MarkAttendance(sessionID, leadID, status, notes, markedByUserID, enforceDeadline); err != nil {
 		log.Printf("ERROR: Failed to mark attendance: %v", err)

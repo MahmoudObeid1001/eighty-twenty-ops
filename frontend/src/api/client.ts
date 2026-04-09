@@ -183,6 +183,17 @@ export interface ClassDetail {
   sessions: Session[]
 }
 
+export interface ClassTransferOption {
+  class_key: string
+  level: number
+  class_days: string
+  class_time: string
+  class_number: number
+  round_status: string
+  current_session: number
+  current_enrollment: number
+}
+
 export interface StudentProfile {
   id: string
   name: string
@@ -637,6 +648,47 @@ export const api = {
 
   getClassWorkspace: (classKey: string): Promise<ClassDetail> =>
     fetchAPI(`/class-workspace?class_key=${encodeURIComponent(classKey)}`),
+
+  getClassTransferOptions: (leadId: string, sourceClassKey: string): Promise<{ options: ClassTransferOption[] }> =>
+    fetchAPI(`/classes/transfer-options?lead_id=${encodeURIComponent(leadId)}&source_class_key=${encodeURIComponent(sourceClassKey)}`),
+
+  transferClassStudent: (payload: {
+    lead_id: string
+    source_class_key: string
+    target_class_key: string
+    reason: string
+    notes?: string
+  }): Promise<{
+    ok: boolean
+    lead_id: string
+    source_class_key: string
+    source_exit_after_session_number: number
+    target_class_key?: string
+    target_joined_at_session_number?: number
+    reason: string
+  }> =>
+    fetchAPI('/classes/transfer', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  returnClassStudentToAdmin: (payload: {
+    lead_id: string
+    source_class_key: string
+    reason: string
+    notes?: string
+  }): Promise<{
+    ok: boolean
+    lead_id: string
+    source_class_key: string
+    source_exit_after_session_number: number
+    reason: string
+    ops_queue_reason?: string
+  }> =>
+    fetchAPI('/classes/return-to-admin', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   getClass: (classKey: string): Promise<ClassDetail> =>
     fetchAPI(`/class?class_key=${encodeURIComponent(classKey)}`),

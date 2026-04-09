@@ -324,10 +324,10 @@ func GetPaymentStatus(remainingBalance, amountPaid sql.NullInt32) string {
 	return "Unpaid"
 }
 
-func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool, followUpFilter string, returningFilter string, coldFilter string, repeatFilter string) ([]*LeadListItem, error) {
+func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool, followUpFilter string, returningFilter string, coldFilter string, repeatFilter string, opsQueueReasonFilter string) ([]*LeadListItem, error) {
 	query := `
 		SELECT 
-			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.sent_to_classes,
+			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.sent_to_classes,
 			COALESCE(l.is_returning, false),
 			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc,
 			l.created_by_user_id, l.offer_sent_at, l.created_at, l.updated_at,
@@ -386,6 +386,14 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 	// Apply repeat filter
 	if repeatFilter == "1" || repeatFilter == "true" {
 		query += " AND last_ce.outcome = 'repeated'"
+	}
+
+	if opsQueueReasonFilter != "" {
+		query += fmt.Sprintf(" AND l.ops_queue_reason = $%d", argIndex)
+		args = append(args, opsQueueReasonFilter)
+		argIndex++
+	} else {
+		query += " AND COALESCE(l.ops_queue_reason, '') != 'private_track'"
 	}
 
 	// Exclude cancelled by default. Include if includeCancelled=true OR explicitly filtering by status=cancelled.
@@ -469,7 +477,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var refusedRenewalAt sql.NullTime
 
 		err := rows.Scan(
-			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.SentToClasses,
+			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.SentToClasses,
 			&lead.IsReturning, &lead.RemainingCredits,
 			&lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 			&assignedLevel, &testDate,
@@ -853,6 +861,10 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 		    notes = $4,
 		    status = $5,
 		    sent_to_classes = $6,
+		    ops_queue_reason = CASE
+		        WHEN $5 = 'waiting_for_round' THEN ops_queue_reason
+		        ELSE NULL
+		    END,
 		    offer_sent_at = CASE
 		        WHEN $5 = 'offer_sent' AND status <> 'offer_sent' THEN $7
 		        ELSE offer_sent_at
@@ -1007,6 +1019,7 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 			UPDATE leads
 			SET status = $1,
 			    sent_to_classes = false,
+			    ops_queue_reason = NULL,
 			    offer_sent_at = CASE
 			        WHEN $1 = 'offer_sent' AND status <> 'offer_sent' THEN CURRENT_TIMESTAMP
 			        ELSE offer_sent_at
@@ -1020,6 +1033,7 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 	_, err := db.DB.Exec(`
 		UPDATE leads
 		SET status = $1,
+		    ops_queue_reason = NULL,
 		    offer_sent_at = CASE
 		        WHEN $1 = 'offer_sent' AND status <> 'offer_sent' THEN CURRENT_TIMESTAMP
 		        ELSE offer_sent_at
@@ -1028,6 +1042,89 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 		WHERE id = $2
 	`, status, leadID)
 	return err
+}
+
+func SendLeadToPrivateTrack(leadID uuid.UUID) error {
+	result, err := db.DB.Exec(`
+		UPDATE leads
+		SET ops_queue_reason = 'private_track',
+		    sent_to_classes = false,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+		  AND status != 'cancelled'
+		  AND status != 'in_classes'
+	`, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to send lead to private track: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm private-track update: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("lead is not eligible for private track")
+	}
+	return nil
+}
+
+func SetPrivateTrackLeadAssignedLevel(leadID uuid.UUID, level int32) error {
+	if level < 1 || level > 10 {
+		return fmt.Errorf("invalid assigned level")
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin private-track level transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var queueReason sql.NullString
+	err = tx.QueryRow(`SELECT ops_queue_reason FROM leads WHERE id = $1`, leadID).Scan(&queueReason)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("lead not found")
+		}
+		return fmt.Errorf("failed to load lead: %w", err)
+	}
+	if !queueReason.Valid || queueReason.String != "private_track" {
+		return fmt.Errorf("lead is not in private track")
+	}
+
+	now := time.Now()
+	_, err = tx.Exec(`
+		INSERT INTO placement_tests (id, lead_id, assigned_level, updated_at)
+		VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3)
+		ON CONFLICT (lead_id) DO UPDATE SET
+			assigned_level = EXCLUDED.assigned_level,
+			updated_at = EXCLUDED.updated_at
+	`, leadID, level, now)
+	if err != nil {
+		return fmt.Errorf("failed to update assigned level: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func ReturnPrivateTrackLeadToAdminFeed(leadID uuid.UUID) error {
+	result, err := db.DB.Exec(`
+		UPDATE leads
+		SET ops_queue_reason = NULL,
+		    sent_to_classes = false,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+		  AND ops_queue_reason = 'private_track'
+	`, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to return private-track lead to admin feed: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm private-track return: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("lead is not in private track")
+	}
+	return nil
 }
 
 // MarkRenewalRefusedAndSetCold moves a returning lead to cold_lead and writes an
@@ -3980,30 +4077,24 @@ func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime strin
 		return fmt.Errorf("failed to get session: %w", err)
 	}
 
+	if err := ensureClassMembershipsTx(tx, classKey); err != nil {
+		return err
+	}
+
 	// Require attendance for all applicable students before completing the session.
 	var missingCount int
 	err = tx.QueryRow(`
 		SELECT COUNT(*)
-		FROM leads l
-		INNER JOIN scheduling s ON s.lead_id = l.id
-		INNER JOIN placement_tests pt ON pt.lead_id = l.id
-		INNER JOIN class_groups cg ON (
-			cg.level = pt.assigned_level
-			AND cg.class_days = s.class_days
-			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-		)
-		WHERE cg.class_key = $1
-		  AND l.status = 'in_classes'
+		FROM class_memberships cm
+		INNER JOIN leads l ON l.id = cm.lead_id
+		WHERE cm.class_key = $1
+		  AND cm.joined_at_session_number <= $3
+		  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= $3)
+		  AND cm.removed_at IS NULL
+		  AND l.status != 'cancelled'
 		  AND NOT EXISTS (
 			  SELECT 1 FROM attendance a
-			  WHERE a.session_id = $2 AND a.lead_id = l.id
-		  )
-		  AND NOT EXISTS (
-			  SELECT 1 FROM late_joiners lj
-			  WHERE lj.lead_id = l.id
-				AND lj.class_key = cg.class_key
-				AND $3 < lj.joined_at_session_number
+			  WHERE a.session_id = $2 AND a.lead_id = cm.lead_id
 		  )
 	`, classKey, sessionID, sessionNumber).Scan(&missingCount)
 	if err != nil {
@@ -4030,15 +4121,12 @@ func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime strin
 			UPDATE leads
 			SET levels_consumed = COALESCE(levels_consumed, 0) + 1, updated_at = $1
 			WHERE id IN (
-				SELECT s.lead_id
-				FROM scheduling s
-				INNER JOIN class_groups cg ON (
-					cg.level = (SELECT pt.assigned_level FROM placement_tests pt WHERE pt.lead_id = s.lead_id)
-					AND cg.class_days = s.class_days
-					AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-					AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-				)
-				WHERE cg.class_key = $2
+				SELECT cm.lead_id
+				FROM class_memberships cm
+				WHERE cm.class_key = $2
+				  AND cm.joined_at_session_number <= 1
+				  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= 1)
+				  AND cm.removed_at IS NULL
 			)
 		`, now, classKey)
 		if err != nil {
@@ -4531,9 +4619,15 @@ func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error
 		if student == nil {
 			continue
 		}
+		joinedAtSession := int32(1)
+		if student.JoinedAtSessionNumber.Valid && student.JoinedAtSessionNumber.Int32 > 1 {
+			joinedAtSession = student.JoinedAtSessionNumber.Int32
+		}
 		var absences int
 		var completedTasks int
 		var attendedSessions int
+		var applicableSessions int
+		var applicableTaskSessions int
 		var participationTotal float64
 		usedLegacyTaskFallback := false
 
@@ -4541,6 +4635,10 @@ func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error
 			if session == nil {
 				continue
 			}
+			if session.SessionNumber < joinedAtSession {
+				continue
+			}
+			applicableSessions++
 			var attendance *Attendance
 			if byLead, ok := attendanceBySession[session.ID]; ok {
 				attendance = byLead[student.LeadID]
@@ -4559,6 +4657,7 @@ func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error
 			}
 
 			if session.SessionNumber >= 2 && session.SessionNumber <= 8 {
+				applicableTaskSessions++
 				taskCompleted := false
 				if perf != nil {
 					taskCompleted = perf.TaskCompleted
@@ -4583,13 +4682,13 @@ func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error
 		attendanceScore := 0.0
 		if absences > 2 {
 			attendanceScore = 0
-		} else {
-			attendanceScore = (float64(attendedSessions) / 8.0) * 50.0
+		} else if applicableSessions > 0 {
+			attendanceScore = (float64(attendedSessions) / float64(applicableSessions)) * 50.0
 		}
 
 		taskScore := float64(0)
-		if completedTasks > 1 {
-			taskScore = (float64(completedTasks) / 7.0) * 40.0
+		if completedTasks > 1 && applicableTaskSessions > 0 {
+			taskScore = (float64(completedTasks) / float64(applicableTaskSessions)) * 40.0
 		}
 
 		avgParticipation := float64(3)
@@ -4789,6 +4888,261 @@ func DeleteStudentNote(noteID uuid.UUID) error {
 	return nil
 }
 
+func getClassCurrentSession(classKey string) (int32, error) {
+	var currentSession int32
+	err := db.DB.QueryRow(`
+		SELECT COALESCE(COUNT(*), 0) + 1
+		FROM class_sessions
+		WHERE class_key = $1
+		  AND status = 'completed'
+	`, classKey).Scan(&currentSession)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get current session for %s: %w", classKey, err)
+	}
+	return currentSession, nil
+}
+
+func getClassCurrentSessionTx(tx *sql.Tx, classKey string) (int32, error) {
+	var currentSession int32
+	err := tx.QueryRow(`
+		SELECT COALESCE(COUNT(*), 0) + 1
+		FROM class_sessions
+		WHERE class_key = $1
+		  AND status = 'completed'
+	`, classKey).Scan(&currentSession)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get current session for %s: %w", classKey, err)
+	}
+	return currentSession, nil
+}
+
+func ensureClassMemberships(classKey string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin membership backfill transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := ensureClassMembershipsTx(tx, classKey); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func ensureClassMembershipsTx(tx *sql.Tx, classKey string) error {
+	var roundStatus string
+	var sentToMentor bool
+	err := tx.QueryRow(`
+		SELECT COALESCE(round_status, 'not_started'), COALESCE(sent_to_mentor, false)
+		FROM class_groups
+		WHERE class_key = $1
+	`, classKey).Scan(&roundStatus, &sentToMentor)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("class not found")
+		}
+		return fmt.Errorf("failed to load class for membership backfill: %w", err)
+	}
+
+	if roundStatus == "closed" {
+		return nil
+	}
+	if roundStatus != "active" && !(roundStatus == "not_started" && sentToMentor) {
+		return nil
+	}
+
+	statuses := []string{"in_classes"}
+	if roundStatus == "not_started" {
+		statuses = append(statuses, "ready_to_start")
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO class_memberships (
+			id,
+			lead_id,
+			class_key,
+			joined_at_session_number,
+			join_reason,
+			added_by_user_id,
+			created_at,
+			updated_at
+		)
+		SELECT
+			gen_random_uuid(),
+			l.id,
+			cg.class_key,
+			COALESCE(lj.joined_at_session_number, 1),
+			CASE
+				WHEN lj.lead_id IS NOT NULL THEN 'late_join'
+				WHEN $2 = 'active' THEN 'round_start'
+				ELSE 'sent_to_mentor'
+			END,
+			lj.added_by_user_id,
+			COALESCE(lj.created_at, NOW()),
+			NOW()
+		FROM leads l
+		INNER JOIN scheduling s ON s.lead_id = l.id
+		INNER JOIN placement_tests pt ON pt.lead_id = l.id
+		INNER JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		LEFT JOIN late_joiners lj ON lj.lead_id = l.id AND lj.class_key = cg.class_key
+		WHERE cg.class_key = $1
+		  AND l.status = ANY($3::text[])
+		  AND l.status != 'cancelled'
+		  AND NOT EXISTS (
+			  SELECT 1
+			  FROM class_memberships cm
+			  WHERE cm.lead_id = l.id
+			    AND cm.class_key = cg.class_key
+		  )
+	`, classKey, roundStatus, pq.Array(statuses))
+	if err != nil {
+		return fmt.Errorf("failed to backfill class memberships: %w", err)
+	}
+
+	return nil
+}
+
+func getApplicableMembershipCountTx(tx *sql.Tx, classKey string, sessionNumber int32) (int32, error) {
+	var count int32
+	err := tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM class_memberships cm
+		INNER JOIN leads l ON l.id = cm.lead_id
+		WHERE cm.class_key = $1
+		  AND cm.joined_at_session_number <= $2
+		  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= $2)
+		  AND cm.removed_at IS NULL
+		  AND l.status != 'cancelled'
+	`, classKey, sessionNumber).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count applicable memberships: %w", err)
+	}
+	return count, nil
+}
+
+func getApplicableMembershipTx(tx *sql.Tx, leadID uuid.UUID, classKey string, sessionNumber int32) (*ClassMembership, error) {
+	item := &ClassMembership{}
+	err := tx.QueryRow(`
+		SELECT
+			id,
+			lead_id,
+			class_key,
+			joined_at_session_number,
+			left_after_session_number,
+			join_reason,
+			leave_reason,
+			added_by_user_id::text,
+			removed_by_user_id::text,
+			removed_at,
+			created_at,
+			updated_at
+		FROM class_memberships
+		WHERE lead_id = $1
+		  AND class_key = $2
+		  AND joined_at_session_number <= $3
+		  AND (left_after_session_number IS NULL OR left_after_session_number >= $3)
+		  AND removed_at IS NULL
+		ORDER BY joined_at_session_number DESC, created_at DESC
+		LIMIT 1
+	`, leadID, classKey, sessionNumber).Scan(
+		&item.ID,
+		&item.LeadID,
+		&item.ClassKey,
+		&item.JoinedAtSessionNumber,
+		&item.LeftAfterSessionNumber,
+		&item.JoinReason,
+		&item.LeaveReason,
+		&item.AddedByUserID,
+		&item.RemovedByUserID,
+		&item.RemovedAt,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to load applicable membership: %w", err)
+	}
+	return item, nil
+}
+
+func IsLeadApplicableToClassSession(leadID, sessionID uuid.UUID) (bool, error) {
+	var classKey string
+	var sessionNumber int32
+	err := db.DB.QueryRow(`
+		SELECT class_key, session_number
+		FROM class_sessions
+		WHERE id = $1
+	`, sessionID).Scan(&classKey, &sessionNumber)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, fmt.Errorf("session not found")
+		}
+		return false, fmt.Errorf("failed to load session for attendance validation: %w", err)
+	}
+
+	if err := ensureClassMemberships(classKey); err != nil {
+		return false, err
+	}
+
+	var applicable bool
+	err = db.DB.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM class_memberships cm
+			INNER JOIN leads l ON l.id = cm.lead_id
+			WHERE cm.lead_id = $1
+			  AND cm.class_key = $2
+			  AND cm.joined_at_session_number <= $3
+			  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= $3)
+			  AND cm.removed_at IS NULL
+			  AND l.status != 'cancelled'
+		)
+	`, leadID, classKey, sessionNumber).Scan(&applicable)
+	if err != nil {
+		return false, fmt.Errorf("failed to validate class session applicability: %w", err)
+	}
+	if applicable {
+		return true, nil
+	}
+
+	var fallback bool
+	err = db.DB.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM leads l
+			INNER JOIN scheduling s ON s.lead_id = l.id
+			INNER JOIN placement_tests pt ON pt.lead_id = l.id
+			INNER JOIN class_groups cg ON (
+				cg.level = pt.assigned_level
+				AND cg.class_days = s.class_days
+				AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
+				AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+			)
+			WHERE l.id = $1
+			  AND cg.class_key = $2
+			  AND l.status = 'in_classes'
+			  AND NOT EXISTS (
+				  SELECT 1
+				  FROM late_joiners lj
+				  WHERE lj.lead_id = l.id
+				    AND lj.class_key = cg.class_key
+				    AND $3 < lj.joined_at_session_number
+			  )
+		)
+	`, leadID, classKey, sessionNumber).Scan(&fallback)
+	if err != nil {
+		return false, fmt.Errorf("failed to validate legacy class session applicability: %w", err)
+	}
+	return fallback, nil
+}
+
 // GetRefundableAmount calculates refundable amount based on session completion markers (not wall-clock time)
 // Rules:
 // - If session 2 has completed_at IS NOT NULL: refundable = 0
@@ -4800,7 +5154,40 @@ func GetRefundableAmount(leadID uuid.UUID) (int32, error) {
 		return 0, fmt.Errorf("failed to get total course paid: %w", err)
 	}
 
-	// Get student's class_key
+	var cycleStart sql.NullTime
+	err = db.DB.QueryRow(`
+		SELECT MAX(completed_at)
+		FROM class_enrollments
+		WHERE lead_id = $1
+	`, leadID).Scan(&cycleStart)
+	if err != nil {
+		return 0, fmt.Errorf("failed to determine current cycle start: %w", err)
+	}
+
+	var consumedSessions int32
+	err = db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM class_memberships cm
+		INNER JOIN class_sessions cs ON cs.class_key = cm.class_key
+		WHERE cm.lead_id = $1
+		  AND cs.status = 'completed'
+		  AND cs.completed_at IS NOT NULL
+		  AND cs.session_number >= cm.joined_at_session_number
+		  AND (cm.left_after_session_number IS NULL OR cs.session_number <= cm.left_after_session_number)
+		  AND ($2::timestamp with time zone IS NULL OR cs.completed_at > $2)
+	`, leadID, cycleStart).Scan(&consumedSessions)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count consumed class sessions: %w", err)
+	}
+
+	if consumedSessions >= 2 {
+		return 0, nil
+	}
+	if consumedSessions == 1 {
+		return totalCoursePaid / 2, nil
+	}
+
+	// Legacy fallback for classes that predate class_memberships creation.
 	var classKey sql.NullString
 	err = db.DB.QueryRow(`
 		SELECT cg.class_key
@@ -4815,33 +5202,28 @@ func GetRefundableAmount(leadID uuid.UUID) (int32, error) {
 		WHERE s.lead_id = $1
 		LIMIT 1
 	`, leadID).Scan(&classKey)
-	if err == sql.ErrNoRows || !classKey.Valid {
-		// No active class, full refund available
-		return totalCoursePaid, nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("failed to get legacy class key: %w", err)
 	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to get class key: %w", err)
-	}
-
-	// Check session completion markers
-	var session1Completed, session2Completed bool
-	err = db.DB.QueryRow(`
-		SELECT 
-			EXISTS(SELECT 1 FROM class_sessions WHERE class_key = $1 AND session_number = 1 AND completed_at IS NOT NULL),
-			EXISTS(SELECT 1 FROM class_sessions WHERE class_key = $1 AND session_number = 2 AND completed_at IS NOT NULL)
-	`, classKey.String).Scan(&session1Completed, &session2Completed)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check session completion: %w", err)
-	}
-
-	if session2Completed {
-		return 0, nil // No refund after session 2 completed
-	}
-	if session1Completed {
-		return totalCoursePaid / 2, nil // 50% refund after session 1 completed
+	if err == nil && classKey.Valid {
+		var session1Completed, session2Completed bool
+		err = db.DB.QueryRow(`
+			SELECT
+				EXISTS(SELECT 1 FROM class_sessions WHERE class_key = $1 AND session_number = 1 AND completed_at IS NOT NULL),
+				EXISTS(SELECT 1 FROM class_sessions WHERE class_key = $1 AND session_number = 2 AND completed_at IS NOT NULL)
+		`, classKey.String).Scan(&session1Completed, &session2Completed)
+		if err != nil {
+			return 0, fmt.Errorf("failed to check legacy session completion: %w", err)
+		}
+		if session2Completed {
+			return 0, nil
+		}
+		if session1Completed {
+			return totalCoursePaid / 2, nil
+		}
 	}
 
-	return totalCoursePaid, nil // Full refund before session 1 completed
+	return totalCoursePaid, nil
 }
 
 // AssignMentorToClass assigns a mentor (user with role='mentor') to a class
@@ -4979,6 +5361,29 @@ func GetMentorClasses(mentorUserID uuid.UUID) ([]*ClassGroupWorkflow, error) {
 func GetMentorReminders(mentorUserID uuid.UUID) ([]*MentorReminder, error) {
 	var reminders []*MentorReminder
 
+	classRows, err := db.DB.Query(`
+		SELECT ma.class_key
+		FROM mentor_assignments ma
+		INNER JOIN class_groups cg ON cg.class_key = ma.class_key
+		WHERE ma.mentor_user_id = $1
+		  AND COALESCE(cg.round_status, '') != 'closed'
+	`, mentorUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load mentor classes for membership sync: %w", err)
+	}
+	for classRows.Next() {
+		var classKey string
+		if err := classRows.Scan(&classKey); err == nil {
+			if ensureErr := ensureClassMemberships(classKey); ensureErr != nil {
+				_ = classRows.Close()
+				return nil, ensureErr
+			}
+		}
+	}
+	if err := classRows.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close mentor class rows: %w", err)
+	}
+
 	// 1. Check for completed sessions with incomplete attendance
 	attendanceRows, err := db.DB.Query(`
 		SELECT DISTINCT
@@ -4997,26 +5402,17 @@ func GetMentorReminders(mentorUserID uuid.UUID) ([]*MentorReminder, error) {
 		  AND cs.status = 'completed'
 		  AND cs.completed_at IS NOT NULL
 		  AND EXISTS (
-			  -- Check if there are students without attendance for this session
 			  SELECT 1
-			  FROM leads l
-			  INNER JOIN scheduling s ON s.lead_id = l.id
-			  INNER JOIN placement_tests pt ON pt.lead_id = l.id
-			  WHERE l.status = 'in_classes'
-				AND pt.assigned_level = cg.level
-				AND s.class_days = cg.class_days
-				AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-				AND COALESCE(s.class_group_index, 1) = COALESCE(cg.class_number, 1)
+			  FROM class_memberships cm
+			  INNER JOIN leads l ON l.id = cm.lead_id
+			  WHERE cm.class_key = cg.class_key
+				AND cm.joined_at_session_number <= cs.session_number
+				AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= cs.session_number)
+				AND cm.removed_at IS NULL
+				AND l.status != 'cancelled'
 				AND NOT EXISTS (
 					SELECT 1 FROM attendance a
-					WHERE a.session_id = cs.id AND a.lead_id = l.id
-				)
-				-- Exclude late joiners for sessions before they joined
-				AND NOT EXISTS (
-					SELECT 1 FROM late_joiners lj
-					WHERE lj.lead_id = l.id
-					  AND lj.class_key = cg.class_key
-					  AND cs.session_number < lj.joined_at_session_number
+					WHERE a.session_id = cs.id AND a.lead_id = cm.lead_id
 				)
 		  )
 		ORDER BY cs.session_number DESC
@@ -5072,19 +5468,17 @@ func GetMentorReminders(mentorUserID uuid.UUID) ([]*MentorReminder, error) {
 				AND cs.status = 'completed'
 		  )
 		  AND EXISTS (
-			  -- Check if there are students in this class missing grades
 			  SELECT 1
-			  FROM leads l
-			  INNER JOIN scheduling s ON s.lead_id = l.id
-			  INNER JOIN placement_tests pt ON pt.lead_id = l.id
-			  WHERE l.status = 'in_classes'
-				AND pt.assigned_level = cg.level
-				AND s.class_days = cg.class_days
-				AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-				AND COALESCE(s.class_group_index, 1) = COALESCE(cg.class_number, 1)
+			  FROM class_memberships cm
+			  INNER JOIN leads l ON l.id = cm.lead_id
+			  WHERE cm.class_key = cg.class_key
+				AND cm.joined_at_session_number <= 8
+				AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= 8)
+				AND cm.removed_at IS NULL
+				AND l.status != 'cancelled'
 				AND NOT EXISTS (
 					SELECT 1 FROM grades g
-					WHERE g.lead_id = l.id
+					WHERE g.lead_id = cm.lead_id
 					  AND g.class_key = cg.class_key
 					  AND g.session_number = 8
 				)
@@ -5303,6 +5697,10 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 	}()
 	now := time.Now()
 
+	if err := ensureClassMembershipsTx(tx, classKey); err != nil {
+		return err
+	}
+
 	// Get current mentor assigned to the class
 	var mentorUserID sql.NullString
 	err = tx.QueryRow(`SELECT mentor_user_id FROM mentor_assignments WHERE class_key = $1`, classKey).Scan(&mentorUserID)
@@ -5314,18 +5712,14 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 	// IMPORTANT: Keep this roster rule aligned with GetStudentsInClassGroup(),
 	// otherwise close-round validation can include non-class students.
 	rows, err := tx.Query(`
-		SELECT s.lead_id
-		FROM scheduling s
-		INNER JOIN leads l ON l.id = s.lead_id
-		INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
-		INNER JOIN class_groups cg ON (
-			cg.level = pt.assigned_level
-			AND cg.class_days = s.class_days
-			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-		)
-		WHERE cg.class_key = $1
-		  AND l.status = 'in_classes'
+		SELECT cm.lead_id
+		FROM class_memberships cm
+		INNER JOIN leads l ON l.id = cm.lead_id
+		WHERE cm.class_key = $1
+		  AND cm.joined_at_session_number <= 8
+		  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= 8)
+		  AND cm.removed_at IS NULL
+		  AND l.status != 'cancelled'
 	`, classKey)
 	if err != nil {
 		return fmt.Errorf("failed to query students: %w", err)
@@ -5395,6 +5789,20 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 	_, err = tx.Exec(`DELETE FROM mentor_assignments WHERE class_key = $1`, classKey)
 	if err != nil {
 		return fmt.Errorf("failed to delete mentor assignment: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE class_memberships
+		SET left_after_session_number = COALESCE(left_after_session_number, 8),
+		    leave_reason = COALESCE(leave_reason, 'round_closed'),
+		    removed_by_user_id = COALESCE(removed_by_user_id, $2),
+		    removed_at = COALESCE(removed_at, $1),
+		    updated_at = $1
+		WHERE class_key = $3
+		  AND removed_at IS NULL
+	`, now, closedByUserID, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to close class memberships: %w", err)
 	}
 
 	return tx.Commit()
@@ -6820,22 +7228,27 @@ func GetStudentSuccessClassDetail(classKey string, allowClosed bool) (classGroup
 
 // GetStudentsInClassGroup returns all students in a class group
 func GetStudentsInClassGroup(classKey string) ([]*ClassStudent, error) {
+	if err := ensureClassMemberships(classKey); err != nil {
+		return nil, err
+	}
+
+	currentSession, err := getClassCurrentSession(classKey)
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := db.DB.Query(`
-		SELECT l.id, l.full_name, l.phone, l.is_returning, s.class_group_index, lj.joined_at_session_number
-		FROM leads l
-		INNER JOIN scheduling s ON s.lead_id = l.id
-		INNER JOIN placement_tests pt ON pt.lead_id = l.id
-		INNER JOIN class_groups cg ON (
-			cg.level = pt.assigned_level
-			AND cg.class_days = s.class_days
-			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-		)
-		LEFT JOIN late_joiners lj ON lj.lead_id = l.id AND lj.class_key = cg.class_key
-		WHERE cg.class_key = $1
-		  AND l.status = 'in_classes'
+		SELECT l.id, l.full_name, l.phone, COALESCE(l.is_returning, false), s.class_group_index, cm.joined_at_session_number
+		FROM class_memberships cm
+		INNER JOIN leads l ON l.id = cm.lead_id
+		LEFT JOIN scheduling s ON s.lead_id = l.id
+		WHERE cm.class_key = $1
+		  AND cm.joined_at_session_number <= $2
+		  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= $2)
+		  AND cm.removed_at IS NULL
+		  AND l.status != 'cancelled'
 		ORDER BY l.full_name
-	`, classKey)
+	`, classKey, currentSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query students: %w", err)
 	}
@@ -6894,53 +7307,7 @@ func GetStudentsForMentorHeadClass(classKey string) ([]*ClassStudent, error) {
 		}
 		return students, nil
 	}
-
-	rows, err := db.DB.Query(`
-		SELECT l.id, l.full_name, l.phone, s.class_group_index, lj.joined_at_session_number
-		FROM leads l
-		INNER JOIN scheduling s ON s.lead_id = l.id
-		INNER JOIN placement_tests pt ON pt.lead_id = l.id
-		INNER JOIN class_groups cg ON (
-			cg.level = pt.assigned_level
-			AND cg.class_days = s.class_days
-			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-		)
-		LEFT JOIN late_joiners lj ON lj.lead_id = l.id AND lj.class_key = cg.class_key
-		WHERE cg.class_key = $1
-		  AND (
-			l.status = 'in_classes'
-			OR (
-				cg.sent_to_mentor = true
-				AND COALESCE(cg.round_status, 'not_started') = 'not_started'
-				AND l.status = 'ready_to_start'
-			)
-			OR COALESCE(cg.round_status, '') = 'closed'
-		  )
-		ORDER BY l.full_name
-	`, classKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query students: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var students []*ClassStudent
-	for rows.Next() {
-		s := &ClassStudent{}
-		var groupIndex sql.NullInt32
-
-		err := rows.Scan(&s.LeadID, &s.FullName, &s.Phone, &groupIndex, &s.JoinedAtSessionNumber)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan student: %w", err)
-		}
-
-		s.GroupIndex = groupIndex
-		students = append(students, s)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return students, nil
+	return GetStudentsInClassGroup(classKey)
 }
 
 // GetEligibleClassesForLateJoin returns classes a student is eligible to join as a late joiner.
@@ -7189,7 +7556,27 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("failed to update lead status: %w", err)
 	}
 
-	// 8. Backfill 'N/A' attendance for past sessions
+	// 8. Add explicit membership window for the late join.
+	_, err = tx.Exec(`
+		INSERT INTO class_memberships (
+			id,
+			lead_id,
+			class_key,
+			joined_at_session_number,
+			join_reason,
+			added_by_user_id,
+			created_at,
+			updated_at
+		)
+		VALUES (gen_random_uuid(), $1, $2, $3, 'late_join', $4, NOW(), NOW())
+		ON CONFLICT (lead_id, class_key, joined_at_session_number) DO UPDATE SET
+			updated_at = EXCLUDED.updated_at
+	`, leadID, classKey, currentSession, userID)
+	if err != nil {
+		return fmt.Errorf("failed to create late-join membership: %w", err)
+	}
+
+	// 9. Backfill 'N/A' attendance for past sessions
 	_, err = tx.Exec(`
 		INSERT INTO attendance (id, session_id, lead_id, status, created_at, updated_at)
 		SELECT gen_random_uuid(), cs.id, $1, 'N/A', NOW(), NOW()
@@ -7201,7 +7588,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("failed to backfill attendance: %w", err)
 	}
 
-	// 9. Insert notifications.
+	// 10. Insert notifications.
 	// If class is sent but not started, notify Mentor Head only.
 	// Otherwise (active), keep existing recipients (mentor, mentor heads, student success).
 	notificationQuery := `
@@ -7347,13 +7734,564 @@ func UndoLateJoiner(leadID uuid.UUID, userID uuid.UUID) error {
 		log.Printf("WARNING: Failed to delete late joiner notifications on undo: %v", err)
 	}
 
-	// 7. Delete late_joiners record
+	// 7. Delete late-join membership window.
+	_, err = tx.Exec(`
+		DELETE FROM class_memberships
+		WHERE lead_id = $1
+		  AND class_key = $2
+		  AND joined_at_session_number = $3
+		  AND join_reason = 'late_join'
+	`, leadID, lj.ClassKey, lj.JoinedAtSessionNumber)
+	if err != nil {
+		return fmt.Errorf("failed to delete late-join membership: %w", err)
+	}
+
+	// 8. Delete late_joiners record
 	_, err = tx.Exec(`DELETE FROM late_joiners WHERE lead_id = $1`, leadID)
 	if err != nil {
 		return fmt.Errorf("failed to delete audit record: %w", err)
 	}
 
 	return tx.Commit()
+}
+
+func GetEligibleTransferClasses(leadID uuid.UUID, sourceClassKey string) ([]*ClassTransferOption, error) {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transfer-options transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var sourceRoundStatus string
+	err = tx.QueryRow(`
+		SELECT COALESCE(round_status, 'not_started')
+		FROM class_groups
+		WHERE class_key = $1
+	`, sourceClassKey).Scan(&sourceRoundStatus)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("source class not found")
+		}
+		return nil, fmt.Errorf("failed to load source class: %w", err)
+	}
+	if sourceRoundStatus != "active" {
+		return nil, fmt.Errorf("source class must be active")
+	}
+
+	sourceCurrentSession, err := getClassCurrentSessionTx(tx, sourceClassKey)
+	if err != nil {
+		return nil, err
+	}
+	if sourceCurrentSession > 8 {
+		return nil, fmt.Errorf("source class has no future sessions")
+	}
+
+	if err := ensureClassMembershipsTx(tx, sourceClassKey); err != nil {
+		return nil, err
+	}
+	sourceMembership, err := getApplicableMembershipTx(tx, leadID, sourceClassKey, sourceCurrentSession)
+	if err != nil {
+		return nil, err
+	}
+	if sourceMembership == nil {
+		return nil, fmt.Errorf("student is not in the source class")
+	}
+
+	rows, err := tx.Query(`
+		SELECT
+			cg.class_key,
+			cg.level,
+			cg.class_days,
+			cg.class_time,
+			COALESCE(cg.class_number, 1),
+			COALESCE(cg.round_status, 'not_started'),
+			COALESCE(cg.sent_to_mentor, false),
+			(SELECT COALESCE(COUNT(*), 0) + 1 FROM class_sessions cs WHERE cs.class_key = cg.class_key AND cs.status = 'completed') AS current_session
+		FROM class_groups cg
+		WHERE cg.class_key <> $1
+		  AND COALESCE(cg.round_status, 'not_started') != 'closed'
+		ORDER BY cg.level, cg.class_days, cg.class_time, COALESCE(cg.class_number, 1)
+	`, sourceClassKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query transfer targets: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type candidateTransferClass struct {
+		option       *ClassTransferOption
+		sentToMentor bool
+	}
+
+	var candidates []*candidateTransferClass
+	for rows.Next() {
+		option := &ClassTransferOption{}
+		var sentToMentor bool
+		if err := rows.Scan(
+			&option.ClassKey,
+			&option.Level,
+			&option.ClassDays,
+			&option.ClassTime,
+			&option.ClassNumber,
+			&option.RoundStatus,
+			&sentToMentor,
+			&option.CurrentSession,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan transfer target: %w", err)
+		}
+		if option.CurrentSession > 8 {
+			continue
+		}
+		if option.RoundStatus != "active" && !(option.RoundStatus == "not_started" && sentToMentor) {
+			continue
+		}
+		candidates = append(candidates, &candidateTransferClass{
+			option:       option,
+			sentToMentor: sentToMentor,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate transfer targets: %w", err)
+	}
+	_ = rows.Close()
+
+	var options []*ClassTransferOption
+	for _, candidate := range candidates {
+		if candidate == nil || candidate.option == nil {
+			continue
+		}
+		if err := ensureClassMembershipsTx(tx, candidate.option.ClassKey); err != nil {
+			return nil, err
+		}
+		count, err := getApplicableMembershipCountTx(tx, candidate.option.ClassKey, candidate.option.CurrentSession)
+		if err != nil {
+			return nil, err
+		}
+		if count >= 6 {
+			continue
+		}
+		candidate.option.CurrentEnrollment = count
+		options = append(options, candidate.option)
+	}
+
+	return options, nil
+}
+
+func TransferStudentBetweenActiveClasses(leadID uuid.UUID, sourceClassKey, targetClassKey, reason, notes string, userID uuid.UUID) (*ClassRosterChangeResult, error) {
+	reason = strings.TrimSpace(reason)
+	notes = strings.TrimSpace(notes)
+	if targetClassKey == "" {
+		return nil, fmt.Errorf("target class is required")
+	}
+	if sourceClassKey == targetClassKey {
+		return nil, fmt.Errorf("source and target classes must be different")
+	}
+	switch reason {
+	case "schedule_change", "promotion", "demotion", "other":
+	default:
+		return nil, fmt.Errorf("invalid transfer reason")
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transfer transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var sourceLevel int32
+	var sourceRoundStatus string
+	err = tx.QueryRow(`
+		SELECT level, COALESCE(round_status, 'not_started')
+		FROM class_groups
+		WHERE class_key = $1
+	`, sourceClassKey).Scan(&sourceLevel, &sourceRoundStatus)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("source class not found")
+		}
+		return nil, fmt.Errorf("failed to load source class: %w", err)
+	}
+	if sourceRoundStatus != "active" {
+		return nil, fmt.Errorf("source class must be active")
+	}
+
+	sourceCurrentSession, err := getClassCurrentSessionTx(tx, sourceClassKey)
+	if err != nil {
+		return nil, err
+	}
+	if sourceCurrentSession > 8 {
+		return nil, fmt.Errorf("source class has no future sessions")
+	}
+
+	if err := ensureClassMembershipsTx(tx, sourceClassKey); err != nil {
+		return nil, err
+	}
+	sourceMembership, err := getApplicableMembershipTx(tx, leadID, sourceClassKey, sourceCurrentSession)
+	if err != nil {
+		return nil, err
+	}
+	if sourceMembership == nil {
+		return nil, fmt.Errorf("student is not in the source class")
+	}
+
+	var targetLevel, targetClassNumber int32
+	var targetClassDays, targetClassTime, targetRoundStatus string
+	var targetSentToMentor bool
+	err = tx.QueryRow(`
+		SELECT
+			level,
+			class_days,
+			class_time,
+			COALESCE(class_number, 1),
+			COALESCE(round_status, 'not_started'),
+			COALESCE(sent_to_mentor, false)
+		FROM class_groups
+		WHERE class_key = $1
+	`, targetClassKey).Scan(&targetLevel, &targetClassDays, &targetClassTime, &targetClassNumber, &targetRoundStatus, &targetSentToMentor)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("target class not found")
+		}
+		return nil, fmt.Errorf("failed to load target class: %w", err)
+	}
+	if targetRoundStatus != "active" && !(targetRoundStatus == "not_started" && targetSentToMentor) {
+		return nil, fmt.Errorf("target class must be active or sent to mentor")
+	}
+
+	switch reason {
+	case "schedule_change":
+		if targetLevel != sourceLevel {
+			return nil, fmt.Errorf("schedule change must stay within the same level")
+		}
+	case "promotion":
+		if targetLevel <= sourceLevel {
+			return nil, fmt.Errorf("promotion requires a higher target level")
+		}
+	case "demotion":
+		if targetLevel >= sourceLevel {
+			return nil, fmt.Errorf("demotion requires a lower target level")
+		}
+	}
+
+	targetCurrentSession, err := getClassCurrentSessionTx(tx, targetClassKey)
+	if err != nil {
+		return nil, err
+	}
+	if targetCurrentSession > 8 {
+		return nil, fmt.Errorf("target class has no future sessions")
+	}
+
+	if err := ensureClassMembershipsTx(tx, targetClassKey); err != nil {
+		return nil, err
+	}
+	targetEnrollment, err := getApplicableMembershipCountTx(tx, targetClassKey, targetCurrentSession)
+	if err != nil {
+		return nil, err
+	}
+	if targetEnrollment >= 6 {
+		return nil, fmt.Errorf("target class is full")
+	}
+
+	now := time.Now()
+	sourceExitAfter := sourceCurrentSession - 1
+
+	_, err = tx.Exec(`
+		UPDATE class_memberships
+		SET left_after_session_number = $1,
+		    leave_reason = $2,
+		    removed_by_user_id = $3,
+		    removed_at = $4,
+		    updated_at = $4
+		WHERE id = $5
+	`, sourceExitAfter, reason, userID, now, sourceMembership.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to close source membership: %w", err)
+	}
+
+	var targetMembershipID uuid.UUID
+	err = tx.QueryRow(`
+		INSERT INTO class_memberships (
+			id,
+			lead_id,
+			class_key,
+			joined_at_session_number,
+			join_reason,
+			added_by_user_id,
+			created_at,
+			updated_at
+		)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $6)
+		ON CONFLICT (lead_id, class_key, joined_at_session_number) DO UPDATE SET
+			left_after_session_number = NULL,
+			leave_reason = NULL,
+			removed_by_user_id = NULL,
+			removed_at = NULL,
+			updated_at = EXCLUDED.updated_at
+		RETURNING id
+	`, leadID, targetClassKey, targetCurrentSession, reason, userID, now).Scan(&targetMembershipID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create target membership: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE scheduling
+		SET class_days = $1,
+		    class_time = $2,
+		    class_group_index = $3,
+		    updated_at = $4
+		WHERE lead_id = $5
+	`, targetClassDays, targetClassTime, targetClassNumber, now, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update scheduling for transfer: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE placement_tests
+		SET assigned_level = $1,
+		    updated_at = $2
+		WHERE lead_id = $3
+	`, targetLevel, now, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update assigned level for transfer: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET status = 'in_classes',
+		    sent_to_classes = true,
+		    ops_queue_reason = NULL,
+		    updated_at = $1
+		WHERE id = $2
+	`, now, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update lead after transfer: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO attendance (id, session_id, lead_id, status, notes, marked_by_user_id, created_at, updated_at)
+		SELECT
+			gen_random_uuid(),
+			target_cs.id,
+			$1,
+			source_att.status,
+			source_att.notes,
+			source_att.marked_by_user_id,
+			$4,
+			$4
+		FROM class_sessions source_cs
+		INNER JOIN attendance source_att
+			ON source_att.session_id = source_cs.id
+		   AND source_att.lead_id = $1
+		INNER JOIN class_sessions target_cs
+			ON target_cs.class_key = $2
+		   AND target_cs.session_number = source_cs.session_number
+		WHERE source_cs.class_key = $5
+		  AND source_cs.session_number <= $3
+		  AND source_cs.session_number < $6
+		ON CONFLICT (session_id, lead_id) DO UPDATE SET
+			status = EXCLUDED.status,
+			notes = EXCLUDED.notes,
+			marked_by_user_id = EXCLUDED.marked_by_user_id,
+			updated_at = EXCLUDED.updated_at
+	`, leadID, targetClassKey, sourceExitAfter, now, sourceClassKey, targetCurrentSession)
+	if err != nil {
+		return nil, fmt.Errorf("failed to mirror transferred-student attendance: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO session_performance (id, class_session_id, lead_id, task_completed, participation_score, created_at, updated_at)
+		SELECT
+			gen_random_uuid(),
+			target_cs.id,
+			$1,
+			source_perf.task_completed,
+			source_perf.participation_score,
+			$4,
+			$4
+		FROM class_sessions source_cs
+		INNER JOIN session_performance source_perf
+			ON source_perf.class_session_id = source_cs.id
+		   AND source_perf.lead_id = $1
+		INNER JOIN class_sessions target_cs
+			ON target_cs.class_key = $2
+		   AND target_cs.session_number = source_cs.session_number
+		WHERE source_cs.class_key = $5
+		  AND source_cs.session_number <= $3
+		  AND source_cs.session_number < $6
+		ON CONFLICT (class_session_id, lead_id) DO UPDATE SET
+			task_completed = EXCLUDED.task_completed,
+			participation_score = EXCLUDED.participation_score,
+			updated_at = EXCLUDED.updated_at
+	`, leadID, targetClassKey, sourceExitAfter, now, sourceClassKey, targetCurrentSession)
+	if err != nil {
+		return nil, fmt.Errorf("failed to mirror transferred-student performance: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO attendance (id, session_id, lead_id, status, created_at, updated_at)
+		SELECT gen_random_uuid(), cs.id, $1, 'N/A', $4, $4
+		FROM class_sessions cs
+		WHERE cs.class_key = $2
+		  AND cs.session_number < $3
+		ON CONFLICT (session_id, lead_id) DO NOTHING
+	`, leadID, targetClassKey, targetCurrentSession, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to backfill transferred-student attendance: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO class_transfers (
+			id,
+			lead_id,
+			source_class_key,
+			target_class_key,
+			source_membership_id,
+			target_membership_id,
+			source_exit_after_session_number,
+			target_joined_at_session_number,
+			reason,
+			notes,
+			created_by_user_id,
+			created_at
+		)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), $10, $11)
+	`, leadID, sourceClassKey, targetClassKey, sourceMembership.ID, targetMembershipID, sourceExitAfter, targetCurrentSession, reason, notes, userID, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write class transfer audit: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &ClassRosterChangeResult{
+		LeadID:                       leadID,
+		SourceClassKey:               sourceClassKey,
+		TargetClassKey:               sql.NullString{String: targetClassKey, Valid: true},
+		SourceExitAfterSessionNumber: sourceExitAfter,
+		TargetJoinedAtSessionNumber:  sql.NullInt32{Int32: targetCurrentSession, Valid: true},
+		Reason:                       reason,
+	}, nil
+}
+
+func ReturnStudentToAdminFromClass(leadID uuid.UUID, sourceClassKey, reason, notes string, userID uuid.UUID) (*ClassRosterChangeResult, error) {
+	reason = strings.TrimSpace(reason)
+	notes = strings.TrimSpace(notes)
+	if reason != "refund_to_admin" && reason != "private_track_to_admin" {
+		return nil, fmt.Errorf("invalid admin-return reason")
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin admin-return transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var sourceRoundStatus string
+	err = tx.QueryRow(`
+		SELECT COALESCE(round_status, 'not_started')
+		FROM class_groups
+		WHERE class_key = $1
+	`, sourceClassKey).Scan(&sourceRoundStatus)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("source class not found")
+		}
+		return nil, fmt.Errorf("failed to load source class: %w", err)
+	}
+	if sourceRoundStatus != "active" {
+		return nil, fmt.Errorf("source class must be active")
+	}
+
+	sourceCurrentSession, err := getClassCurrentSessionTx(tx, sourceClassKey)
+	if err != nil {
+		return nil, err
+	}
+	if sourceCurrentSession > 8 {
+		return nil, fmt.Errorf("source class has no future sessions")
+	}
+
+	if err := ensureClassMembershipsTx(tx, sourceClassKey); err != nil {
+		return nil, err
+	}
+	sourceMembership, err := getApplicableMembershipTx(tx, leadID, sourceClassKey, sourceCurrentSession)
+	if err != nil {
+		return nil, err
+	}
+	if sourceMembership == nil {
+		return nil, fmt.Errorf("student is not in the source class")
+	}
+
+	now := time.Now()
+	sourceExitAfter := sourceCurrentSession - 1
+	queueReason := "refund_review"
+	if reason == "private_track_to_admin" {
+		queueReason = "private_track"
+	}
+
+	_, err = tx.Exec(`
+		UPDATE class_memberships
+		SET left_after_session_number = $1,
+		    leave_reason = $2,
+		    removed_by_user_id = $3,
+		    removed_at = $4,
+		    updated_at = $4
+		WHERE id = $5
+	`, sourceExitAfter, reason, userID, now, sourceMembership.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to close source membership: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE scheduling
+		SET class_group_index = NULL,
+		    updated_at = $1
+		WHERE lead_id = $2
+	`, now, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detach scheduling on admin return: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET status = 'waiting_for_round',
+		    sent_to_classes = false,
+		    ops_queue_reason = $1,
+		    updated_at = $2
+		WHERE id = $3
+	`, queueReason, now, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update lead for admin return: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO class_transfers (
+			id,
+			lead_id,
+			source_class_key,
+			source_membership_id,
+			source_exit_after_session_number,
+			reason,
+			notes,
+			created_by_user_id,
+			created_at
+		)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8)
+	`, leadID, sourceClassKey, sourceMembership.ID, sourceExitAfter, reason, notes, userID, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write admin-return audit: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &ClassRosterChangeResult{
+		LeadID:                       leadID,
+		SourceClassKey:               sourceClassKey,
+		SourceExitAfterSessionNumber: sourceExitAfter,
+		Reason:                       reason,
+		OpsQueueReason:               sql.NullString{String: queueReason, Valid: true},
+	}, nil
 }
 
 // StartClassRound starts the round for a class group: sets status to 'active' and creates 8 sessions
@@ -8490,26 +9428,20 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 }
 
 func countExpectedStudentsForSession(classKey string, sessionNumber int32) (int, error) {
+	if err := ensureClassMemberships(classKey); err != nil {
+		return 0, err
+	}
+
 	var count int
 	err := db.DB.QueryRow(`
 		SELECT COUNT(*)
-		FROM leads l
-		INNER JOIN scheduling s ON s.lead_id = l.id
-		INNER JOIN placement_tests pt ON pt.lead_id = l.id
-		INNER JOIN class_groups cg ON (
-			cg.level = pt.assigned_level
-			AND cg.class_days = s.class_days
-			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-		)
-		WHERE cg.class_key = $1
-		  AND l.status = 'in_classes'
-		  AND NOT EXISTS (
-			  SELECT 1 FROM late_joiners lj
-			  WHERE lj.lead_id = l.id
-			    AND lj.class_key = cg.class_key
-			    AND $2 < lj.joined_at_session_number
-		  )
+		FROM class_memberships cm
+		INNER JOIN leads l ON l.id = cm.lead_id
+		WHERE cm.class_key = $1
+		  AND cm.joined_at_session_number <= $2
+		  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= $2)
+		  AND cm.removed_at IS NULL
+		  AND l.status != 'cancelled'
 	`, classKey, sessionNumber).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count expected students for %s S%d: %w", classKey, sessionNumber, err)

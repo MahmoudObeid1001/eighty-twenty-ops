@@ -1,0 +1,89 @@
+{{define "private_track_list_content"}}
+<div class="header content-header">
+    <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" class="app-logo" />
+    <h1>Private Track</h1>
+</div>
+
+{{if .FlashMessage}}
+{{$ft := .FlashMessageType}}
+{{$isErr := eq $ft "error"}}
+<div class="flash-message"
+    style="background-color: {{if $isErr}}#F8D7DA{{else}}#D4EDDA{{end}}; border: 1px solid {{if $isErr}}#F5C6CB{{else}}#C3E6CB{{end}}; color: {{if $isErr}}#721C24{{else}}#155724{{end}}; padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;">
+    {{.FlashMessage}}
+</div>
+{{end}}
+
+<div style="background: #eef4ff; border: 1px solid #cfe0ff; border-radius: 8px; padding: 16px; margin-bottom: 20px; color: #1f3c88;">
+    Students kept here stay out of the normal admin feed until you return them. You can adjust level here without losing their current data.
+</div>
+
+<div class="filter-bar" style="margin-bottom: 20px;">
+    <form method="GET" action="/private-track" class="filter-form">
+        <input type="text" name="search" placeholder="Search by name or phone..." value="{{.SearchFilter}}" class="filter-search">
+        <button type="submit" class="btn btn-secondary">Search</button>
+    </form>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Assigned Level</th>
+                <th>Level Adjustment</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{if .Leads}}
+            {{range .Leads}}
+            <tr>
+                <td>
+                    {{.Lead.FullName}}
+                    <span class="badge" style="background-color: #0d6efd; color: white; margin-left: 8px;">PRIVATE TRACK</span>
+                </td>
+                <td>{{.Lead.Phone}}</td>
+                <td>
+                    <span class="badge {{.Lead.Status}}">{{.Lead.Status}}</span>
+                </td>
+                <td>{{if .AssignedLevel.Valid}}Level {{.AssignedLevel.Int32}}{{else}}-{{end}}</td>
+                <td>
+                    <form method="POST" action="/private-track/{{.Lead.ID}}" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <input type="hidden" name="action" value="adjust_level">
+                        <select name="assigned_level" class="filter-select" style="min-width: 120px;">
+                            <option value="1" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 1)}}selected{{end}}>Level 1</option>
+                            <option value="2" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 2)}}selected{{end}}>Level 2</option>
+                            <option value="3" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 3)}}selected{{end}}>Level 3</option>
+                            <option value="4" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 4)}}selected{{end}}>Level 4</option>
+                            <option value="5" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 5)}}selected{{end}}>Level 5</option>
+                            <option value="6" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 6)}}selected{{end}}>Level 6</option>
+                            <option value="7" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 7)}}selected{{end}}>Level 7</option>
+                            <option value="8" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 8)}}selected{{end}}>Level 8</option>
+                            <option value="9" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 9)}}selected{{end}}>Level 9</option>
+                            <option value="10" {{if and .AssignedLevel.Valid (eq .AssignedLevel.Int32 10)}}selected{{end}}>Level 10</option>
+                        </select>
+                        <button type="submit" class="btn btn-secondary btn-small">Update Level</button>
+                    </form>
+                </td>
+                <td>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
+                        <form method="POST" action="/private-track/{{.Lead.ID}}" style="display: inline;">
+                            <input type="hidden" name="action" value="return_to_admin_feed">
+                            <button type="submit" class="btn btn-secondary btn-small">Return to Admin Feed</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {{end}}
+            {{else}}
+            <tr>
+                <td colspan="6" style="text-align: center; padding: 40px; color: #8C8C8C;">No students are currently in private track.</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

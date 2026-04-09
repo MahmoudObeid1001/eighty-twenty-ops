@@ -25,6 +25,7 @@
                 <ul>
                     {{if eq .UserRole "admin"}}
                     <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
+                    <li><a href="/private-track">Private Track</a></li>
                     <li><a href="/app/students">Students</a></li>
                     <li><a href="/app/reports">Reports</a></li>
                     <li><a href="/classes">Classes</a></li>
@@ -47,6 +48,7 @@
                     {{else}}
                     <li><a href="/pre-enrolment">Pre-Enrolment</a></li>
                     {{if not .IsModerator}}
+                    <li><a href="/private-track">Private Track</a></li>
                     <li><a href="/classes">Classes</a></li>
                     <li><a href="/finance">Finance</a></li>
                     <li><a href="/app/reports">Reports</a></li>

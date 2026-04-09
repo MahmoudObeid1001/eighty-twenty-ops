@@ -166,7 +166,7 @@ function FeedbackCheckpoint({ classKey, students, onUpdate, canEdit }: { classKe
                           <WhatsAppIcon />
                         </a>
                       )}
-                      {s.joined_at_session_number && (
+                      {s.joined_at_session_number && s.joined_at_session_number > 1 && (
                         <span style={{ background: '#6c5ce7', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>
                           Late Join (S{s.joined_at_session_number})
                         </span>
@@ -557,7 +557,7 @@ export default function StudentSuccessClass() {
             >
               <h3 style={{ fontSize: '18px', marginBottom: '6px', color: '#333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {s.full_name}
-                {s.joined_at_session_number && (
+                {s.joined_at_session_number && s.joined_at_session_number > 1 && (
                   <span style={{ background: '#6c5ce7', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>
                     Late Join (S{s.joined_at_session_number})
                   </span>

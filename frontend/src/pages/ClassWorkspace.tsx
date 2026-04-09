@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, ClassDetail, GradePreview, Student, StudentReportCardData } from '../api/client'
+import { api, ClassDetail, ClassTransferOption, GradePreview, Student, StudentReportCardData } from '../api/client'
 import StudentModal from '../components/StudentModal'
 import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import ComplianceModal from '../components/ComplianceModal'
@@ -28,6 +28,11 @@ function formatSessionTimeLabel(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date)
+}
+
+function formatSourceExitLabel(sessionNumber: number) {
+  if (sessionNumber <= 0) return 'before session 1'
+  return `after session ${sessionNumber}`
 }
 
 export default function ClassWorkspace() {
@@ -82,6 +87,14 @@ export default function ClassWorkspace() {
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
   const [rescheduleSaving, setRescheduleSaving] = useState(false)
+  const [rosterModalMode, setRosterModalMode] = useState<'transfer' | 'return' | null>(null)
+  const [rosterStudent, setRosterStudent] = useState<Student | null>(null)
+  const [transferOptions, setTransferOptions] = useState<ClassTransferOption[]>([])
+  const [transferOptionsLoading, setTransferOptionsLoading] = useState(false)
+  const [rosterTargetClassKey, setRosterTargetClassKey] = useState('')
+  const [rosterReason, setRosterReason] = useState('schedule_change')
+  const [rosterNotes, setRosterNotes] = useState('')
+  const [rosterSaving, setRosterSaving] = useState(false)
 
   async function handleOpenReport(leadId: string) {
     try {
@@ -261,6 +274,99 @@ export default function ClassWorkspace() {
     }
   }
 
+  function closeRosterModal() {
+    setRosterModalMode(null)
+    setRosterStudent(null)
+    setTransferOptions([])
+    setTransferOptionsLoading(false)
+    setRosterTargetClassKey('')
+    setRosterReason('schedule_change')
+    setRosterNotes('')
+    setRosterSaving(false)
+  }
+
+  async function openTransferModal(student: Student) {
+    try {
+      setActionError(null)
+      setActionSuccess(null)
+      setRosterStudent(student)
+      setRosterModalMode('transfer')
+      setRosterReason('schedule_change')
+      setRosterNotes('')
+      setRosterTargetClassKey('')
+      setTransferOptions([])
+      setTransferOptionsLoading(true)
+      const res = await api.getClassTransferOptions(student.lead_id, classKey)
+      setTransferOptions(res.options || [])
+      if (res.options && res.options.length > 0) {
+        setRosterTargetClassKey(res.options[0].class_key)
+      }
+    } catch (err) {
+      closeRosterModal()
+      setActionError(err instanceof Error ? err.message : 'Failed to load target classes')
+    } finally {
+      setTransferOptionsLoading(false)
+    }
+  }
+
+  function openReturnModal(student: Student) {
+    setActionError(null)
+    setActionSuccess(null)
+    setRosterStudent(student)
+    setRosterModalMode('return')
+    setRosterReason('refund_to_admin')
+    setRosterNotes('')
+    setRosterTargetClassKey('')
+    setTransferOptions([])
+  }
+
+  async function handleSaveRosterChange() {
+    if (!rosterStudent || !rosterModalMode) return
+
+    try {
+      setRosterSaving(true)
+      setActionError(null)
+      setActionSuccess(null)
+
+      if (rosterModalMode === 'transfer') {
+        if (!rosterTargetClassKey) {
+          setActionError('Choose a target class first.')
+          return
+        }
+        const res = await api.transferClassStudent({
+          lead_id: rosterStudent.lead_id,
+          source_class_key: classKey,
+          target_class_key: rosterTargetClassKey,
+          reason: rosterReason,
+          notes: rosterNotes,
+        })
+        await loadClass(true)
+        closeRosterModal()
+        setActionSuccess(
+          `${rosterStudent.full_name} was removed from the source class ${formatSourceExitLabel(res.source_exit_after_session_number)} and joins the target class at session ${res.target_joined_at_session_number}.`
+        )
+        return
+      }
+
+      const res = await api.returnClassStudentToAdmin({
+        lead_id: rosterStudent.lead_id,
+        source_class_key: classKey,
+        reason: rosterReason,
+        notes: rosterNotes,
+      })
+      await loadClass(true)
+      closeRosterModal()
+      const queueLabel = res.ops_queue_reason === 'private_track' ? 'private track' : 'refund review'
+      setActionSuccess(
+        `${rosterStudent.full_name} was removed from the class ${formatSourceExitLabel(res.source_exit_after_session_number)} and sent back to Admin for ${queueLabel}.`
+      )
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to update class roster')
+    } finally {
+      setRosterSaving(false)
+    }
+  }
+
   function normalizeGrade(v?: { grade: string; notes: string }) {
     return {
       grade: v?.grade || '',
@@ -390,6 +496,7 @@ export default function ClassWorkspace() {
   const hasCompletedSessions = classData.sessions.some((s) => s.status === 'completed')
   const canShiftRoundStartDate = (userRole === 'mentor_head' || userRole === 'manager') && classData.class.round_status !== 'closed' && classData.sessions.length > 0
   const canRescheduleSelectedSession = (userRole === 'mentor_head' || userRole === 'manager') && !!selectedSession && selectedSession.status !== 'completed' && classData.class.round_status !== 'closed'
+  const canManageRoster = (userRole === 'mentor_head' || userRole === 'admin' || userRole === 'manager') && classData.class.round_status === 'active'
   const allowedStartDays = classData.class.days === 'Sat/Tues'
     ? 'Saturday or Tuesday'
     : classData.class.days === 'Sun/Wed'
@@ -753,7 +860,7 @@ export default function ClassWorkspace() {
                         <div onClick={() => setSelectedStudent(student)} style={{ cursor: 'pointer', flex: 1 }}>
                           <h3 style={{ fontSize: '17px', marginBottom: '4px', color: '#333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {student.full_name}
-                            {student.joined_at_session_number && (
+                            {student.joined_at_session_number && student.joined_at_session_number > 1 && (
                               <span style={{ background: '#6c5ce7', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>
                                 Late Join (S{student.joined_at_session_number})
                               </span>
@@ -776,6 +883,41 @@ export default function ClassWorkspace() {
                           </span>
                         )}
                       </div>
+
+                      {canManageRoster && (
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                          <button
+                            onClick={() => openTransferModal(student)}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid #0d6efd',
+                              background: 'white',
+                              color: '#0d6efd',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                            }}
+                          >
+                            Transfer
+                          </button>
+                          <button
+                            onClick={() => openReturnModal(student)}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid #dc3545',
+                              background: 'white',
+                              color: '#dc3545',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                            }}
+                          >
+                            Return to Admin
+                          </button>
+                        </div>
+                      )}
 
                       {selectedSession ? (
                         <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', opacity: isUpdating ? 0.6 : 1 }}>
@@ -1312,6 +1454,166 @@ export default function ClassWorkspace() {
                 }}
               >
                 {rescheduleSaving ? 'Saving...' : 'Save Session Date'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rosterModalMode && rosterStudent && (
+        <div
+          onClick={closeRosterModal}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 4000,
+            padding: '16px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '560px',
+              maxWidth: '100%',
+              boxShadow: '0 12px 30px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: '8px' }}>
+              {rosterModalMode === 'transfer' ? 'Transfer Student' : 'Return Student to Admin'}
+            </h3>
+            <p style={{ marginTop: 0, marginBottom: '16px', color: '#555' }}>
+              <strong>{rosterStudent.full_name}</strong> will leave this class starting with its next uncompleted session.
+              {rosterModalMode === 'transfer' ? ' The target class will receive the student on its own current session number.' : ' Past attendance stays on this class.'}
+            </p>
+
+            {rosterModalMode === 'transfer' ? (
+              <>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>Target class</label>
+                  {transferOptionsLoading ? (
+                    <div style={{ padding: '12px', borderRadius: '8px', background: '#f8f9fa', color: '#555' }}>Loading available classes...</div>
+                  ) : transferOptions.length > 0 ? (
+                    <select
+                      value={rosterTargetClassKey}
+                      onChange={(e) => setRosterTargetClassKey(e.target.value)}
+                      disabled={rosterSaving}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #ced4da',
+                        fontSize: '14px',
+                      }}
+                    >
+                      {transferOptions.map((option) => (
+                        <option key={option.class_key} value={option.class_key}>
+                          {`L${option.level} · ${option.class_days} · ${option.class_time} · Class ${option.class_number} · S${option.current_session} · ${option.current_enrollment}/6`}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ padding: '12px', borderRadius: '8px', background: '#fff3cd', color: '#856404' }}>
+                      No eligible target classes are available right now.
+                    </div>
+                  )}
+                </div>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>Reason</label>
+                  <select
+                    value={rosterReason}
+                    onChange={(e) => setRosterReason(e.target.value)}
+                    disabled={rosterSaving}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid #ced4da',
+                      fontSize: '14px',
+                    }}
+                  >
+                    <option value="schedule_change">Schedule change</option>
+                    <option value="promotion">Promotion</option>
+                    <option value="demotion">Demotion</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </>
+            ) : (
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>Admin queue</label>
+                <select
+                  value={rosterReason}
+                  onChange={(e) => setRosterReason(e.target.value)}
+                  disabled={rosterSaving}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #ced4da',
+                    fontSize: '14px',
+                  }}
+                >
+                  <option value="refund_to_admin">Refund review</option>
+                  <option value="private_track_to_admin">Private track</option>
+                </select>
+              </div>
+            )}
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>Notes</label>
+              <textarea
+                value={rosterNotes}
+                onChange={(e) => setRosterNotes(e.target.value)}
+                disabled={rosterSaving}
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #ced4da',
+                  fontSize: '14px',
+                  resize: 'vertical',
+                }}
+                placeholder="Optional note for the roster change"
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={closeRosterModal}
+                disabled={rosterSaving}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid #ced4da',
+                  background: 'white',
+                  cursor: rosterSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveRosterChange}
+                disabled={rosterSaving || (rosterModalMode === 'transfer' && (!rosterTargetClassKey || transferOptionsLoading))}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: rosterModalMode === 'transfer' ? '#0d6efd' : '#dc3545',
+                  color: 'white',
+                  fontWeight: 700,
+                  cursor: rosterSaving ? 'not-allowed' : 'pointer',
+                  opacity: rosterSaving || (rosterModalMode === 'transfer' && (!rosterTargetClassKey || transferOptionsLoading)) ? 0.7 : 1,
+                }}
+              >
+                {rosterSaving ? 'Saving...' : rosterModalMode === 'transfer' ? 'Transfer Student' : 'Send to Admin'}
               </button>
             </div>
           </div>

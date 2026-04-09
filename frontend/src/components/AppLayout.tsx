@@ -47,15 +47,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
   }
 
   if (error) {
-    const backendOrigin = window.location.origin.includes(':3000')
-      ? window.location.origin.replace(':3000', ':3001')
-      : window.location.origin
     return (
       <div style={{ padding: '40px', margin: '40px auto', maxWidth: '600px', background: 'white', borderRadius: '8px', border: '1px solid #ddd', textAlign: 'center' }}>
         <h2 style={{ color: '#dc3545', marginBottom: '1rem' }}>Authentication Error</h2>
         <p style={{ color: '#333', marginBottom: '1.5rem' }}>{error}</p>
         <a
-          href={`${backendOrigin}/login`}
+          href="/login"
           style={{
             display: 'inline-block',
             padding: '12px 24px',
