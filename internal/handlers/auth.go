@@ -24,7 +24,7 @@ func RoleHomePath(role string) string {
 	case "admin", "moderator":
 		return "/pre-enrolment"
 	case "manager":
-		return "/app/staff"
+		return "/app/manager-dashboard"
 	case "mentor_head":
 		return "/mentor-head"
 	case "mentor":

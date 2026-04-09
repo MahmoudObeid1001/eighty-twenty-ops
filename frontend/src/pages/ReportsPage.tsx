@@ -1,5 +1,5 @@
 import { CSSProperties, Fragment, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import {
   api,
   BIReportPayload,
@@ -14,7 +14,9 @@ type ReportsViewMode = 'bi' | 'mentor' | 'daily' | 'ops'
 const CAIRO_TIME_ZONE = 'Africa/Cairo'
 
 export default function ReportsPage() {
+  const location = useLocation()
   const [searchParams] = useSearchParams()
+  const isManagerDashboard = location.pathname === '/manager-dashboard'
   const requestedTab = searchParams.get('tab')
   const requestedDate = searchParams.get('date')
   const [items, setItems] = useState<MentorReportItem[]>([])
@@ -67,7 +69,7 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (!userRole) return
-    if (requestedTab === 'ops' && canViewManagerOps) {
+    if (isManagerDashboard && canViewManagerOps) {
       if (requestedDate) {
         setOpsDate(requestedDate)
       }
@@ -83,10 +85,6 @@ export default function ReportsPage() {
       void loadDailyReport(requestedDate || undefined)
       return
     }
-    if (canViewManagerOps) {
-      setViewMode('ops')
-      return
-    }
     if (canViewBI) {
       setViewMode('bi')
       return
@@ -98,7 +96,7 @@ export default function ReportsPage() {
     if (canViewMentor) {
       setViewMode('mentor')
     }
-  }, [userRole, canViewBI, canViewDaily, canViewManagerOps, canViewMentor, requestedTab, requestedDate])
+  }, [userRole, canViewBI, canViewDaily, canViewManagerOps, canViewMentor, isManagerDashboard, requestedTab, requestedDate])
 
   useEffect(() => {
     if (!userRole || !canViewMentor || viewMode !== 'mentor') {
@@ -122,11 +120,11 @@ export default function ReportsPage() {
   }, [userRole, canViewDaily, viewMode])
 
   useEffect(() => {
-    if (!userRole || !canViewManagerOps || viewMode !== 'ops') {
+    if (!userRole || !isManagerDashboard || !canViewManagerOps || viewMode !== 'ops') {
       return
     }
     void loadManagerOps(opsDate || undefined)
-  }, [userRole, canViewManagerOps, viewMode])
+  }, [userRole, canViewManagerOps, isManagerDashboard, viewMode])
 
   async function loadMe() {
     try {
@@ -300,7 +298,6 @@ export default function ReportsPage() {
   }
 
   const reportTabs = [
-    canViewManagerOps ? { key: 'ops' as const, label: 'Manager Ops' } : null,
     canViewBI ? { key: 'bi' as const, label: 'Business Intelligence' } : null,
     canViewDaily ? { key: 'daily' as const, label: 'Daily Reports' } : null,
     canViewMentor ? { key: 'mentor' as const, label: 'Mentor Compliance' } : null,
@@ -310,10 +307,10 @@ export default function ReportsPage() {
     <>
       <div className="header content-header">
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
-        <h1>Reports</h1>
+        <h1>{isManagerDashboard ? 'Manager Dashboard' : 'Reports'}</h1>
       </div>
 
-      {reportTabs.length > 1 && (
+      {!isManagerDashboard && reportTabs.length > 1 && (
         <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
           {reportTabs.map((tab) => (
             <button
@@ -330,14 +327,14 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {!canViewManagerOps && !canViewBI && !canViewMentor && !canViewDaily && (
+      {((isManagerDashboard && !canViewManagerOps) || (!isManagerDashboard && !canViewBI && !canViewMentor && !canViewDaily)) && (
         <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>
           <h3 style={{ marginTop: 0 }}>No Reports Access</h3>
           <p style={{ color: '#555', marginBottom: 0 }}>Your role does not have access to reports.</p>
         </div>
       )}
 
-      {canViewManagerOps && viewMode === 'ops' && (
+      {isManagerDashboard && canViewManagerOps && viewMode === 'ops' && (
         <>
           <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>

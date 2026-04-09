@@ -4,7 +4,7 @@ import { api } from '../api/client'
 function roleHomePath(role: string): string {
   switch (role) {
     case 'manager':
-      return '/app/staff'
+      return '/app/manager-dashboard'
     case 'admin':
     case 'moderator':
       return '/pre-enrolment'

@@ -118,6 +118,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
+            {role === 'manager' && (
+              <li>
+                <Link to="/manager-dashboard" className={isActive('/manager-dashboard') ? 'active' : ''}>
+                  Manager Dashboard
+                </Link>
+              </li>
+            )}
             {(role === 'mentor_head' || role === 'manager') && (
               <li>
                 <Link to="/mentor-head/evaluations" className={isActive('/mentor-head/evaluations') ? 'active' : ''}>

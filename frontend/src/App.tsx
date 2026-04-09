@@ -31,6 +31,7 @@ function App() {
         <Route path="/student-success" element={<StudentSuccessDashboard />} />
         <Route path="/student-success/class" element={<StudentSuccessClass />} />
         <Route path="/students" element={<StudentsPage />} />
+        <Route path="/manager-dashboard" element={<ReportsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/mentors" element={<MentorsPage />} />
         <Route path="/staff" element={<StaffManagementPage />} />
