@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"eighty-twenty-ops/internal/config"
 	"eighty-twenty-ops/internal/middleware"
@@ -24,6 +26,7 @@ var (
 	templates     *template.Template
 	templatesOnce sync.Once
 	cfg           *config.Config
+	staticVersion = strconv.FormatInt(time.Now().Unix(), 10)
 )
 
 // SetConfig sets the config for debug logging
@@ -212,6 +215,7 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 		}
 	}
 	dataMap["ContentTemplate"] = contentTemplateName
+	dataMap["StaticVersion"] = staticVersion
 	if _, ok := dataMap["UserRole"]; !ok && r != nil {
 		dataMap["UserRole"] = middleware.GetUserRole(r)
 	}

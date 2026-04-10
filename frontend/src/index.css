@@ -769,14 +769,13 @@ table tbody tr.row-cancelled:hover {
         color: #333;
     }
     
-    .hamburger-btn {
-        display: flex;
+    .mobile-header .hamburger-btn {
+        display: flex !important;
         background: none;
         border: none;
         font-size: 28px;
         cursor: pointer;
         color: #333;
-        display: flex;
         align-items: center;
         justify-content: center;
         padding: 4px;
