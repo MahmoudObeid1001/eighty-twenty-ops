@@ -278,13 +278,13 @@
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form"
                             data-lead-id="{{.Lead.ID}}">
                             <input type="hidden" name="action" value="send_to_classes">
-                            <button type="submit" class="btn btn-success btn-small">Send to Classes</button>
+                            <button type="submit" class="btn btn-success btn-small">To Classes</button>
                         </form>
                         {{end}}
                         {{if and (not $.IsModerator) (not $isCancelled) (not .Lead.OpsQueueReason.Valid)}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" style="display: inline;">
                             <input type="hidden" name="action" value="send_private_track">
-                            <button type="submit" class="btn btn-small" style="background: #0d6efd; color: white; border: 1px solid #0d6efd;">Send to Private Track</button>
+                            <button type="submit" class="btn btn-small" style="background: #0d6efd; color: white; border: 1px solid #0d6efd;">Private Track</button>
                         </form>
                         {{end}}
                         {{if and (not $.IsModerator) (not $isCancelled)}}

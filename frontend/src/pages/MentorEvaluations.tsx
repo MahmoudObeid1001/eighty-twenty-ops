@@ -274,7 +274,7 @@ export default function MentorEvaluations() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'minmax(220px, 1fr) 160px 160px auto auto',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
               gap: '8px',
               alignItems: 'end',
             }}
@@ -420,14 +420,16 @@ export default function MentorEvaluations() {
                   borderRadius: '8px',
                   display: 'flex',
                   justifyContent: 'space-between',
-                  alignItems: 'center',
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  gap: '12px',
                 }}
               >
-                <div onClick={() => toggleMentor(mentor.id)} style={{ cursor: 'pointer' }}>
+                <div onClick={() => toggleMentor(mentor.id)} style={{ cursor: 'pointer', flex: '1 1 200px' }}>
                   <div style={{ fontWeight: 700 }}>{mentor.name}</div>
                   <div style={{ color: '#666', fontSize: '13px' }}>{mentor.email}</div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
                   <span
                     style={{
                       padding: '4px 8px',
@@ -655,14 +657,14 @@ function ClassCard({
   const collective = computeCollectiveKPI(classItem)
   return (
     <div style={{ border: '1px solid #e9ecef', borderRadius: '8px', padding: '12px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-        <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '8px' }}>
+        <div style={{ flex: '1 1 200px' }}>
           <strong>
             Level {classItem.level} • {classItem.days} • {classItem.time} • Class #{classItem.classNumber}
           </strong>
           <div style={{ color: '#666', fontSize: '12px' }}>{classItem.classKey}</div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             onClick={onViewReport}
             style={{

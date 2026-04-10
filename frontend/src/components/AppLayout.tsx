@@ -12,7 +12,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const location = useLocation()
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false)
+  }, [location.pathname])
 
   useEffect(() => {
     loadUser()
@@ -87,7 +92,23 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="container">
-      <aside className="sidebar">
+      {/* Mobile Header */}
+      <div className="mobile-header">
+        <div className="brand-block">
+          <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo-sidebar" />
+          <span className="brand-name">Eighty Twenty</span>
+        </div>
+        <button className="hamburger-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} aria-label="Toggle Navigation">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div 
+        className={`sidebar-overlay ${isMobileMenuOpen ? 'active' : ''}`}
+        onClick={() => setIsMobileMenuOpen(false)}
+      ></div>
+
+      <aside className={`sidebar ${isMobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-block">
           <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo-sidebar" />
           <span className="brand-name">Eighty Twenty</span>

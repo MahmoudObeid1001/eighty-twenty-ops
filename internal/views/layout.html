@@ -15,8 +15,20 @@
 <body>
     {{if ne .HideSidebar true}}
     <div class="container">
+        <!-- Mobile Header -->
+        <div class="mobile-header">
+            <div class="brand-block">
+                <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo-sidebar" />
+                <span class="brand-name">Eighty Twenty</span>
+            </div>
+            <button class="hamburger-btn" onclick="toggleSidebar()" aria-label="Toggle Navigation">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+            </button>
+        </div>
+        <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
         <!-- Sidebar Navigation -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="brand-block">
                 <img src="/static/logo/eighty-twenty-logo.png" alt="" class="app-logo-sidebar" />
                 <span class="brand-name">Eighty Twenty</span>
@@ -171,6 +183,16 @@
             {{if ne .HideSidebar true}}
         </main>
     </div>
+    <script>
+        function toggleSidebar() {
+            var sidebar = document.getElementById("sidebar");
+            var overlay = document.getElementById("sidebar-overlay");
+            if (sidebar && overlay) {
+                sidebar.classList.toggle("sidebar-open");
+                overlay.classList.toggle("active");
+            }
+        }
+    </script>
     {{end}}
 </body>
 

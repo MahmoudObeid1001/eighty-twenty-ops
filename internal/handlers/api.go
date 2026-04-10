@@ -3288,6 +3288,8 @@ func (h *APIHandler) ResolveAbsence(w http.ResponseWriter, r *http.Request) {
 		ClassKey      string `json:"class_key"`
 		LeadID        string `json:"lead_id"`
 		SessionNumber int    `json:"session_number"`
+		Note          string `json:"note"`
+		Status        string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "Invalid request body")
@@ -3303,7 +3305,7 @@ func (h *APIHandler) ResolveAbsence(w http.ResponseWriter, r *http.Request) {
 	userIDStr := middleware.GetUserID(r)
 	userID, _ := uuid.Parse(userIDStr)
 
-	if err := models.ResolveAbsence(req.ClassKey, leadID, req.SessionNumber, userID); err != nil {
+	if err := models.ResolveAbsence(req.ClassKey, leadID, req.SessionNumber, req.Note, req.Status, userID); err != nil {
 		log.Printf("ERROR: Failed to resolve absence: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to resolve absence")
 		return

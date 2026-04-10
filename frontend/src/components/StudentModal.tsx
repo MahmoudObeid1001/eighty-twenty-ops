@@ -200,7 +200,7 @@ export default function StudentModal({ student, classKey, sessionsCount, attende
                   </div>
                 )}
                 {/* Stats blocks (ID card style) */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px', marginBottom: '24px' }}>
                   <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '6px', border: '1px solid #dee2e6' }}>
                     <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px', textTransform: 'uppercase' }}>Levels Finished</div>
                     <div style={{ fontSize: '24px', fontWeight: 600, color: '#333' }}>{profile.levelsFinished}</div>

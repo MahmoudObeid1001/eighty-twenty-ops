@@ -622,10 +622,12 @@ export default function ClassWorkspace() {
         </div>
       )}
 
-      <div className="workspace-tabs" style={{ display: 'flex', gap: '24px', borderBottom: '1px solid #dee2e6', marginBottom: '24px' }}>
+      <div className="workspace-tabs" style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', overflowY: 'hidden', gap: '16px', borderBottom: '1px solid #dee2e6', marginBottom: '24px', width: '100%', WebkitOverflowScrolling: 'touch' }}>
         <button
           onClick={() => setActiveTab('sessions')}
           style={{
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
             padding: '12px 0',
             background: 'none',
             border: 'none',
@@ -648,6 +650,8 @@ export default function ClassWorkspace() {
             }
           }}
           style={{
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
             padding: '12px 0',
             background: 'none',
             border: 'none',
@@ -670,8 +674,10 @@ export default function ClassWorkspace() {
         {canViewFeedbackCollected && (
           <button
             onClick={() => setActiveTab('feedback_collected')}
-            style={{
-              padding: '12px 0',
+          style={{
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
+            padding: '12px 0',
               background: 'none',
               border: 'none',
               borderBottom: activeTab === 'feedback_collected' ? '3px solid #007bff' : '3px solid transparent',
@@ -689,6 +695,8 @@ export default function ClassWorkspace() {
           <button
             onClick={() => setComplianceOpen(true)}
             style={{
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
               marginLeft: 'auto',
               padding: '8px 12px',
               borderRadius: '8px',
@@ -708,6 +716,8 @@ export default function ClassWorkspace() {
             onClick={handleOpenShiftStartModal}
             disabled={hasCompletedSessions || shiftStartSaving}
             style={{
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
               marginLeft: 'auto',
               padding: '8px 12px',
               borderRadius: '8px',
@@ -728,7 +738,7 @@ export default function ClassWorkspace() {
       {activeTab === 'sessions' && (
         <>
           <div style={{ marginBottom: '24px' }}>
-            <div className="session-chip-row" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', background: '#f8f9fa', padding: '12px', borderRadius: '12px' }}>
+            <div className="session-chip-row" style={{ display: 'flex', gap: '8px', flexWrap: 'nowrap', overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%', background: '#f8f9fa', padding: '12px', borderRadius: '12px' }}>
               {classData.sessions.map((s) => {
                 const isSelected = s.session_number === selectedSessionNumber
                 const statusColor = s.status === 'completed' ? '#28a745' : s.status === 'scheduled' ? '#007bff' : '#6c757d'
@@ -737,6 +747,7 @@ export default function ClassWorkspace() {
                     key={s.id}
                     onClick={() => setSelectedSessionNumber(s.session_number)}
                     style={{
+                      flexShrink: 0,
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'flex-start',
@@ -835,7 +846,7 @@ export default function ClassWorkspace() {
           <div style={{ display: 'flex', gap: '20px', position: 'relative' }}>
             <div style={{ flex: 1 }}>
               <h2 style={{ fontSize: '18px', marginBottom: '16px' }}>Students</h2>
-              <div className="workspace-student-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+              <div className="workspace-student-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px' }}>
                 {classData.students.map((student) => {
                   const status = selectedSession ? student.attendance?.[selectedSession.id] : undefined
                   const perf = selectedSession ? student.session_performance?.[selectedSession.id] : undefined

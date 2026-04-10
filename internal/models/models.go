@@ -602,26 +602,28 @@ type AbsenceFeedItem struct {
 }
 
 type FollowUpInfo struct {
-	ID         uuid.UUID  `json:"id"`
-	Status     string     `json:"status"`
-	LastNote   string     `json:"lastNote"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	Resolved   bool       `json:"resolved"`
-	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+	ID         uuid.UUID           `json:"id"`
+	Status     string              `json:"status"`
+	LastNote   string              `json:"lastNote"`
+	UpdatedAt  time.Time           `json:"updatedAt"`
+	Resolved   bool                `json:"resolved"`
+	ResolvedAt *time.Time          `json:"resolvedAt,omitempty"`
+	Notes      []*FollowUpCaseNote `json:"notes,omitempty"`
 }
 
 type FollowUpListItem struct {
-	ID               uuid.UUID  `json:"id"`
-	LeadID           uuid.UUID  `json:"lead_id"`
-	StudentName      string     `json:"student_name"`
-	StudentPhone     string     `json:"student_phone"`
-	SessionNumber    int32      `json:"session_number"`
-	AttendanceStatus string     `json:"attendance_status"`
-	Note             string     `json:"note"`
-	Status           string     `json:"status"`
-	CreatedAt        time.Time  `json:"created_at"`
-	Resolved         bool       `json:"resolved"`
-	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
+	ID               uuid.UUID           `json:"id"`
+	LeadID           uuid.UUID           `json:"lead_id"`
+	StudentName      string              `json:"student_name"`
+	StudentPhone     string              `json:"student_phone"`
+	SessionNumber    int32               `json:"session_number"`
+	AttendanceStatus string              `json:"attendance_status"`
+	Note             string              `json:"note"`
+	Status           string              `json:"status"`
+	CreatedAt        time.Time           `json:"created_at"`
+	Resolved         bool                `json:"resolved"`
+	ResolvedAt       *time.Time          `json:"resolved_at,omitempty"`
+	Notes            []*FollowUpCaseNote `json:"notes,omitempty"`
 }
 
 // ComplaintCase represents a complaint filed by Student Success

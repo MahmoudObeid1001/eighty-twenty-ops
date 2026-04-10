@@ -266,14 +266,14 @@ func GetCurrentClassStatus(leadID uuid.UUID) (*CurrentClassStatus, error) {
 		})
 
 		// Update stats
-			switch status {
-			case "PRESENT":
-				stats.Present++
-			case "ABSENT":
-				stats.Absent++
-			case "LATE":
-				stats.Late++
-			}
+		switch status {
+		case "PRESENT":
+			stats.Present++
+		case "ABSENT":
+			stats.Absent++
+		case "LATE":
+			stats.Late++
+		}
 		if status != "NOT_MARKED" {
 			stats.Total++
 		}
@@ -304,6 +304,22 @@ func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 		UNION ALL
 
 		SELECT 
+			fcn.id,
+			'followup' as type,
+			COALESCE(fcn.note_text, '') as text,
+			COALESCE(f.class_key, '') as class_key,
+			COALESCE(f.session_number, 0) as session,
+			false as is_private,
+			COALESCE(u.email, '') as created_by,
+			fcn.created_at
+		FROM followup_case_notes fcn
+		INNER JOIN followups f ON f.id = fcn.case_id
+		LEFT JOIN users u ON fcn.created_by_user_id = u.id
+		WHERE f.lead_id = $1
+
+		UNION ALL
+
+		SELECT 
 			f.id, 
 			'followup' as type, 
 			COALESCE(f.note, '') as text, 
@@ -315,6 +331,11 @@ func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 		FROM followups f
 		LEFT JOIN users u ON f.created_by::uuid = u.id
 		WHERE f.lead_id = $1
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM followup_case_notes fcn
+			WHERE fcn.case_id = f.id
+		  )
 
 		UNION ALL
 

@@ -8424,8 +8424,6 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 		LEFT JOIN followups f ON f.class_key = s.class_key AND f.lead_id = l.id AND f.session_number = s.session_number AND f.deleted_at IS NULL
 		WHERE s.class_key = $1 
 		  AND a.status IN ('ABSENT', 'LATE')
-		  AND (f.resolved IS NULL OR f.resolved = false)
-		  AND (f.status IS NULL OR f.status != 'NO_RESPONSE')
 	`
 	args := []interface{}{classKey}
 	argIdx := 2
@@ -8433,9 +8431,9 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 	if filter != "" && filter != "all" {
 		switch filter {
 		case "unresolved":
-			// Item is already filtered by base query, but let's keep it explicit if needed.
-			// Actually, the base query now handles "unresolved" by default.
-			// We can leave this as a no-op or remove it.
+			query += " AND (f.resolved IS NULL OR f.resolved = false)"
+		case "resolved":
+			query += " AND f.resolved = true"
 		case "absent":
 			query += " AND a.status = 'ABSENT'"
 		case "late":
@@ -8457,6 +8455,7 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 	defer func() { _ = rows.Close() }()
 
 	results := []*AbsenceFeedItem{}
+	followUpIDs := make([]uuid.UUID, 0)
 	for rows.Next() {
 		item := &AbsenceFeedItem{}
 		var fID sql.NullString
@@ -8514,35 +8513,97 @@ func GetAbsenceFeed(classKey, filter, search string) ([]*AbsenceFeedItem, error)
 				Resolved:   fResolved.Bool,
 				ResolvedAt: resolvedAt,
 			}
+			followUpIDs = append(followUpIDs, fid)
 		}
 
 		results = append(results, item)
 	}
 
-	return results, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	notesByCaseID, err := getFollowUpNotesByCaseIDs(followUpIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range results {
+		if item.FollowUp != nil {
+			item.FollowUp.Notes = notesByCaseID[item.FollowUp.ID]
+		}
+	}
+
+	return results, nil
 }
 
 // CreateFollowUp creates or updates a follow-up note
 func CreateFollowUp(classKey string, leadID uuid.UUID, sessionNumber int, note string, status string, createdBy uuid.UUID) error {
 	standardizedStatus := normalizeFollowUpStatus(status)
-	_, err := db.DB.Exec(`
-		INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
-		ON CONFLICT (class_key, lead_id, session_number)
-		DO UPDATE SET note = $4, status = $5, created_by = $6, updated_at = NOW()
-		WHERE followups.deleted_at IS NULL
-	`, classKey, leadID, sessionNumber, note, standardizedStatus, createdBy)
-	return err
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var followUpID uuid.UUID
+	var previousStatus sql.NullString
+	err = tx.QueryRow(`
+		SELECT id, status
+		FROM followups
+		WHERE class_key = $1 AND lead_id = $2 AND session_number = $3 AND deleted_at IS NULL
+	`, classKey, leadID, sessionNumber).Scan(&followUpID, &previousStatus)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		if err := tx.QueryRow(`
+			INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW())
+			RETURNING id
+		`, classKey, leadID, sessionNumber, note, standardizedStatus, createdBy).Scan(&followUpID); err != nil {
+			return err
+		}
+		if err := writeFollowUpAuditNotesTx(tx, followUpID, standardizedStatus, note, false, true, createdBy); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+
+	_, err = tx.Exec(`
+		UPDATE followups
+		SET note = $1, status = $2, created_by = $3, updated_at = NOW()
+		WHERE id = $4 AND deleted_at IS NULL
+	`, note, standardizedStatus, createdBy, followUpID)
+	if err != nil {
+		return err
+	}
+	if err := writeFollowUpAuditNotesTx(tx, followUpID, standardizedStatus, note, false, previousStatus.String != standardizedStatus, createdBy); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ResolveFollowUp marks a follow-up as resolved
 func ResolveFollowUp(id uuid.UUID, resolvedBy uuid.UUID) error {
-	_, err := db.DB.Exec(`
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(`
 		UPDATE followups 
 		SET resolved = true, resolved_at = NOW(), resolved_by_user_id = $1, updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`, resolvedBy, id)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := CreateFollowUpNoteTx(tx, id, "Case resolved", "resolution", resolvedBy); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // UpdateFollowUpStatus updates the status of a follow-up
@@ -8556,22 +8617,39 @@ func UpdateFollowUpStatus(id uuid.UUID, status string) error {
 
 // UpdateFollowUp handles generic update of follow-up details
 func UpdateFollowUp(id uuid.UUID, status, note string, resolved bool, userID uuid.UUID) error {
-	var err error
 	standardizedStatus := normalizeFollowUpStatus(status)
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var previousStatus sql.NullString
+	err = tx.QueryRow(`SELECT status FROM followups WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&previousStatus)
+	if err != nil {
+		return err
+	}
+
 	if resolved {
-		_, err = db.DB.Exec(`
+		_, err = tx.Exec(`
 			UPDATE followups 
 			SET status = $1, note = $2, resolved = true, resolved_at = NOW(), resolved_by_user_id = $3, updated_at = NOW()
 			WHERE id = $4 AND deleted_at IS NULL
 		`, standardizedStatus, note, userID, id)
 	} else {
-		_, err = db.DB.Exec(`
+		_, err = tx.Exec(`
 			UPDATE followups 
 			SET status = $1, note = $2, updated_at = NOW()
 			WHERE id = $3 AND deleted_at IS NULL
 		`, standardizedStatus, note, id)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if err := writeFollowUpAuditNotesTx(tx, id, standardizedStatus, note, resolved, previousStatus.String != standardizedStatus, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // normalizeFollowUpStatus maps UI values to DB enum values.
@@ -8640,6 +8718,7 @@ func GetFollowUps(classKey string, resolved bool) ([]*FollowUpListItem, error) {
 	defer func() { _ = rows.Close() }()
 
 	results := []*FollowUpListItem{}
+	followUpIDs := make([]uuid.UUID, 0)
 	for rows.Next() {
 		item := &FollowUpListItem{}
 		var note sql.NullString
@@ -8657,20 +8736,76 @@ func GetFollowUps(classKey string, resolved bool) ([]*FollowUpListItem, error) {
 			item.ResolvedAt = &resolvedAt.Time
 		}
 		results = append(results, item)
+		followUpIDs = append(followUpIDs, item.ID)
 	}
-	return results, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	notesByCaseID, err := getFollowUpNotesByCaseIDs(followUpIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range results {
+		item.Notes = notesByCaseID[item.ID]
+	}
+	return results, nil
 }
 
 // ResolveAbsence marks an absence as resolved, creating a follow-up record if necessary
-func ResolveAbsence(classKey string, leadID uuid.UUID, sessionNumber int, resolvedBy uuid.UUID) error {
-	_, err := db.DB.Exec(`
-		INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at, resolved, resolved_at, resolved_by_user_id)
-		VALUES ($1, $2, $3, '', 'RESOLVED', $4, NOW(), true, NOW(), $4)
-		ON CONFLICT (class_key, lead_id, session_number) 
-		DO UPDATE SET resolved = true, resolved_at = NOW(), resolved_by_user_id = $4, updated_at = NOW()
-		WHERE followups.deleted_at IS NULL
-	`, classKey, leadID, sessionNumber, resolvedBy)
-	return err
+func ResolveAbsence(classKey string, leadID uuid.UUID, sessionNumber int, note string, status string, resolvedBy uuid.UUID) error {
+	standardizedStatus := normalizeFollowUpStatus(status)
+	if standardizedStatus == "NOT_CONTACTED" {
+		standardizedStatus = "RESOLVED"
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var followUpID uuid.UUID
+	var previousStatus sql.NullString
+	err = tx.QueryRow(`
+		SELECT id, status
+		FROM followups
+		WHERE class_key = $1 AND lead_id = $2 AND session_number = $3 AND deleted_at IS NULL
+	`, classKey, leadID, sessionNumber).Scan(&followUpID, &previousStatus)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		if err := tx.QueryRow(`
+			INSERT INTO followups (class_key, lead_id, session_number, note, status, created_by, updated_at, resolved, resolved_at, resolved_by_user_id)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW(), true, NOW(), $6)
+			RETURNING id
+		`, classKey, leadID, sessionNumber, note, standardizedStatus, resolvedBy).Scan(&followUpID); err != nil {
+			return err
+		}
+		if err := writeFollowUpAuditNotesTx(tx, followUpID, standardizedStatus, note, true, true, resolvedBy); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+
+	_, err = tx.Exec(`
+		UPDATE followups
+		SET note = $1,
+		    status = $2,
+		    resolved = true,
+		    resolved_at = NOW(),
+		    resolved_by_user_id = $3,
+		    updated_at = NOW()
+		WHERE id = $4 AND deleted_at IS NULL
+	`, note, standardizedStatus, resolvedBy, followUpID)
+	if err != nil {
+		return err
+	}
+	if err := writeFollowUpAuditNotesTx(tx, followUpID, standardizedStatus, note, true, previousStatus.String != standardizedStatus, resolvedBy); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ========== COMPLAINTS WORKFLOW ==========
@@ -8903,6 +9038,36 @@ func CreateFollowUpNote(caseID uuid.UUID, noteText, noteType string, userID uuid
 	return err
 }
 
+func CreateFollowUpNoteTx(tx *sql.Tx, caseID uuid.UUID, noteText, noteType string, userID uuid.UUID) error {
+	_, err := tx.Exec(`
+		INSERT INTO followup_case_notes (case_id, note_text, note_type, created_by_user_id)
+		VALUES ($1, $2, $3, $4)
+	`, caseID, noteText, noteType, userID)
+	return err
+}
+
+func writeFollowUpAuditNotesTx(tx *sql.Tx, caseID uuid.UUID, status, note string, resolved bool, statusChanged bool, userID uuid.UUID) error {
+	if statusChanged {
+		if err := CreateFollowUpNoteTx(tx, caseID, "Status changed to: "+status, "status_change", userID); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(note) != "" {
+		noteType := "comment"
+		if resolved {
+			noteType = "resolution"
+		}
+		if err := CreateFollowUpNoteTx(tx, caseID, note, noteType, userID); err != nil {
+			return err
+		}
+	} else if resolved {
+		if err := CreateFollowUpNoteTx(tx, caseID, "Case resolved", "resolution", userID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetFollowUpNotes returns all notes for a follow-up case
 func GetFollowUpNotes(caseID uuid.UUID) ([]*FollowUpCaseNote, error) {
 	rows, err := db.DB.Query(`
@@ -8933,6 +9098,48 @@ func GetFollowUpNotes(caseID uuid.UUID) ([]*FollowUpCaseNote, error) {
 	}
 
 	return notes, rows.Err()
+}
+
+func getFollowUpNotesByCaseIDs(caseIDs []uuid.UUID) (map[uuid.UUID][]*FollowUpCaseNote, error) {
+	if len(caseIDs) == 0 {
+		return map[uuid.UUID][]*FollowUpCaseNote{}, nil
+	}
+
+	rows, err := db.DB.Query(`
+		SELECT fcn.id, fcn.case_id, fcn.note_text, fcn.note_type, fcn.created_at,
+		       fcn.created_by_user_id, COALESCE(u.email, '') as created_by_email
+		FROM followup_case_notes fcn
+		LEFT JOIN users u ON u.id = fcn.created_by_user_id
+		WHERE fcn.case_id = ANY($1)
+		ORDER BY fcn.created_at DESC
+	`, pq.Array(caseIDs))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query follow-up notes by case ids: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	notesByCaseID := make(map[uuid.UUID][]*FollowUpCaseNote)
+	for rows.Next() {
+		note := &FollowUpCaseNote{}
+		err := rows.Scan(
+			&note.ID,
+			&note.CaseID,
+			&note.NoteText,
+			&note.NoteType,
+			&note.CreatedAt,
+			&note.CreatedByUserID,
+			&note.CreatedByEmail,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan follow-up note: %w", err)
+		}
+		notesByCaseID[note.CaseID] = append(notesByCaseID[note.CaseID], note)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return notesByCaseID, nil
 }
 
 func gradeMirrorNoteID(gradeID uuid.UUID) uuid.UUID {

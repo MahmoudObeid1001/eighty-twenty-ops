@@ -687,7 +687,7 @@ export default function StudentSuccessClass() {
             {followUpModal.error && <div style={{ color: 'red', background: '#f8d7da', padding: '8px', borderRadius: '4px', marginBottom: '10px' }}>{followUpModal.error}</div>}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>Status</label>
-              <select id="followup-status" defaultValue={followUpModal.item.followUp?.status || followUpModal.item.status || 'contacted'} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}>
+              <select id="followup-status" defaultValue={normalizeFollowUpStatusForSelect(followUpModal.item.followUp?.status || followUpModal.item.status || 'contacted')} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}>
                 <option value="none">None</option>
                 <option value="contacted">Contacted (same day)</option>
                 <option value="not_replied">Not Replied (after 1 day)</option>
@@ -750,7 +750,13 @@ export default function StudentSuccessClass() {
                           if (followUpId) {
                             await api.updateFollowUp(followUpId, { status: status, note: note, resolved: true })
                           } else {
-                            await api.resolveAbsence({ class_key: classKey, lead_id: followUpModal.item.studentId || followUpModal.item.lead_id, session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number })
+                            await api.resolveAbsence({
+                              class_key: classKey,
+                              lead_id: followUpModal.item.studentId || followUpModal.item.lead_id,
+                              session_number: followUpModal.item.sessionNumber || followUpModal.item.session_number,
+                              note,
+                              status,
+                            })
                           }
                           setFollowUpModal({ open: false, item: null })
                           triggerRefresh()
@@ -815,7 +821,7 @@ export default function StudentSuccessClass() {
 function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, setActionError }: { classKey: string; onOpenFollowUp: (item: any) => void; refreshNonce: number; triggerRefresh: () => void; setActionError: (error: string | null) => void }) {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'unresolved' | 'absent' | 'late'>('all')
+  const [filter, setFilter] = useState<'all' | 'unresolved' | 'resolved' | 'absent' | 'late'>('all')
   const [search, setSearch] = useState('')
   const [confirmState, setConfirmState] = useState<{ open: boolean; item?: { followUpId?: string; studentId: string; sessionNum: number } }>({ open: false })
 
@@ -883,7 +889,7 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
       <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
         <div style={{ padding: '16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', gap: '8px' }}>
-            {(['all', 'unresolved', 'absent', 'late'] as const).map((f) => (
+            {(['all', 'unresolved', 'resolved', 'absent', 'late'] as const).map((f) => (
               <button key={f} onClick={() => setFilter(f)} style={{ padding: '4px 12px', borderRadius: '4px', border: '1px solid #dee2e6', background: filter === f ? '#007bff' : '#fff', color: filter === f ? '#fff' : '#666', fontSize: '12px', cursor: 'pointer', textTransform: 'capitalize' }}>
                 {f}
               </button>
@@ -894,7 +900,7 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
 
         <div style={{ overflowX: 'auto' }}>
           {sessionNumbers.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No absences found matching filters.</div>
+            <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No absence cases found matching filters.</div>
           ) : (
             sessionNumbers.map((sn) => (
               <div key={sn} style={{ borderBottom: '4px solid #f8f9fa' }}>
@@ -934,8 +940,20 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
                         <td style={{ padding: '12px' }}>
                           {item.followUp ? (
                             <div>
-                              <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: item.followUp.status === 'RESOLVED' ? '#d4edda' : '#e2e3e5', color: item.followUp.status === 'RESOLVED' ? '#155724' : '#383d41' }}>{item.followUp.status}</span>
+                              <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: item.followUp.status === 'RESOLVED' ? '#d4edda' : '#e2e3e5', color: item.followUp.status === 'RESOLVED' ? '#155724' : '#383d41' }}>{formatFollowUpStatus(item.followUp.status)}</span>
                               {item.followUp.lastNote && <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>{item.followUp.lastNote}</div>}
+                              {item.followUp.notes?.length ? (
+                                <div style={{ marginTop: '6px', display: 'grid', gap: '4px' }}>
+                                  {item.followUp.notes.slice(0, 3).map((note: any) => (
+                                    <div key={note.id} style={{ fontSize: '11px', color: '#555', background: '#f8f9fa', borderRadius: '4px', padding: '6px' }}>
+                                      <div style={{ fontWeight: 600 }}>{formatFollowUpNoteType(note.note_text, note.note_type)}</div>
+                                      <div style={{ color: '#777', marginTop: '2px' }}>
+                                        {new Date(note.created_at).toLocaleString()} · {note.created_by_email || 'Unknown'}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                           ) : (
                             <span style={{ fontSize: '11px', color: '#999' }}>No follow-up yet</span>
@@ -949,9 +967,11 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
                             <button onClick={() => onOpenFollowUp(item)} title="Add Follow-up Note" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #007bff', background: '#fff', color: '#007bff', fontSize: '11px', cursor: 'pointer' }}>
                               Follow up
                             </button>
-                            <button onClick={() => handleMarkResolved(item.followUp?.id, item.studentId, item.sessionNumber)} title="Resolve" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #28a745', background: '#fff', color: '#28a745', fontSize: '11px', cursor: 'pointer' }}>
-                              Resolve
-                            </button>
+                            {filter !== 'resolved' && (
+                              <button onClick={() => handleMarkResolved(item.followUp?.id, item.studentId, item.sessionNumber)} title="Resolve" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #28a745', background: '#fff', color: '#28a745', fontSize: '11px', cursor: 'pointer' }}>
+                                Resolve
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1068,11 +1088,25 @@ function FollowUpsTab({ classKey, onOpenFollowUp, refreshNonce }: { classKey: st
                             <div style={{ fontSize: '12px', color: '#666' }}>{complaintText}</div>
                           </div>
                         ) : (
-                          <div style={{ fontSize: '12px', color: '#666' }}>{item.attendance_status || item.note}</div>
+                          <div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>{item.attendance_status || item.note}</div>
+                            {item.notes?.length ? (
+                              <div style={{ marginTop: '6px', display: 'grid', gap: '4px' }}>
+                                {item.notes.slice(0, 3).map((note: any) => (
+                                  <div key={note.id} style={{ fontSize: '11px', color: '#555', background: '#f8f9fa', borderRadius: '4px', padding: '6px' }}>
+                                    <div style={{ fontWeight: 600 }}>{formatFollowUpNoteType(note.note_text, note.note_type)}</div>
+                                    <div style={{ color: '#777', marginTop: '2px' }}>
+                                      {new Date(note.created_at).toLocaleString()} · {note.created_by_email || 'Unknown'}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
                         )}
                       </td>
                       <td style={{ padding: '12px' }}>
-                        <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: item.resolved ? '#d4edda' : '#e2e3e5', color: item.resolved ? '#155724' : '#383d41' }}>{item.resolved ? 'RESOLVED' : item.status.toUpperCase()}</span>
+                        <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: item.resolved ? '#d4edda' : '#e2e3e5', color: item.resolved ? '#155724' : '#383d41' }}>{item.resolved ? 'RESOLVED' : formatFollowUpStatus(item.status)}</span>
                       </td>
                       <td style={{ padding: '12px' }}>{new Date(item.created_at).toLocaleString()}</td>
                       <td style={{ padding: '12px' }}>{!item.resolved && <button onClick={() => onOpenFollowUp(item)} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #28a745', background: '#fff', color: '#28a745', fontSize: '11px', cursor: 'pointer' }}>Resolve</button>}</td>
@@ -1171,6 +1205,32 @@ function buildWhatsAppLink(phone: string) {
     normalized = `20${normalized.slice(1)}`
   }
   return `https://wa.me/${normalized}`
+}
+
+function normalizeFollowUpStatusForSelect(status?: string) {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (!normalized) return 'none'
+  if (normalized === 'not_contacted') return 'none'
+  if (normalized === 'contacted') return 'contacted'
+  if (normalized === 'not_replied') return 'not_replied'
+  if (normalized === 'no_response') return 'no_response'
+  if (normalized === 'resolved') return 'contacted'
+  return normalized
+}
+
+function formatFollowUpStatus(status?: string) {
+  const normalized = String(status || '').trim().toUpperCase()
+  if (!normalized) return 'None'
+  return normalized.replace(/_/g, ' ')
+}
+
+function formatFollowUpNoteType(text?: string, noteType?: string) {
+  const normalizedType = String(noteType || '').trim().toLowerCase()
+  const safeText = String(text || '').trim()
+  if (normalizedType === 'status_change') return safeText || 'Status changed'
+  if (normalizedType === 'resolution') return `Resolved: ${safeText || 'Case resolved'}`
+  if (normalizedType === 'system') return safeText || 'System update'
+  return safeText || 'Follow-up note'
 }
 
 function WhatsAppIcon() {

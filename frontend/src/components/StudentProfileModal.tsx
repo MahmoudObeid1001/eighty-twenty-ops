@@ -208,6 +208,7 @@ function AcademicHistoryTab({ history }: { history: AcademicHistoryItem[] }) {
     }
 
     return (
+        <div style={{ overflowX: 'auto', width: '100%' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
                 <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
@@ -257,6 +258,7 @@ function AcademicHistoryTab({ history }: { history: AcademicHistoryItem[] }) {
                 ))}
             </tbody>
         </table>
+        </div>
     )
 }
 
@@ -275,7 +277,7 @@ function CurrentStatusTab({ status }: { status: CurrentClassStatus | null }) {
             {/* Class Info */}
             <div style={{ background: '#f8f9fa', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
                 <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Current Class</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', fontSize: '14px' }}>
                     <div><strong>Level:</strong> {status.level}</div>
                     <div><strong>Schedule:</strong> {status.class_days} {status.class_time}</div>
                     <div><strong>Mentor:</strong> {status.mentor_name || 'Not assigned'}</div>
@@ -286,7 +288,7 @@ function CurrentStatusTab({ status }: { status: CurrentClassStatus | null }) {
             {/* Attendance Stats */}
             <div style={{ marginBottom: '20px' }}>
                 <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Attendance Summary</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: '12px' }}>
                     <div style={{ background: '#d4edda', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
                         <div style={{ fontSize: '24px', fontWeight: 600, color: '#155724' }}>{status.attendance_stats.present}</div>
                         <div style={{ fontSize: '12px', color: '#155724' }}>Present</div>
@@ -309,6 +311,7 @@ function CurrentStatusTab({ status }: { status: CurrentClassStatus | null }) {
             {/* Session Details */}
             <div>
                 <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Session Details</h3>
+                <div style={{ overflowX: 'auto', width: '100%' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
@@ -338,6 +341,7 @@ function CurrentStatusTab({ status }: { status: CurrentClassStatus | null }) {
                         ))}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
     )

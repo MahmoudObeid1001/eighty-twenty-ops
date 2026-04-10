@@ -944,7 +944,7 @@ export const api = {
   getFollowUps: (classKey: string, resolved: boolean = false): Promise<any[]> =>
     fetchAPI(`/student-success/followups?class_key=${encodeURIComponent(classKey)}&resolved=${resolved}`),
 
-  resolveAbsence: (data: { class_key: string; lead_id: string; session_number: number }): Promise<{ ok: boolean }> =>
+  resolveAbsence: (data: { class_key: string; lead_id: string; session_number: number; note?: string; status?: string }): Promise<{ ok: boolean }> =>
     fetchAPI('/student-success/resolve-absence', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -1298,5 +1298,6 @@ export interface AbsenceFeedItem {
     updatedAt: string
     resolved: boolean
     resolvedAt?: string
+    notes?: FollowUpCaseNote[]
   }
 }
