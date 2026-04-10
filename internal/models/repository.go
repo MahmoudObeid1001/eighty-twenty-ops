@@ -9313,10 +9313,11 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 	defer func() { _ = rows.Close() }()
 
 	payload := &ManagerOpsPayload{
-		ReportDate:  reportDate.Format("2006-01-02"),
-		Timezone:    util.CairoTimeZone,
-		GeneratedAt: now.Format(time.RFC3339),
-		SessionRows: []*ManagerOpsSessionRow{},
+		ReportDate:    reportDate.Format("2006-01-02"),
+		Timezone:      util.CairoTimeZone,
+		GeneratedAt:   now.Format(time.RFC3339),
+		WeeklySummary: ManagerOpsWeeklySummary{},
+		SessionRows:   []*ManagerOpsSessionRow{},
 	}
 
 	for rows.Next() {
@@ -9423,6 +9424,13 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 	payload.Summary.PlacementTestsScheduled = placementScheduled
 	payload.Summary.PlacementTestsCompleted = placementCompleted
 	payload.Summary.PlacementTestsPending = placementScheduled - placementCompleted
+
+	weekStart, weekEnd := util.LastCompletedCairoBusinessWeek(reportDate)
+	weeklySummary, err := getManagerOpsWeeklySummary(weekStart, weekEnd)
+	if err != nil {
+		return nil, err
+	}
+	payload.WeeklySummary = weeklySummary
 
 	return payload, nil
 }
@@ -9567,6 +9575,121 @@ func managerSessionPhasePriority(phase string) int {
 	}
 }
 
+func getManagerOpsWeeklySummary(weekStart, weekEnd time.Time) (ManagerOpsWeeklySummary, error) {
+	summary := ManagerOpsWeeklySummary{
+		Label:     "Last Week",
+		WeekStart: weekStart.Format("2006-01-02"),
+		WeekEnd:   weekEnd.Format("2006-01-02"),
+	}
+
+	rows, err := db.DB.Query(`
+		SELECT cs.id, cs.class_key, cs.session_number,
+		       COALESCE(att.marked_count, 0) AS attendance_marked,
+		       COALESCE(att.attended_count, 0) AS attended_students,
+		       COALESCE(msc.id IS NOT NULL, false) AS compliance_checked,
+		       COALESCE(msc.delay_minutes, 0) AS delay_minutes,
+		       COALESCE(msc.is_absent, false) AS mentor_absent,
+		       cs.status
+		FROM class_sessions cs
+		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
+		LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*)::int AS marked_count,
+				COUNT(*) FILTER (WHERE a.status IN ('PRESENT', 'LATE'))::int AS attended_count
+			FROM attendance a
+			WHERE a.session_id = cs.id
+		) att ON true
+		WHERE cs.scheduled_date BETWEEN $1 AND $2
+		  AND COALESCE(cg.round_status, 'not_started') = 'active'
+	`, weekStart.Format("2006-01-02"), weekEnd.Format("2006-01-02"))
+	if err != nil {
+		return summary, fmt.Errorf("failed to query weekly manager ops sessions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var sessionID uuid.UUID
+		var classKey string
+		var sessionNumber int32
+		var attendanceMarked int
+		var attendedStudents int
+		var complianceChecked bool
+		var delayMinutes int
+		var mentorAbsent bool
+		var sessionStatus string
+
+		if err := rows.Scan(
+			&sessionID,
+			&classKey,
+			&sessionNumber,
+			&attendanceMarked,
+			&attendedStudents,
+			&complianceChecked,
+			&delayMinutes,
+			&mentorAbsent,
+			&sessionStatus,
+		); err != nil {
+			return summary, fmt.Errorf("failed to scan weekly manager ops session: %w", err)
+		}
+
+		expectedStudents, err := countExpectedStudentsForSession(classKey, sessionNumber)
+		if err != nil {
+			return summary, err
+		}
+
+		attendanceStatus := computeManagerAttendanceStatus(expectedStudents, attendanceMarked)
+		mentorStatus := computeManagerMentorStatus(complianceChecked, mentorAbsent, delayMinutes)
+
+		summary.SessionsScheduled++
+		summary.ExpectedStudents += expectedStudents
+		summary.AttendedStudents += attendedStudents
+		if sessionStatus == "completed" {
+			summary.SessionsCompleted++
+		}
+		if attendanceStatus == "done" || attendanceStatus == "none_expected" {
+			summary.SessionsAttendanceDone++
+		} else {
+			summary.SessionsAttendancePending++
+		}
+		switch mentorStatus {
+		case "late":
+			summary.LateMentorSessions++
+		case "absent":
+			summary.AbsentMentorSessions++
+		case "not_checked":
+			summary.UncheckedMentorSessions++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return summary, fmt.Errorf("failed to iterate weekly manager ops sessions: %w", err)
+	}
+
+	revenue, payingLeads, err := getRevenueInForDateRange(weekStart, weekEnd)
+	if err != nil {
+		return summary, err
+	}
+	summary.Revenue = revenue
+	summary.PayingLeadsCount = payingLeads
+
+	placementScheduled, placementCompleted, err := getPlacementTestProgressForDateRange(weekStart, weekEnd)
+	if err != nil {
+		return summary, err
+	}
+	summary.PlacementTestsScheduled = placementScheduled
+	summary.PlacementTestsCompleted = placementCompleted
+	summary.PlacementTestsPending = placementScheduled - placementCompleted
+
+	transferEvents, returnsToAdmin, err := getClassTransferEventCountsForDateRange(weekStart, weekEnd)
+	if err != nil {
+		return summary, err
+	}
+	summary.TransferEvents = transferEvents
+	summary.ReturnsToAdmin = returnsToAdmin
+
+	return summary, nil
+}
+
 func getRevenueInForBusinessDate(reportDate time.Time) (int32, int, error) {
 	var total sql.NullInt32
 	var payingLeads int
@@ -9579,6 +9702,25 @@ func getRevenueInForBusinessDate(reportDate time.Time) (int32, int, error) {
 		  AND transaction_type = 'IN'
 	`, reportDate.Format("2006-01-02")).Scan(&total, &payingLeads); err != nil {
 		return 0, 0, fmt.Errorf("failed to load daily revenue: %w", err)
+	}
+	if !total.Valid {
+		return 0, payingLeads, nil
+	}
+	return total.Int32, payingLeads, nil
+}
+
+func getRevenueInForDateRange(startDate, endDate time.Time) (int32, int, error) {
+	var total sql.NullInt32
+	var payingLeads int
+	if err := db.DB.QueryRow(`
+		SELECT
+			COALESCE(SUM(amount), 0)::int,
+			COUNT(DISTINCT lead_id)::int
+		FROM transactions
+		WHERE transaction_date BETWEEN $1::date AND $2::date
+		  AND transaction_type = 'IN'
+	`, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")).Scan(&total, &payingLeads); err != nil {
+		return 0, 0, fmt.Errorf("failed to load ranged revenue: %w", err)
 	}
 	if !total.Valid {
 		return 0, payingLeads, nil
@@ -9601,6 +9743,52 @@ func getPlacementTestProgressForDate(reportDate time.Time) (int, int, error) {
 		return 0, 0, fmt.Errorf("failed to load placement test progress: %w", err)
 	}
 	return scheduled, completed, nil
+}
+
+func getPlacementTestProgressForDateRange(startDate, endDate time.Time) (int, int, error) {
+	var scheduled int
+	var completed int
+	if err := db.DB.QueryRow(`
+		SELECT
+			COUNT(*)::int AS scheduled_count,
+			COUNT(*) FILTER (WHERE pt.assigned_level IS NOT NULL)::int AS completed_count
+		FROM placement_tests pt
+		INNER JOIN leads l ON l.id = pt.lead_id
+		WHERE pt.test_date BETWEEN $1::date AND $2::date
+		  AND l.status != 'cancelled'
+	`, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")).Scan(&scheduled, &completed); err != nil {
+		return 0, 0, fmt.Errorf("failed to load ranged placement test progress: %w", err)
+	}
+	return scheduled, completed, nil
+}
+
+func getClassTransferEventCountsForDateRange(startDate, endDate time.Time) (int, int, error) {
+	var transferEvents int
+	var returnsToAdmin int
+	if err := db.DB.QueryRow(`
+		SELECT
+			COUNT(*) FILTER (
+				WHERE target_class_key IS NOT NULL
+				  AND reason IN ('schedule_change', 'promotion', 'demotion', 'late_join', 'other')
+			)::int AS transfer_events,
+			COUNT(*) FILTER (
+				WHERE reason IN ('refund_to_admin', 'private_track_to_admin')
+			)::int AS returns_to_admin
+		FROM class_transfers
+		WHERE created_at >= $1
+		  AND created_at < $2
+	`, weekRangeStartTime(startDate), weekRangeEndExclusive(endDate)).Scan(&transferEvents, &returnsToAdmin); err != nil {
+		return 0, 0, fmt.Errorf("failed to load weekly class transfer events: %w", err)
+	}
+	return transferEvents, returnsToAdmin, nil
+}
+
+func weekRangeStartTime(day time.Time) time.Time {
+	return util.CairoStartOfDay(day)
+}
+
+func weekRangeEndExclusive(day time.Time) time.Time {
+	return util.CairoStartOfDay(day).AddDate(0, 0, 1)
 }
 
 // MarkDailyReportRead marks a ready daily report banner as read for a user.

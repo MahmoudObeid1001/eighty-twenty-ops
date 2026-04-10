@@ -559,6 +559,28 @@ export interface ManagerOpsSummary {
   unchecked_mentor_sessions: number
 }
 
+export interface ManagerOpsWeeklySummary {
+  label: string
+  week_start: string
+  week_end: string
+  sessions_scheduled: number
+  sessions_completed: number
+  sessions_attendance_done: number
+  sessions_attendance_pending: number
+  expected_students: number
+  attended_students: number
+  revenue: number
+  paying_leads_count: number
+  placement_tests_scheduled: number
+  placement_tests_completed: number
+  placement_tests_pending: number
+  late_mentor_sessions: number
+  absent_mentor_sessions: number
+  unchecked_mentor_sessions: number
+  transfer_events: number
+  returns_to_admin: number
+}
+
 export interface ManagerOpsSessionRow {
   session_id: string
   class_key: string
@@ -588,6 +610,7 @@ export interface ManagerOpsPayload {
   timezone: string
   generated_at: string
   summary: ManagerOpsSummary
+  weekly_summary: ManagerOpsWeeklySummary
   session_rows: ManagerOpsSessionRow[]
 }
 

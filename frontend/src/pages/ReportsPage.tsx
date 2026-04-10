@@ -650,6 +650,7 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
 
 function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
   const summary = data.summary
+  const weekly = data.weekly_summary
   const sessionsMissingCompletion = Math.max(summary.sessions_scheduled - summary.sessions_completed, 0)
   const attentionCards = [
     { label: 'Mentors Late', value: summary.late_mentor_sessions, tone: '#92400e', background: '#fef3c7' },
@@ -662,6 +663,71 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
 
   return (
     <div style={{ display: 'grid', gap: '14px' }}>
+      <ReportPanel title={`${weekly.label} Summary`}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '12px' }}>
+          <div style={{ color: '#111827', fontWeight: 800 }}>
+            {formatBusinessWeekRange(weekly.week_start, weekly.week_end)}
+          </div>
+          <div style={{ color: '#6b7280', fontSize: '13px' }}>
+            Sat-Thu business week in Cairo
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          <MetricCard
+            title="Weekly Sessions"
+            value={`${weekly.sessions_completed}/${weekly.sessions_scheduled}`}
+            sub={`${Math.max(weekly.sessions_scheduled - weekly.sessions_completed, 0)} unfinished across the week`}
+          />
+          <MetricCard
+            title="Weekly Attendance"
+            value={`${weekly.sessions_attendance_done}/${weekly.sessions_scheduled}`}
+            sub={`${weekly.sessions_attendance_pending} sessions still missing attendance`}
+          />
+          <MetricCard
+            title="Weekly Students Attended"
+            value={`${weekly.attended_students}/${weekly.expected_students}`}
+            sub="Present or late across all expected seats"
+          />
+          <MetricCard
+            title="Weekly Cash In"
+            value={`${weekly.revenue.toLocaleString()} EGP`}
+            sub={`${weekly.paying_leads_count} paying lead${weekly.paying_leads_count === 1 ? '' : 's'}`}
+          />
+          <MetricCard
+            title="Weekly Placement Tests"
+            value={`${weekly.placement_tests_completed}/${weekly.placement_tests_scheduled}`}
+            sub={`${weekly.placement_tests_pending} still waiting for results`}
+          />
+          <MetricCard
+            title="Roster Changes"
+            value={`${weekly.transfer_events}/${weekly.returns_to_admin}`}
+            sub="Transfers / returned to admin"
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', marginTop: '12px' }}>
+          <MiniMetricCard
+            title="Late Mentors"
+            value={weekly.late_mentor_sessions}
+            tone="#92400e"
+            background="#fef3c7"
+          />
+          <MiniMetricCard
+            title="Absent Mentors"
+            value={weekly.absent_mentor_sessions}
+            tone="#991b1b"
+            background="#fee2e2"
+          />
+          <MiniMetricCard
+            title="Checks Missing"
+            value={weekly.unchecked_mentor_sessions}
+            tone="#075985"
+            background="#e0f2fe"
+          />
+        </div>
+      </ReportPanel>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <MetricCard
           title="Live Sessions"
@@ -904,6 +970,25 @@ function MetricCard({ title, value, sub }: { title: string; value: string; sub: 
       <div style={{ color: '#6b7280', fontSize: '13px', fontWeight: 700 }}>{title}</div>
       <div style={{ marginTop: '8px', fontSize: '24px', fontWeight: 800, color: '#111827' }}>{value}</div>
       <div style={{ marginTop: '4px', fontSize: '13px', color: '#6b7280' }}>{sub}</div>
+    </div>
+  )
+}
+
+function MiniMetricCard({
+  title,
+  value,
+  tone,
+  background,
+}: {
+  title: string
+  value: number
+  tone: string
+  background: string
+}) {
+  return (
+    <div style={{ borderRadius: '12px', padding: '14px', background, color: tone, border: '1px solid rgba(0,0,0,0.06)' }}>
+      <div style={{ fontSize: '13px', fontWeight: 800 }}>{title}</div>
+      <div style={{ marginTop: '6px', fontSize: '28px', fontWeight: 900 }}>{value}</div>
     </div>
   )
 }
@@ -1203,6 +1288,30 @@ function formatBusinessTimeLabel(value: string): string {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date)
+}
+
+function formatBusinessWeekRange(start: string, end: string): string {
+  if (!start || !end) return '-'
+  const startDate = new Date(`${start}T00:00:00`)
+  const endDate = new Date(`${end}T00:00:00`)
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return `${start} to ${end}`
+  }
+
+  const sameMonth = startDate.getMonth() === endDate.getMonth() && startDate.getFullYear() === endDate.getFullYear()
+  const startLabel = startDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
+  const endLabel = endDate.toLocaleDateString('en-US', sameMonth ? {
+    day: 'numeric',
+    year: 'numeric',
+  } : {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  return `${startLabel} - ${endLabel}`
 }
 
 const thStyle: CSSProperties = {

@@ -33,3 +33,40 @@ func ParseDateCairo(dateStr string) (time.Time, error) {
 func FormatDateCairo(t time.Time) string {
 	return CairoStartOfDay(t).Format("2006-01-02")
 }
+
+// CairoStartOfBusinessWeek returns the Saturday that starts the Cairo business week
+// containing the provided day. Friday is treated as the weekend immediately after
+// the week that ended on Thursday.
+func CairoStartOfBusinessWeek(t time.Time) time.Time {
+	day := CairoStartOfDay(t)
+	offset := 0
+	switch day.Weekday() {
+	case time.Saturday:
+		offset = 0
+	case time.Sunday:
+		offset = -1
+	case time.Monday:
+		offset = -2
+	case time.Tuesday:
+		offset = -3
+	case time.Wednesday:
+		offset = -4
+	case time.Thursday:
+		offset = -5
+	case time.Friday:
+		offset = -6
+	}
+	return day.AddDate(0, 0, offset)
+}
+
+// LastCompletedCairoBusinessWeek returns the most recently completed Sat-Thu
+// business week relative to the provided Cairo business day.
+func LastCompletedCairoBusinessWeek(t time.Time) (time.Time, time.Time) {
+	day := CairoStartOfDay(t)
+	startOfContainingWeek := CairoStartOfBusinessWeek(day)
+	if day.Weekday() == time.Friday {
+		return startOfContainingWeek, startOfContainingWeek.AddDate(0, 0, 5)
+	}
+	lastWeekStart := startOfContainingWeek.AddDate(0, 0, -7)
+	return lastWeekStart, lastWeekStart.AddDate(0, 0, 5)
+}
