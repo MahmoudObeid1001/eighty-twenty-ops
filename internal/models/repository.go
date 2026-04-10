@@ -9632,6 +9632,13 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 	payload.Summary.PlacementTestsCompleted = placementCompleted
 	payload.Summary.PlacementTestsPending = placementScheduled - placementCompleted
 
+	studentsInClassesCount, preEnrolmentStudentsCount, err := getManagerOpsLeadCounts()
+	if err != nil {
+		return nil, err
+	}
+	payload.Summary.StudentsInClassesCount = studentsInClassesCount
+	payload.Summary.PreEnrolmentStudentsCount = preEnrolmentStudentsCount
+
 	weekStart, weekEnd := util.LastCompletedCairoBusinessWeek(reportDate)
 	weeklySummary, err := getManagerOpsWeeklySummary(weekStart, weekEnd)
 	if err != nil {
@@ -9640,6 +9647,24 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 	payload.WeeklySummary = weeklySummary
 
 	return payload, nil
+}
+
+func getManagerOpsLeadCounts() (studentsInClasses int, preEnrolmentStudents int, err error) {
+	row := db.DB.QueryRow(`
+		SELECT
+			COUNT(*) FILTER (WHERE l.status = 'in_classes')::int AS students_in_classes,
+			COUNT(*) FILTER (
+				WHERE l.status != 'in_classes'
+				  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
+				  AND l.status != 'cancelled'
+				  AND COALESCE(l.ops_queue_reason, '') != 'private_track'
+			)::int AS pre_enrolment_students
+		FROM leads l
+	`)
+	if err := row.Scan(&studentsInClasses, &preEnrolmentStudents); err != nil {
+		return 0, 0, fmt.Errorf("failed to query manager ops lead counts: %w", err)
+	}
+	return studentsInClasses, preEnrolmentStudents, nil
 }
 
 func countExpectedStudentsForSession(classKey string, sessionNumber int32) (int, error) {

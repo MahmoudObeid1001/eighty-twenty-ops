@@ -729,6 +729,8 @@ type ManagerOpsSummary struct {
 	SessionsAttendancePending int   `json:"sessions_attendance_pending"`
 	ExpectedStudents          int   `json:"expected_students"`
 	AttendedStudents          int   `json:"attended_students"`
+	StudentsInClassesCount    int   `json:"students_in_classes_count"`
+	PreEnrolmentStudentsCount int   `json:"pre_enrolment_students_count"`
 	TodayRevenue              int32 `json:"today_revenue"`
 	PayingLeadsCount          int   `json:"paying_leads_count"`
 	PlacementTestsScheduled   int   `json:"placement_tests_scheduled"`

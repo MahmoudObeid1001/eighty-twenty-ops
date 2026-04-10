@@ -748,6 +748,16 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
           sub="Present or late out of students expected"
         />
         <MetricCard
+          title="Students In Classes"
+          value={String(summary.students_in_classes_count)}
+          sub="Current leads already running in classes"
+        />
+        <MetricCard
+          title="Pre-Enrolment Students"
+          value={String(summary.pre_enrolment_students_count)}
+          sub="Current leads still in the main pre-enrolment feed"
+        />
+        <MetricCard
           title="Cash In"
           value={`${summary.today_revenue.toLocaleString()} EGP`}
           sub={`${summary.paying_leads_count} paying lead${summary.paying_leads_count === 1 ? '' : 's'}`}

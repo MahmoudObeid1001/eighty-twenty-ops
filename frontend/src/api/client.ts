@@ -549,6 +549,8 @@ export interface ManagerOpsSummary {
   sessions_attendance_pending: number
   expected_students: number
   attended_students: number
+  students_in_classes_count: number
+  pre_enrolment_students_count: number
   today_revenue: number
   paying_leads_count: number
   placement_tests_scheduled: number
