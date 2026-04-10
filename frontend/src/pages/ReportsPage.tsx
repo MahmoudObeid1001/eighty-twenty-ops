@@ -304,7 +304,8 @@ export default function ReportsPage() {
   ].filter(Boolean) as { key: ReportsViewMode; label: string }[]
 
   return (
-    <>
+    <div className={isManagerDashboard ? 'manager-dashboard-scroll' : undefined}>
+      <div className={isManagerDashboard ? 'manager-dashboard-inner' : undefined}>
       <div className="header content-header">
         <img src="/static/logo/eighty-twenty-logo.png" alt="" className="app-logo" />
         <h1>{isManagerDashboard ? 'Manager Dashboard' : 'Reports'}</h1>
@@ -542,9 +543,10 @@ export default function ReportsPage() {
               </div>
             </div>
           )}
-        </>
-      )}
-    </>
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 

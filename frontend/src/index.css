@@ -730,6 +730,14 @@ table tbody tr.row-cancelled:hover {
     flex: 0 0 auto;
 }
 
+.manager-dashboard-scroll {
+    width: 100%;
+}
+
+.manager-dashboard-inner {
+    width: 100%;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .container {
@@ -851,6 +859,19 @@ table tbody tr.row-cancelled:hover {
         max-width: 100vw;
         box-sizing: border-box;
         overflow-x: hidden;
+    }
+
+    .manager-dashboard-scroll {
+        width: calc(100vw - 32px);
+        max-width: calc(100vw - 32px);
+        overflow-x: auto;
+        overflow-y: visible;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .manager-dashboard-inner {
+        min-width: 960px;
+        padding-right: 8px;
     }
 
     .header {
