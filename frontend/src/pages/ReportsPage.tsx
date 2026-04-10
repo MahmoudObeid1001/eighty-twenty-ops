@@ -651,6 +651,7 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
 function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
   const summary = data.summary
   const weekly = data.weekly_summary
+  const showWeeklySummary = isFridayBusinessDate(data.report_date)
   const sessionsMissingCompletion = Math.max(summary.sessions_scheduled - summary.sessions_completed, 0)
   const attentionCards = [
     { label: 'Mentors Late', value: summary.late_mentor_sessions, tone: '#92400e', background: '#fef3c7' },
@@ -663,70 +664,72 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
 
   return (
     <div style={{ display: 'grid', gap: '14px' }}>
-      <ReportPanel title={`${weekly.label} Summary`}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '12px' }}>
-          <div style={{ color: '#111827', fontWeight: 800 }}>
-            {formatBusinessWeekRange(weekly.week_start, weekly.week_end)}
+      {showWeeklySummary && (
+        <ReportPanel title={`${weekly.label} Summary`}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '12px' }}>
+            <div style={{ color: '#111827', fontWeight: 800 }}>
+              {formatBusinessWeekRange(weekly.week_start, weekly.week_end)}
+            </div>
+            <div style={{ color: '#6b7280', fontSize: '13px' }}>
+              Sat-Thu business week in Cairo
+            </div>
           </div>
-          <div style={{ color: '#6b7280', fontSize: '13px' }}>
-            Sat-Thu business week in Cairo
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            <MetricCard
+              title="Weekly Sessions"
+              value={`${weekly.sessions_completed}/${weekly.sessions_scheduled}`}
+              sub={`${Math.max(weekly.sessions_scheduled - weekly.sessions_completed, 0)} unfinished across the week`}
+            />
+            <MetricCard
+              title="Weekly Attendance"
+              value={`${weekly.sessions_attendance_done}/${weekly.sessions_scheduled}`}
+              sub={`${weekly.sessions_attendance_pending} sessions still missing attendance`}
+            />
+            <MetricCard
+              title="Weekly Students Attended"
+              value={`${weekly.attended_students}/${weekly.expected_students}`}
+              sub="Present or late across all expected seats"
+            />
+            <MetricCard
+              title="Weekly Cash In"
+              value={`${weekly.revenue.toLocaleString()} EGP`}
+              sub={`${weekly.paying_leads_count} paying lead${weekly.paying_leads_count === 1 ? '' : 's'}`}
+            />
+            <MetricCard
+              title="Weekly Placement Tests"
+              value={`${weekly.placement_tests_completed}/${weekly.placement_tests_scheduled}`}
+              sub={`${weekly.placement_tests_pending} still waiting for results`}
+            />
+            <MetricCard
+              title="Roster Changes"
+              value={`${weekly.transfer_events}/${weekly.returns_to_admin}`}
+              sub="Transfers / returned to admin"
+            />
           </div>
-        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-          <MetricCard
-            title="Weekly Sessions"
-            value={`${weekly.sessions_completed}/${weekly.sessions_scheduled}`}
-            sub={`${Math.max(weekly.sessions_scheduled - weekly.sessions_completed, 0)} unfinished across the week`}
-          />
-          <MetricCard
-            title="Weekly Attendance"
-            value={`${weekly.sessions_attendance_done}/${weekly.sessions_scheduled}`}
-            sub={`${weekly.sessions_attendance_pending} sessions still missing attendance`}
-          />
-          <MetricCard
-            title="Weekly Students Attended"
-            value={`${weekly.attended_students}/${weekly.expected_students}`}
-            sub="Present or late across all expected seats"
-          />
-          <MetricCard
-            title="Weekly Cash In"
-            value={`${weekly.revenue.toLocaleString()} EGP`}
-            sub={`${weekly.paying_leads_count} paying lead${weekly.paying_leads_count === 1 ? '' : 's'}`}
-          />
-          <MetricCard
-            title="Weekly Placement Tests"
-            value={`${weekly.placement_tests_completed}/${weekly.placement_tests_scheduled}`}
-            sub={`${weekly.placement_tests_pending} still waiting for results`}
-          />
-          <MetricCard
-            title="Roster Changes"
-            value={`${weekly.transfer_events}/${weekly.returns_to_admin}`}
-            sub="Transfers / returned to admin"
-          />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', marginTop: '12px' }}>
-          <MiniMetricCard
-            title="Late Mentors"
-            value={weekly.late_mentor_sessions}
-            tone="#92400e"
-            background="#fef3c7"
-          />
-          <MiniMetricCard
-            title="Absent Mentors"
-            value={weekly.absent_mentor_sessions}
-            tone="#991b1b"
-            background="#fee2e2"
-          />
-          <MiniMetricCard
-            title="Checks Missing"
-            value={weekly.unchecked_mentor_sessions}
-            tone="#075985"
-            background="#e0f2fe"
-          />
-        </div>
-      </ReportPanel>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', marginTop: '12px' }}>
+            <MiniMetricCard
+              title="Late Mentors"
+              value={weekly.late_mentor_sessions}
+              tone="#92400e"
+              background="#fef3c7"
+            />
+            <MiniMetricCard
+              title="Absent Mentors"
+              value={weekly.absent_mentor_sessions}
+              tone="#991b1b"
+              background="#fee2e2"
+            />
+            <MiniMetricCard
+              title="Checks Missing"
+              value={weekly.unchecked_mentor_sessions}
+              tone="#075985"
+              background="#e0f2fe"
+            />
+          </div>
+        </ReportPanel>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <MetricCard
@@ -1312,6 +1315,14 @@ function formatBusinessWeekRange(start: string, end: string): string {
     year: 'numeric',
   })
   return `${startLabel} - ${endLabel}`
+}
+
+function isFridayBusinessDate(dateStr: string): boolean {
+  if (!dateStr) return false
+  const parts = dateStr.split('-').map(Number)
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return false
+  const [year, month, day] = parts
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).getUTCDay() === 5
 }
 
 const thStyle: CSSProperties = {
