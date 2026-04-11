@@ -581,6 +581,15 @@ export interface ManagerOpsWeeklySummary {
   unchecked_mentor_sessions: number
   transfer_events: number
   returns_to_admin: number
+  top_absent_students_mentor: ManagerOpsWeeklyMentorLeader
+  top_late_starts_mentor: ManagerOpsWeeklyMentorLeader
+}
+
+export interface ManagerOpsWeeklyMentorLeader {
+  mentor_id: string
+  mentor_name: string
+  mentor_email: string
+  metric_value: number
 }
 
 export interface ManagerOpsSessionRow {

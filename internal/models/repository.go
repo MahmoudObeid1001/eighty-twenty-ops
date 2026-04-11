@@ -9807,28 +9807,44 @@ func managerSessionPhasePriority(phase string) int {
 	}
 }
 
+type mentorWeeklyAggregate struct {
+	MentorID       string
+	MentorName     string
+	MentorEmail    string
+	AbsentStudents int
+	LateStarts     int
+}
+
 func getManagerOpsWeeklySummary(weekStart, weekEnd time.Time) (ManagerOpsWeeklySummary, error) {
 	summary := ManagerOpsWeeklySummary{
 		Label:     "Last Week",
 		WeekStart: weekStart.Format("2006-01-02"),
 		WeekEnd:   weekEnd.Format("2006-01-02"),
 	}
+	mentorAggregates := make(map[string]*mentorWeeklyAggregate)
 
 	rows, err := db.DB.Query(`
 		SELECT cs.id, cs.class_key, cs.session_number,
+		       ma.mentor_user_id::TEXT,
+		       COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, 'Unassigned') AS mentor_name,
+		       COALESCE(u.email, 'Unassigned') AS mentor_email,
 		       COALESCE(att.marked_count, 0) AS attendance_marked,
 		       COALESCE(att.attended_count, 0) AS attended_students,
+		       COALESCE(att.absent_count, 0) AS absent_students,
 		       COALESCE(msc.id IS NOT NULL, false) AS compliance_checked,
 		       COALESCE(msc.delay_minutes, 0) AS delay_minutes,
 		       COALESCE(msc.is_absent, false) AS mentor_absent,
 		       cs.status
 		FROM class_sessions cs
 		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
+		LEFT JOIN users u ON u.id = ma.mentor_user_id
 		LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
 		LEFT JOIN LATERAL (
 			SELECT
 				COUNT(*)::int AS marked_count,
-				COUNT(*) FILTER (WHERE a.status IN ('PRESENT', 'LATE'))::int AS attended_count
+				COUNT(*) FILTER (WHERE a.status IN ('PRESENT', 'LATE'))::int AS attended_count,
+				COUNT(*) FILTER (WHERE a.status = 'ABSENT')::int AS absent_count
 			FROM attendance a
 			WHERE a.session_id = cs.id
 		) att ON true
@@ -9844,8 +9860,12 @@ func getManagerOpsWeeklySummary(weekStart, weekEnd time.Time) (ManagerOpsWeeklyS
 		var sessionID uuid.UUID
 		var classKey string
 		var sessionNumber int32
+		var mentorID sql.NullString
+		var mentorName string
+		var mentorEmail string
 		var attendanceMarked int
 		var attendedStudents int
+		var absentStudents int
 		var complianceChecked bool
 		var delayMinutes int
 		var mentorAbsent bool
@@ -9855,8 +9875,12 @@ func getManagerOpsWeeklySummary(weekStart, weekEnd time.Time) (ManagerOpsWeeklyS
 			&sessionID,
 			&classKey,
 			&sessionNumber,
+			&mentorID,
+			&mentorName,
+			&mentorEmail,
 			&attendanceMarked,
 			&attendedStudents,
+			&absentStudents,
 			&complianceChecked,
 			&delayMinutes,
 			&mentorAbsent,
@@ -9892,10 +9916,31 @@ func getManagerOpsWeeklySummary(weekStart, weekEnd time.Time) (ManagerOpsWeeklyS
 		case "not_checked":
 			summary.UncheckedMentorSessions++
 		}
+		if mentorID.Valid && strings.TrimSpace(mentorID.String) != "" {
+			aggregate, ok := mentorAggregates[mentorID.String]
+			if !ok {
+				aggregate = &mentorWeeklyAggregate{
+					MentorID:    mentorID.String,
+					MentorName:  mentorName,
+					MentorEmail: mentorEmail,
+				}
+				mentorAggregates[mentorID.String] = aggregate
+			}
+			aggregate.AbsentStudents += absentStudents
+			if mentorStatus == "late" {
+				aggregate.LateStarts++
+			}
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return summary, fmt.Errorf("failed to iterate weekly manager ops sessions: %w", err)
 	}
+	summary.TopAbsentStudentsMentor = pickTopManagerOpsMentorLeader(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.AbsentStudents
+	})
+	summary.TopLateStartsMentor = pickTopManagerOpsMentorLeader(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.LateStarts
+	})
 
 	revenue, payingLeads, err := getRevenueInForDateRange(weekStart, weekEnd)
 	if err != nil {
@@ -9920,6 +9965,56 @@ func getManagerOpsWeeklySummary(weekStart, weekEnd time.Time) (ManagerOpsWeeklyS
 	summary.ReturnsToAdmin = returnsToAdmin
 
 	return summary, nil
+}
+
+func pickTopManagerOpsMentorLeader(aggregates map[string]*mentorWeeklyAggregate, metric func(*mentorWeeklyAggregate) int) ManagerOpsWeeklyMentorLeader {
+	var leader *mentorWeeklyAggregate
+	bestValue := 0
+	for _, item := range aggregates {
+		value := metric(item)
+		if value <= 0 {
+			continue
+		}
+		if leader == nil || value > bestValue || (value == bestValue && compareManagerOpsMentorAggregate(item, leader) < 0) {
+			leader = item
+			bestValue = value
+		}
+	}
+	if leader == nil {
+		return ManagerOpsWeeklyMentorLeader{}
+	}
+	return ManagerOpsWeeklyMentorLeader{
+		MentorID:    leader.MentorID,
+		MentorName:  leader.MentorName,
+		MentorEmail: leader.MentorEmail,
+		MetricValue: bestValue,
+	}
+}
+
+func compareManagerOpsMentorAggregate(left, right *mentorWeeklyAggregate) int {
+	leftName := strings.ToLower(strings.TrimSpace(left.MentorName))
+	rightName := strings.ToLower(strings.TrimSpace(right.MentorName))
+	if leftName < rightName {
+		return -1
+	}
+	if leftName > rightName {
+		return 1
+	}
+	leftEmail := strings.ToLower(strings.TrimSpace(left.MentorEmail))
+	rightEmail := strings.ToLower(strings.TrimSpace(right.MentorEmail))
+	if leftEmail < rightEmail {
+		return -1
+	}
+	if leftEmail > rightEmail {
+		return 1
+	}
+	if left.MentorID < right.MentorID {
+		return -1
+	}
+	if left.MentorID > right.MentorID {
+		return 1
+	}
+	return 0
 }
 
 func getRevenueInForBusinessDate(reportDate time.Time) (int32, int, error) {

@@ -761,6 +761,15 @@ type ManagerOpsWeeklySummary struct {
 	UncheckedMentorSessions   int    `json:"unchecked_mentor_sessions"`
 	TransferEvents            int    `json:"transfer_events"`
 	ReturnsToAdmin            int    `json:"returns_to_admin"`
+	TopAbsentStudentsMentor   ManagerOpsWeeklyMentorLeader `json:"top_absent_students_mentor"`
+	TopLateStartsMentor       ManagerOpsWeeklyMentorLeader `json:"top_late_starts_mentor"`
+}
+
+type ManagerOpsWeeklyMentorLeader struct {
+	MentorID    string `json:"mentor_id"`
+	MentorName  string `json:"mentor_name"`
+	MentorEmail string `json:"mentor_email"`
+	MetricValue int    `json:"metric_value"`
 }
 
 type ManagerOpsSessionRow struct {

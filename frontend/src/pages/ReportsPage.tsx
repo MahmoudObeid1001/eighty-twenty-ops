@@ -8,6 +8,7 @@ import {
   MentorClassReportItem,
   MentorReportChecklistItem,
   MentorReportItem,
+  ManagerOpsWeeklyMentorLeader,
 } from '../api/client'
 
 type ReportsViewMode = 'bi' | 'mentor' | 'daily' | 'ops'
@@ -730,6 +731,25 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
               background="#e0f2fe"
             />
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            <WeeklyMentorLeaderCard
+              title="Most Student Absences"
+              leader={weekly.top_absent_students_mentor}
+              emptyLabel="No student absences"
+              metricLabel="absent student"
+              tone="#991b1b"
+              background="#fef2f2"
+            />
+            <WeeklyMentorLeaderCard
+              title="Most Late Session Starts"
+              leader={weekly.top_late_starts_mentor}
+              emptyLabel="No late mentor starts"
+              metricLabel="late session start"
+              tone="#92400e"
+              background="#fff7ed"
+            />
+          </div>
         </ReportPanel>
       )}
 
@@ -1004,6 +1024,41 @@ function MiniMetricCard({
     <div style={{ borderRadius: '12px', padding: '14px', background, color: tone, border: '1px solid rgba(0,0,0,0.06)' }}>
       <div style={{ fontSize: '13px', fontWeight: 800 }}>{title}</div>
       <div style={{ marginTop: '6px', fontSize: '28px', fontWeight: 900 }}>{value}</div>
+    </div>
+  )
+}
+
+function WeeklyMentorLeaderCard({
+  title,
+  leader,
+  emptyLabel,
+  metricLabel,
+  tone,
+  background,
+}: {
+  title: string
+  leader: ManagerOpsWeeklyMentorLeader
+  emptyLabel: string
+  metricLabel: string
+  tone: string
+  background: string
+}) {
+  const hasLeader = leader.metric_value > 0 && Boolean(leader.mentor_name || leader.mentor_email)
+  const mentorLabel = (leader.mentor_name || leader.mentor_email || '').trim()
+  return (
+    <div style={{ borderRadius: '12px', padding: '14px', background, border: '1px solid rgba(0,0,0,0.06)' }}>
+      <div style={{ fontSize: '13px', fontWeight: 800, color: tone }}>{title}</div>
+      <div style={{ marginTop: '8px', fontSize: hasLeader ? '20px' : '18px', fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>
+        {hasLeader ? mentorLabel : emptyLabel}
+      </div>
+      <div style={{ marginTop: '6px', color: '#6b7280', fontSize: '13px' }}>
+        {hasLeader
+          ? `${leader.metric_value} ${metricLabel}${leader.metric_value === 1 ? '' : 's'} this week`
+          : `No ${metricLabel}s recorded this week`}
+      </div>
+      {hasLeader && leader.mentor_email && leader.mentor_email !== mentorLabel && (
+        <div style={{ marginTop: '4px', color: '#6b7280', fontSize: '12px' }}>{leader.mentor_email}</div>
+      )}
     </div>
   )
 }
