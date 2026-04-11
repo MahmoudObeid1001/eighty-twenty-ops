@@ -701,6 +701,15 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/reports/manager-ops -> apiHandler.GetManagerOpsReport [manager]")
 
+	mux.HandleFunc("/api/reports/manager-overview", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(apiHandler.GetManagerOverviewReport)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/reports/manager-overview -> apiHandler.GetManagerOverviewReport [manager]")
+
 	mux.HandleFunc("/api/reports/bi", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		middleware.RequireAnyRole([]string{"admin", "mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetBIReports)(w, r)
 	}))

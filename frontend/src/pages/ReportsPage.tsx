@@ -4,6 +4,7 @@ import {
   api,
   BIReportPayload,
   DailyReportPayload,
+  ManagerOverviewPayload,
   ManagerOpsPayload,
   MentorClassReportItem,
   MentorReportChecklistItem,
@@ -11,7 +12,7 @@ import {
   ManagerOpsWeeklyMentorLeader,
 } from '../api/client'
 
-type ReportsViewMode = 'bi' | 'mentor' | 'daily' | 'ops'
+type ReportsViewMode = 'bi' | 'mentor' | 'daily' | 'ops' | 'ops_overview'
 const CAIRO_TIME_ZONE = 'Africa/Cairo'
 
 export default function ReportsPage() {
@@ -56,6 +57,9 @@ export default function ReportsPage() {
   const [opsLoading, setOpsLoading] = useState(false)
   const [opsError, setOpsError] = useState<string | null>(null)
   const [opsData, setOpsData] = useState<ManagerOpsPayload | null>(null)
+  const [overviewLoading, setOverviewLoading] = useState(false)
+  const [overviewError, setOverviewError] = useState<string | null>(null)
+  const [overviewData, setOverviewData] = useState<ManagerOverviewPayload | null>(null)
 
   const canViewBI = userRole === 'admin' || userRole === 'mentor_head' || userRole === 'manager'
   const canViewMentor = userRole === 'student_success' || userRole === 'mentor_head' || userRole === 'manager'
@@ -74,8 +78,13 @@ export default function ReportsPage() {
       if (requestedDate) {
         setOpsDate(requestedDate)
       }
-      setViewMode('ops')
-      void loadManagerOps(requestedDate || undefined)
+      if (requestedTab === 'overall') {
+        setViewMode('ops_overview')
+        void loadManagerOverview()
+      } else {
+        setViewMode('ops')
+        void loadManagerOps(requestedDate || undefined)
+      }
       return
     }
     if (requestedTab === 'daily' && canViewDaily) {
@@ -125,6 +134,13 @@ export default function ReportsPage() {
       return
     }
     void loadManagerOps(opsDate || undefined)
+  }, [userRole, canViewManagerOps, isManagerDashboard, viewMode])
+
+  useEffect(() => {
+    if (!userRole || !isManagerDashboard || !canViewManagerOps || viewMode !== 'ops_overview') {
+      return
+    }
+    void loadManagerOverview()
   }, [userRole, canViewManagerOps, isManagerDashboard, viewMode])
 
   async function loadMe() {
@@ -199,6 +215,19 @@ export default function ReportsPage() {
       setOpsError(err instanceof Error ? err.message : 'Failed to load manager ops report')
     } finally {
       setOpsLoading(false)
+    }
+  }
+
+  async function loadManagerOverview() {
+    try {
+      setOverviewLoading(true)
+      setOverviewError(null)
+      const data = await api.getManagerOverviewReport()
+      setOverviewData(data)
+    } catch (err) {
+      setOverviewError(err instanceof Error ? err.message : 'Failed to load manager overview report')
+    } finally {
+      setOverviewLoading(false)
     }
   }
 
@@ -338,6 +367,14 @@ export default function ReportsPage() {
 
       {isManagerDashboard && canViewManagerOps && viewMode === 'ops' && (
         <>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <button onClick={() => setViewMode('ops')} style={{ ...tabButtonStyle, ...activeTabButtonStyle }}>
+              Operations
+            </button>
+            <button onClick={() => setViewMode('ops_overview')} style={tabButtonStyle}>
+              Overall Summary
+            </button>
+          </div>
           <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>
               <div>
@@ -360,6 +397,27 @@ export default function ReportsPage() {
           )}
 
           {!opsLoading && opsData && <ManagerOpsView data={opsData} />}
+        </>
+      )}
+
+      {isManagerDashboard && canViewManagerOps && viewMode === 'ops_overview' && (
+        <>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <button onClick={() => setViewMode('ops')} style={tabButtonStyle}>
+              Operations
+            </button>
+            <button onClick={() => setViewMode('ops_overview')} style={{ ...tabButtonStyle, ...activeTabButtonStyle }}>
+              Overall Summary
+            </button>
+          </div>
+
+          {overviewError && <div style={{ background: '#f8d7da', color: '#721c24', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{overviewError}</div>}
+
+          {overviewLoading && (
+            <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>Loading manager overview...</div>
+          )}
+
+          {!overviewLoading && overviewData && <ManagerOverviewView data={overviewData} />}
         </>
       )}
 
@@ -655,15 +713,6 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
   const summary = data.summary
   const weekly = data.weekly_summary
   const showWeeklySummary = isFridayBusinessDate(data.report_date)
-  const sessionsMissingCompletion = Math.max(summary.sessions_scheduled - summary.sessions_completed, 0)
-  const attentionCards = [
-    { label: 'Mentors Late', value: summary.late_mentor_sessions, tone: '#92400e', background: '#fef3c7' },
-    { label: 'Mentors Absent', value: summary.absent_mentor_sessions, tone: '#991b1b', background: '#fee2e2' },
-    { label: 'Mentor Checks Missing', value: summary.unchecked_mentor_sessions, tone: '#075985', background: '#e0f2fe' },
-    { label: 'Attendance Pending', value: summary.sessions_attendance_pending, tone: '#7c2d12', background: '#ffedd5' },
-    { label: 'Sessions Unfinished', value: sessionsMissingCompletion, tone: '#7f1d1d', background: '#fee2e2' },
-    { label: 'Placement Tests Pending', value: summary.placement_tests_pending, tone: '#1d4ed8', background: '#dbeafe' },
-  ]
 
   return (
     <div style={{ display: 'grid', gap: '14px' }}>
@@ -755,52 +804,21 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <MetricCard
-          title="Live Sessions"
-          value={`${summary.sessions_live_now}/${summary.sessions_scheduled}`}
-          sub={`${summary.sessions_completed} completed so far`}
-        />
-        <MetricCard
-          title="Attendance Coverage"
-          value={`${summary.sessions_attendance_done}/${summary.sessions_scheduled}`}
-          sub={`${summary.sessions_attendance_pending} sessions still missing attendance`}
-        />
-        <MetricCard
-          title="Students Attended"
-          value={`${summary.attended_students}/${summary.expected_students}`}
-          sub="Present or late out of students expected"
-        />
-        <MetricCard
           title="Students In Classes"
           value={String(summary.students_in_classes_count)}
-          sub="Current leads already running in classes"
+          sub="Current leads already running in classes now"
         />
         <MetricCard
-          title="Pre-Enrolment Students"
-          value={String(summary.pre_enrolment_students_count)}
-          sub="Current leads still in the main pre-enrolment feed"
+          title="Cash In This Week"
+          value={`${weekly.revenue.toLocaleString()} EGP`}
+          sub={`${weekly.paying_leads_count} paying lead${weekly.paying_leads_count === 1 ? '' : 's'} this week`}
         />
         <MetricCard
-          title="Cash In"
-          value={`${summary.today_revenue.toLocaleString()} EGP`}
-          sub={`${summary.paying_leads_count} paying lead${summary.paying_leads_count === 1 ? '' : 's'}`}
-        />
-        <MetricCard
-          title="Placement Tests"
-          value={`${summary.placement_tests_completed}/${summary.placement_tests_scheduled}`}
-          sub={`${summary.placement_tests_pending} still waiting for results`}
+          title="Placement Tests This Week"
+          value={`${weekly.placement_tests_completed}/${weekly.placement_tests_scheduled}`}
+          sub={`${weekly.placement_tests_pending} still waiting for results this week`}
         />
       </div>
-
-      <ReportPanel title="Needs Attention">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-          {attentionCards.map((item) => (
-            <div key={item.label} style={{ borderRadius: '12px', padding: '14px', background: item.background, color: item.tone, border: '1px solid rgba(0,0,0,0.06)' }}>
-              <div style={{ fontSize: '13px', fontWeight: 800 }}>{item.label}</div>
-              <div style={{ marginTop: '6px', fontSize: '28px', fontWeight: 900 }}>{item.value}</div>
-            </div>
-          ))}
-        </div>
-      </ReportPanel>
 
       <ReportPanel title={`Sessions for ${data.report_date}`}>
         {data.session_rows.length === 0 ? (
@@ -996,6 +1014,78 @@ function StatusPill({ status }: { status: string }) {
     >
       {normalized.replace(/_/g, ' ')}
     </span>
+  )
+}
+
+function ManagerOverviewView({ data }: { data: ManagerOverviewPayload }) {
+  const summary = data.summary
+
+  return (
+    <div style={{ display: 'grid', gap: '14px' }}>
+      <ReportPanel title="Overall Summary">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '12px' }}>
+          <div style={{ color: '#111827', fontWeight: 800 }}>
+            Current manager snapshot
+          </div>
+          <div style={{ color: '#6b7280', fontSize: '13px' }}>
+            Timezone {data.timezone} · Generated {formatDateTime(data.generated_at)}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          <MetricCard
+            title="Students In Classes"
+            value={String(summary.students_in_classes_count)}
+            sub="Only leads currently in classes"
+          />
+          <MetricCard
+            title="Pre-Enrolment Students"
+            value={String(summary.pre_enrolment_count)}
+            sub="Current leads still in the pre-enrolment pipeline"
+          />
+          <MetricCard
+            title="Current Cash Balance"
+            value={`${summary.current_cash_balance.toLocaleString()} EGP`}
+            sub="Net IN minus OUT across the full ledger"
+          />
+          <MetricCard
+            title="Running Classes"
+            value={String(summary.running_classes_count)}
+            sub="Classes with active rounds right now"
+          />
+          <MetricCard
+            title="Active Mentors"
+            value={String(summary.active_mentors_count)}
+            sub="Distinct mentors assigned to active classes"
+          />
+        </div>
+      </ReportPanel>
+
+      <ReportPanel title="Pre-Enrolment Status Breakdown">
+        {data.pre_enrolment_status_buckets.length === 0 ? (
+          <div style={{ color: '#6b7280' }}>No pre-enrolment students in the current pipeline.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '540px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={thStyle}>Status</th>
+                  <th style={thStyle}>Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.pre_enrolment_status_buckets.map((item) => (
+                  <tr key={item.status_key}>
+                    <td style={tdStyle}>{item.label}</td>
+                    <td style={tdStyle}>{item.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ReportPanel>
+    </div>
   )
 }
 

@@ -627,6 +627,27 @@ export interface ManagerOpsPayload {
   session_rows: ManagerOpsSessionRow[]
 }
 
+export interface ManagerOverviewSummary {
+  students_in_classes_count: number
+  pre_enrolment_count: number
+  current_cash_balance: number
+  running_classes_count: number
+  active_mentors_count: number
+}
+
+export interface ManagerOverviewStatusBreakdown {
+  status_key: string
+  label: string
+  count: number
+}
+
+export interface ManagerOverviewPayload {
+  timezone: string
+  generated_at: string
+  summary: ManagerOverviewSummary
+  pre_enrolment_status_buckets: ManagerOverviewStatusBreakdown[]
+}
+
 export interface DailyReportNotification {
   report_date: string
   ready_at: string
@@ -1142,6 +1163,9 @@ export const api = {
     const query = qs.toString()
     return fetchAPI(`/reports/manager-ops${query ? `?${query}` : ''}`)
   },
+
+  getManagerOverviewReport: (): Promise<ManagerOverviewPayload> =>
+    fetchAPI('/reports/manager-overview'),
 
   markDailyReportRead: (reportDate: string): Promise<{ ok: boolean }> =>
     fetchAPI('/reports/daily/read', {

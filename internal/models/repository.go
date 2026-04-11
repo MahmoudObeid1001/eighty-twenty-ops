@@ -9649,6 +9649,42 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 	return payload, nil
 }
 
+func GetManagerOverviewPayload() (*ManagerOverviewPayload, error) {
+	now := util.CairoNow()
+	payload := &ManagerOverviewPayload{
+		Timezone:    util.CairoTimeZone,
+		GeneratedAt: now.Format(time.RFC3339),
+	}
+
+	studentsInClassesCount, preEnrolmentCount, err := getManagerOpsLeadCounts()
+	if err != nil {
+		return nil, err
+	}
+	payload.Summary.StudentsInClassesCount = studentsInClassesCount
+	payload.Summary.PreEnrolmentCount = preEnrolmentCount
+
+	currentCashBalance, err := GetCurrentCashBalance()
+	if err != nil {
+		return nil, err
+	}
+	payload.Summary.CurrentCashBalance = currentCashBalance
+
+	runningClassesCount, activeMentorsCount, err := getManagerOverviewClassAndMentorCounts()
+	if err != nil {
+		return nil, err
+	}
+	payload.Summary.RunningClassesCount = runningClassesCount
+	payload.Summary.ActiveMentorsCount = activeMentorsCount
+
+	statusBuckets, err := getManagerOverviewPreEnrolmentStatusBreakdown()
+	if err != nil {
+		return nil, err
+	}
+	payload.PreEnrolmentStatusBuckets = statusBuckets
+
+	return payload, nil
+}
+
 func getManagerOpsLeadCounts() (studentsInClasses int, preEnrolmentStudents int, err error) {
 	row := db.DB.QueryRow(`
 		SELECT
@@ -9665,6 +9701,102 @@ func getManagerOpsLeadCounts() (studentsInClasses int, preEnrolmentStudents int,
 		return 0, 0, fmt.Errorf("failed to query manager ops lead counts: %w", err)
 	}
 	return studentsInClasses, preEnrolmentStudents, nil
+}
+
+func getManagerOverviewClassAndMentorCounts() (runningClasses int, activeMentors int, err error) {
+	row := db.DB.QueryRow(`
+		SELECT
+			COUNT(DISTINCT cg.class_key) FILTER (WHERE COALESCE(cg.round_status, 'not_started') = 'active')::int AS running_classes,
+			COUNT(DISTINCT ma.mentor_user_id) FILTER (
+				WHERE COALESCE(cg.round_status, 'not_started') = 'active'
+				  AND ma.mentor_user_id IS NOT NULL
+			)::int AS active_mentors
+		FROM class_groups cg
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+	`)
+	if err := row.Scan(&runningClasses, &activeMentors); err != nil {
+		return 0, 0, fmt.Errorf("failed to query manager overview class and mentor counts: %w", err)
+	}
+	return runningClasses, activeMentors, nil
+}
+
+func getManagerOverviewPreEnrolmentStatusBreakdown() ([]ManagerOverviewStatusBreakdown, error) {
+	rows, err := db.DB.Query(`
+		SELECT l.status, COUNT(*)::int AS total
+		FROM leads l
+		WHERE l.status != 'in_classes'
+		  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
+		  AND l.status != 'cancelled'
+		  AND COALESCE(l.ops_queue_reason, '') != 'private_track'
+		GROUP BY l.status
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query manager overview pre-enrolment statuses: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	countsByStatus := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan manager overview pre-enrolment status row: %w", err)
+		}
+		countsByStatus[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate manager overview pre-enrolment statuses: %w", err)
+	}
+
+	statusOrder := []struct {
+		key   string
+		label string
+	}{
+		{key: "lead_created", label: "No placement test time set"},
+		{key: "test_booked", label: "Placement test booked"},
+		{key: "tested", label: "Placement test done"},
+		{key: "offer_sent", label: "Offer sent / not paid"},
+		{key: "booking_confirmed", label: "Booking confirmed / not paid"},
+		{key: "deposit_paid", label: "Deposit paid"},
+		{key: "paid_full", label: "Paid in full"},
+		{key: "waiting_for_round", label: "Waiting for class"},
+		{key: "schedule_assigned", label: "Schedule assigned"},
+		{key: "ready_to_start", label: "Ready to start"},
+		{key: "paused", label: "Paused"},
+		{key: "renewal_pending", label: "Renewal pending"},
+		{key: "cold_lead", label: "Cold lead"},
+	}
+
+	breakdown := make([]ManagerOverviewStatusBreakdown, 0, len(countsByStatus))
+	for _, item := range statusOrder {
+		count := countsByStatus[item.key]
+		if count <= 0 {
+			continue
+		}
+		breakdown = append(breakdown, ManagerOverviewStatusBreakdown{
+			StatusKey: item.key,
+			Label:     item.label,
+			Count:     count,
+		})
+		delete(countsByStatus, item.key)
+	}
+
+	if len(countsByStatus) > 0 {
+		extras := make([]string, 0, len(countsByStatus))
+		for status := range countsByStatus {
+			extras = append(extras, status)
+		}
+		sort.Strings(extras)
+		for _, status := range extras {
+			breakdown = append(breakdown, ManagerOverviewStatusBreakdown{
+				StatusKey: status,
+				Label:     strings.ReplaceAll(status, "_", " "),
+				Count:     countsByStatus[status],
+			})
+		}
+	}
+
+	return breakdown, nil
 }
 
 func countExpectedStudentsForSession(classKey string, sessionNumber int32) (int, error) {

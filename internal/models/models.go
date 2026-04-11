@@ -721,6 +721,27 @@ type ManagerOpsPayload struct {
 	SessionRows   []*ManagerOpsSessionRow `json:"session_rows"`
 }
 
+type ManagerOverviewPayload struct {
+	Timezone                  string                           `json:"timezone"`
+	GeneratedAt               string                           `json:"generated_at"`
+	Summary                   ManagerOverviewSummary           `json:"summary"`
+	PreEnrolmentStatusBuckets []ManagerOverviewStatusBreakdown `json:"pre_enrolment_status_buckets"`
+}
+
+type ManagerOverviewSummary struct {
+	StudentsInClassesCount int   `json:"students_in_classes_count"`
+	PreEnrolmentCount      int   `json:"pre_enrolment_count"`
+	CurrentCashBalance     int32 `json:"current_cash_balance"`
+	RunningClassesCount    int   `json:"running_classes_count"`
+	ActiveMentorsCount     int   `json:"active_mentors_count"`
+}
+
+type ManagerOverviewStatusBreakdown struct {
+	StatusKey string `json:"status_key"`
+	Label     string `json:"label"`
+	Count     int    `json:"count"`
+}
+
 type ManagerOpsSummary struct {
 	SessionsScheduled         int   `json:"sessions_scheduled"`
 	SessionsLiveNow           int   `json:"sessions_live_now"`

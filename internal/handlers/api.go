@@ -4761,6 +4761,29 @@ func (h *APIHandler) GetManagerOpsReport(w http.ResponseWriter, r *http.Request)
 	jsonResponse(w, http.StatusOK, report)
 }
 
+// GET /api/reports/manager-overview
+func (h *APIHandler) GetManagerOverviewReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	role := middleware.GetUserRole(r)
+	if role != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	report, err := models.GetManagerOverviewPayload()
+	if err != nil {
+		log.Printf("ERROR: Failed to load manager overview report: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load manager overview report")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, report)
+}
+
 // GET /api/reports/bi?from=YYYY-MM-DD&to=YYYY-MM-DD
 func (h *APIHandler) GetBIReports(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
