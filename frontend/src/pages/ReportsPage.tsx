@@ -713,6 +713,15 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
   const summary = data.summary
   const weekly = data.weekly_summary
   const showWeeklySummary = isFridayBusinessDate(data.report_date)
+  const sessionsMissingCompletion = Math.max(summary.sessions_scheduled - summary.sessions_completed, 0)
+  const attentionCards = [
+    { label: 'Mentors Late', value: summary.late_mentor_sessions, tone: '#92400e', background: '#fef3c7' },
+    { label: 'Mentors Absent', value: summary.absent_mentor_sessions, tone: '#991b1b', background: '#fee2e2' },
+    { label: 'Mentor Checks Missing', value: summary.unchecked_mentor_sessions, tone: '#075985', background: '#e0f2fe' },
+    { label: 'Attendance Pending', value: summary.sessions_attendance_pending, tone: '#7c2d12', background: '#ffedd5' },
+    { label: 'Sessions Unfinished', value: sessionsMissingCompletion, tone: '#7f1d1d', background: '#fee2e2' },
+    { label: 'Placement Tests Pending', value: summary.placement_tests_pending, tone: '#1d4ed8', background: '#dbeafe' },
+  ]
 
   return (
     <div style={{ display: 'grid', gap: '14px' }}>
@@ -802,23 +811,76 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
         </ReportPanel>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-        <MetricCard
-          title="Students In Classes"
-          value={String(summary.students_in_classes_count)}
-          sub="Current leads already running in classes now"
-        />
-        <MetricCard
-          title="Cash In This Week"
-          value={`${weekly.revenue.toLocaleString()} EGP`}
-          sub={`${weekly.paying_leads_count} paying lead${weekly.paying_leads_count === 1 ? '' : 's'} this week`}
-        />
-        <MetricCard
-          title="Placement Tests This Week"
-          value={`${weekly.placement_tests_completed}/${weekly.placement_tests_scheduled}`}
-          sub={`${weekly.placement_tests_pending} still waiting for results this week`}
-        />
-      </div>
+      {showWeeklySummary ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          <MetricCard
+            title="Students In Classes"
+            value={String(summary.students_in_classes_count)}
+            sub="Current leads already running in classes now"
+          />
+          <MetricCard
+            title="Cash In This Week"
+            value={`${weekly.revenue.toLocaleString()} EGP`}
+            sub={`${weekly.paying_leads_count} paying lead${weekly.paying_leads_count === 1 ? '' : 's'} this week`}
+          />
+          <MetricCard
+            title="Placement Tests This Week"
+            value={`${weekly.placement_tests_completed}/${weekly.placement_tests_scheduled}`}
+            sub={`${weekly.placement_tests_pending} still waiting for results this week`}
+          />
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            <MetricCard
+              title="Live Sessions"
+              value={`${summary.sessions_live_now}/${summary.sessions_scheduled}`}
+              sub={`${summary.sessions_completed} completed so far`}
+            />
+            <MetricCard
+              title="Attendance Coverage"
+              value={`${summary.sessions_attendance_done}/${summary.sessions_scheduled}`}
+              sub={`${summary.sessions_attendance_pending} sessions still missing attendance`}
+            />
+            <MetricCard
+              title="Students Attended"
+              value={`${summary.attended_students}/${summary.expected_students}`}
+              sub="Present or late out of students expected"
+            />
+            <MetricCard
+              title="Students In Classes"
+              value={String(summary.students_in_classes_count)}
+              sub="Current leads already running in classes"
+            />
+            <MetricCard
+              title="Pre-Enrolment Students"
+              value={String(summary.pre_enrolment_students_count)}
+              sub="Current leads still in the main pre-enrolment feed"
+            />
+            <MetricCard
+              title="Cash In"
+              value={`${summary.today_revenue.toLocaleString()} EGP`}
+              sub={`${summary.paying_leads_count} paying lead${summary.paying_leads_count === 1 ? '' : 's'}`}
+            />
+            <MetricCard
+              title="Placement Tests"
+              value={`${summary.placement_tests_completed}/${summary.placement_tests_scheduled}`}
+              sub={`${summary.placement_tests_pending} still waiting for results`}
+            />
+          </div>
+
+          <ReportPanel title="Needs Attention">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+              {attentionCards.map((item) => (
+                <div key={item.label} style={{ borderRadius: '12px', padding: '14px', background: item.background, color: item.tone, border: '1px solid rgba(0,0,0,0.06)' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 800 }}>{item.label}</div>
+                  <div style={{ marginTop: '6px', fontSize: '28px', fontWeight: 900 }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+          </ReportPanel>
+        </>
+      )}
 
       <ReportPanel title={`Sessions for ${data.report_date}`}>
         {data.session_rows.length === 0 ? (
