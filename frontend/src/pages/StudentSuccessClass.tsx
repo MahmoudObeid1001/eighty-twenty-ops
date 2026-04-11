@@ -5,6 +5,7 @@ import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import StudentModal from '../components/StudentModal'
 import ComplianceModal from '../components/ComplianceModal'
 import StudentReportCard from '../components/StudentReportCard'
+import { buildWhatsAppLink, openWhatsAppLink } from '../utils/whatsapp'
 
 type Tab = 'students' | 'absence' | 'followups' | 'feedback' | 'feedback_collected' | 'final_grading'
 
@@ -148,6 +149,12 @@ function FeedbackCheckpoint({ classKey, students, onUpdate, canEdit }: { classKe
                           href={buildWhatsAppLink(s.phone)}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            if (!openWhatsAppLink(buildWhatsAppLink(s.phone))) {
+                              window.open(buildWhatsAppLink(s.phone), '_blank', 'noopener,noreferrer')
+                            }
+                          }}
                           title="Open WhatsApp"
                           aria-label={`Open WhatsApp chat for ${s.full_name}`}
                           style={{
@@ -961,7 +968,12 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
                         </td>
                         <td style={{ padding: '12px' }}>
                           <div style={{ display: 'flex', gap: '8px' }}>
-                            <a href={buildWhatsAppLink(item.studentPhone)} target="_blank" rel="noopener noreferrer" title="Open WhatsApp" aria-label={`Open WhatsApp chat for ${item.studentName}`} style={{ padding: '4px', borderRadius: '999px', background: '#25D366', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', textDecoration: 'none', boxShadow: '0 2px 8px rgba(37, 211, 102, 0.28)' }}>
+                            <a href={buildWhatsAppLink(item.studentPhone)} target="_blank" rel="noopener noreferrer" onClick={(event) => {
+                              event.preventDefault()
+                              if (!openWhatsAppLink(buildWhatsAppLink(item.studentPhone))) {
+                                window.open(buildWhatsAppLink(item.studentPhone), '_blank', 'noopener,noreferrer')
+                              }
+                            }} title="Open WhatsApp" aria-label={`Open WhatsApp chat for ${item.studentName}`} style={{ padding: '4px', borderRadius: '999px', background: '#25D366', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', textDecoration: 'none', boxShadow: '0 2px 8px rgba(37, 211, 102, 0.28)' }}>
                               <WhatsAppIcon />
                             </a>
                             <button onClick={() => onOpenFollowUp(item)} title="Add Follow-up Note" style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #007bff', background: '#fff', color: '#007bff', fontSize: '11px', cursor: 'pointer' }}>
@@ -1195,16 +1207,6 @@ function ComplaintModal({ classKey, onClose, onSuccess }: { classKey: string; on
       </div>
     </div>
   )
-}
-
-function buildWhatsAppLink(phone: string) {
-  let normalized = phone.replace(/\D/g, '')
-  if (normalized.startsWith('00')) {
-    normalized = normalized.slice(2)
-  } else if (normalized.startsWith('0')) {
-    normalized = `20${normalized.slice(1)}`
-  }
-  return `https://wa.me/${normalized}`
 }
 
 function normalizeFollowUpStatusForSelect(status?: string) {

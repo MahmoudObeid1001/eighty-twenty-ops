@@ -18,7 +18,7 @@
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
         {{if .Detail.Lead.Phone}}
-        <a href="{{whatsappLink .Detail.Lead.Phone}}" target="_blank" rel="noopener noreferrer"
+        <a href="{{whatsappLink .Detail.Lead.Phone}}" target="_blank" rel="noopener noreferrer" data-whatsapp-window="admin-whatsapp-chat"
             class="btn"
             style="background: #25D366; color: white; border: 1px solid #25D366; padding: 12px 18px; font-weight: 700;">
             WhatsApp Lead

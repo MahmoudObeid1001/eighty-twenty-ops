@@ -192,6 +192,40 @@
                 overlay.classList.toggle("active");
             }
         }
+
+        const adminWhatsAppWindowName = 'admin-whatsapp-chat';
+        let adminWhatsAppWindow = null;
+
+        function openAdminWhatsApp(url) {
+            if (!url) return;
+
+            const popup = adminWhatsAppWindow && !adminWhatsAppWindow.closed
+                ? adminWhatsAppWindow
+                : window.open('', adminWhatsAppWindowName);
+
+            if (!popup) {
+                window.open(url, '_blank', 'noopener,noreferrer');
+                return;
+            }
+
+            adminWhatsAppWindow = popup;
+
+            try {
+                adminWhatsAppWindow.opener = null;
+            } catch (error) {
+                // Ignore cross-origin or browser-specific opener restrictions.
+            }
+
+            adminWhatsAppWindow.location.href = url;
+            adminWhatsAppWindow.focus();
+        }
+
+        document.addEventListener('click', function (event) {
+            const link = event.target.closest('a[data-whatsapp-window]');
+            if (!link) return;
+            event.preventDefault();
+            openAdminWhatsApp(link.href);
+        });
     </script>
     {{end}}
 </body>

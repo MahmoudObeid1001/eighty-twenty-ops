@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, type StudentSuccessClass, type PlacementTestQueueItem } from '../api/client'
+import { buildWhatsAppLink, openWhatsAppLink } from '../utils/whatsapp'
 
 interface Group {
   mentor_id?: string
@@ -86,18 +87,6 @@ export default function StudentSuccessDashboard() {
       loadPlacementTests()
     }
   }, [activeTab, showCompletedTests])
-
-  function buildWhatsAppLink(phone: string) {
-    const digits = phone.replace(/\D/g, '')
-    let normalized = digits
-    if (normalized.startsWith('00')) {
-      normalized = normalized.slice(2)
-    }
-    if (normalized.startsWith('0')) {
-      normalized = `20${normalized.slice(1)}`
-    }
-    return `https://wa.me/${normalized}`
-  }
 
   function groupByMentor(list: StudentSuccessClass[]): Group[] {
     const mentorMap = new Map<string, Group>()
@@ -465,6 +454,12 @@ export default function StudentSuccessDashboard() {
                                 href={buildWhatsAppLink(item.phone)}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                onClick={(event) => {
+                                  event.preventDefault()
+                                  if (!openWhatsAppLink(buildWhatsAppLink(item.phone))) {
+                                    window.open(buildWhatsAppLink(item.phone), '_blank', 'noopener,noreferrer')
+                                  }
+                                }}
                                 title="Open WhatsApp"
                                 aria-label={`Open WhatsApp chat for ${item.full_name}`}
                                 style={{
@@ -546,6 +541,12 @@ export default function StudentSuccessDashboard() {
                             href={buildWhatsAppLink(item.phone)}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(event) => {
+                              event.preventDefault()
+                              if (!openWhatsAppLink(buildWhatsAppLink(item.phone))) {
+                                window.open(buildWhatsAppLink(item.phone), '_blank', 'noopener,noreferrer')
+                              }
+                            }}
                             title="Open WhatsApp"
                             aria-label={`Open WhatsApp chat for ${item.full_name}`}
                             style={{
