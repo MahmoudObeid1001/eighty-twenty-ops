@@ -732,19 +732,19 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '12px' }}>
-            <WeeklyMentorLeaderCard
-              title="Most Student Absences"
-              leader={weekly.top_absent_students_mentor}
-              emptyLabel="No student absences"
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            <WeeklyMentorRankingCard
+              title="Absent Students Ranking"
+              leaders={weekly.absent_students_ranking}
+              emptyLabel="No student absences recorded this week"
               metricLabel="absent student"
               tone="#991b1b"
               background="#fef2f2"
             />
-            <WeeklyMentorLeaderCard
-              title="Most Late Session Starts"
-              leader={weekly.top_late_starts_mentor}
-              emptyLabel="No late mentor starts"
+            <WeeklyMentorRankingCard
+              title="Late Session Starts Ranking"
+              leaders={weekly.late_starts_ranking}
+              emptyLabel="No late mentor starts recorded this week"
               metricLabel="late session start"
               tone="#92400e"
               background="#fff7ed"
@@ -1028,36 +1028,48 @@ function MiniMetricCard({
   )
 }
 
-function WeeklyMentorLeaderCard({
+function WeeklyMentorRankingCard({
   title,
-  leader,
+  leaders,
   emptyLabel,
   metricLabel,
   tone,
   background,
 }: {
   title: string
-  leader: ManagerOpsWeeklyMentorLeader
+  leaders: ManagerOpsWeeklyMentorLeader[]
   emptyLabel: string
   metricLabel: string
   tone: string
   background: string
 }) {
-  const hasLeader = leader.metric_value > 0 && Boolean(leader.mentor_name || leader.mentor_email)
-  const mentorLabel = (leader.mentor_name || leader.mentor_email || '').trim()
   return (
     <div style={{ borderRadius: '12px', padding: '14px', background, border: '1px solid rgba(0,0,0,0.06)' }}>
       <div style={{ fontSize: '13px', fontWeight: 800, color: tone }}>{title}</div>
-      <div style={{ marginTop: '8px', fontSize: hasLeader ? '20px' : '18px', fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>
-        {hasLeader ? mentorLabel : emptyLabel}
-      </div>
-      <div style={{ marginTop: '6px', color: '#6b7280', fontSize: '13px' }}>
-        {hasLeader
-          ? `${leader.metric_value} ${metricLabel}${leader.metric_value === 1 ? '' : 's'} this week`
-          : `No ${metricLabel}s recorded this week`}
-      </div>
-      {hasLeader && leader.mentor_email && leader.mentor_email !== mentorLabel && (
-        <div style={{ marginTop: '4px', color: '#6b7280', fontSize: '12px' }}>{leader.mentor_email}</div>
+      {leaders.length === 0 ? (
+        <div style={{ marginTop: '8px', color: '#6b7280', fontSize: '14px' }}>{emptyLabel}</div>
+      ) : (
+        <div style={{ marginTop: '10px', display: 'grid', gap: '10px' }}>
+          {leaders.map((leader, index) => {
+            const mentorLabel = (leader.mentor_name || leader.mentor_email || 'Unknown mentor').trim()
+            return (
+              <div key={`${leader.mentor_id || mentorLabel}-${index}`} style={{ display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: '10px', alignItems: 'start', background: 'rgba(255,255,255,0.65)', borderRadius: '10px', padding: '10px 12px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '999px', background: 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: tone }}>
+                  {index + 1}
+                </div>
+                <div>
+                  <div style={{ fontSize: '15px', fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>{mentorLabel}</div>
+                  {leader.mentor_email && leader.mentor_email !== mentorLabel && (
+                    <div style={{ marginTop: '3px', color: '#6b7280', fontSize: '12px' }}>{leader.mentor_email}</div>
+                  )}
+                </div>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: tone, whiteSpace: 'nowrap' }}>
+                  {leader.metric_value} {metricLabel}{leader.metric_value === 1 ? '' : 's'}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )

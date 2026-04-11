@@ -583,6 +583,8 @@ export interface ManagerOpsWeeklySummary {
   returns_to_admin: number
   top_absent_students_mentor: ManagerOpsWeeklyMentorLeader
   top_late_starts_mentor: ManagerOpsWeeklyMentorLeader
+  absent_students_ranking: ManagerOpsWeeklyMentorLeader[]
+  late_starts_ranking: ManagerOpsWeeklyMentorLeader[]
 }
 
 export interface ManagerOpsWeeklyMentorLeader {

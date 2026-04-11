@@ -763,6 +763,8 @@ type ManagerOpsWeeklySummary struct {
 	ReturnsToAdmin            int    `json:"returns_to_admin"`
 	TopAbsentStudentsMentor   ManagerOpsWeeklyMentorLeader `json:"top_absent_students_mentor"`
 	TopLateStartsMentor       ManagerOpsWeeklyMentorLeader `json:"top_late_starts_mentor"`
+	AbsentStudentsRanking     []ManagerOpsWeeklyMentorLeader `json:"absent_students_ranking"`
+	LateStartsRanking         []ManagerOpsWeeklyMentorLeader `json:"late_starts_ranking"`
 }
 
 type ManagerOpsWeeklyMentorLeader struct {

@@ -9935,6 +9935,12 @@ func getManagerOpsWeeklySummary(weekStart, weekEnd time.Time) (ManagerOpsWeeklyS
 	if err := rows.Err(); err != nil {
 		return summary, fmt.Errorf("failed to iterate weekly manager ops sessions: %w", err)
 	}
+	summary.AbsentStudentsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.AbsentStudents
+	})
+	summary.LateStartsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.LateStarts
+	})
 	summary.TopAbsentStudentsMentor = pickTopManagerOpsMentorLeader(mentorAggregates, func(item *mentorWeeklyAggregate) int {
 		return item.AbsentStudents
 	})
@@ -10015,6 +10021,31 @@ func compareManagerOpsMentorAggregate(left, right *mentorWeeklyAggregate) int {
 		return 1
 	}
 	return 0
+}
+
+func buildManagerOpsMentorRanking(aggregates map[string]*mentorWeeklyAggregate, metric func(*mentorWeeklyAggregate) int) []ManagerOpsWeeklyMentorLeader {
+	ranking := make([]ManagerOpsWeeklyMentorLeader, 0, len(aggregates))
+	for _, item := range aggregates {
+		value := metric(item)
+		if value <= 0 {
+			continue
+		}
+		ranking = append(ranking, ManagerOpsWeeklyMentorLeader{
+			MentorID:    item.MentorID,
+			MentorName:  item.MentorName,
+			MentorEmail: item.MentorEmail,
+			MetricValue: value,
+		})
+	}
+	sort.SliceStable(ranking, func(i, j int) bool {
+		if ranking[i].MetricValue != ranking[j].MetricValue {
+			return ranking[i].MetricValue > ranking[j].MetricValue
+		}
+		left := &mentorWeeklyAggregate{MentorID: ranking[i].MentorID, MentorName: ranking[i].MentorName, MentorEmail: ranking[i].MentorEmail}
+		right := &mentorWeeklyAggregate{MentorID: ranking[j].MentorID, MentorName: ranking[j].MentorName, MentorEmail: ranking[j].MentorEmail}
+		return compareManagerOpsMentorAggregate(left, right) < 0
+	})
+	return ranking
 }
 
 func getRevenueInForBusinessDate(reportDate time.Time) (int32, int, error) {
