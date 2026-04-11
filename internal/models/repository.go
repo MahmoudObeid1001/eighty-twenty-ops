@@ -679,12 +679,12 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT id, full_name, phone, source, notes, status, sent_to_classes,
+		SELECT id, full_name, phone, source, notes, status, ops_queue_reason, sent_to_classes,
 		       levels_purchased_total, levels_consumed, remaining_credits,
 		       is_returning, high_priority_follow_up, created_by_user_id, offer_sent_at, created_at, updated_at
 		FROM leads WHERE id = $1
 	`, id).Scan(
-		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status,
+		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
 		&lead.IsReturning, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 	)
@@ -862,6 +862,7 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 		    status = $5,
 		    sent_to_classes = $6,
 		    ops_queue_reason = CASE
+		        WHEN COALESCE(ops_queue_reason, '') IN ('private_track', 'refund_review') THEN ops_queue_reason
 		        WHEN $5 = 'waiting_for_round' THEN ops_queue_reason
 		        ELSE NULL
 		    END,
