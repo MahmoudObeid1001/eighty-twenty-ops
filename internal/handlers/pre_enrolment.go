@@ -76,6 +76,49 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+var groupBundlePrices = map[int32]int32{
+	1: 1300,
+	2: 2400,
+	3: 3300,
+	4: 4000,
+}
+
+var privateBundlePrices = map[int32]int32{
+	1: 3000,
+	2: 5600,
+	3: 7200,
+}
+
+func normalizePricingTrack(track string) string {
+	switch strings.ToLower(strings.TrimSpace(track)) {
+	case "private":
+		return "private"
+	default:
+		return "group"
+	}
+}
+
+func pricingTrackBundlePrices(track string) map[int32]int32 {
+	if normalizePricingTrack(track) == "private" {
+		return privateBundlePrices
+	}
+	return groupBundlePrices
+}
+
+func inferOfferPricingTrack(offer *models.Offer) string {
+	if offer == nil || !offer.BundleLevels.Valid || !offer.BasePrice.Valid {
+		return "group"
+	}
+	if price, ok := privateBundlePrices[offer.BundleLevels.Int32]; ok && offer.BasePrice.Int32 == price {
+		return "private"
+	}
+	return "group"
+}
+
+func isRefundReviewLead(lead *models.Lead) bool {
+	return lead != nil && lead.OpsQueueReason.Valid && lead.OpsQueueReason.String == "refund_review"
+}
+
 func isStatusAtOrAfterOfferSent(status string) bool {
 	allowed := map[string]bool{
 		"offer_sent":        true,
@@ -433,17 +476,25 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	data["ExistingLeadID"] = existingLeadID
 
 	successMsg := ""
+	flashMessage, flashMessageType := flashFromQuery(r)
 	if r.URL.Query().Get("cancelled") == "1" && r.URL.Query().Get("refund_recorded") == "1" {
 		successMsg = "Lead cancelled and refund recorded."
 	} else if r.URL.Query().Get("cancelled") == "1" {
 		successMsg = "Lead cancelled successfully."
 	} else if r.URL.Query().Get("saved") == "1" {
 		successMsg = "Lead saved successfully!"
+	} else if flashMessageType == "success" {
+		successMsg = flashMessage
 	}
 	data["SuccessMessage"] = successMsg
+	if data["Error"] == "" && flashMessageType == "error" {
+		data["Error"] = flashMessage
+	}
 
-	showCancelModal := r.URL.Query().Get("action") == "cancel"
+	actionMode := r.URL.Query().Get("action")
+	showCancelModal := actionMode == "cancel" || actionMode == "refund_review"
 	data["ShowCancelModal"] = showCancelModal
+	data["CancelFlowMode"] = actionMode
 
 	isFullyPaid := data["IsFullyPaid"].(bool)
 	if isFullyPaid && detail.Lead.Status != "paid_full" && detail.Lead.Status != "cancelled" {
@@ -782,6 +833,9 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			_, reason := canUseCoursePaymentFlow(detail)
 			return reason
 		}(),
+		"PricingTrack":   inferOfferPricingTrack(detail.Offer),
+		"IsPrivateTrack": detail.Lead.OpsQueueReason.Valid && detail.Lead.OpsQueueReason.String == "private_track",
+		"IsRefundReview": isRefundReviewLead(detail.Lead),
 		"CanMarkOfferSent": func() bool {
 			ok, _ := canMarkOfferSent(detail)
 			return ok
@@ -1413,6 +1467,21 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/pre-enrolment", "success", "Lead moved to Private Track.")
 		return
 
+	case "return_to_admin_feed":
+		h.cfg.Debugf("  → Action: return_to_admin_feed")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to return this lead to admin feed.", http.StatusForbidden)
+			return
+		}
+
+		if err := models.ReturnPrivateTrackLeadToAdminFeed(leadID); err != nil {
+			redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), err.Error())
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "Lead returned to the admin feed.")
+		return
+
 	case "mark_ready":
 		h.cfg.Debugf("  → Action: mark_ready")
 		// Server-side check: moderators cannot update status
@@ -1581,9 +1650,20 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 			return
 		}
+		isRefundReview := isRefundReviewLead(detail.Lead)
+		cancelFlowAction := "cancel"
+		if isRefundReview {
+			cancelFlowAction = "refund_review"
+		}
+		cancelFlowPath := fmt.Sprintf("/pre-enrolment/%s?action=%s", leadID.String(), cancelFlowAction)
 
 		// If this is a POST with refund data, process cancellation + refund
 		if r.Method == http.MethodPost {
+			if isRefundReview && r.FormValue("refund_review_flow") != "1" {
+				redirectWithError(w, r, cancelFlowPath, "This lead must be cancelled through the Refund Review flow.")
+				return
+			}
+
 			refundAmountStr := r.FormValue("refund_amount")
 			refundMethod := r.FormValue("refund_method")
 			refundDateStr := r.FormValue("refund_date")
@@ -1638,19 +1718,19 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				if strings.TrimSpace(refundAmountStr) != "" {
 					refundAmount, err = strconv.Atoi(refundAmountStr)
 					if err != nil || refundAmount <= 0 {
-						http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_amount", leadID.String()), http.StatusFound)
+						http.Redirect(w, r, fmt.Sprintf("%s&error=invalid_amount", cancelFlowPath), http.StatusFound)
 						return
 					}
 				}
 
 				if int32(refundAmount) > totalRefundableAmount {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds&max=%d", leadID.String(), totalRefundableAmount), http.StatusFound)
+					http.Redirect(w, r, fmt.Sprintf("%s&error=amount_exceeds&max=%d", cancelFlowPath, totalRefundableAmount), http.StatusFound)
 					return
 				}
 
 				// Validate payment method
 				if refundMethod == "" {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=method_required", leadID.String()), http.StatusFound)
+					http.Redirect(w, r, fmt.Sprintf("%s&error=method_required", cancelFlowPath), http.StatusFound)
 					return
 				}
 
@@ -1661,25 +1741,25 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 					"other":         true,
 				}
 				if !allowedMethods[refundMethod] {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_method", leadID.String()), http.StatusFound)
+					http.Redirect(w, r, fmt.Sprintf("%s&error=invalid_method", cancelFlowPath), http.StatusFound)
 					return
 				}
 
 				// Validate refund date
 				if refundDateStr == "" {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=date_required", leadID.String()), http.StatusFound)
+					http.Redirect(w, r, fmt.Sprintf("%s&error=date_required", cancelFlowPath), http.StatusFound)
 					return
 				}
 
 				refundDate, err := util.ParseDateLocal(refundDateStr)
 				if err != nil {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=invalid_date", leadID.String()), http.StatusFound)
+					http.Redirect(w, r, fmt.Sprintf("%s&error=invalid_date", cancelFlowPath), http.StatusFound)
 					return
 				}
 
 				// Validate refund date is not in the future
 				if err := util.ValidateNotFutureDate(refundDate); err != nil {
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=future_date", leadID.String()), http.StatusFound)
+					http.Redirect(w, r, fmt.Sprintf("%s&error=future_date", cancelFlowPath), http.StatusFound)
 					return
 				}
 
@@ -1691,14 +1771,14 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					log.Printf("ERROR: Failed to create cancel refund: %v", err)
 					if err.Error() == "payment date cannot be in the future" {
-						http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=future_date", leadID.String()), http.StatusFound)
+						http.Redirect(w, r, fmt.Sprintf("%s&error=future_date", cancelFlowPath), http.StatusFound)
 						return
 					}
 					if strings.Contains(err.Error(), "cannot exceed total course paid") || strings.Contains(err.Error(), "cannot exceed refundable amount") {
-						http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=amount_exceeds&max=%d", leadID.String(), totalRefundableAmount), http.StatusFound)
+						http.Redirect(w, r, fmt.Sprintf("%s&error=amount_exceeds&max=%d", cancelFlowPath, totalRefundableAmount), http.StatusFound)
 						return
 					}
-					http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?action=cancel&error=refund_failed", leadID.String()), http.StatusFound)
+					http.Redirect(w, r, fmt.Sprintf("%s&error=refund_failed", cancelFlowPath), http.StatusFound)
 					return
 				}
 			}
@@ -2195,6 +2275,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	paymentDiscountAmountStr := firstNonEmpty(r.FormValue("discount_amount"), r.FormValue("payment_discount_amount"))
 	paymentDiscountType := strings.ToLower(firstNonEmpty(r.FormValue("discount_type"), r.FormValue("payment_discount_type")))
 	paymentFinalPriceStr := r.FormValue("payment_final_price")
+	pricingTrack := normalizePricingTrack(firstNonEmpty(r.FormValue("pricing_track"), inferOfferPricingTrack(existingDetail.Offer)))
 
 	// Check if this is an explicit offer save action
 	action := r.FormValue("action")
@@ -2234,13 +2315,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			offer.FinalPrice = existingOffer.FinalPrice
 		}
 
-		// Hardcoded bundle prices
-		bundlePrices := map[int32]int32{
-			1: 1300,
-			2: 2400,
-			3: 3300,
-			4: 4000,
-		}
+		bundlePrices := pricingTrackBundlePrices(pricingTrack)
 
 		// Update with form values
 		var basePrice int32 = 0
@@ -2250,13 +2325,15 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if bundleStr != "" {
 			if b, err := strconv.Atoi(bundleStr); err == nil && b >= 1 && b <= 4 {
 				bundleLevel := int32(b)
-				offer.BundleLevels = sql.NullInt32{Int32: bundleLevel, Valid: true}
-				// Auto-set base price from hardcoded bundle prices
-				if price, ok := bundlePrices[bundleLevel]; ok {
-					basePrice = price
-					offer.BasePrice = sql.NullInt32{Int32: basePrice, Valid: true}
-					h.cfg.Debugf("  💰 Bundle %d selected: auto-set base_price=%d, leadID=%s", bundleLevel, basePrice, leadID)
+				price, ok := bundlePrices[bundleLevel]
+				if !ok {
+					h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Bundle %d is not available for %s track.", bundleLevel, pricingTrack))
+					return
 				}
+				offer.BundleLevels = sql.NullInt32{Int32: bundleLevel, Valid: true}
+				basePrice = price
+				offer.BasePrice = sql.NullInt32{Int32: basePrice, Valid: true}
+				h.cfg.Debugf("  💰 %s bundle %d selected: auto-set base_price=%d, leadID=%s", pricingTrack, bundleLevel, basePrice, leadID)
 			}
 		}
 

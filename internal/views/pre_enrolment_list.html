@@ -282,13 +282,24 @@
                         </form>
                         {{end}}
                         {{if and (not $.IsModerator) (not $isCancelled) (not .Lead.OpsQueueReason.Valid)}}
+                        {{if eq .PaymentState "PAID_FULL"}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" style="display: inline;">
                             <input type="hidden" name="action" value="send_private_track">
                             <button type="submit" class="btn btn-small" style="background: #0d6efd; color: white; border: 1px solid #0d6efd;">Private Track</button>
                         </form>
+                        {{else}}
+                        <button type="button" class="btn btn-small" disabled
+                            title="Lead must be paid in full before moving to private track."
+                            style="background: #D6E4FF; color: #6C7A89; border: 1px solid #D6E4FF; cursor: not-allowed;">Private Track</button>
+                        {{end}}
                         {{end}}
                         {{if and (not $.IsModerator) (not $isCancelled)}}
+                        {{if and .Lead.OpsQueueReason.Valid (eq .Lead.OpsQueueReason.String "refund_review")}}
+                        <a href="/pre-enrolment/{{.Lead.ID}}?action=refund_review" class="btn btn-small"
+                            style="background: #FF8C00; color: white; border: 1px solid #FF8C00;">Refund Review</a>
+                        {{else}}
                         <a href="/pre-enrolment/{{.Lead.ID}}?action=cancel" class="btn btn-danger btn-small">Cancel</a>
+                        {{end}}
                         {{end}}
                     </div>
                 </td>

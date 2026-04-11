@@ -43,6 +43,11 @@ func (h *PreEnrolmentHandler) PrivateTrackAction(w http.ResponseWriter, r *http.
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	userRole := middleware.GetUserRole(r)
+	if userRole != "admin" && userRole != "manager" {
+		http.Error(w, "You don't have permission to edit private track leads.", http.StatusForbidden)
+		return
+	}
 
 	leadIDStr := strings.Trim(strings.TrimPrefix(r.URL.Path, "/private-track/"), "/")
 	leadID, err := uuid.Parse(leadIDStr)

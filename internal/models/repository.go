@@ -1045,6 +1045,35 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 }
 
 func SendLeadToPrivateTrack(leadID uuid.UUID) error {
+	var status string
+	err := db.DB.QueryRow(`SELECT status FROM leads WHERE id = $1`, leadID).Scan(&status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("lead not found")
+		}
+		return fmt.Errorf("failed to load lead: %w", err)
+	}
+	if status == "cancelled" || status == "in_classes" {
+		return fmt.Errorf("lead is not eligible for private track")
+	}
+
+	var finalPrice sql.NullInt32
+	err = db.DB.QueryRow(`SELECT final_price FROM offers WHERE lead_id = $1`, leadID).Scan(&finalPrice)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to load offer: %w", err)
+	}
+	if !finalPrice.Valid || finalPrice.Int32 <= 0 {
+		return fmt.Errorf("lead must have a course offer before moving to private track")
+	}
+
+	totalCoursePaid, err := GetTotalCoursePaidCurrentCycle(leadID)
+	if err != nil {
+		return fmt.Errorf("failed to check total course paid: %w", err)
+	}
+	if totalCoursePaid < finalPrice.Int32 {
+		return fmt.Errorf("lead must be fully paid before moving to private track")
+	}
+
 	result, err := db.DB.Exec(`
 		UPDATE leads
 		SET ops_queue_reason = 'private_track',

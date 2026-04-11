@@ -17,6 +17,16 @@
         {{end}}
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
+        {{if .IsPrivateTrack}}
+        <span
+            style="background-color: #0d6efd; color: white; padding: 8px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.4px;">
+            PRIVATE TRACK
+        </span>
+        <button type="submit" form="pre-enrolment-form" name="action" value="return_to_admin_feed"
+            class="btn btn-secondary">
+            Return to Admin Feed
+        </button>
+        {{end}}
         {{if .Detail.Lead.Phone}}
         <a href="{{whatsappLink .Detail.Lead.Phone}}" target="_blank" rel="noopener noreferrer" data-whatsapp-window="admin-whatsapp-chat"
             class="btn"
@@ -420,6 +430,12 @@
             </div>
             {{end}}
             <div class="section-note">Click "Packages Sent", then add a short follow-up note.</div>
+            {{if .IsPrivateTrack}}
+            <div
+                style="background-color: #EEF4FF; border: 1px solid #CFE0FF; border-left: 4px solid #0D6EFD; padding: 15px; margin-bottom: 15px; border-radius: 4px; color: #1F3C88;">
+                This lead is currently in private track and hidden from the main admin feed until you return them.
+            </div>
+            {{end}}
 
             <div class="form-group">
                 <label for="offer_notes">Offer Follow-up Notes</label>
@@ -541,6 +557,15 @@
             {{end}}
 
             <div class="form-row">
+                <div class="form-group">
+                    <label for="pricing_track">Course Track *</label>
+                    <select id="pricing_track" name="pricing_track" form="pre-enrolment-form" {{if
+                        .CoursePaymentDisabled}}disabled{{end}}>
+                        <option value="group" {{if ne .PricingTrack "private"}}selected{{end}}>Group Track</option>
+                        <option value="private" {{if eq .PricingTrack "private"}}selected{{end}}>Private Track</option>
+                    </select>
+                    <small class="form-text text-muted">Private track prices: 1 level = 3000 EGP, 2 = 5600 EGP, 3 = 7200 EGP.</small>
+                </div>
                 <div class="form-group">
                     <label for="payment_bundle">Bundle Selector *</label>
                     <select id="payment_bundle" name="bundle_id" form="pre-enrolment-form" {{if
@@ -991,9 +1016,9 @@
     {{else if not .IsModerator}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <form method="GET" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
-            <input type="hidden" name="action" value="cancel">
+            <input type="hidden" name="action" value="{{if .IsRefundReview}}refund_review{{else}}cancel{{end}}">
             <button type="submit" class="btn"
-                style="background-color: #dc3545; border-color: #dc3545; color: white;">Cancel Lead</button>
+                style="background-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; border-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; color: white;">{{if .IsRefundReview}}Open Refund Review{{else}}Cancel Lead{{end}}</button>
         </form>
     </div>
     {{end}}
@@ -1003,9 +1028,9 @@
         style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
         <div class="pre-enrolment-modal-card"
             style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
-            <h2 style="margin-top: 0; color: #dc3545;">⚠️ Cancel Lead: {{.Detail.Lead.FullName}}</h2>
-            <p style="color: #666;">Cancelling this lead will mark it as cancelled. If the lead has course payments, a
-                refund must be created.</p>
+            <h2 style="margin-top: 0; color: #dc3545;">{{if .IsRefundReview}}Refund Review: {{.Detail.Lead.FullName}}{{else}}⚠️ Cancel Lead: {{.Detail.Lead.FullName}}{{end}}</h2>
+            <p style="color: #666;">{{if .IsRefundReview}}This lead came back from class for refund review. Cancellation must be confirmed through this review screen.{{else}}Cancelling this lead will mark it as cancelled. If the lead has course payments, a
+                refund must be created.{{end}}</p>
             {{if and .Error (ne .ErrorCode "refund_required") (ne .ErrorCode "invalid_amount") (ne .ErrorCode
             "amount_exceeds") (ne .ErrorCode "method_required") (ne .ErrorCode "invalid_method") (ne .ErrorCode
             "date_required") (ne .ErrorCode "invalid_date") (ne .ErrorCode "future_date")}}
@@ -1067,6 +1092,7 @@
             {{if gt .TotalRefundableAmount 0}}
             <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
                 <input type="hidden" name="action" value="cancel">
+                {{if .IsRefundReview}}<input type="hidden" name="refund_review_flow" value="1">{{end}}
 
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label for="refund_amount">Refund Amount (EGP) *</label>
@@ -1114,20 +1140,21 @@
 
                 <div class="pre-enrolment-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
                     <button type="submit" class="btn"
-                        style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm Cancel
-                        & Refund</button>
+                        style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">{{if .IsRefundReview}}Confirm Refund Review & Cancel{{else}}Confirm Cancel
+                        & Refund{{end}}</button>
                     <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary"
                         style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
                 </div>
             </form>
             {{else}}
-            <p style="color: #666; margin: 20px 0;">This lead has no course payments, so no refund is needed.</p>
+            <p style="color: #666; margin: 20px 0;">{{if .IsRefundReview}}No refundable course payment was detected for this lead. If that is unexpected, stop here and verify the payment record before cancelling.{{else}}This lead has no course payments, so no refund is needed.{{end}}</p>
             <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
                 <input type="hidden" name="action" value="cancel">
+                {{if .IsRefundReview}}<input type="hidden" name="refund_review_flow" value="1">{{end}}
                 <div class="pre-enrolment-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
                     <button type="submit" class="btn"
-                        style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">Confirm
-                        Cancel</button>
+                        style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">{{if .IsRefundReview}}Confirm Review & Cancel{{else}}Confirm
+                        Cancel{{end}}</button>
                     <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary"
                         style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
                 </div>
@@ -1232,14 +1259,55 @@
         }
     }
 
-    // Hardcoded bundle prices
-    const bundlePrices = {
-        1: 1300,
-        2: 2400,
-        3: 3300,
-        4: 4000
+    const bundlePricesByTrack = {
+        group: {
+            1: 1300,
+            2: 2400,
+            3: 3300,
+            4: 4000
+        },
+        private: {
+            1: 3000,
+            2: 5600,
+            3: 7200
+        }
     };
     let depositAmountManuallyEdited = false;
+
+    function getSelectedPricingTrack() {
+        const trackEl = document.getElementById('pricing_track');
+        return trackEl && trackEl.value === 'private' ? 'private' : 'group';
+    }
+
+    function syncPaymentBundleOptions() {
+        const bundleEl = document.getElementById('payment_bundle');
+        if (!bundleEl) return;
+
+        const track = getSelectedPricingTrack();
+        const prices = bundlePricesByTrack[track] || bundlePricesByTrack.group;
+
+        Array.from(bundleEl.options).forEach(function (option) {
+            if (!option.value) return;
+            const bundleId = parseInt(option.value, 10);
+            const price = prices[bundleId];
+            if (price) {
+                option.disabled = false;
+                option.hidden = false;
+                option.textContent = `Bundle ${bundleId} (Base: ${price} EGP)`;
+            } else {
+                option.disabled = true;
+                option.hidden = true;
+                option.textContent = `Bundle ${bundleId} (Unavailable)`;
+            }
+        });
+
+        if (bundleEl.value) {
+            const selectedOption = bundleEl.options[bundleEl.selectedIndex];
+            if (selectedOption && selectedOption.disabled) {
+                bundleEl.value = '';
+            }
+        }
+    }
 
     function updateBundlePricing() {
         const bundleSelect = document.getElementById('bundle');
@@ -1250,8 +1318,9 @@
         if (!bundleSelect || !basePriceInput || !finalPriceInput) return;
 
         const bundleValue = bundleSelect.value;
-        if (bundleValue && bundlePrices[bundleValue]) {
-            const basePrice = bundlePrices[bundleValue];
+        const prices = bundlePricesByTrack[getSelectedPricingTrack()] || bundlePricesByTrack.group;
+        if (bundleValue && prices[bundleValue]) {
+            const basePrice = prices[bundleValue];
             basePriceInput.value = basePrice;
             // Recalculate final price with new base price
             updateFinalPrice();
@@ -1305,7 +1374,9 @@
         }
 
         const bundleId = bundleEl.value;
-        const basePrice = bundleId && bundlePrices[bundleId] ? bundlePrices[bundleId] : 0;
+        const track = getSelectedPricingTrack();
+        const prices = bundlePricesByTrack[track] || bundlePricesByTrack.group;
+        const basePrice = bundleId && prices[bundleId] ? prices[bundleId] : 0;
         const discountRaw = parseFloat(discountValueEl.value) || 0;
         const discountType = discountTypeEl.value || "amount";
         let discountAmount = 0;
@@ -1350,14 +1421,23 @@
             updateBundlePricing();
         }
 
+        const pricingTrackEl = document.getElementById('pricing_track');
         const paymentBundleEl = document.getElementById('payment_bundle');
         const paymentDiscountValueEl = document.getElementById('payment_discount_value');
         const paymentDiscountTypeEl = document.getElementById('payment_discount_type');
         const coursePaymentTypeEl = document.getElementById('course_payment_type');
         const coursePaymentAmountEl = document.getElementById('course_payment_amount');
 
+        syncPaymentBundleOptions();
         if (paymentBundleEl || paymentDiscountValueEl || paymentDiscountTypeEl) {
             calculateCoursePaymentFinal();
+        }
+        if (pricingTrackEl) {
+            pricingTrackEl.addEventListener('change', function () {
+                depositAmountManuallyEdited = false;
+                syncPaymentBundleOptions();
+                calculateCoursePaymentFinal();
+            });
         }
         if (paymentBundleEl) {
             paymentBundleEl.addEventListener('change', function () {
