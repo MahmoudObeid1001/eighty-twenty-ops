@@ -538,7 +538,19 @@ export interface DailyReportPayload {
   classes_missing_report: number
   expected_students: number
   absent_students: number
-  class_rows: DailyReportClassRow[]
+  sessions_live_now: number
+  students_in_classes_count: number
+  absent_students_ranking: ManagerOpsWeeklyMentorLeader[]
+  late_starts_ranking: ManagerOpsWeeklyMentorLeader[]
+  students_over_absence_ranking: DailyReportStudentLeader[]
+  session_rows: ManagerOpsSessionRow[]
+}
+
+export interface DailyReportStudentLeader {
+  lead_id: string
+  student_name: string
+  student_phone: string
+  metric_value: number
 }
 
 export interface ManagerOpsSummary {
@@ -624,6 +636,9 @@ export interface ManagerOpsPayload {
   generated_at: string
   summary: ManagerOpsSummary
   weekly_summary: ManagerOpsWeeklySummary
+  absent_students_ranking: ManagerOpsWeeklyMentorLeader[]
+  late_starts_ranking: ManagerOpsWeeklyMentorLeader[]
+  students_over_absence_ranking: DailyReportStudentLeader[]
   session_rows: ManagerOpsSessionRow[]
 }
 

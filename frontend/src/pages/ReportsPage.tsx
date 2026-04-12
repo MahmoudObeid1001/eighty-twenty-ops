@@ -4,8 +4,10 @@ import {
   api,
   BIReportPayload,
   DailyReportPayload,
+  DailyReportStudentLeader,
   ManagerOverviewPayload,
   ManagerOpsPayload,
+  ManagerOpsSessionRow,
   MentorClassReportItem,
   MentorReportChecklistItem,
   MentorReportItem,
@@ -879,87 +881,16 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
               ))}
             </div>
           </ReportPanel>
+
+          <DailyRankingSection
+            absentStudentsRanking={data.absent_students_ranking}
+            lateStartsRanking={data.late_starts_ranking}
+            studentsOverAbsenceRanking={data.students_over_absence_ranking}
+          />
         </>
       )}
 
-      <ReportPanel title={`Sessions for ${data.report_date}`}>
-        {data.session_rows.length === 0 ? (
-          <div style={{ color: '#6b7280' }}>No active sessions scheduled for this Cairo business day.</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1240px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                  <th style={thStyle}>Phase</th>
-                  <th style={thStyle}>Class</th>
-                  <th style={thStyle}>Mentor</th>
-                  <th style={thStyle}>Session</th>
-                  <th style={thStyle}>Schedule</th>
-                  <th style={thStyle}>Mentor Status</th>
-                  <th style={thStyle}>Attendance</th>
-                  <th style={thStyle}>Completion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.session_rows.map((row) => (
-                  <tr key={row.session_id}>
-                    <td style={tdStyle}>
-                      <StatusPill status={row.session_phase} />
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ fontWeight: 700 }}>{row.class_label}</div>
-                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.class_key}</div>
-                      <a href={`/app/mentor-head/class?class_key=${encodeURIComponent(row.class_key)}`} style={{ color: '#0d6efd', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
-                        Open class
-                      </a>
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ fontWeight: 700 }}>{row.mentor_name || row.mentor_email || 'Unassigned'}</div>
-                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.mentor_email || 'No mentor assigned'}</div>
-                    </td>
-                    <td style={tdStyle}>S{row.session_number}</td>
-                    <td style={tdStyle}>
-                      <div>{row.scheduled_date}</div>
-                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{formatBusinessTimeLabel(row.scheduled_time)}</div>
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'grid', gap: '4px' }}>
-                        <StatusPill status={row.mentor_status} />
-                        {row.compliance_checked && !row.mentor_absent && (
-                          <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                            {row.delay_minutes} min delay
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'grid', gap: '4px' }}>
-                        <StatusPill status={row.attendance_status} />
-                        <span style={{ color: '#1f2937', fontSize: '12px' }}>
-                          {row.attended_students}/{row.expected_students} attended
-                        </span>
-                        <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                          {row.attendance_marked} marked · {row.absent_students} absent
-                        </span>
-                      </div>
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'grid', gap: '4px' }}>
-                        <StatusPill status={row.session_status} />
-                        {row.actual_time && (
-                          <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                            Actual {formatBusinessTimeLabel(row.actual_time)}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </ReportPanel>
+      <DailySessionsTable reportDate={data.report_date} rows={data.session_rows} emptyLabel="No active sessions scheduled for this Cairo business day." />
     </div>
   )
 }
@@ -968,6 +899,11 @@ function DailyReportView({ data }: { data: DailyReportPayload }) {
   return (
     <div style={{ display: 'grid', gap: '14px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        <MetricCard
+          title="Live Sessions"
+          value={`${data.sessions_live_now}/${data.classes_scheduled}`}
+          sub={`${data.classes_taught} completed so far`}
+        />
         <MetricCard
           title="Classes Taught"
           value={`${data.classes_taught}/${data.classes_scheduled}`}
@@ -979,70 +915,155 @@ function DailyReportView({ data }: { data: DailyReportPayload }) {
           sub="Absent out of students expected today"
         />
         <MetricCard
+          title="All Students In Class"
+          value={String(data.students_in_classes_count)}
+          sub="Current leads already running in classes"
+        />
+        <MetricCard
           title="Report Date"
           value={data.report_date}
           sub={`Generated ${formatDateTime(data.generated_at)}`}
         />
       </div>
 
-      <ReportPanel title="Daily Classes">
-        {data.class_rows.length === 0 ? (
-          <div style={{ color: '#6b7280' }}>No active sessions were scheduled for this date.</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '980px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                  <th style={thStyle}>Class</th>
-                  <th style={thStyle}>Mentor</th>
-                  <th style={thStyle}>Session</th>
-                  <th style={thStyle}>Scheduled</th>
-                  <th style={thStyle}>Report</th>
-                  <th style={thStyle}>Punctuality</th>
-                  <th style={thStyle}>Absence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.class_rows.map((row) => (
-                  <tr key={row.session_id}>
-                    <td style={tdStyle}>
-                      <div style={{ fontWeight: 700 }}>{row.class_label}</div>
-                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.class_key}</div>
-                    </td>
-                    <td style={tdStyle}>{row.mentor_email || 'Unassigned'}</td>
-                    <td style={tdStyle}>S{row.session_number}</td>
-                    <td style={tdStyle}>
-                      {row.scheduled_date} · {formatBusinessTimeLabel(row.scheduled_time)}
-                    </td>
-                    <td style={tdStyle}>
-                      <StatusPill status={row.report_status} />
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'grid', gap: '4px' }}>
-                        <StatusPill status={row.punctuality_status} />
-                        {row.compliance_checked && !row.mentor_absent && (
-                          <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                            {row.delay_minutes} min delay
-                          </span>
-                        )}
-                        {!row.compliance_checked && row.report_status === 'filled' && (
-                          <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                            Mentor actual {formatBusinessTimeLabel(row.actual_time) || '-'}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td style={tdStyle}>
-                      {row.absent_students}/{row.expected_students}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </ReportPanel>
+      <DailyRankingSection
+        absentStudentsRanking={data.absent_students_ranking}
+        lateStartsRanking={data.late_starts_ranking}
+        studentsOverAbsenceRanking={data.students_over_absence_ranking}
+      />
+
+      <DailySessionsTable reportDate={data.report_date} rows={data.session_rows} emptyLabel="No active sessions were scheduled for this date." />
     </div>
+  )
+}
+
+function DailyRankingSection({
+  absentStudentsRanking,
+  lateStartsRanking,
+  studentsOverAbsenceRanking,
+}: {
+  absentStudentsRanking: ManagerOpsWeeklyMentorLeader[]
+  lateStartsRanking: ManagerOpsWeeklyMentorLeader[]
+  studentsOverAbsenceRanking: DailyReportStudentLeader[]
+}) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+      <WeeklyMentorRankingCard
+        title="Absent Students Ranking"
+        leaders={absentStudentsRanking}
+        emptyLabel="No student absences recorded for this day"
+        metricLabel="absent student"
+        tone="#991b1b"
+        background="#fef2f2"
+      />
+      <WeeklyMentorRankingCard
+        title="Late Session Starts Ranking"
+        leaders={lateStartsRanking}
+        emptyLabel="No late mentor starts recorded for this day"
+        metricLabel="late session start"
+        tone="#92400e"
+        background="#fff7ed"
+      />
+      <StudentRankingCard
+        title="Students Over 2 Absences"
+        leaders={studentsOverAbsenceRanking}
+        emptyLabel="No students exceeded 2 absences"
+        metricLabel="absence"
+        tone="#7c2d12"
+        background="#fff7ed"
+      />
+    </div>
+  )
+}
+
+function DailySessionsTable({
+  reportDate,
+  rows,
+  emptyLabel,
+}: {
+  reportDate: string
+  rows: ManagerOpsSessionRow[]
+  emptyLabel: string
+}) {
+  return (
+    <ReportPanel title={`Sessions for ${reportDate}`}>
+      {rows.length === 0 ? (
+        <div style={{ color: '#6b7280' }}>{emptyLabel}</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1240px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                <th style={thStyle}>Phase</th>
+                <th style={thStyle}>Class</th>
+                <th style={thStyle}>Mentor</th>
+                <th style={thStyle}>Session</th>
+                <th style={thStyle}>Schedule</th>
+                <th style={thStyle}>Mentor Status</th>
+                <th style={thStyle}>Attendance</th>
+                <th style={thStyle}>Completion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.session_id}>
+                  <td style={tdStyle}>
+                    <StatusPill status={row.session_phase} />
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ fontWeight: 700 }}>{row.class_label}</div>
+                    <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.class_key}</div>
+                    <a href={`/app/mentor-head/class?class_key=${encodeURIComponent(row.class_key)}`} style={{ color: '#0d6efd', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
+                      Open class
+                    </a>
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ fontWeight: 700 }}>{row.mentor_name || row.mentor_email || 'Unassigned'}</div>
+                    <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.mentor_email || 'No mentor assigned'}</div>
+                  </td>
+                  <td style={tdStyle}>S{row.session_number}</td>
+                  <td style={tdStyle}>
+                    <div>{row.scheduled_date}</div>
+                    <div style={{ color: '#6b7280', fontSize: '12px' }}>{formatBusinessTimeLabel(row.scheduled_time)}</div>
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <StatusPill status={row.mentor_status} />
+                      {row.compliance_checked && !row.mentor_absent && (
+                        <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                          {row.delay_minutes} min delay
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <StatusPill status={row.attendance_status} />
+                      <span style={{ color: '#1f2937', fontSize: '12px' }}>
+                        {row.attended_students}/{row.expected_students} attended
+                      </span>
+                      <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                        {row.attendance_marked} marked · {row.absent_students} absent
+                      </span>
+                    </div>
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <StatusPill status={row.session_status} />
+                      {row.actual_time && (
+                        <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                          Actual {formatBusinessTimeLabel(row.actual_time)}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ReportPanel>
   )
 }
 
@@ -1221,6 +1242,50 @@ function WeeklyMentorRankingCard({
               </div>
             )
           })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StudentRankingCard({
+  title,
+  leaders,
+  emptyLabel,
+  metricLabel,
+  tone,
+  background,
+}: {
+  title: string
+  leaders: DailyReportStudentLeader[]
+  emptyLabel: string
+  metricLabel: string
+  tone: string
+  background: string
+}) {
+  return (
+    <div style={{ borderRadius: '12px', padding: '14px', background, border: '1px solid rgba(0,0,0,0.06)' }}>
+      <div style={{ fontSize: '13px', fontWeight: 800, color: tone }}>{title}</div>
+      {leaders.length === 0 ? (
+        <div style={{ marginTop: '8px', color: '#6b7280', fontSize: '14px' }}>{emptyLabel}</div>
+      ) : (
+        <div style={{ marginTop: '10px', display: 'grid', gap: '10px' }}>
+          {leaders.map((leader, index) => (
+            <div key={`${leader.lead_id || leader.student_name}-${index}`} style={{ display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: '10px', alignItems: 'start', background: 'rgba(255,255,255,0.65)', borderRadius: '10px', padding: '10px 12px' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '999px', background: 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: tone }}>
+                {index + 1}
+              </div>
+              <div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>{leader.student_name || 'Unknown student'}</div>
+                {leader.student_phone && (
+                  <div style={{ marginTop: '3px', color: '#6b7280', fontSize: '12px' }}>{leader.student_phone}</div>
+                )}
+              </div>
+              <div style={{ fontSize: '14px', fontWeight: 800, color: tone, whiteSpace: 'nowrap' }}>
+                {leader.metric_value} {metricLabel}{leader.metric_value === 1 ? '' : 's'}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

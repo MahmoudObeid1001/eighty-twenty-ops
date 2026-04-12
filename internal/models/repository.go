@@ -9599,23 +9599,37 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 	normalizedDate := util.CairoStartOfDay(inputDate)
 	readyAt := normalizedDate.AddDate(0, 0, 1).Add(2 * time.Hour)
 
+	now := util.CairoNow()
+	mentorAggregates := make(map[string]*mentorWeeklyAggregate)
+
 	rows, err := db.DB.Query(`
 		SELECT cs.id, cs.class_key, cs.session_number, cs.scheduled_date,
 		       COALESCE(cs.scheduled_time::TEXT, '') AS scheduled_time,
-		       cs.actual_date,
 		       COALESCE(cs.actual_time::TEXT, '') AS actual_time,
 		       cs.status,
 		       ma.mentor_user_id::TEXT,
+		       COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, 'Unassigned') AS mentor_name,
 		       COALESCE(u.email, 'Unassigned') AS mentor_email,
 		       cg.level, cg.class_days, cg.class_time, cg.class_number,
 		       (msc.id IS NOT NULL) AS compliance_checked,
-		       COALESCE(msc.delay_minutes, 0) AS ss_delay_minutes,
-		       COALESCE(msc.is_absent, false) AS mentor_absent
+		       COALESCE(msc.delay_minutes, 0) AS delay_minutes,
+		       COALESCE(msc.is_absent, false) AS mentor_absent,
+		       COALESCE(att.marked_count, 0) AS attendance_marked,
+		       COALESCE(att.attended_count, 0) AS attended_students,
+		       COALESCE(att.absent_count, 0) AS absent_students
 		FROM class_sessions cs
 		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
 		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
 		LEFT JOIN users u ON u.id = ma.mentor_user_id
 		LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*)::int AS marked_count,
+				COUNT(*) FILTER (WHERE a.status IN ('PRESENT', 'LATE'))::int AS attended_count,
+				COUNT(*) FILTER (WHERE a.status = 'ABSENT')::int AS absent_count
+			FROM attendance a
+			WHERE a.session_id = cs.id
+		) att ON true
 		WHERE cs.scheduled_date = $1
 		  AND COALESCE(cg.round_status, 'not_started') = 'active'
 		ORDER BY cs.scheduled_time, cg.level, cg.class_number, cs.class_key
@@ -9628,18 +9642,16 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 	report := &DailyReportPayload{
 		ReportDate:  normalizedDate.Format("2006-01-02"),
 		ReadyAt:     readyAt.Format(time.RFC3339),
-		GeneratedAt: util.CairoNow().Format(time.RFC3339),
-		ClassRows:   []*DailyReportClassRow{},
+		GeneratedAt: now.Format(time.RFC3339),
+		SessionRows: []*ManagerOpsSessionRow{},
 	}
 
 	for rows.Next() {
-		var scheduledDate time.Time
-		var actualDate sql.NullTime
 		var mentorIDStr sql.NullString
 		var level, classNumber int32
 		var classDays, classTime string
-		var ssDelayMinutes int
-		row := &DailyReportClassRow{}
+		var scheduledDate time.Time
+		row := &ManagerOpsSessionRow{}
 
 		if err := rows.Scan(
 			&row.SessionID,
@@ -9647,18 +9659,21 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 			&row.SessionNumber,
 			&scheduledDate,
 			&row.ScheduledTime,
-			&actualDate,
 			&row.ActualTime,
 			&row.SessionStatus,
 			&mentorIDStr,
+			&row.MentorName,
 			&row.MentorEmail,
 			&level,
 			&classDays,
 			&classTime,
 			&classNumber,
 			&row.ComplianceChecked,
-			&ssDelayMinutes,
+			&row.DelayMinutes,
 			&row.MentorAbsent,
+			&row.AttendanceMarked,
+			&row.AttendedStudents,
+			&row.AbsentStudents,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan daily report session: %w", err)
 		}
@@ -9675,39 +9690,70 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 		if err != nil {
 			return nil, err
 		}
-		absent, err := countAbsentStudentsForSession(row.SessionID)
-		if err != nil {
-			return nil, err
-		}
 		row.ExpectedStudents = expected
-		row.AbsentStudents = absent
-
-		row.ReportStatus = "missing"
-		row.PunctualityStatus = "ss_check_missing"
-		if strings.EqualFold(row.SessionStatus, "completed") {
-			row.ReportStatus = "filled"
-			report.ClassesTaught++
-		} else {
-			report.ClassesMissingReport++
-		}
-		if row.ComplianceChecked {
-			row.DelayMinutes = ssDelayMinutes
-			if row.MentorAbsent {
-				row.PunctualityStatus = "absent"
-			} else if row.DelayMinutes > 0 {
-				row.PunctualityStatus = "late"
-			} else {
-				row.PunctualityStatus = "on_time"
-			}
-		}
+		row.AttendanceStatus = computeManagerAttendanceStatus(expected, row.AttendanceMarked)
+		row.SessionPhase = computeManagerSessionPhase(normalizedDate, row.ScheduledTime, row.SessionStatus, now)
+		row.MentorStatus = computeManagerMentorStatus(row.ComplianceChecked, row.MentorAbsent, row.DelayMinutes)
 
 		report.ClassesScheduled++
 		report.ExpectedStudents += row.ExpectedStudents
 		report.AbsentStudents += row.AbsentStudents
-		report.ClassRows = append(report.ClassRows, row)
+		if row.SessionStatus == "completed" {
+			report.ClassesTaught++
+		} else {
+			report.ClassesMissingReport++
+		}
+		if row.SessionPhase == "live_now" {
+			report.SessionsLiveNow++
+		}
+		if mentorIDStr.Valid && strings.TrimSpace(mentorIDStr.String) != "" {
+			aggregate, ok := mentorAggregates[mentorIDStr.String]
+			if !ok {
+				aggregate = &mentorWeeklyAggregate{
+					MentorID:    mentorIDStr.String,
+					MentorName:  row.MentorName,
+					MentorEmail: row.MentorEmail,
+				}
+				mentorAggregates[mentorIDStr.String] = aggregate
+			}
+			aggregate.AbsentStudents += row.AbsentStudents
+			if row.MentorStatus == "late" {
+				aggregate.LateStarts++
+			}
+		}
+
+		report.SessionRows = append(report.SessionRows, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to iterate daily report sessions: %w", err)
+	}
+
+	sort.SliceStable(report.SessionRows, func(i, j int) bool {
+		left := managerSessionPhasePriority(report.SessionRows[i].SessionPhase)
+		right := managerSessionPhasePriority(report.SessionRows[j].SessionPhase)
+		if left != right {
+			return left < right
+		}
+		if report.SessionRows[i].ScheduledTime != report.SessionRows[j].ScheduledTime {
+			return report.SessionRows[i].ScheduledTime < report.SessionRows[j].ScheduledTime
+		}
+		return report.SessionRows[i].ClassKey < report.SessionRows[j].ClassKey
+	})
+
+	studentsInClassesCount, _, err := getManagerOpsLeadCounts()
+	if err != nil {
+		return nil, err
+	}
+	report.StudentsInClassesCount = studentsInClassesCount
+	report.AbsentStudentsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.AbsentStudents
+	})
+	report.LateStartsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.LateStarts
+	})
+	report.StudentsOverAbsenceRanking, err = getStudentsOverAbsenceThresholdRanking(normalizedDate, 2)
+	if err != nil {
+		return nil, err
 	}
 
 	return report, nil
@@ -9852,6 +9898,37 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 		}
 		return payload.SessionRows[i].ClassKey < payload.SessionRows[j].ClassKey
 	})
+
+	mentorAggregates := make(map[string]*mentorWeeklyAggregate)
+	for _, row := range payload.SessionRows {
+		mentorID := strings.TrimSpace(row.MentorID.String())
+		if mentorID == "" {
+			continue
+		}
+		aggregate, ok := mentorAggregates[mentorID]
+		if !ok {
+			aggregate = &mentorWeeklyAggregate{
+				MentorID:    mentorID,
+				MentorName:  row.MentorName,
+				MentorEmail: row.MentorEmail,
+			}
+			mentorAggregates[mentorID] = aggregate
+		}
+		aggregate.AbsentStudents += row.AbsentStudents
+		if row.MentorStatus == "late" {
+			aggregate.LateStarts++
+		}
+	}
+	payload.AbsentStudentsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.AbsentStudents
+	})
+	payload.LateStartsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.LateStarts
+	})
+	payload.StudentsOverAbsenceRanking, err = getStudentsOverAbsenceThresholdRanking(reportDate, 2)
+	if err != nil {
+		return nil, err
+	}
 
 	revenue, payingLeads, err := getRevenueInForBusinessDate(reportDate)
 	if err != nil {
@@ -10414,6 +10491,44 @@ func buildManagerOpsMentorRanking(aggregates map[string]*mentorWeeklyAggregate, 
 		return compareManagerOpsMentorAggregate(left, right) < 0
 	})
 	return ranking
+}
+
+func getStudentsOverAbsenceThresholdRanking(reportDate time.Time, threshold int) ([]DailyReportStudentLeader, error) {
+	rows, err := db.DB.Query(`
+		SELECT
+			l.id::text,
+			COALESCE(NULLIF(TRIM(l.full_name), ''), 'Unknown student') AS student_name,
+			COALESCE(l.phone, '') AS student_phone,
+			COUNT(*)::int AS absence_count
+		FROM attendance a
+		INNER JOIN leads l ON l.id = a.lead_id
+		INNER JOIN class_sessions cs ON cs.id = a.session_id
+		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
+		WHERE a.status = 'ABSENT'
+		  AND cs.scheduled_date <= $1::date
+		  AND l.status = 'in_classes'
+		  AND COALESCE(cg.round_status, 'not_started') = 'active'
+		GROUP BY l.id, l.full_name, l.phone
+		HAVING COUNT(*) > $2
+		ORDER BY COUNT(*) DESC, COALESCE(NULLIF(TRIM(l.full_name), ''), 'Unknown student') ASC, COALESCE(l.phone, '') ASC
+	`, reportDate.Format("2006-01-02"), threshold)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query students over absence threshold: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	ranking := make([]DailyReportStudentLeader, 0)
+	for rows.Next() {
+		var item DailyReportStudentLeader
+		if err := rows.Scan(&item.LeadID, &item.StudentName, &item.StudentPhone, &item.MetricValue); err != nil {
+			return nil, fmt.Errorf("failed to scan student absence ranking: %w", err)
+		}
+		ranking = append(ranking, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate student absence ranking: %w", err)
+	}
+	return ranking, nil
 }
 
 func getRevenueInForBusinessDate(reportDate time.Time) (int32, int, error) {

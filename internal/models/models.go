@@ -684,15 +684,20 @@ type ComplaintListItem struct {
 
 // DailyReportPayload is the operational daily class report shown to Mentor Head and Manager.
 type DailyReportPayload struct {
-	ReportDate           string                 `json:"report_date"`
-	ReadyAt              string                 `json:"ready_at"`
-	GeneratedAt          string                 `json:"generated_at"`
-	ClassesScheduled     int                    `json:"classes_scheduled"`
-	ClassesTaught        int                    `json:"classes_taught"`
-	ClassesMissingReport int                    `json:"classes_missing_report"`
-	ExpectedStudents     int                    `json:"expected_students"`
-	AbsentStudents       int                    `json:"absent_students"`
-	ClassRows            []*DailyReportClassRow `json:"class_rows"`
+	ReportDate                 string                         `json:"report_date"`
+	ReadyAt                    string                         `json:"ready_at"`
+	GeneratedAt                string                         `json:"generated_at"`
+	ClassesScheduled           int                            `json:"classes_scheduled"`
+	ClassesTaught              int                            `json:"classes_taught"`
+	ClassesMissingReport       int                            `json:"classes_missing_report"`
+	ExpectedStudents           int                            `json:"expected_students"`
+	AbsentStudents             int                            `json:"absent_students"`
+	SessionsLiveNow            int                            `json:"sessions_live_now"`
+	StudentsInClassesCount     int                            `json:"students_in_classes_count"`
+	AbsentStudentsRanking      []ManagerOpsWeeklyMentorLeader `json:"absent_students_ranking"`
+	LateStartsRanking          []ManagerOpsWeeklyMentorLeader `json:"late_starts_ranking"`
+	StudentsOverAbsenceRanking []DailyReportStudentLeader     `json:"students_over_absence_ranking"`
+	SessionRows                []*ManagerOpsSessionRow        `json:"session_rows"`
 }
 
 // DailyReportClassRow summarizes one class session expected on the report date.
@@ -716,14 +721,24 @@ type DailyReportClassRow struct {
 	AbsentStudents    int       `json:"absent_students"`
 }
 
+type DailyReportStudentLeader struct {
+	LeadID       string `json:"lead_id"`
+	StudentName  string `json:"student_name"`
+	StudentPhone string `json:"student_phone"`
+	MetricValue  int    `json:"metric_value"`
+}
+
 // ManagerOpsPayload is the manager-only daily operations view for a single Cairo business day.
 type ManagerOpsPayload struct {
-	ReportDate    string                  `json:"report_date"`
-	Timezone      string                  `json:"timezone"`
-	GeneratedAt   string                  `json:"generated_at"`
-	Summary       ManagerOpsSummary       `json:"summary"`
-	WeeklySummary ManagerOpsWeeklySummary `json:"weekly_summary"`
-	SessionRows   []*ManagerOpsSessionRow `json:"session_rows"`
+	ReportDate                 string                         `json:"report_date"`
+	Timezone                   string                         `json:"timezone"`
+	GeneratedAt                string                         `json:"generated_at"`
+	Summary                    ManagerOpsSummary              `json:"summary"`
+	WeeklySummary              ManagerOpsWeeklySummary        `json:"weekly_summary"`
+	AbsentStudentsRanking      []ManagerOpsWeeklyMentorLeader `json:"absent_students_ranking"`
+	LateStartsRanking          []ManagerOpsWeeklyMentorLeader `json:"late_starts_ranking"`
+	StudentsOverAbsenceRanking []DailyReportStudentLeader     `json:"students_over_absence_ranking"`
+	SessionRows                []*ManagerOpsSessionRow        `json:"session_rows"`
 }
 
 type ManagerOverviewPayload struct {
