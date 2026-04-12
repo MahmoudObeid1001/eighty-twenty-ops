@@ -497,29 +497,33 @@ type MentorAssignment struct {
 
 // MentorEvaluation represents KPI and attendance evaluation for a mentor
 type MentorEvaluation struct {
-	ID                  uuid.UUID
-	MentorID            uuid.UUID
-	ClassKey            string
-	KPISessionQuality   int
-	KPIStudentsFeedback int
-	TrelloSessionChecks []bool
-	EvaluatorID         uuid.UUID
-	UpdatedAt           time.Time
+	ID                   uuid.UUID
+	MentorID             uuid.UUID
+	ClassKey             string
+	KPISessionQuality    int
+	KPISessionQualityByS []int
+	KPIStudentsFeedback  int
+	TrelloSessionChecks  []bool
+	EvaluatorID          uuid.UUID
+	UpdatedAt            time.Time
 }
 
 type MentorEvaluationClassItem struct {
-	ClassKey            string
-	Level               int32
-	ClassDays           string
-	ClassTime           string
-	ClassNumber         int32
-	RoundStatus         string
-	KPISessionQuality   int
-	KPIStudentsFeedback int
-	TrelloSessionChecks []bool
-	AutoWhatsAppPercent int
-	AttendanceStatuses  []string
-	AttendancePercent   int
+	ClassKey             string
+	Level                int32
+	ClassDays            string
+	ClassTime            string
+	ClassNumber          int32
+	RoundStatus          string
+	KPISessionQuality    int
+	KPISessionQualityByS []int
+	KPIStudentsFeedback  int
+	TrelloSessionChecks  []bool
+	AutoWhatsAppPercent  int
+	AttendanceStatuses   []string
+	AttendancePercent    int
+	RecordedSessionCount int
+	ClassCollectiveScore int
 }
 
 type MentorEvaluationMentorItem struct {

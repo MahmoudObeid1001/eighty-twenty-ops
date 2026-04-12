@@ -12,6 +12,8 @@ interface MentorRoundReportProps {
     collectiveKpi: number
     manual: {
       sessionQuality: number
+      sessionQualityBySession: number[]
+      recordedSessionCount: number
       studentsFeedback: number
       trelloSessionChecks: boolean[]
       trelloCompliancePercent: number
@@ -40,8 +42,19 @@ function percentColor(percent: number): string {
   return '#e03131'
 }
 
+function normalizeSessionQualityBySession(values: number[] | undefined): number[] {
+  const normalized = new Array(8).fill(0)
+  for (let i = 0; i < normalized.length && i < (values || []).length; i++) {
+    const value = Number(values?.[i] || 0)
+    if (!Number.isFinite(value)) continue
+    normalized[i] = Math.max(0, Math.min(10, Math.round(value)))
+  }
+  return normalized
+}
+
 export default function MentorRoundReport({ report, onClose }: MentorRoundReportProps) {
   const generatedDate = new Date(report.generatedAt).toLocaleDateString()
+  const sessionQualityBySession = normalizeSessionQualityBySession(report.manual.sessionQualityBySession)
 
   function handlePrint() {
     const logoSrc = `${window.location.origin}/static/logo/eighty-twenty-logo.png`
@@ -55,6 +68,9 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
       const checked = report.manual.trelloSessionChecks[index]
       return `<td>${checked ? 'OK' : '-'}</td>`
     }).join('')
+    const sessionQualityCells = sessionQualityBySession
+      .map((score) => `<td>${score > 0 ? `${score}/10` : '-'}</td>`)
+      .join('')
 
     const html = `<!doctype html>
 <html>
@@ -68,6 +84,7 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
     .logo { width: 70px; height: auto; }
     .score { text-align: center; background: #eef6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px; margin: 10px 0 12px; }
     .score-value { font-size: 34px; font-weight: 800; }
+    .subtle { color: #475569; font-size: 12px; margin-top: 4px; }
     .bar-wrap { margin: 10px 0; }
     .bar-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
     .bar { height: 11px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
@@ -92,14 +109,15 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
     <div class="score">
       <div class="score-value">${report.collectiveKpi}%</div>
       <div>Collective KPI Ratio (Weighted)</div>
+      <div class="subtle">Session Quality uses only MH-recorded sessions: ${report.manual.recordedSessionCount}/8 recorded</div>
     </div>
 
     <div class="bar-wrap">
-      <div class="bar-head"><span>Session Quality (Manual)</span><span>${report.manual.sessionQuality}/10</span></div>
+      <div class="bar-head"><span>Session Quality (Recorded Average)</span><span>${report.manual.sessionQuality > 0 ? `${report.manual.sessionQuality}/10` : '-'}</span></div>
       <div class="bar"><div class="fill" style="width:${Math.max(0, Math.min(100, report.manual.sessionQuality * 10))}%;background:#1c7ed6;"></div></div>
     </div>
     <div class="bar-wrap">
-      <div class="bar-head"><span>Students Feedback (Manual)</span><span>${report.manual.studentsFeedback}/10</span></div>
+      <div class="bar-head"><span>Students Feedback (Overall Manual)</span><span>${report.manual.studentsFeedback}/10</span></div>
       <div class="bar"><div class="fill" style="width:${Math.max(0, Math.min(100, report.manual.studentsFeedback * 10))}%;background:#1c7ed6;"></div></div>
     </div>
     <div class="bar-wrap">
@@ -130,6 +148,10 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
         </tr>
       </thead>
       <tbody>
+        <tr>
+          <td>Session Quality (Manual)</td>
+          ${sessionQualityCells}
+        </tr>
         <tr>
           <td>Trello Session Checks</td>
           ${trelloCells}
@@ -213,12 +235,20 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
           <div className="mentor-report-score">
             <div className="mentor-report-score-value">{report.collectiveKpi}%</div>
             <div>Collective KPI Ratio (Weighted)</div>
+            <div style={{ marginTop: '6px', color: '#475569', fontSize: '13px' }}>
+              Session Quality uses only MH-recorded sessions: {report.manual.recordedSessionCount}/8 recorded
+            </div>
           </div>
 
           <div className="mentor-report-grid">
             {[
-              { label: 'Session Quality (Manual)', value: report.manual.sessionQuality * 10, raw: `${report.manual.sessionQuality}/10` },
-              { label: 'Students Feedback (Manual)', value: report.manual.studentsFeedback * 10, raw: `${report.manual.studentsFeedback}/10` },
+              {
+                label: 'Session Quality (Recorded Average)',
+                value: report.manual.sessionQuality * 10,
+                raw: report.manual.sessionQuality > 0 ? `${report.manual.sessionQuality}/10` : '-',
+              },
+              { label: 'Recorded Sessions', value: (report.manual.recordedSessionCount / 8) * 100, raw: `${report.manual.recordedSessionCount}/8` },
+              { label: 'Students Feedback (Overall Manual)', value: report.manual.studentsFeedback * 10, raw: `${report.manual.studentsFeedback}/10` },
               { label: 'Trello Compliance (Manual)', value: report.manual.trelloCompliancePercent, raw: `${report.manual.trelloCompliancePercent}%` },
               { label: 'WhatsApp Management (Auto)', value: report.automatic.whatsAppManagementPercent, raw: `${report.automatic.whatsAppManagementPercent}%` },
               { label: 'Attendance Punctuality (Auto)', value: report.automatic.attendancePunctualityPercent, raw: `${report.automatic.attendancePunctualityPercent}%` },
@@ -256,6 +286,12 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <td>Session Quality (Manual)</td>
+                {sessionQualityBySession.map((score, index) => (
+                  <td key={index}>{score > 0 ? `${score}/10` : '-'}</td>
+                ))}
+              </tr>
               <tr>
                 <td>Trello Session Checks</td>
                 {new Array(8).fill(false).map((_, index) => (

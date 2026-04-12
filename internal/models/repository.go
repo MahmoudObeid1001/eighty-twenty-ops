@@ -6454,6 +6454,64 @@ func parseTrelloChecksJSON(raw sql.NullString) []bool {
 	return normalizeTrelloChecks(parsed)
 }
 
+func normalizeSessionQualityBySession(raw []int) []int {
+	out := make([]int, 8)
+	for i := 0; i < len(out) && i < len(raw); i++ {
+		value := raw[i]
+		if value < 0 {
+			value = 0
+		}
+		if value > 10 {
+			value = 10
+		}
+		out[i] = value
+	}
+	return out
+}
+
+func parseSessionQualityBySessionJSON(raw sql.NullString, fallback int) []int {
+	if raw.Valid {
+		var parsed []int
+		if err := json.Unmarshal([]byte(raw.String), &parsed); err == nil {
+			normalized := normalizeSessionQualityBySession(parsed)
+			if countRecordedSessionQualities(normalized) > 0 {
+				return normalized
+			}
+		}
+	}
+	out := make([]int, 8)
+	if fallback > 0 {
+		out[0] = fallback
+	}
+	return out
+}
+
+func countRecordedSessionQualities(values []int) int {
+	count := 0
+	for _, value := range values {
+		if value > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func averageRecordedSessionQuality(values []int) int {
+	total := 0
+	count := 0
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		total += value
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return int(math.Round(float64(total) / float64(count)))
+}
+
 type classComplianceMetrics struct {
 	Statuses       []string
 	PunctualityPct int
@@ -6612,6 +6670,7 @@ func GetMentorEvaluationsByRoundStatus(roundStatus string, mentorQuery string, f
 			cg.class_key, cg.level, cg.class_days, cg.class_time, cg.class_number, cg.round_status,
 			COALESCE(me.kpi_session_quality, 0) AS kpi_session_quality,
 			COALESCE(me.kpi_students_feedback, 0) AS kpi_students_feedback,
+			me.kpi_session_quality_by_session,
 			me.trello_session_checks
 		FROM scoped_classes sc
 		INNER JOIN class_groups cg ON cg.class_key = sc.class_key
@@ -6663,12 +6722,13 @@ func GetMentorEvaluationsByRoundStatus(roundStatus string, mentorQuery string, f
 	for rows.Next() {
 		user := &User{}
 		classItem := MentorEvaluationClassItem{}
+		var sessionQualityBySessionJSON sql.NullString
 		var trelloJSON sql.NullString
 
 		if err := rows.Scan(
 			&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.CreatedAt,
 			&classItem.ClassKey, &classItem.Level, &classItem.ClassDays, &classItem.ClassTime, &classItem.ClassNumber, &classItem.RoundStatus,
-			&classItem.KPISessionQuality, &classItem.KPIStudentsFeedback, &trelloJSON,
+			&classItem.KPISessionQuality, &classItem.KPIStudentsFeedback, &sessionQualityBySessionJSON, &trelloJSON,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan mentor evaluation class row: %w", err)
 		}
@@ -6678,10 +6738,21 @@ func GetMentorEvaluationsByRoundStatus(roundStatus string, mentorQuery string, f
 			return nil, fmt.Errorf("failed to compute compliance metrics for class %s: %w", classItem.ClassKey, err)
 		}
 
+		classItem.KPISessionQualityByS = parseSessionQualityBySessionJSON(sessionQualityBySessionJSON, classItem.KPISessionQuality)
+		classItem.KPISessionQuality = averageRecordedSessionQuality(classItem.KPISessionQualityByS)
+		classItem.RecordedSessionCount = countRecordedSessionQualities(classItem.KPISessionQualityByS)
 		classItem.TrelloSessionChecks = parseTrelloChecksJSON(trelloJSON)
 		classItem.AttendanceStatuses = statuses
 		classItem.AttendancePercent = punctuality
 		classItem.AutoWhatsAppPercent = whatsapp
+		checked := 0
+		for _, ok := range classItem.TrelloSessionChecks {
+			if ok {
+				checked++
+			}
+		}
+		trelloPercent := (checked * 100) / 8
+		classItem.ClassCollectiveScore = computeCollectiveClassScore(classItem.KPISessionQuality, classItem.KPIStudentsFeedback, trelloPercent, punctuality, whatsapp)
 
 		entry, ok := mentorMap[user.ID]
 		if !ok {
@@ -6838,6 +6909,7 @@ func GetMentorProfile(mentorID uuid.UUID) (*MentorProfile, error) {
 			cg.round_closed_at,
 			COALESCE(me.kpi_session_quality, 0) AS kpi_session_quality,
 			COALESCE(me.kpi_students_feedback, 0) AS kpi_students_feedback,
+			me.kpi_session_quality_by_session,
 			me.trello_session_checks
 		FROM class_keys ck
 		INNER JOIN class_groups cg ON cg.class_key = ck.class_key
@@ -6861,11 +6933,12 @@ func GetMentorProfile(mentorID uuid.UUID) (*MentorProfile, error) {
 	for rows.Next() {
 		item := MentorClassHistoryItem{}
 		var sessionQuality, feedback int
+		var sessionQualityBySessionJSON sql.NullString
 		var trelloJSON sql.NullString
 		if err := rows.Scan(
 			&item.ClassKey, &item.Level, &item.Days, &item.Time,
 			&item.StartDate, &item.EndDate,
-			&sessionQuality, &feedback, &trelloJSON,
+			&sessionQuality, &feedback, &sessionQualityBySessionJSON, &trelloJSON,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan mentor class history row: %w", err)
 		}
@@ -6875,6 +6948,8 @@ func GetMentorProfile(mentorID uuid.UUID) (*MentorProfile, error) {
 			return nil, fmt.Errorf("failed to compute compliance for class %s: %w", item.ClassKey, err)
 		}
 
+		sessionQualityBySession := parseSessionQualityBySessionJSON(sessionQualityBySessionJSON, sessionQuality)
+		sessionQuality = averageRecordedSessionQuality(sessionQualityBySession)
 		trelloChecks := parseTrelloChecksJSON(trelloJSON)
 		checked := 0
 		for _, ok := range trelloChecks {
@@ -7039,15 +7114,23 @@ func CreateMentorTestimonial(mentorID uuid.UUID, classKey string, testimonialTex
 }
 
 // UpsertMentorEvaluationByClass creates or updates class-scoped manual evaluation fields.
-func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluatorID uuid.UUID, sessionQuality int, studentsFeedback int, trelloSessionChecks []bool) error {
+func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluatorID uuid.UUID, sessionQualityBySession []int, studentsFeedback int, trelloSessionChecks []bool) error {
 	if classKey == "" {
 		return fmt.Errorf("class_key is required")
 	}
-	if sessionQuality < 1 || sessionQuality > 10 {
-		return fmt.Errorf("session_quality must be between 1 and 10")
+	sessionQualityBySession = normalizeSessionQualityBySession(sessionQualityBySession)
+	for _, value := range sessionQualityBySession {
+		if value < 0 || value > 10 {
+			return fmt.Errorf("session_quality_by_session must be between 0 and 10")
+		}
 	}
 	if studentsFeedback < 1 || studentsFeedback > 10 {
 		return fmt.Errorf("students_feedback must be between 1 and 10")
+	}
+	sessionQuality := averageRecordedSessionQuality(sessionQualityBySession)
+	sessionQualityJSON, err := json.Marshal(sessionQualityBySession)
+	if err != nil {
+		return fmt.Errorf("failed to encode session quality by session: %w", err)
 	}
 	trelloSessionChecks = normalizeTrelloChecks(trelloSessionChecks)
 	trelloJSON, err := json.Marshal(trelloSessionChecks)
@@ -7085,12 +7168,13 @@ func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluato
 		UPDATE mentor_evaluations
 		SET kpi_session_quality = $3,
 		    kpi_students_feedback = $4,
-		    trello_session_checks = $5::jsonb,
-		    evaluator_id = $6,
+		    kpi_session_quality_by_session = $5::jsonb,
+		    trello_session_checks = $6::jsonb,
+		    evaluator_id = $7,
 		    updated_at = NOW()
 		WHERE mentor_id = $1
 		  AND class_key = $2
-	`, mentorID, classKey, sessionQuality, studentsFeedback, string(trelloJSON), evaluatorID)
+	`, mentorID, classKey, sessionQuality, studentsFeedback, string(sessionQualityJSON), string(trelloJSON), evaluatorID)
 	if err != nil {
 		return fmt.Errorf("failed to update mentor evaluation by class: %w", err)
 	}
@@ -7102,10 +7186,10 @@ func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluato
 	if updatedRows == 0 {
 		_, err = tx.Exec(`
 			INSERT INTO mentor_evaluations (
-				mentor_id, class_key, kpi_session_quality, kpi_students_feedback, trello_session_checks, evaluator_id, updated_at
+				mentor_id, class_key, kpi_session_quality, kpi_students_feedback, kpi_session_quality_by_session, trello_session_checks, evaluator_id, updated_at
 			)
-			VALUES ($1, $2, $3, $4, $5::jsonb, $6, NOW())
-		`, mentorID, classKey, sessionQuality, studentsFeedback, string(trelloJSON), evaluatorID)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, NOW())
+		`, mentorID, classKey, sessionQuality, studentsFeedback, string(sessionQualityJSON), string(trelloJSON), evaluatorID)
 		if err != nil {
 			// If another request inserted concurrently, retry as update in same tx.
 			if pgErr, ok := err.(*pq.Error); ok && pgErr.Code == "23505" {
@@ -7113,12 +7197,13 @@ func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluato
 					UPDATE mentor_evaluations
 					SET kpi_session_quality = $3,
 					    kpi_students_feedback = $4,
-					    trello_session_checks = $5::jsonb,
-					    evaluator_id = $6,
+					    kpi_session_quality_by_session = $5::jsonb,
+					    trello_session_checks = $6::jsonb,
+					    evaluator_id = $7,
 					    updated_at = NOW()
 					WHERE mentor_id = $1
 					  AND class_key = $2
-				`, mentorID, classKey, sessionQuality, studentsFeedback, string(trelloJSON), evaluatorID)
+				`, mentorID, classKey, sessionQuality, studentsFeedback, string(sessionQualityJSON), string(trelloJSON), evaluatorID)
 			}
 			if err != nil {
 				return fmt.Errorf("failed to upsert mentor evaluation by class: %w", err)
@@ -9595,12 +9680,20 @@ func LatestReadyDailyReportWindow(now time.Time) (time.Time, time.Time) {
 }
 
 // GetDailyReportPayload builds the Mentor Head/Manager daily report for a date.
-func GetDailyReportPayload(inputDate, rankingFrom, rankingTo time.Time) (*DailyReportPayload, error) {
+func GetDailyReportPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time) (*DailyReportPayload, error) {
 	normalizedDate := util.CairoStartOfDay(inputDate)
-	rankingFrom = util.CairoStartOfDay(rankingFrom)
-	rankingTo = util.CairoStartOfDay(rankingTo)
-	if rankingTo.Before(rankingFrom) {
-		rankingFrom, rankingTo = rankingTo, rankingFrom
+	var normalizedRankingFrom *time.Time
+	var normalizedRankingTo *time.Time
+	if rankingFrom != nil {
+		value := util.CairoStartOfDay(*rankingFrom)
+		normalizedRankingFrom = &value
+	}
+	if rankingTo != nil {
+		value := util.CairoStartOfDay(*rankingTo)
+		normalizedRankingTo = &value
+	}
+	if normalizedRankingFrom != nil && normalizedRankingTo != nil && normalizedRankingTo.Before(*normalizedRankingFrom) {
+		normalizedRankingFrom, normalizedRankingTo = normalizedRankingTo, normalizedRankingFrom
 	}
 	readyAt := normalizedDate.AddDate(0, 0, 1).Add(2 * time.Hour)
 
@@ -9647,9 +9740,13 @@ func GetDailyReportPayload(inputDate, rankingFrom, rankingTo time.Time) (*DailyR
 		ReportDate:  normalizedDate.Format("2006-01-02"),
 		ReadyAt:     readyAt.Format(time.RFC3339),
 		GeneratedAt: now.Format(time.RFC3339),
-		RankingFrom: rankingFrom.Format("2006-01-02"),
-		RankingTo:   rankingTo.Format("2006-01-02"),
 		SessionRows: []*ManagerOpsSessionRow{},
+	}
+	if normalizedRankingFrom != nil {
+		report.RankingFrom = normalizedRankingFrom.Format("2006-01-02")
+	}
+	if normalizedRankingTo != nil {
+		report.RankingTo = normalizedRankingTo.Format("2006-01-02")
 	}
 
 	for rows.Next() {
@@ -9735,7 +9832,7 @@ func GetDailyReportPayload(inputDate, rankingFrom, rankingTo time.Time) (*DailyR
 		return nil, err
 	}
 	report.StudentsInClassesCount = studentsInClassesCount
-	report.AbsentStudentsRanking, report.LateStartsRanking, report.StudentsOverAbsenceRanking, err = getActiveClassRankingSummary(rankingFrom, rankingTo, 2)
+	report.AbsentStudentsRanking, report.LateStartsRanking, report.StudentsOverAbsenceRanking, err = getActiveClassRankingSummary(normalizedRankingFrom, normalizedRankingTo, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -9744,12 +9841,20 @@ func GetDailyReportPayload(inputDate, rankingFrom, rankingTo time.Time) (*DailyR
 }
 
 // GetManagerOpsPayload builds a manager-only operational view for one Cairo business day.
-func GetManagerOpsPayload(inputDate, rankingFrom, rankingTo time.Time) (*ManagerOpsPayload, error) {
+func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time) (*ManagerOpsPayload, error) {
 	reportDate := util.CairoStartOfDay(inputDate)
-	rankingFrom = util.CairoStartOfDay(rankingFrom)
-	rankingTo = util.CairoStartOfDay(rankingTo)
-	if rankingTo.Before(rankingFrom) {
-		rankingFrom, rankingTo = rankingTo, rankingFrom
+	var normalizedRankingFrom *time.Time
+	var normalizedRankingTo *time.Time
+	if rankingFrom != nil {
+		value := util.CairoStartOfDay(*rankingFrom)
+		normalizedRankingFrom = &value
+	}
+	if rankingTo != nil {
+		value := util.CairoStartOfDay(*rankingTo)
+		normalizedRankingTo = &value
+	}
+	if normalizedRankingFrom != nil && normalizedRankingTo != nil && normalizedRankingTo.Before(*normalizedRankingFrom) {
+		normalizedRankingFrom, normalizedRankingTo = normalizedRankingTo, normalizedRankingFrom
 	}
 	now := util.CairoNow()
 
@@ -9794,10 +9899,14 @@ func GetManagerOpsPayload(inputDate, rankingFrom, rankingTo time.Time) (*Manager
 		ReportDate:    reportDate.Format("2006-01-02"),
 		Timezone:      util.CairoTimeZone,
 		GeneratedAt:   now.Format(time.RFC3339),
-		RankingFrom:   rankingFrom.Format("2006-01-02"),
-		RankingTo:     rankingTo.Format("2006-01-02"),
 		WeeklySummary: ManagerOpsWeeklySummary{},
 		SessionRows:   []*ManagerOpsSessionRow{},
+	}
+	if normalizedRankingFrom != nil {
+		payload.RankingFrom = normalizedRankingFrom.Format("2006-01-02")
+	}
+	if normalizedRankingTo != nil {
+		payload.RankingTo = normalizedRankingTo.Format("2006-01-02")
 	}
 
 	for rows.Next() {
@@ -9890,7 +9999,7 @@ func GetManagerOpsPayload(inputDate, rankingFrom, rankingTo time.Time) (*Manager
 		return payload.SessionRows[i].ClassKey < payload.SessionRows[j].ClassKey
 	})
 
-	payload.AbsentStudentsRanking, payload.LateStartsRanking, payload.StudentsOverAbsenceRanking, err = getActiveClassRankingSummary(rankingFrom, rankingTo, 2)
+	payload.AbsentStudentsRanking, payload.LateStartsRanking, payload.StudentsOverAbsenceRanking, err = getActiveClassRankingSummary(normalizedRankingFrom, normalizedRankingTo, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -10458,15 +10567,22 @@ func buildManagerOpsMentorRanking(aggregates map[string]*mentorWeeklyAggregate, 
 	return ranking
 }
 
-func getActiveClassRankingSummary(startDate, endDate time.Time, absenceThreshold int) ([]ManagerOpsWeeklyMentorLeader, []ManagerOpsWeeklyMentorLeader, []DailyReportStudentLeader, error) {
-	startDate = util.CairoStartOfDay(startDate)
-	endDate = util.CairoStartOfDay(endDate)
-	if endDate.Before(startDate) {
-		startDate, endDate = endDate, startDate
+func getActiveClassRankingSummary(startDate, endDate *time.Time, absenceThreshold int) ([]ManagerOpsWeeklyMentorLeader, []ManagerOpsWeeklyMentorLeader, []DailyReportStudentLeader, error) {
+	var queryArgs []interface{}
+	dateClause := ""
+	if startDate != nil && endDate != nil {
+		dateClause = "AND cs.scheduled_date BETWEEN $1::date AND $2::date"
+		queryArgs = append(queryArgs, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+	} else if startDate != nil {
+		dateClause = "AND cs.scheduled_date >= $1::date"
+		queryArgs = append(queryArgs, startDate.Format("2006-01-02"))
+	} else if endDate != nil {
+		dateClause = "AND cs.scheduled_date <= $1::date"
+		queryArgs = append(queryArgs, endDate.Format("2006-01-02"))
 	}
 
 	mentorAggregates := make(map[string]*mentorWeeklyAggregate)
-	rows, err := db.DB.Query(`
+	rows, err := db.DB.Query(fmt.Sprintf(`
 		SELECT
 			ma.mentor_user_id::TEXT,
 			COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, 'Unassigned') AS mentor_name,
@@ -10485,9 +10601,9 @@ func getActiveClassRankingSummary(startDate, endDate time.Time, absenceThreshold
 			FROM attendance a
 			WHERE a.session_id = cs.id
 		) att ON true
-		WHERE cs.scheduled_date BETWEEN $1::date AND $2::date
-		  AND COALESCE(cg.round_status, 'not_started') = 'active'
-	`, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+		WHERE COALESCE(cg.round_status, 'not_started') = 'active'
+		  %s
+	`, dateClause), queryArgs...)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to query active class ranking summary: %w", err)
 	}
@@ -10535,8 +10651,27 @@ func getActiveClassRankingSummary(startDate, endDate time.Time, absenceThreshold
 	return absentRanking, lateRanking, studentRanking, nil
 }
 
-func getStudentsOverAbsenceThresholdRanking(startDate, endDate time.Time, threshold int) ([]DailyReportStudentLeader, error) {
-	rows, err := db.DB.Query(`
+func getStudentsOverAbsenceThresholdRanking(startDate, endDate *time.Time, threshold int) ([]DailyReportStudentLeader, error) {
+	var queryArgs []interface{}
+	paramIndex := 1
+	dateClause := ""
+	if startDate != nil && endDate != nil {
+		dateClause = fmt.Sprintf("AND cs.scheduled_date BETWEEN $%d::date AND $%d::date", paramIndex, paramIndex+1)
+		queryArgs = append(queryArgs, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+		paramIndex += 2
+	} else if startDate != nil {
+		dateClause = fmt.Sprintf("AND cs.scheduled_date >= $%d::date", paramIndex)
+		queryArgs = append(queryArgs, startDate.Format("2006-01-02"))
+		paramIndex++
+	} else if endDate != nil {
+		dateClause = fmt.Sprintf("AND cs.scheduled_date <= $%d::date", paramIndex)
+		queryArgs = append(queryArgs, endDate.Format("2006-01-02"))
+		paramIndex++
+	}
+	thresholdPlaceholder := fmt.Sprintf("$%d", paramIndex)
+	queryArgs = append(queryArgs, threshold)
+
+	rows, err := db.DB.Query(fmt.Sprintf(`
 		SELECT
 			l.id::text,
 			COALESCE(NULLIF(TRIM(l.full_name), ''), 'Unknown student') AS student_name,
@@ -10547,13 +10682,13 @@ func getStudentsOverAbsenceThresholdRanking(startDate, endDate time.Time, thresh
 		INNER JOIN class_sessions cs ON cs.id = a.session_id
 		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
 		WHERE a.status = 'ABSENT'
-		  AND cs.scheduled_date BETWEEN $1::date AND $2::date
 		  AND l.status = 'in_classes'
 		  AND COALESCE(cg.round_status, 'not_started') = 'active'
+		  %s
 		GROUP BY l.id, l.full_name, l.phone
-		HAVING COUNT(*) > $3
+		HAVING COUNT(*) > %s
 		ORDER BY COUNT(*) DESC, COALESCE(NULLIF(TRIM(l.full_name), ''), 'Unknown student') ASC, COALESCE(l.phone, '') ASC
-	`, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), threshold)
+	`, dateClause, thresholdPlaceholder), queryArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query students over absence threshold: %w", err)
 	}
@@ -10716,7 +10851,7 @@ func GetOpsNotificationSummary(userID uuid.UUID, now time.Time) (*OpsNotificatio
 	}
 
 	if !reportRead {
-		report, err := GetDailyReportPayload(reportDate, reportDate, reportDate)
+		report, err := GetDailyReportPayload(reportDate, nil, nil)
 		if err != nil {
 			return nil, err
 		}

@@ -52,14 +52,16 @@ export default function ReportsPage() {
   const [biError, setBIError] = useState<string | null>(null)
   const [biData, setBIData] = useState<BIReportPayload | null>(null)
   const [dailyDate, setDailyDate] = useState<string>(requestedDate || '')
-  const [dailyFrom, setDailyFrom] = useState<string>(requestedDate || '')
-  const [dailyTo, setDailyTo] = useState<string>(requestedDate || '')
+  const [dailyFrom, setDailyFrom] = useState<string>('')
+  const [dailyTo, setDailyTo] = useState<string>('')
+  const [dailyRankingFiltersOpen, setDailyRankingFiltersOpen] = useState(false)
   const [dailyLoading, setDailyLoading] = useState(false)
   const [dailyError, setDailyError] = useState<string | null>(null)
   const [dailyData, setDailyData] = useState<DailyReportPayload | null>(null)
   const [opsDate, setOpsDate] = useState<string>(requestedDate || '')
-  const [opsFrom, setOpsFrom] = useState<string>(requestedDate || '')
-  const [opsTo, setOpsTo] = useState<string>(requestedDate || '')
+  const [opsFrom, setOpsFrom] = useState<string>('')
+  const [opsTo, setOpsTo] = useState<string>('')
+  const [opsRankingFiltersOpen, setOpsRankingFiltersOpen] = useState(false)
   const [opsLoading, setOpsLoading] = useState(false)
   const [opsError, setOpsError] = useState<string | null>(null)
   const [opsData, setOpsData] = useState<ManagerOpsPayload | null>(null)
@@ -83,26 +85,22 @@ export default function ReportsPage() {
     if (isManagerDashboard && canViewManagerOps) {
       if (requestedDate) {
         setOpsDate(requestedDate)
-        setOpsFrom(requestedDate)
-        setOpsTo(requestedDate)
       }
       if (requestedTab === 'overall') {
         setViewMode('ops_overview')
         void loadManagerOverview()
       } else {
         setViewMode('ops')
-        void loadManagerOps({ date: requestedDate || undefined, from: requestedDate || undefined, to: requestedDate || undefined })
+        void loadManagerOps({ date: requestedDate || undefined })
       }
       return
     }
     if (requestedTab === 'daily' && canViewDaily) {
       if (requestedDate) {
         setDailyDate(requestedDate)
-        setDailyFrom(requestedDate)
-        setDailyTo(requestedDate)
       }
       setViewMode('daily')
-      void loadDailyReport({ date: requestedDate || undefined, from: requestedDate || undefined, to: requestedDate || undefined })
+      void loadDailyReport({ date: requestedDate || undefined })
       return
     }
     if (canViewBI) {
@@ -136,14 +134,14 @@ export default function ReportsPage() {
     if (!userRole || !canViewDaily || viewMode !== 'daily') {
       return
     }
-    void loadDailyReport({ date: dailyDate || undefined, from: dailyFrom || dailyDate || undefined, to: dailyTo || dailyDate || undefined })
+    void loadDailyReport({ date: dailyDate || undefined })
   }, [userRole, canViewDaily, viewMode])
 
   useEffect(() => {
     if (!userRole || !isManagerDashboard || !canViewManagerOps || viewMode !== 'ops') {
       return
     }
-    void loadManagerOps({ date: opsDate || undefined, from: opsFrom || opsDate || undefined, to: opsTo || opsDate || undefined })
+    void loadManagerOps({ date: opsDate || undefined })
   }, [userRole, canViewManagerOps, isManagerDashboard, viewMode])
 
   useEffect(() => {
@@ -209,6 +207,7 @@ export default function ReportsPage() {
       setDailyDate(data.report_date)
       setDailyFrom(data.ranking_from)
       setDailyTo(data.ranking_to)
+      setDailyRankingFiltersOpen(Boolean(data.ranking_from || data.ranking_to))
     } catch (err) {
       setDailyError(err instanceof Error ? err.message : 'Failed to load daily report')
     } finally {
@@ -225,6 +224,7 @@ export default function ReportsPage() {
       setOpsDate(data.report_date)
       setOpsFrom(data.ranking_from)
       setOpsTo(data.ranking_to)
+      setOpsRankingFiltersOpen(Boolean(data.ranking_from || data.ranking_to))
     } catch (err) {
       setOpsError(err instanceof Error ? err.message : 'Failed to load manager ops report')
     } finally {
@@ -330,11 +330,7 @@ export default function ReportsPage() {
       setDailyError('Please select a report date.')
       return
     }
-    if (dailyFrom && dailyTo && dailyTo < dailyFrom) {
-      setDailyError('To date must be on or after From date.')
-      return
-    }
-    void loadDailyReport({ date: dailyDate, from: dailyFrom || dailyDate, to: dailyTo || dailyDate })
+    void loadDailyReport({ date: dailyDate, from: dailyFrom || undefined, to: dailyTo || undefined })
   }
 
   function applyOpsDateFilter() {
@@ -342,11 +338,37 @@ export default function ReportsPage() {
       setOpsError('Please select an operations date.')
       return
     }
-    if (opsFrom && opsTo && opsTo < opsFrom) {
-      setOpsError('To date must be on or after From date.')
+    void loadManagerOps({ date: opsDate, from: opsFrom || undefined, to: opsTo || undefined })
+  }
+
+  function applyDailyRankingFilter() {
+    if (dailyFrom && dailyTo && dailyTo < dailyFrom) {
+      setDailyError('Ranking To date must be on or after Ranking From date.')
       return
     }
-    void loadManagerOps({ date: opsDate, from: opsFrom || opsDate, to: opsTo || opsDate })
+    void loadDailyReport({ date: dailyDate || undefined, from: dailyFrom || undefined, to: dailyTo || undefined })
+  }
+
+  function clearDailyRankingFilter() {
+    setDailyFrom('')
+    setDailyTo('')
+    setDailyRankingFiltersOpen(false)
+    void loadDailyReport({ date: dailyDate || undefined })
+  }
+
+  function applyOpsRankingFilter() {
+    if (opsFrom && opsTo && opsTo < opsFrom) {
+      setOpsError('Ranking To date must be on or after Ranking From date.')
+      return
+    }
+    void loadManagerOps({ date: opsDate || undefined, from: opsFrom || undefined, to: opsTo || undefined })
+  }
+
+  function clearOpsRankingFilter() {
+    setOpsFrom('')
+    setOpsTo('')
+    setOpsRankingFiltersOpen(false)
+    void loadManagerOps({ date: opsDate || undefined })
   }
 
   const reportTabs = [
@@ -403,18 +425,10 @@ export default function ReportsPage() {
                 <label style={filterLabelStyle}>Operations Date</label>
                 <input type="date" value={opsDate} onChange={(e) => setOpsDate(e.target.value)} style={filterInputStyle} />
               </div>
-              <div>
-                <label style={filterLabelStyle}>Ranking From</label>
-                <input type="date" value={opsFrom} onChange={(e) => setOpsFrom(e.target.value)} style={filterInputStyle} />
-              </div>
-              <div>
-                <label style={filterLabelStyle}>Ranking To</label>
-                <input type="date" value={opsTo} onChange={(e) => setOpsTo(e.target.value)} style={filterInputStyle} />
-              </div>
               <button onClick={applyOpsDateFilter} style={actionBtnStyle}>Load Manager Ops</button>
               {opsData && (
                 <span style={{ color: '#6b7280', fontSize: '13px', paddingBottom: '10px' }}>
-                  Timezone {opsData.timezone} · Rankings {opsData.ranking_from} to {opsData.ranking_to} · Generated {formatDateTime(opsData.generated_at)}
+                  Timezone {opsData.timezone} · Generated {formatDateTime(opsData.generated_at)}
                 </span>
               )}
             </div>
@@ -426,7 +440,19 @@ export default function ReportsPage() {
             <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>Loading manager ops...</div>
           )}
 
-          {!opsLoading && opsData && <ManagerOpsView data={opsData} />}
+          {!opsLoading && opsData && (
+            <ManagerOpsView
+              data={opsData}
+              rankingFiltersOpen={opsRankingFiltersOpen}
+              onToggleRankingFilters={() => setOpsRankingFiltersOpen((value) => !value)}
+              rankingFrom={opsFrom}
+              rankingTo={opsTo}
+              onRankingFromChange={setOpsFrom}
+              onRankingToChange={setOpsTo}
+              onApplyRankingFilter={applyOpsRankingFilter}
+              onClearRankingFilter={clearOpsRankingFilter}
+            />
+          )}
         </>
       )}
 
@@ -487,18 +513,10 @@ export default function ReportsPage() {
                 <label style={filterLabelStyle}>Report Date</label>
                 <input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} style={filterInputStyle} />
               </div>
-              <div>
-                <label style={filterLabelStyle}>Ranking From</label>
-                <input type="date" value={dailyFrom} onChange={(e) => setDailyFrom(e.target.value)} style={filterInputStyle} />
-              </div>
-              <div>
-                <label style={filterLabelStyle}>Ranking To</label>
-                <input type="date" value={dailyTo} onChange={(e) => setDailyTo(e.target.value)} style={filterInputStyle} />
-              </div>
               <button onClick={applyDailyDateFilter} style={actionBtnStyle}>Load Daily Report</button>
               {dailyData && (
                 <span style={{ color: '#6b7280', fontSize: '13px', paddingBottom: '10px' }}>
-                  Rankings {dailyData.ranking_from} to {dailyData.ranking_to} · Ready at {formatDateTime(dailyData.ready_at)}
+                  Ready at {formatDateTime(dailyData.ready_at)}
                 </span>
               )}
             </div>
@@ -510,7 +528,19 @@ export default function ReportsPage() {
             <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>Loading daily report...</div>
           )}
 
-          {!dailyLoading && dailyData && <DailyReportView data={dailyData} />}
+          {!dailyLoading && dailyData && (
+            <DailyReportView
+              data={dailyData}
+              rankingFiltersOpen={dailyRankingFiltersOpen}
+              onToggleRankingFilters={() => setDailyRankingFiltersOpen((value) => !value)}
+              rankingFrom={dailyFrom}
+              rankingTo={dailyTo}
+              onRankingFromChange={setDailyFrom}
+              onRankingToChange={setDailyTo}
+              onApplyRankingFilter={applyDailyRankingFilter}
+              onClearRankingFilter={clearDailyRankingFilter}
+            />
+          )}
         </>
       )}
 
@@ -747,7 +777,27 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
   )
 }
 
-function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
+function ManagerOpsView({
+  data,
+  rankingFiltersOpen,
+  onToggleRankingFilters,
+  rankingFrom,
+  rankingTo,
+  onRankingFromChange,
+  onRankingToChange,
+  onApplyRankingFilter,
+  onClearRankingFilter,
+}: {
+  data: ManagerOpsPayload
+  rankingFiltersOpen: boolean
+  onToggleRankingFilters: () => void
+  rankingFrom: string
+  rankingTo: string
+  onRankingFromChange: (value: string) => void
+  onRankingToChange: (value: string) => void
+  onApplyRankingFilter: () => void
+  onClearRankingFilter: () => void
+}) {
   const summary = data.summary
   const weekly = data.weekly_summary
   const showWeeklySummary = isFridayBusinessDate(data.report_date)
@@ -919,6 +969,15 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
           </ReportPanel>
 
           <DailyRankingSection
+            scopeLabel={formatRankingScopeLabel(data.ranking_from, data.ranking_to)}
+            filtersOpen={rankingFiltersOpen}
+            onToggleFilters={onToggleRankingFilters}
+            rankingFrom={rankingFrom}
+            rankingTo={rankingTo}
+            onRankingFromChange={onRankingFromChange}
+            onRankingToChange={onRankingToChange}
+            onApplyFilter={onApplyRankingFilter}
+            onClearFilter={onClearRankingFilter}
             absentStudentsRanking={data.absent_students_ranking}
             lateStartsRanking={data.late_starts_ranking}
             studentsOverAbsenceRanking={data.students_over_absence_ranking}
@@ -931,7 +990,27 @@ function ManagerOpsView({ data }: { data: ManagerOpsPayload }) {
   )
 }
 
-function DailyReportView({ data }: { data: DailyReportPayload }) {
+function DailyReportView({
+  data,
+  rankingFiltersOpen,
+  onToggleRankingFilters,
+  rankingFrom,
+  rankingTo,
+  onRankingFromChange,
+  onRankingToChange,
+  onApplyRankingFilter,
+  onClearRankingFilter,
+}: {
+  data: DailyReportPayload
+  rankingFiltersOpen: boolean
+  onToggleRankingFilters: () => void
+  rankingFrom: string
+  rankingTo: string
+  onRankingFromChange: (value: string) => void
+  onRankingToChange: (value: string) => void
+  onApplyRankingFilter: () => void
+  onClearRankingFilter: () => void
+}) {
   return (
     <div style={{ display: 'grid', gap: '14px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
@@ -963,6 +1042,15 @@ function DailyReportView({ data }: { data: DailyReportPayload }) {
       </div>
 
       <DailyRankingSection
+        scopeLabel={formatRankingScopeLabel(data.ranking_from, data.ranking_to)}
+        filtersOpen={rankingFiltersOpen}
+        onToggleFilters={onToggleRankingFilters}
+        rankingFrom={rankingFrom}
+        rankingTo={rankingTo}
+        onRankingFromChange={onRankingFromChange}
+        onRankingToChange={onRankingToChange}
+        onApplyFilter={onApplyRankingFilter}
+        onClearFilter={onClearRankingFilter}
         absentStudentsRanking={data.absent_students_ranking}
         lateStartsRanking={data.late_starts_ranking}
         studentsOverAbsenceRanking={data.students_over_absence_ranking}
@@ -974,41 +1062,86 @@ function DailyReportView({ data }: { data: DailyReportPayload }) {
 }
 
 function DailyRankingSection({
+  scopeLabel,
+  filtersOpen,
+  onToggleFilters,
+  rankingFrom,
+  rankingTo,
+  onRankingFromChange,
+  onRankingToChange,
+  onApplyFilter,
+  onClearFilter,
   absentStudentsRanking,
   lateStartsRanking,
   studentsOverAbsenceRanking,
 }: {
+  scopeLabel: string
+  filtersOpen: boolean
+  onToggleFilters: () => void
+  rankingFrom: string
+  rankingTo: string
+  onRankingFromChange: (value: string) => void
+  onRankingToChange: (value: string) => void
+  onApplyFilter: () => void
+  onClearFilter: () => void
   absentStudentsRanking: ManagerOpsWeeklyMentorLeader[]
   lateStartsRanking: ManagerOpsWeeklyMentorLeader[]
   studentsOverAbsenceRanking: DailyReportStudentLeader[]
 }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
-      <WeeklyMentorRankingCard
-        title="Absent Students Ranking"
-        leaders={absentStudentsRanking}
-        emptyLabel="No student absences recorded in this period"
-        metricLabel="absent student"
-        tone="#991b1b"
-        background="#fef2f2"
-      />
-      <WeeklyMentorRankingCard
-        title="Late Session Starts Ranking"
-        leaders={lateStartsRanking}
-        emptyLabel="No late mentor starts recorded in this period"
-        metricLabel="late session start"
-        tone="#92400e"
-        background="#fff7ed"
-      />
-      <StudentRankingCard
-        title="Students Over 2 Absences"
-        leaders={studentsOverAbsenceRanking}
-        emptyLabel="No students exceeded 2 absences"
-        metricLabel="absence"
-        tone="#7c2d12"
-        background="#fff7ed"
-      />
-    </div>
+    <ReportPanel title="Rankings">
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <div>
+          <div style={{ fontSize: '14px', fontWeight: 800, color: '#111827' }}>{scopeLabel}</div>
+          <div style={{ marginTop: '4px', fontSize: '13px', color: '#6b7280' }}>Rankings only affect these cards. Sessions stay tied to the selected report date.</div>
+        </div>
+        <button onClick={onToggleFilters} style={secondaryActionBtnStyle}>
+          {filtersOpen ? 'Hide Custom Period' : 'Custom Period'}
+        </button>
+      </div>
+
+      {filtersOpen && (
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap', padding: '12px', marginBottom: '12px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e5e7eb' }}>
+          <div>
+            <label style={filterLabelStyle}>Ranking From</label>
+            <input type="date" value={rankingFrom} onChange={(e) => onRankingFromChange(e.target.value)} style={filterInputStyle} />
+          </div>
+          <div>
+            <label style={filterLabelStyle}>Ranking To</label>
+            <input type="date" value={rankingTo} onChange={(e) => onRankingToChange(e.target.value)} style={filterInputStyle} />
+          </div>
+          <button onClick={onApplyFilter} style={actionBtnStyle}>Apply Ranking Filter</button>
+          <button onClick={onClearFilter} style={secondaryActionBtnStyle}>All Running Classes</button>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+        <WeeklyMentorRankingCard
+          title="Absent Students Ranking"
+          leaders={absentStudentsRanking}
+          emptyLabel="No student absences recorded in this scope"
+          metricLabel="absent student"
+          tone="#991b1b"
+          background="#fef2f2"
+        />
+        <WeeklyMentorRankingCard
+          title="Late Session Starts Ranking"
+          leaders={lateStartsRanking}
+          emptyLabel="No late mentor starts recorded in this scope"
+          metricLabel="late session start"
+          tone="#92400e"
+          background="#fff7ed"
+        />
+        <StudentRankingCard
+          title="Students Over 2 Absences"
+          leaders={studentsOverAbsenceRanking}
+          emptyLabel="No students exceeded 2 absences in this scope"
+          metricLabel="absence"
+          tone="#7c2d12"
+          background="#f8fafc"
+        />
+      </div>
+    </ReportPanel>
   )
 }
 
@@ -1262,7 +1395,7 @@ function WeeklyMentorRankingCard({
           {leaders.map((leader, index) => {
             const mentorLabel = (leader.mentor_name || leader.mentor_email || 'Unknown mentor').trim()
             return (
-              <div key={`${leader.mentor_id || mentorLabel}-${index}`} style={{ display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: '10px', alignItems: 'start', background: 'rgba(255,255,255,0.65)', borderRadius: '10px', padding: '10px 12px' }}>
+              <div key={`${leader.mentor_id || mentorLabel}-${index}`} style={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr)', gap: '10px', alignItems: 'start', background: 'rgba(255,255,255,0.8)', borderRadius: '10px', padding: '12px' }}>
                 <div style={{ width: '32px', height: '32px', borderRadius: '999px', background: 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: tone }}>
                   {index + 1}
                 </div>
@@ -1271,9 +1404,9 @@ function WeeklyMentorRankingCard({
                   {leader.mentor_email && leader.mentor_email !== mentorLabel && (
                     <div style={{ marginTop: '3px', color: '#6b7280', fontSize: '12px' }}>{leader.mentor_email}</div>
                   )}
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: 800, color: tone, whiteSpace: 'nowrap' }}>
-                  {leader.metric_value} {metricLabel}{leader.metric_value === 1 ? '' : 's'}
+                  <div style={{ marginTop: '8px', fontSize: '14px', fontWeight: 800, color: tone }}>
+                    {leader.metric_value} {metricLabel}{leader.metric_value === 1 ? '' : 's'}
+                  </div>
                 </div>
               </div>
             )
@@ -1307,7 +1440,7 @@ function StudentRankingCard({
       ) : (
         <div style={{ marginTop: '10px', display: 'grid', gap: '10px' }}>
           {leaders.map((leader, index) => (
-            <div key={`${leader.lead_id || leader.student_name}-${index}`} style={{ display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: '10px', alignItems: 'start', background: 'rgba(255,255,255,0.65)', borderRadius: '10px', padding: '10px 12px' }}>
+            <div key={`${leader.lead_id || leader.student_name}-${index}`} style={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr)', gap: '10px', alignItems: 'start', background: 'rgba(255,255,255,0.8)', borderRadius: '10px', padding: '12px' }}>
               <div style={{ width: '32px', height: '32px', borderRadius: '999px', background: 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: tone }}>
                 {index + 1}
               </div>
@@ -1316,9 +1449,9 @@ function StudentRankingCard({
                 {leader.student_phone && (
                   <div style={{ marginTop: '3px', color: '#6b7280', fontSize: '12px' }}>{leader.student_phone}</div>
                 )}
-              </div>
-              <div style={{ fontSize: '14px', fontWeight: 800, color: tone, whiteSpace: 'nowrap' }}>
-                {leader.metric_value} {metricLabel}{leader.metric_value === 1 ? '' : 's'}
+                <div style={{ marginTop: '8px', fontSize: '14px', fontWeight: 800, color: tone }}>
+                  {leader.metric_value} {metricLabel}{leader.metric_value === 1 ? '' : 's'}
+                </div>
               </div>
             </div>
           ))}
@@ -1649,6 +1782,13 @@ function formatBusinessWeekRange(start: string, end: string): string {
   return `${startLabel} - ${endLabel}`
 }
 
+function formatRankingScopeLabel(from: string, to: string): string {
+  if (from && to) return `Custom ranking period: ${from} to ${to}`
+  if (from) return `Custom ranking period from ${from}`
+  if (to) return `Custom ranking period until ${to}`
+  return 'All current running classes'
+}
+
 function isFridayBusinessDate(dateStr: string): boolean {
   if (!dateStr) return false
   const parts = dateStr.split('-').map(Number)
@@ -1732,6 +1872,16 @@ const actionBtnStyle: CSSProperties = {
   border: '1px solid #0d6efd',
   background: '#0d6efd',
   color: '#fff',
+  cursor: 'pointer',
+  fontWeight: 700,
+}
+
+const secondaryActionBtnStyle: CSSProperties = {
+  padding: '10px 14px',
+  borderRadius: '8px',
+  border: '1px solid #d1d5db',
+  background: '#fff',
+  color: '#374151',
   cursor: 'pointer',
   fontWeight: 700,
 }

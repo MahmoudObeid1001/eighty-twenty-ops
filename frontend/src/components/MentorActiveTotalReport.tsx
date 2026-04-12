@@ -6,8 +6,11 @@ interface MentorClassEvaluation {
   days: string
   time: string
   classNumber: number
+  classCollectiveScore: number
   manual: {
     sessionQuality: number
+    sessionQualityBySession: number[]
+    recordedSessionCount: number
     studentsFeedback: number
     trelloSessionChecks: boolean[]
     trelloCompliancePercent: number
@@ -44,18 +47,7 @@ function escapeHtml(value: string | number): string {
 }
 
 function computeCollectiveKPI(classItem: MentorClassEvaluation): number {
-  const punctuality = classItem.automatic.attendancePunctualityPercent
-  const sessionQuality = classItem.manual.sessionQuality * 10
-  const feedback = classItem.manual.studentsFeedback * 10
-  const whatsapp = classItem.automatic.whatsAppManagementPercent
-  const trello = classItem.manual.trelloCompliancePercent
-  return Math.round(
-    punctuality * 0.25 +
-    sessionQuality * 0.25 +
-    feedback * 0.20 +
-    whatsapp * 0.10 +
-    trello * 0.20
-  )
+  return classItem.classCollectiveScore
 }
 
 function colorForPercent(percent: number): string {
@@ -68,6 +60,10 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
   const generatedAt = new Date().toLocaleDateString()
   const mentorsWithActiveClasses = mentors.filter((m) => m.classes.length > 0)
   const totalActiveClasses = mentorsWithActiveClasses.reduce((acc, mentor) => acc + mentor.classes.length, 0)
+  const totalRecordedSessions = mentorsWithActiveClasses.reduce(
+    (acc, mentor) => acc + mentor.classes.reduce((classAcc, cls) => classAcc + cls.manual.recordedSessionCount, 0),
+    0,
+  )
 
   function handlePrint() {
     const logoSrc = `${window.location.origin}/static/logo/eighty-twenty-logo.png`
@@ -85,7 +81,8 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
             <td>${escapeHtml(cls.classKey)}</td>
             <td>L${cls.level} • ${escapeHtml(cls.days)} • ${escapeHtml(cls.time)} • #${cls.classNumber}</td>
             <td>${kpi}%</td>
-            <td>${cls.manual.sessionQuality}/10</td>
+            <td>${cls.manual.sessionQuality > 0 ? `${cls.manual.sessionQuality}/10` : '-'}</td>
+            <td>${cls.manual.recordedSessionCount}/8</td>
             <td>${cls.manual.studentsFeedback}/10</td>
             <td>${cls.manual.trelloCompliancePercent}%</td>
             <td>${cls.automatic.whatsAppManagementPercent}%</td>
@@ -112,7 +109,8 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
                 <th>Class Key</th>
                 <th>Class</th>
                 <th>Collective KPI</th>
-                <th>Session Quality</th>
+                <th>Quality Avg</th>
+                <th>Recorded</th>
                 <th>Feedback</th>
                 <th>Trello</th>
                 <th>WhatsApp</th>
@@ -148,7 +146,6 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
     table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
     th, td { border: 1px solid #cbd5e1; padding: 5px; text-align: center; }
     th { background: #f8fafc; }
-    td:nth-child(3) { font-weight: 700; color: ${colorForPercent(80)}; }
   </style>
 </head>
 <body>
@@ -162,6 +159,7 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
   <div class="overview">
     <div><strong>Mentors with ${escapeHtml(scopeLabel.toLowerCase())} classes:</strong> ${mentorsWithActiveClasses.length}</div>
     <div><strong>Total ${escapeHtml(scopeLabel.toLowerCase())} classes:</strong> ${totalActiveClasses}</div>
+    <div><strong>Total recorded session-quality entries:</strong> ${totalRecordedSessions}</div>
     ${filterSummary ? `<div><strong>Filters:</strong> ${escapeHtml(filterSummary)}</div>` : ''}
   </div>
   ${mentorSections}
@@ -224,6 +222,7 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
           <div style={{ background: '#eef6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '10px', marginBottom: '12px' }}>
             <div><strong>Mentors with {scopeLabel.toLowerCase()} classes:</strong> {mentorsWithActiveClasses.length}</div>
             <div><strong>Total {scopeLabel.toLowerCase()} classes:</strong> {totalActiveClasses}</div>
+            <div><strong>Total recorded session-quality entries:</strong> {totalRecordedSessions}</div>
             {filterSummary && <div><strong>Filters:</strong> {filterSummary}</div>}
           </div>
 
@@ -256,7 +255,8 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
                           <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>Class Key</th>
                           <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>Class</th>
                           <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>Collective KPI</th>
-                          <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>Session Quality</th>
+                          <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>Quality Avg</th>
+                          <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>Recorded</th>
                           <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>Feedback</th>
                           <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>Trello</th>
                           <th style={{ border: '1px solid #cbd5e1', padding: '5px', background: '#f8fafc' }}>WhatsApp</th>
@@ -271,7 +271,8 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
                               <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center' }}>{cls.classKey}</td>
                               <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center' }}>L{cls.level} • {cls.days} • {cls.time} • #{cls.classNumber}</td>
                               <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center', fontWeight: 700, color: colorForPercent(kpi) }}>{kpi}%</td>
-                              <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center' }}>{cls.manual.sessionQuality}/10</td>
+                              <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center' }}>{cls.manual.sessionQuality > 0 ? `${cls.manual.sessionQuality}/10` : '-'}</td>
+                              <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center' }}>{cls.manual.recordedSessionCount}/8</td>
                               <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center' }}>{cls.manual.studentsFeedback}/10</td>
                               <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center' }}>{cls.manual.trelloCompliancePercent}%</td>
                               <td style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center' }}>{cls.automatic.whatsAppManagementPercent}%</td>

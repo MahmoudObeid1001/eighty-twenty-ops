@@ -869,8 +869,11 @@ export const api = {
         time: string
         classNumber: number
         roundStatus: 'active' | 'closed'
+        classCollectiveScore: number
         manual: {
           sessionQuality: number
+          sessionQualityBySession: number[]
+          recordedSessionCount: number
           studentsFeedback: number
           trelloSessionChecks: boolean[]
           trelloCompliancePercent: number
@@ -894,7 +897,7 @@ export const api = {
   updateMentorEvaluation: (mentorId: string, data: {
     classKey: string
     manual: {
-      sessionQuality: number
+      sessionQualityBySession: number[]
       studentsFeedback: number
       trelloSessionChecks: boolean[]
     }
@@ -903,6 +906,8 @@ export const api = {
     classKey: string
     manual: {
       sessionQuality: number
+      sessionQualityBySession: number[]
+      recordedSessionCount: number
       studentsFeedback: number
       trelloSessionChecks: boolean[]
       trelloCompliancePct: number

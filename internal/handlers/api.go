@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -57,6 +58,48 @@ func userDisplayName(user *models.User) string {
 		return strings.TrimSpace(user.FullName.String)
 	}
 	return user.Email
+}
+
+func normalizeSessionQualityBySessionForResponse(raw []int) []int {
+	out := make([]int, 8)
+	for i := 0; i < len(out) && i < len(raw); i++ {
+		value := raw[i]
+		if value < 0 {
+			value = 0
+		}
+		if value > 10 {
+			value = 10
+		}
+		out[i] = value
+	}
+	return out
+}
+
+func countRecordedSessionQualityForResponse(raw []int) int {
+	count := 0
+	for _, value := range normalizeSessionQualityBySessionForResponse(raw) {
+		if value > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func averageSessionQualityForResponse(raw []int) int {
+	normalized := normalizeSessionQualityBySessionForResponse(raw)
+	total := 0
+	count := 0
+	for _, value := range normalized {
+		if value <= 0 {
+			continue
+		}
+		total += value
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return int(math.Round(float64(total) / float64(count)))
 }
 
 // GET /api/me - returns current user info
@@ -2547,16 +2590,19 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 		ClassNumber int32  `json:"classNumber"`
 		RoundStatus string `json:"roundStatus"`
 		Manual      struct {
-			SessionQuality      int    `json:"sessionQuality"`
-			StudentsFeedback    int    `json:"studentsFeedback"`
-			TrelloSessionChecks []bool `json:"trelloSessionChecks"`
-			TrelloCompliancePct int    `json:"trelloCompliancePercent"`
+			SessionQuality          int    `json:"sessionQuality"`
+			SessionQualityBySession []int  `json:"sessionQualityBySession"`
+			RecordedSessionCount    int    `json:"recordedSessionCount"`
+			StudentsFeedback        int    `json:"studentsFeedback"`
+			TrelloSessionChecks     []bool `json:"trelloSessionChecks"`
+			TrelloCompliancePct     int    `json:"trelloCompliancePercent"`
 		} `json:"manual"`
 		Automatic struct {
 			WhatsAppManagementPercent int      `json:"whatsAppManagementPercent"`
 			AttendancePunctualityPct  int      `json:"attendancePunctualityPercent"`
 			AttendanceStatuses        []string `json:"attendanceStatuses"`
 		} `json:"automatic"`
+		ClassCollectiveScore int `json:"classCollectiveScore"`
 	}
 
 	type MentorResponse struct {
@@ -2587,6 +2633,8 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 				RoundStatus: classItem.RoundStatus,
 			}
 			c.Manual.SessionQuality = classItem.KPISessionQuality
+			c.Manual.SessionQualityBySession = classItem.KPISessionQualityByS
+			c.Manual.RecordedSessionCount = classItem.RecordedSessionCount
 			c.Manual.StudentsFeedback = classItem.KPIStudentsFeedback
 			c.Manual.TrelloSessionChecks = classItem.TrelloSessionChecks
 			checked := 0
@@ -2600,6 +2648,7 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 			c.Automatic.WhatsAppManagementPercent = classItem.AutoWhatsAppPercent
 			c.Automatic.AttendancePunctualityPct = classItem.AttendancePercent
 			c.Automatic.AttendanceStatuses = classItem.AttendanceStatuses
+			c.ClassCollectiveScore = classItem.ClassCollectiveScore
 			mentor.Classes = append(mentor.Classes, c)
 		}
 
@@ -2660,9 +2709,9 @@ func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		ClassKey string `json:"classKey"`
 		Manual   struct {
-			SessionQuality      int    `json:"sessionQuality"`
-			StudentsFeedback    int    `json:"studentsFeedback"`
-			TrelloSessionChecks []bool `json:"trelloSessionChecks"`
+			SessionQualityBySession []int  `json:"sessionQualityBySession"`
+			StudentsFeedback        int    `json:"studentsFeedback"`
+			TrelloSessionChecks     []bool `json:"trelloSessionChecks"`
 		} `json:"manual"`
 	}
 
@@ -2681,7 +2730,7 @@ func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Reque
 		mentorID,
 		req.ClassKey,
 		evaluatorID,
-		req.Manual.SessionQuality,
+		req.Manual.SessionQualityBySession,
 		req.Manual.StudentsFeedback,
 		req.Manual.TrelloSessionChecks,
 	); err != nil {
@@ -2711,10 +2760,12 @@ func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Reque
 		"id":       mentorID.String(),
 		"classKey": req.ClassKey,
 		"manual": map[string]interface{}{
-			"sessionQuality":      req.Manual.SessionQuality,
-			"studentsFeedback":    req.Manual.StudentsFeedback,
-			"trelloSessionChecks": trelloChecks,
-			"trelloCompliancePct": (checked * 100) / 8,
+			"sessionQuality":          averageSessionQualityForResponse(req.Manual.SessionQualityBySession),
+			"sessionQualityBySession": normalizeSessionQualityBySessionForResponse(req.Manual.SessionQualityBySession),
+			"recordedSessionCount":    countRecordedSessionQualityForResponse(req.Manual.SessionQualityBySession),
+			"studentsFeedback":        req.Manual.StudentsFeedback,
+			"trelloSessionChecks":     trelloChecks,
+			"trelloCompliancePct":     (checked * 100) / 8,
 		},
 	})
 }
@@ -4676,23 +4727,23 @@ func (h *APIHandler) GetDailyReport(w http.ResponseWriter, r *http.Request) {
 		}
 		reportDate = parsed
 	}
-	rankingFrom := reportDate
+	var rankingFrom *time.Time
 	if raw := strings.TrimSpace(r.URL.Query().Get("from")); raw != "" {
 		parsed, err := util.ParseDateCairo(raw)
 		if err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid from format (expected YYYY-MM-DD)")
 			return
 		}
-		rankingFrom = parsed
+		rankingFrom = &parsed
 	}
-	rankingTo := reportDate
+	var rankingTo *time.Time
 	if raw := strings.TrimSpace(r.URL.Query().Get("to")); raw != "" {
 		parsed, err := util.ParseDateCairo(raw)
 		if err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid to format (expected YYYY-MM-DD)")
 			return
 		}
-		rankingTo = parsed
+		rankingTo = &parsed
 	}
 
 	report, err := models.GetDailyReportPayload(reportDate, rankingFrom, rankingTo)
@@ -4768,23 +4819,23 @@ func (h *APIHandler) GetManagerOpsReport(w http.ResponseWriter, r *http.Request)
 		}
 		reportDate = parsed
 	}
-	rankingFrom := reportDate
+	var rankingFrom *time.Time
 	if raw := strings.TrimSpace(r.URL.Query().Get("from")); raw != "" {
 		parsed, err := util.ParseDateCairo(raw)
 		if err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid from format (expected YYYY-MM-DD)")
 			return
 		}
-		rankingFrom = parsed
+		rankingFrom = &parsed
 	}
-	rankingTo := reportDate
+	var rankingTo *time.Time
 	if raw := strings.TrimSpace(r.URL.Query().Get("to")); raw != "" {
 		parsed, err := util.ParseDateCairo(raw)
 		if err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid to format (expected YYYY-MM-DD)")
 			return
 		}
-		rankingTo = parsed
+		rankingTo = &parsed
 	}
 
 	report, err := models.GetManagerOpsPayload(reportDate, rankingFrom, rankingTo)
