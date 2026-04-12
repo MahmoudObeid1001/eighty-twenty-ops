@@ -4654,7 +4654,7 @@ func (h *APIHandler) GetMentorClassReports(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// GET /api/reports/daily?date=YYYY-MM-DD
+// GET /api/reports/daily?date=YYYY-MM-DD&from=YYYY-MM-DD&to=YYYY-MM-DD
 func (h *APIHandler) GetDailyReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -4676,8 +4676,26 @@ func (h *APIHandler) GetDailyReport(w http.ResponseWriter, r *http.Request) {
 		}
 		reportDate = parsed
 	}
+	rankingFrom := reportDate
+	if raw := strings.TrimSpace(r.URL.Query().Get("from")); raw != "" {
+		parsed, err := util.ParseDateCairo(raw)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid from format (expected YYYY-MM-DD)")
+			return
+		}
+		rankingFrom = parsed
+	}
+	rankingTo := reportDate
+	if raw := strings.TrimSpace(r.URL.Query().Get("to")); raw != "" {
+		parsed, err := util.ParseDateCairo(raw)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid to format (expected YYYY-MM-DD)")
+			return
+		}
+		rankingTo = parsed
+	}
 
-	report, err := models.GetDailyReportPayload(reportDate)
+	report, err := models.GetDailyReportPayload(reportDate, rankingFrom, rankingTo)
 	if err != nil {
 		log.Printf("ERROR: Failed to load daily report: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load daily report")
@@ -4728,7 +4746,7 @@ func (h *APIHandler) MarkDailyReportRead(w http.ResponseWriter, r *http.Request)
 	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// GET /api/reports/manager-ops?date=YYYY-MM-DD
+// GET /api/reports/manager-ops?date=YYYY-MM-DD&from=YYYY-MM-DD&to=YYYY-MM-DD
 func (h *APIHandler) GetManagerOpsReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -4750,8 +4768,26 @@ func (h *APIHandler) GetManagerOpsReport(w http.ResponseWriter, r *http.Request)
 		}
 		reportDate = parsed
 	}
+	rankingFrom := reportDate
+	if raw := strings.TrimSpace(r.URL.Query().Get("from")); raw != "" {
+		parsed, err := util.ParseDateCairo(raw)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid from format (expected YYYY-MM-DD)")
+			return
+		}
+		rankingFrom = parsed
+	}
+	rankingTo := reportDate
+	if raw := strings.TrimSpace(r.URL.Query().Get("to")); raw != "" {
+		parsed, err := util.ParseDateCairo(raw)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid to format (expected YYYY-MM-DD)")
+			return
+		}
+		rankingTo = parsed
+	}
 
-	report, err := models.GetManagerOpsPayload(reportDate)
+	report, err := models.GetManagerOpsPayload(reportDate, rankingFrom, rankingTo)
 	if err != nil {
 		log.Printf("ERROR: Failed to load manager ops report: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load manager ops report")

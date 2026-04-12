@@ -533,6 +533,8 @@ export interface DailyReportPayload {
   report_date: string
   ready_at: string
   generated_at: string
+  ranking_from: string
+  ranking_to: string
   classes_scheduled: number
   classes_taught: number
   classes_missing_report: number
@@ -634,6 +636,8 @@ export interface ManagerOpsPayload {
   report_date: string
   timezone: string
   generated_at: string
+  ranking_from: string
+  ranking_to: string
   summary: ManagerOpsSummary
   weekly_summary: ManagerOpsWeeklySummary
   absent_students_ranking: ManagerOpsWeeklyMentorLeader[]
@@ -1165,16 +1169,20 @@ export const api = {
     return fetchAPI(`/reports/bi${query ? `?${query}` : ''}`)
   },
 
-  getDailyReport: (date?: string): Promise<DailyReportPayload> => {
+  getDailyReport: (params: { date?: string; from?: string; to?: string } = {}): Promise<DailyReportPayload> => {
     const qs = new URLSearchParams()
-    if (date) qs.set('date', date)
+    if (params.date) qs.set('date', params.date)
+    if (params.from) qs.set('from', params.from)
+    if (params.to) qs.set('to', params.to)
     const query = qs.toString()
     return fetchAPI(`/reports/daily${query ? `?${query}` : ''}`)
   },
 
-  getManagerOpsReport: (date?: string): Promise<ManagerOpsPayload> => {
+  getManagerOpsReport: (params: { date?: string; from?: string; to?: string } = {}): Promise<ManagerOpsPayload> => {
     const qs = new URLSearchParams()
-    if (date) qs.set('date', date)
+    if (params.date) qs.set('date', params.date)
+    if (params.from) qs.set('from', params.from)
+    if (params.to) qs.set('to', params.to)
     const query = qs.toString()
     return fetchAPI(`/reports/manager-ops${query ? `?${query}` : ''}`)
   },

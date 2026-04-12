@@ -52,10 +52,14 @@ export default function ReportsPage() {
   const [biError, setBIError] = useState<string | null>(null)
   const [biData, setBIData] = useState<BIReportPayload | null>(null)
   const [dailyDate, setDailyDate] = useState<string>(requestedDate || '')
+  const [dailyFrom, setDailyFrom] = useState<string>(requestedDate || '')
+  const [dailyTo, setDailyTo] = useState<string>(requestedDate || '')
   const [dailyLoading, setDailyLoading] = useState(false)
   const [dailyError, setDailyError] = useState<string | null>(null)
   const [dailyData, setDailyData] = useState<DailyReportPayload | null>(null)
   const [opsDate, setOpsDate] = useState<string>(requestedDate || '')
+  const [opsFrom, setOpsFrom] = useState<string>(requestedDate || '')
+  const [opsTo, setOpsTo] = useState<string>(requestedDate || '')
   const [opsLoading, setOpsLoading] = useState(false)
   const [opsError, setOpsError] = useState<string | null>(null)
   const [opsData, setOpsData] = useState<ManagerOpsPayload | null>(null)
@@ -79,22 +83,26 @@ export default function ReportsPage() {
     if (isManagerDashboard && canViewManagerOps) {
       if (requestedDate) {
         setOpsDate(requestedDate)
+        setOpsFrom(requestedDate)
+        setOpsTo(requestedDate)
       }
       if (requestedTab === 'overall') {
         setViewMode('ops_overview')
         void loadManagerOverview()
       } else {
         setViewMode('ops')
-        void loadManagerOps(requestedDate || undefined)
+        void loadManagerOps({ date: requestedDate || undefined, from: requestedDate || undefined, to: requestedDate || undefined })
       }
       return
     }
     if (requestedTab === 'daily' && canViewDaily) {
       if (requestedDate) {
         setDailyDate(requestedDate)
+        setDailyFrom(requestedDate)
+        setDailyTo(requestedDate)
       }
       setViewMode('daily')
-      void loadDailyReport(requestedDate || undefined)
+      void loadDailyReport({ date: requestedDate || undefined, from: requestedDate || undefined, to: requestedDate || undefined })
       return
     }
     if (canViewBI) {
@@ -128,14 +136,14 @@ export default function ReportsPage() {
     if (!userRole || !canViewDaily || viewMode !== 'daily') {
       return
     }
-    void loadDailyReport(dailyDate || undefined)
+    void loadDailyReport({ date: dailyDate || undefined, from: dailyFrom || dailyDate || undefined, to: dailyTo || dailyDate || undefined })
   }, [userRole, canViewDaily, viewMode])
 
   useEffect(() => {
     if (!userRole || !isManagerDashboard || !canViewManagerOps || viewMode !== 'ops') {
       return
     }
-    void loadManagerOps(opsDate || undefined)
+    void loadManagerOps({ date: opsDate || undefined, from: opsFrom || opsDate || undefined, to: opsTo || opsDate || undefined })
   }, [userRole, canViewManagerOps, isManagerDashboard, viewMode])
 
   useEffect(() => {
@@ -192,13 +200,15 @@ export default function ReportsPage() {
     }
   }
 
-  async function loadDailyReport(date?: string) {
+  async function loadDailyReport(params: { date?: string; from?: string; to?: string } = {}) {
     try {
       setDailyLoading(true)
       setDailyError(null)
-      const data = await api.getDailyReport(date)
+      const data = await api.getDailyReport(params)
       setDailyData(data)
       setDailyDate(data.report_date)
+      setDailyFrom(data.ranking_from)
+      setDailyTo(data.ranking_to)
     } catch (err) {
       setDailyError(err instanceof Error ? err.message : 'Failed to load daily report')
     } finally {
@@ -206,13 +216,15 @@ export default function ReportsPage() {
     }
   }
 
-  async function loadManagerOps(date?: string) {
+  async function loadManagerOps(params: { date?: string; from?: string; to?: string } = {}) {
     try {
       setOpsLoading(true)
       setOpsError(null)
-      const data = await api.getManagerOpsReport(date)
+      const data = await api.getManagerOpsReport(params)
       setOpsData(data)
       setOpsDate(data.report_date)
+      setOpsFrom(data.ranking_from)
+      setOpsTo(data.ranking_to)
     } catch (err) {
       setOpsError(err instanceof Error ? err.message : 'Failed to load manager ops report')
     } finally {
@@ -318,7 +330,11 @@ export default function ReportsPage() {
       setDailyError('Please select a report date.')
       return
     }
-    void loadDailyReport(dailyDate)
+    if (dailyFrom && dailyTo && dailyTo < dailyFrom) {
+      setDailyError('To date must be on or after From date.')
+      return
+    }
+    void loadDailyReport({ date: dailyDate, from: dailyFrom || dailyDate, to: dailyTo || dailyDate })
   }
 
   function applyOpsDateFilter() {
@@ -326,7 +342,11 @@ export default function ReportsPage() {
       setOpsError('Please select an operations date.')
       return
     }
-    void loadManagerOps(opsDate)
+    if (opsFrom && opsTo && opsTo < opsFrom) {
+      setOpsError('To date must be on or after From date.')
+      return
+    }
+    void loadManagerOps({ date: opsDate, from: opsFrom || opsDate, to: opsTo || opsDate })
   }
 
   const reportTabs = [
@@ -383,10 +403,18 @@ export default function ReportsPage() {
                 <label style={filterLabelStyle}>Operations Date</label>
                 <input type="date" value={opsDate} onChange={(e) => setOpsDate(e.target.value)} style={filterInputStyle} />
               </div>
+              <div>
+                <label style={filterLabelStyle}>Ranking From</label>
+                <input type="date" value={opsFrom} onChange={(e) => setOpsFrom(e.target.value)} style={filterInputStyle} />
+              </div>
+              <div>
+                <label style={filterLabelStyle}>Ranking To</label>
+                <input type="date" value={opsTo} onChange={(e) => setOpsTo(e.target.value)} style={filterInputStyle} />
+              </div>
               <button onClick={applyOpsDateFilter} style={actionBtnStyle}>Load Manager Ops</button>
               {opsData && (
                 <span style={{ color: '#6b7280', fontSize: '13px', paddingBottom: '10px' }}>
-                  Timezone {opsData.timezone} · Generated {formatDateTime(opsData.generated_at)}
+                  Timezone {opsData.timezone} · Rankings {opsData.ranking_from} to {opsData.ranking_to} · Generated {formatDateTime(opsData.generated_at)}
                 </span>
               )}
             </div>
@@ -459,10 +487,18 @@ export default function ReportsPage() {
                 <label style={filterLabelStyle}>Report Date</label>
                 <input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} style={filterInputStyle} />
               </div>
+              <div>
+                <label style={filterLabelStyle}>Ranking From</label>
+                <input type="date" value={dailyFrom} onChange={(e) => setDailyFrom(e.target.value)} style={filterInputStyle} />
+              </div>
+              <div>
+                <label style={filterLabelStyle}>Ranking To</label>
+                <input type="date" value={dailyTo} onChange={(e) => setDailyTo(e.target.value)} style={filterInputStyle} />
+              </div>
               <button onClick={applyDailyDateFilter} style={actionBtnStyle}>Load Daily Report</button>
               {dailyData && (
                 <span style={{ color: '#6b7280', fontSize: '13px', paddingBottom: '10px' }}>
-                  Ready at {formatDateTime(dailyData.ready_at)}
+                  Rankings {dailyData.ranking_from} to {dailyData.ranking_to} · Ready at {formatDateTime(dailyData.ready_at)}
                 </span>
               )}
             </div>
@@ -951,7 +987,7 @@ function DailyRankingSection({
       <WeeklyMentorRankingCard
         title="Absent Students Ranking"
         leaders={absentStudentsRanking}
-        emptyLabel="No student absences recorded for this day"
+        emptyLabel="No student absences recorded in this period"
         metricLabel="absent student"
         tone="#991b1b"
         background="#fef2f2"
@@ -959,7 +995,7 @@ function DailyRankingSection({
       <WeeklyMentorRankingCard
         title="Late Session Starts Ranking"
         leaders={lateStartsRanking}
-        emptyLabel="No late mentor starts recorded for this day"
+        emptyLabel="No late mentor starts recorded in this period"
         metricLabel="late session start"
         tone="#92400e"
         background="#fff7ed"

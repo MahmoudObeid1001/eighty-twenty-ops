@@ -9595,12 +9595,16 @@ func LatestReadyDailyReportWindow(now time.Time) (time.Time, time.Time) {
 }
 
 // GetDailyReportPayload builds the Mentor Head/Manager daily report for a date.
-func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
+func GetDailyReportPayload(inputDate, rankingFrom, rankingTo time.Time) (*DailyReportPayload, error) {
 	normalizedDate := util.CairoStartOfDay(inputDate)
+	rankingFrom = util.CairoStartOfDay(rankingFrom)
+	rankingTo = util.CairoStartOfDay(rankingTo)
+	if rankingTo.Before(rankingFrom) {
+		rankingFrom, rankingTo = rankingTo, rankingFrom
+	}
 	readyAt := normalizedDate.AddDate(0, 0, 1).Add(2 * time.Hour)
 
 	now := util.CairoNow()
-	mentorAggregates := make(map[string]*mentorWeeklyAggregate)
 
 	rows, err := db.DB.Query(`
 		SELECT cs.id, cs.class_key, cs.session_number, cs.scheduled_date,
@@ -9643,6 +9647,8 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 		ReportDate:  normalizedDate.Format("2006-01-02"),
 		ReadyAt:     readyAt.Format(time.RFC3339),
 		GeneratedAt: now.Format(time.RFC3339),
+		RankingFrom: rankingFrom.Format("2006-01-02"),
+		RankingTo:   rankingTo.Format("2006-01-02"),
 		SessionRows: []*ManagerOpsSessionRow{},
 	}
 
@@ -9706,22 +9712,6 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 		if row.SessionPhase == "live_now" {
 			report.SessionsLiveNow++
 		}
-		if mentorIDStr.Valid && strings.TrimSpace(mentorIDStr.String) != "" {
-			aggregate, ok := mentorAggregates[mentorIDStr.String]
-			if !ok {
-				aggregate = &mentorWeeklyAggregate{
-					MentorID:    mentorIDStr.String,
-					MentorName:  row.MentorName,
-					MentorEmail: row.MentorEmail,
-				}
-				mentorAggregates[mentorIDStr.String] = aggregate
-			}
-			aggregate.AbsentStudents += row.AbsentStudents
-			if row.MentorStatus == "late" {
-				aggregate.LateStarts++
-			}
-		}
-
 		report.SessionRows = append(report.SessionRows, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -9745,13 +9735,7 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 		return nil, err
 	}
 	report.StudentsInClassesCount = studentsInClassesCount
-	report.AbsentStudentsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
-		return item.AbsentStudents
-	})
-	report.LateStartsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
-		return item.LateStarts
-	})
-	report.StudentsOverAbsenceRanking, err = getStudentsOverAbsenceThresholdRanking(normalizedDate, 2)
+	report.AbsentStudentsRanking, report.LateStartsRanking, report.StudentsOverAbsenceRanking, err = getActiveClassRankingSummary(rankingFrom, rankingTo, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -9760,8 +9744,13 @@ func GetDailyReportPayload(inputDate time.Time) (*DailyReportPayload, error) {
 }
 
 // GetManagerOpsPayload builds a manager-only operational view for one Cairo business day.
-func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
+func GetManagerOpsPayload(inputDate, rankingFrom, rankingTo time.Time) (*ManagerOpsPayload, error) {
 	reportDate := util.CairoStartOfDay(inputDate)
+	rankingFrom = util.CairoStartOfDay(rankingFrom)
+	rankingTo = util.CairoStartOfDay(rankingTo)
+	if rankingTo.Before(rankingFrom) {
+		rankingFrom, rankingTo = rankingTo, rankingFrom
+	}
 	now := util.CairoNow()
 
 	rows, err := db.DB.Query(`
@@ -9805,6 +9794,8 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 		ReportDate:    reportDate.Format("2006-01-02"),
 		Timezone:      util.CairoTimeZone,
 		GeneratedAt:   now.Format(time.RFC3339),
+		RankingFrom:   rankingFrom.Format("2006-01-02"),
+		RankingTo:     rankingTo.Format("2006-01-02"),
 		WeeklySummary: ManagerOpsWeeklySummary{},
 		SessionRows:   []*ManagerOpsSessionRow{},
 	}
@@ -9899,33 +9890,7 @@ func GetManagerOpsPayload(inputDate time.Time) (*ManagerOpsPayload, error) {
 		return payload.SessionRows[i].ClassKey < payload.SessionRows[j].ClassKey
 	})
 
-	mentorAggregates := make(map[string]*mentorWeeklyAggregate)
-	for _, row := range payload.SessionRows {
-		mentorID := strings.TrimSpace(row.MentorID.String())
-		if mentorID == "" {
-			continue
-		}
-		aggregate, ok := mentorAggregates[mentorID]
-		if !ok {
-			aggregate = &mentorWeeklyAggregate{
-				MentorID:    mentorID,
-				MentorName:  row.MentorName,
-				MentorEmail: row.MentorEmail,
-			}
-			mentorAggregates[mentorID] = aggregate
-		}
-		aggregate.AbsentStudents += row.AbsentStudents
-		if row.MentorStatus == "late" {
-			aggregate.LateStarts++
-		}
-	}
-	payload.AbsentStudentsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
-		return item.AbsentStudents
-	})
-	payload.LateStartsRanking = buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
-		return item.LateStarts
-	})
-	payload.StudentsOverAbsenceRanking, err = getStudentsOverAbsenceThresholdRanking(reportDate, 2)
+	payload.AbsentStudentsRanking, payload.LateStartsRanking, payload.StudentsOverAbsenceRanking, err = getActiveClassRankingSummary(rankingFrom, rankingTo, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -10493,7 +10458,84 @@ func buildManagerOpsMentorRanking(aggregates map[string]*mentorWeeklyAggregate, 
 	return ranking
 }
 
-func getStudentsOverAbsenceThresholdRanking(reportDate time.Time, threshold int) ([]DailyReportStudentLeader, error) {
+func getActiveClassRankingSummary(startDate, endDate time.Time, absenceThreshold int) ([]ManagerOpsWeeklyMentorLeader, []ManagerOpsWeeklyMentorLeader, []DailyReportStudentLeader, error) {
+	startDate = util.CairoStartOfDay(startDate)
+	endDate = util.CairoStartOfDay(endDate)
+	if endDate.Before(startDate) {
+		startDate, endDate = endDate, startDate
+	}
+
+	mentorAggregates := make(map[string]*mentorWeeklyAggregate)
+	rows, err := db.DB.Query(`
+		SELECT
+			ma.mentor_user_id::TEXT,
+			COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, 'Unassigned') AS mentor_name,
+			COALESCE(u.email, 'Unassigned') AS mentor_email,
+			COALESCE(att.absent_count, 0) AS absent_students,
+			COALESCE(msc.id IS NOT NULL, false) AS compliance_checked,
+			COALESCE(msc.delay_minutes, 0) AS delay_minutes,
+			COALESCE(msc.is_absent, false) AS mentor_absent
+		FROM class_sessions cs
+		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
+		LEFT JOIN users u ON u.id = ma.mentor_user_id
+		LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*) FILTER (WHERE a.status = 'ABSENT')::int AS absent_count
+			FROM attendance a
+			WHERE a.session_id = cs.id
+		) att ON true
+		WHERE cs.scheduled_date BETWEEN $1::date AND $2::date
+		  AND COALESCE(cg.round_status, 'not_started') = 'active'
+	`, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to query active class ranking summary: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var mentorID sql.NullString
+		var mentorName, mentorEmail string
+		var absentStudents, delayMinutes int
+		var complianceChecked, mentorAbsent bool
+		if err := rows.Scan(&mentorID, &mentorName, &mentorEmail, &absentStudents, &complianceChecked, &delayMinutes, &mentorAbsent); err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to scan active class ranking session: %w", err)
+		}
+		if !mentorID.Valid || strings.TrimSpace(mentorID.String) == "" {
+			continue
+		}
+		aggregate, ok := mentorAggregates[mentorID.String]
+		if !ok {
+			aggregate = &mentorWeeklyAggregate{
+				MentorID:    mentorID.String,
+				MentorName:  mentorName,
+				MentorEmail: mentorEmail,
+			}
+			mentorAggregates[mentorID.String] = aggregate
+		}
+		aggregate.AbsentStudents += absentStudents
+		if computeManagerMentorStatus(complianceChecked, mentorAbsent, delayMinutes) == "late" {
+			aggregate.LateStarts++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to iterate active class ranking sessions: %w", err)
+	}
+
+	absentRanking := buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.AbsentStudents
+	})
+	lateRanking := buildManagerOpsMentorRanking(mentorAggregates, func(item *mentorWeeklyAggregate) int {
+		return item.LateStarts
+	})
+	studentRanking, err := getStudentsOverAbsenceThresholdRanking(startDate, endDate, absenceThreshold)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return absentRanking, lateRanking, studentRanking, nil
+}
+
+func getStudentsOverAbsenceThresholdRanking(startDate, endDate time.Time, threshold int) ([]DailyReportStudentLeader, error) {
 	rows, err := db.DB.Query(`
 		SELECT
 			l.id::text,
@@ -10505,13 +10547,13 @@ func getStudentsOverAbsenceThresholdRanking(reportDate time.Time, threshold int)
 		INNER JOIN class_sessions cs ON cs.id = a.session_id
 		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
 		WHERE a.status = 'ABSENT'
-		  AND cs.scheduled_date <= $1::date
+		  AND cs.scheduled_date BETWEEN $1::date AND $2::date
 		  AND l.status = 'in_classes'
 		  AND COALESCE(cg.round_status, 'not_started') = 'active'
 		GROUP BY l.id, l.full_name, l.phone
-		HAVING COUNT(*) > $2
+		HAVING COUNT(*) > $3
 		ORDER BY COUNT(*) DESC, COALESCE(NULLIF(TRIM(l.full_name), ''), 'Unknown student') ASC, COALESCE(l.phone, '') ASC
-	`, reportDate.Format("2006-01-02"), threshold)
+	`, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), threshold)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query students over absence threshold: %w", err)
 	}
@@ -10674,7 +10716,7 @@ func GetOpsNotificationSummary(userID uuid.UUID, now time.Time) (*OpsNotificatio
 	}
 
 	if !reportRead {
-		report, err := GetDailyReportPayload(reportDate)
+		report, err := GetDailyReportPayload(reportDate, reportDate, reportDate)
 		if err != nil {
 			return nil, err
 		}

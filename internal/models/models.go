@@ -687,6 +687,8 @@ type DailyReportPayload struct {
 	ReportDate                 string                         `json:"report_date"`
 	ReadyAt                    string                         `json:"ready_at"`
 	GeneratedAt                string                         `json:"generated_at"`
+	RankingFrom                string                         `json:"ranking_from"`
+	RankingTo                  string                         `json:"ranking_to"`
 	ClassesScheduled           int                            `json:"classes_scheduled"`
 	ClassesTaught              int                            `json:"classes_taught"`
 	ClassesMissingReport       int                            `json:"classes_missing_report"`
@@ -733,6 +735,8 @@ type ManagerOpsPayload struct {
 	ReportDate                 string                         `json:"report_date"`
 	Timezone                   string                         `json:"timezone"`
 	GeneratedAt                string                         `json:"generated_at"`
+	RankingFrom                string                         `json:"ranking_from"`
+	RankingTo                  string                         `json:"ranking_to"`
 	Summary                    ManagerOpsSummary              `json:"summary"`
 	WeeklySummary              ManagerOpsWeeklySummary        `json:"weekly_summary"`
 	AbsentStudentsRanking      []ManagerOpsWeeklyMentorLeader `json:"absent_students_ranking"`
