@@ -889,6 +889,12 @@ func main() {
 			return
 		}
 
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/sleeping-follow-up") {
+			cfg.Debugf("  → Calling preEnrolmentHandler.SendSleepingLeadFollowUp")
+			middleware.RequireAnyRole([]string{"admin", "moderator", "manager"}, cfg.SessionSecret)(preEnrolmentHandler.SendSleepingLeadFollowUp)(w, r)
+			return
+		}
+
 		switch r.Method {
 		case http.MethodGet:
 			cfg.Debugf("  → Calling preEnrolmentHandler.Detail")

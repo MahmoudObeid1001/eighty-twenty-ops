@@ -42,8 +42,9 @@
         <input type="text" name="search" placeholder="Search by name or phone..." id="search" value="{{.SearchFilter}}"
             class="filter-search">
         {{if .OpsQueueFilter}}<input type="hidden" name="ops_queue" value="{{.OpsQueueFilter}}">{{end}}
-
+        {{if .IsSleepingLeads}}<input type="hidden" name="sleeping" value="1">{{end}}
         {{$sf := .StatusFilter}}
+        {{if not .IsSleepingLeads}}
         <select name="status" id="status-filter" onchange="this.form.submit()" class="filter-select">
             <option value="" {{if not $sf}}selected{{end}}>All Statuses</option>
             <option value="NEW_LEAD" {{if eq $sf "NEW_LEAD" }}selected{{end}}>New Lead</option>
@@ -93,6 +94,7 @@
                 onchange="this.form.submit()">
             Repeat Level
         </label>
+        {{end}}
         <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
     </form>
 
@@ -102,6 +104,7 @@
     {{$isRepeat := eq .RepeatFilter "1"}}
     {{$isCold := or (eq .ColdFilter "1") (eq .ColdFilter "true")}}
     {{$isPrivateTrack := eq .OpsQueueFilter "private_track"}}
+    {{$isSleeping := .IsSleepingLeads}}
     <div class="quick-filters">
         {{$isHot := or (eq .HotFilter "1") (eq .HotFilter "hot")}}
         <a href="/pre-enrolment?{{if not $isHot}}hot=1{{end}}{{if $search}}{{if not $isHot}}&{{end}}search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
@@ -146,8 +149,20 @@
             class="quick-filter-btn {{if $isPrivateTrack}}active{{end}}" data-filter-key="ops_queue"
             data-filter-value="private_track"
             style="{{if $isPrivateTrack}}background-color: #0d6efd; color: white; border-color: #0d6efd;{{end}}">Private Track</a>
+
+        <a href="/pre-enrolment?sleeping=1{{if $search}}&search={{$search | urlquery}}{{end}}"
+            class="quick-filter-btn {{if $isSleeping}}active{{end}}" data-filter-key="sleeping"
+            data-filter-value="1"
+            style="{{if $isSleeping}}background-color: #6f42c1; color: white; border-color: #6f42c1;{{end}}">Sleeping Leads</a>
     </div>
 </div>
+
+{{if .IsSleepingLeads}}
+<div class="cold-retarget-panel" style="background: #faf5ff; border-color: #e9d8fd;">
+    <h3 style="color: #553c9a;">Sleeping Leads</h3>
+    <p style="color: #6b46c1;">These leads stayed on <strong>New Lead</strong> without a placement test date/time for 48+ hours. Clicking the message button logs the step and opens WhatsApp with the suggested text ready to review.</p>
+</div>
+{{end}}
 
 {{if $isCold}}
 <div class="cold-retarget-panel">
@@ -261,11 +276,50 @@
                     {{else}}-{{end}}
                 </td>
                 <td>{{.PaymentState}}</td>
-                <td>{{.NextAction}}</td>
+                <td>
+                        {{if $.IsSleepingLeads}}
+                    <div class="sleeping-next-action">
+                        {{if and (gt .SleepingLeadStep 0) .SleepingLeadDueNow}}
+                        <strong>Message {{.SleepingLeadStep}}</strong>
+                        {{else if gt .SleepingLeadStep 0}}
+                        <strong>Message {{.SleepingLeadStep}}</strong>
+                        {{if .SleepingLeadDueAt.Valid}}
+                        <span>Available {{.SleepingLeadDueAt.Time.Format "2006-01-02 03:04 PM"}}</span>
+                        {{end}}
+                        {{else if ge .SleepingLeadLastStep 3}}
+                        <strong>Sequence completed</strong>
+                        {{else}}
+                        <strong>Waiting</strong>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    {{.NextAction}}
+                    {{end}}
+                </td>
                 <td class="action-column">
                     <div class="action-buttons-row">
+                        {{if and $.IsSleepingLeads (gt .SleepingLeadStep 0) .Lead.Phone .SleepingLeadDueNow}}
+                        <a href="/pre-enrolment/{{.Lead.ID}}/sleeping-follow-up" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
+                            class="btn btn-small"
+                            style="background: #6f42c1; color: white; border: 1px solid #6f42c1;"
+                            title="Open WhatsApp with Message {{.SleepingLeadStep}}">
+                            Message {{.SleepingLeadStep}}
+                        </a>
+                        {{else if and $.IsSleepingLeads (gt .SleepingLeadStep 0)}}
+                        <button type="button" class="btn btn-small" disabled
+                            title="Next sleeping message is not due yet."
+                            style="background: #E9D8FD; color: #553C9A; border: 1px solid #E9D8FD; cursor: not-allowed;">
+                            Message {{.SleepingLeadStep}}
+                        </button>
+                        {{else if and $.IsSleepingLeads (ge .SleepingLeadLastStep 3)}}
+                        <button type="button" class="btn btn-small" disabled
+                            title="All sleeping lead messages were already used."
+                            style="background: #EDF2F7; color: #4A5568; border: 1px solid #EDF2F7; cursor: not-allowed;">
+                            Sequence Complete
+                        </button>
+                        {{end}}
                         {{if .Lead.Phone}}
-                        <a href="{{whatsappLink .Lead.Phone}}" target="_blank" rel="noopener noreferrer" data-whatsapp-window="admin-whatsapp-chat"
+                        <a href="{{whatsappLink .Lead.Phone}}" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
                             class="btn btn-small"
                             style="background: #25D366; color: white; border: 1px solid #25D366;"
                             title="Open WhatsApp">
@@ -273,6 +327,7 @@
                         </a>
                         {{end}}
                         <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
+                        {{if not $.IsSleepingLeads}}
                         {{if and (not $.IsModerator) (eq $s "ready_to_start") (not .Lead.SentToClasses)
                         .AssignedLevel.Valid}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form"
@@ -299,6 +354,7 @@
                             style="background: #FF8C00; color: white; border: 1px solid #FF8C00;">Refund Review</a>
                         {{else}}
                         <a href="/pre-enrolment/{{.Lead.ID}}?action=cancel" class="btn btn-danger btn-small">Cancel</a>
+                        {{end}}
                         {{end}}
                         {{end}}
                     </div>
@@ -417,8 +473,21 @@
                         params.delete('hot');
                         params.delete('cold');
                         params.delete('cold_level');
+                        params.delete('sleeping');
+                    } else if (key === 'sleeping') {
+                        params.set('sleeping', value);
+                        params.delete('status');
+                        params.delete('payment');
+                        params.delete('hot');
+                        params.delete('cold');
+                        params.delete('cold_level');
+                        params.delete('repeat');
+                        params.delete('ops_queue');
                     } else {
                         params.set(key, value);
+                        if (key === 'ops_queue') {
+                            params.delete('sleeping');
+                        }
                     }
                 }
 
@@ -479,6 +548,26 @@
     .cold-retarget-empty {
         color: #718096;
         font-size: 13px;
+    }
+
+    .sleeping-next-action {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 170px;
+        white-space: normal;
+    }
+
+    .sleeping-next-action strong {
+        color: #2d3748;
+        font-size: 13px;
+        line-height: 1.35;
+    }
+
+    .sleeping-next-action span {
+        color: #6b7280;
+        font-size: 12px;
+        line-height: 1.35;
     }
 
     .badge.waiting_for_round {

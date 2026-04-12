@@ -358,6 +358,13 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		WHERE 1=1
 		AND l.status != 'in_classes'
 		AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
+		AND NOT (
+			l.status = 'lead_created'
+			AND COALESCE(l.ops_queue_reason, '') = ''
+			AND COALESCE(pt.test_date::text, '') = ''
+			AND COALESCE(pt.test_time::text, '') = ''
+			AND l.created_at <= NOW() - INTERVAL '48 hours'
+		)
 	`
 
 	args := []interface{}{}
@@ -560,6 +567,193 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 	}
 
 	return leads, nil
+}
+
+func computeSleepingLeadStep(createdAt time.Time, lastMessageNumber int32, lastMessageSentAt sql.NullTime, now time.Time) (int, time.Time, bool) {
+	switch lastMessageNumber {
+	case 0:
+		dueAt := createdAt.Add(48 * time.Hour)
+		return 1, dueAt, !now.Before(dueAt)
+	case 1:
+		if !lastMessageSentAt.Valid {
+			return 0, time.Time{}, false
+		}
+		dueAt := lastMessageSentAt.Time.Add(72 * time.Hour)
+		return 2, dueAt, !now.Before(dueAt)
+	case 2:
+		if !lastMessageSentAt.Valid {
+			return 0, time.Time{}, false
+		}
+		dueAt := lastMessageSentAt.Time.Add(96 * time.Hour)
+		return 3, dueAt, !now.Before(dueAt)
+	default:
+		return 0, time.Time{}, false
+	}
+}
+
+func formatSleepingLeadNextAction(step int, dueAt time.Time, dueNow bool, lastMessageNumber int32) string {
+	if step >= 1 && step <= 3 {
+		return fmt.Sprintf("Message %d", step)
+	}
+	if lastMessageNumber >= 3 {
+		return "Sequence completed"
+	}
+	return "Waiting"
+}
+
+func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadListItem, error) {
+	query := `
+		SELECT
+			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.sent_to_classes,
+			COALESCE(l.is_returning, false),
+			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc,
+			l.created_by_user_id, l.offer_sent_at, l.created_at, l.updated_at,
+			pt.assigned_level, pt.test_date,
+			p.remaining_balance, p.amount_paid,
+			o.final_price,
+			COALESCE(last_msg.message_number, 0) AS last_message_number,
+			last_msg.sent_at
+		FROM leads l
+		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
+		LEFT JOIN payments p ON p.lead_id = l.id
+		LEFT JOIN offers o ON o.lead_id = l.id
+		LEFT JOIN LATERAL (
+			SELECT slf.message_number, slf.sent_at
+			FROM sleeping_lead_follow_ups slf
+			WHERE slf.lead_id = l.id
+			ORDER BY slf.message_number DESC, slf.sent_at DESC
+			LIMIT 1
+		) last_msg ON true
+		WHERE l.status = 'lead_created'
+		  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
+		  AND COALESCE(l.ops_queue_reason, '') = ''
+		  AND COALESCE(pt.test_date::text, '') = ''
+		  AND COALESCE(pt.test_time::text, '') = ''
+		  AND l.created_at <= NOW() - INTERVAL '48 hours'
+	`
+
+	args := make([]interface{}, 0, len(extraArgs))
+	if extraCondition != "" {
+		query += extraCondition
+		args = append(args, extraArgs...)
+	}
+
+	query += " ORDER BY l.created_at ASC, l.updated_at ASC"
+
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sleeping leads: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	now := util.CairoNow()
+	items := make([]*LeadListItem, 0)
+	for rows.Next() {
+		lead := &Lead{}
+		var assignedLevel sql.NullInt32
+		var testDate sql.NullTime
+		var remainingBalance sql.NullInt32
+		var amountPaid sql.NullInt32
+		var finalPrice sql.NullInt32
+		var lastMessageNumber int32
+		var lastMessageSentAt sql.NullTime
+
+		if err := rows.Scan(
+			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.SentToClasses,
+			&lead.IsReturning, &lead.RemainingCredits,
+			&lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
+			&assignedLevel, &testDate,
+			&remainingBalance, &amountPaid,
+			&finalPrice,
+			&lastMessageNumber,
+			&lastMessageSentAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan sleeping lead: %w", err)
+		}
+
+		nextStep, dueAt, eligible := computeSleepingLeadStep(lead.CreatedAt, lastMessageNumber, lastMessageSentAt, now)
+		nextAction := formatSleepingLeadNextAction(nextStep, dueAt, eligible, lastMessageNumber)
+		dueAtValue := sql.NullTime{}
+		if !dueAt.IsZero() {
+			dueAtValue = sql.NullTime{Time: dueAt, Valid: true}
+		}
+
+		item := &LeadListItem{
+			Lead:                 lead,
+			AssignedLevel:        assignedLevel,
+			PaymentStatus:        GetPaymentStatus(remainingBalance, amountPaid),
+			PaymentState:         GetPaymentState(amountPaid, finalPrice),
+			NextAction:           nextAction,
+			TestDate:             testDate,
+			AmountPaid:           amountPaid,
+			FinalPrice:           finalPrice,
+			RemainingBalance:     remainingBalance,
+			SleepingLeadStep:     nextStep,
+			SleepingLeadLastStep: int(lastMessageNumber),
+			SleepingLeadLastSent: lastMessageSentAt,
+			SleepingLeadDueAt:    dueAtValue,
+			SleepingLeadDueNow:   eligible,
+		}
+
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating sleeping leads: %w", err)
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].SleepingLeadDueNow != items[j].SleepingLeadDueNow {
+			return items[i].SleepingLeadDueNow
+		}
+		if items[i].SleepingLeadDueAt.Valid && items[j].SleepingLeadDueAt.Valid && !items[i].SleepingLeadDueAt.Time.Equal(items[j].SleepingLeadDueAt.Time) {
+			return items[i].SleepingLeadDueAt.Time.Before(items[j].SleepingLeadDueAt.Time)
+		}
+		return items[i].Lead.CreatedAt.Before(items[j].Lead.CreatedAt)
+	})
+
+	return items, nil
+}
+
+func GetSleepingLeads(searchFilter string) ([]*LeadListItem, error) {
+	searchFilter = strings.TrimSpace(searchFilter)
+	if searchFilter == "" {
+		return getSleepingLeads("")
+	}
+	searchPattern := "%" + searchFilter + "%"
+	return getSleepingLeads(" AND (LOWER(l.full_name) LIKE LOWER($1) OR l.phone LIKE $1)", searchPattern)
+}
+
+func GetSleepingLeadByID(leadID uuid.UUID) (*LeadListItem, error) {
+	items, err := getSleepingLeads(" AND l.id = $1", leadID)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return items[0], nil
+}
+
+func RecordSleepingLeadFollowUp(leadID uuid.UUID, messageNumber int, sentByUserID uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO sleeping_lead_follow_ups (lead_id, message_number, sent_by_user_id, sent_at)
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+	`, leadID, messageNumber, sentByUserID)
+	if err != nil {
+		return fmt.Errorf("failed to record sleeping lead follow-up: %w", err)
+	}
+	return nil
+}
+
+func resetSleepingLeadFollowUpsIfNeeded(leadID uuid.UUID, status string) error {
+	if status == "lead_created" {
+		return nil
+	}
+	_, err := db.DB.Exec(`DELETE FROM sleeping_lead_follow_ups WHERE lead_id = $1`, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to clear sleeping lead follow-ups: %w", err)
+	}
+	return nil
 }
 
 func GetLatestClassOutcome(leadID uuid.UUID) (*LastClassOutcome, error) {
@@ -1028,7 +1222,10 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE id = $2
 		`, status, leadID)
-		return err
+		if err != nil {
+			return err
+		}
+		return resetSleepingLeadFollowUpsIfNeeded(leadID, status)
 	}
 
 	_, err := db.DB.Exec(`
@@ -1042,7 +1239,10 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = $2
 	`, status, leadID)
-	return err
+	if err != nil {
+		return err
+	}
+	return resetSleepingLeadFollowUpsIfNeeded(leadID, status)
 }
 
 func SendLeadToPrivateTrack(leadID uuid.UUID) error {
@@ -2561,6 +2761,9 @@ func UpdateLeadStatusFromPayment(leadID uuid.UUID) error {
 		if err != nil {
 			return fmt.Errorf("failed to update lead status: %w", err)
 		}
+		if err := resetSleepingLeadFollowUpsIfNeeded(leadID, newStatus); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -3329,7 +3532,7 @@ func CancelLead(leadID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("failed to cancel lead: %w", err)
 	}
-	return nil
+	return resetSleepingLeadFollowUpsIfNeeded(leadID, "cancelled")
 }
 
 // ReopenLead reopens a cancelled lead (sets status back to a valid active status)
@@ -3342,6 +3545,9 @@ func ReopenLead(leadID uuid.UUID) error {
 	`, time.Now(), leadID)
 	if err != nil {
 		return fmt.Errorf("failed to reopen lead: %w", err)
+	}
+	if _, err := db.DB.Exec(`DELETE FROM sleeping_lead_follow_ups WHERE lead_id = $1`, leadID); err != nil {
+		return fmt.Errorf("failed to reset sleeping lead follow-ups on reopen: %w", err)
 	}
 	return nil
 }

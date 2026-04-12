@@ -138,6 +138,11 @@ type LeadListItem struct {
 	AmountPaid            sql.NullInt32 // For checking if paid
 	FinalPrice            sql.NullInt32 // For computing payment state
 	RemainingBalance      sql.NullInt32 // For computing payment state
+	SleepingLeadStep      int
+	SleepingLeadLastStep  int
+	SleepingLeadLastSent  sql.NullTime
+	SleepingLeadDueAt     sql.NullTime
+	SleepingLeadDueNow    bool
 }
 
 type LastClassOutcome struct {
@@ -763,27 +768,27 @@ type ManagerOpsSummary struct {
 }
 
 type ManagerOpsWeeklySummary struct {
-	Label                     string `json:"label"`
-	WeekStart                 string `json:"week_start"`
-	WeekEnd                   string `json:"week_end"`
-	SessionsScheduled         int    `json:"sessions_scheduled"`
-	SessionsCompleted         int    `json:"sessions_completed"`
-	SessionsAttendanceDone    int    `json:"sessions_attendance_done"`
-	SessionsAttendancePending int    `json:"sessions_attendance_pending"`
-	ExpectedStudents          int    `json:"expected_students"`
-	AttendedStudents          int    `json:"attended_students"`
-	Revenue                   int32  `json:"revenue"`
-	PayingLeadsCount          int    `json:"paying_leads_count"`
-	PlacementTestsScheduled   int    `json:"placement_tests_scheduled"`
-	PlacementTestsCompleted   int    `json:"placement_tests_completed"`
-	PlacementTestsPending     int    `json:"placement_tests_pending"`
-	LateMentorSessions        int    `json:"late_mentor_sessions"`
-	AbsentMentorSessions      int    `json:"absent_mentor_sessions"`
-	UncheckedMentorSessions   int    `json:"unchecked_mentor_sessions"`
-	TransferEvents            int    `json:"transfer_events"`
-	ReturnsToAdmin            int    `json:"returns_to_admin"`
-	TopAbsentStudentsMentor   ManagerOpsWeeklyMentorLeader `json:"top_absent_students_mentor"`
-	TopLateStartsMentor       ManagerOpsWeeklyMentorLeader `json:"top_late_starts_mentor"`
+	Label                     string                         `json:"label"`
+	WeekStart                 string                         `json:"week_start"`
+	WeekEnd                   string                         `json:"week_end"`
+	SessionsScheduled         int                            `json:"sessions_scheduled"`
+	SessionsCompleted         int                            `json:"sessions_completed"`
+	SessionsAttendanceDone    int                            `json:"sessions_attendance_done"`
+	SessionsAttendancePending int                            `json:"sessions_attendance_pending"`
+	ExpectedStudents          int                            `json:"expected_students"`
+	AttendedStudents          int                            `json:"attended_students"`
+	Revenue                   int32                          `json:"revenue"`
+	PayingLeadsCount          int                            `json:"paying_leads_count"`
+	PlacementTestsScheduled   int                            `json:"placement_tests_scheduled"`
+	PlacementTestsCompleted   int                            `json:"placement_tests_completed"`
+	PlacementTestsPending     int                            `json:"placement_tests_pending"`
+	LateMentorSessions        int                            `json:"late_mentor_sessions"`
+	AbsentMentorSessions      int                            `json:"absent_mentor_sessions"`
+	UncheckedMentorSessions   int                            `json:"unchecked_mentor_sessions"`
+	TransferEvents            int                            `json:"transfer_events"`
+	ReturnsToAdmin            int                            `json:"returns_to_admin"`
+	TopAbsentStudentsMentor   ManagerOpsWeeklyMentorLeader   `json:"top_absent_students_mentor"`
+	TopLateStartsMentor       ManagerOpsWeeklyMentorLeader   `json:"top_late_starts_mentor"`
 	AbsentStudentsRanking     []ManagerOpsWeeklyMentorLeader `json:"absent_students_ranking"`
 	LateStartsRanking         []ManagerOpsWeeklyMentorLeader `json:"late_starts_ranking"`
 }

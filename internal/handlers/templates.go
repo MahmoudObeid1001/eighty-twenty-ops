@@ -86,7 +86,7 @@ func initTemplates() {
 				if digitsOnly == "" {
 					return ""
 				}
-				return "https://wa.me/" + digitsOnly
+				return "https://api.whatsapp.com/send?phone=" + digitsOnly
 			},
 			"len": func(slice interface{}) int {
 				switch v := slice.(type) {

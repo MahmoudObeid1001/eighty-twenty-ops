@@ -152,6 +152,35 @@ func translateSmartStepCodesToArabic(codes []string) []string {
 	return out
 }
 
+func sleepingLeadSmartSteps(item *models.LeadListItem) ([]string, []string, string) {
+	if item == nil {
+		return nil, nil, ""
+	}
+
+	currentStep := item.SleepingLeadStep
+	if currentStep <= 0 {
+		currentStep = 1
+	}
+
+	steps := make([]string, 0, 2)
+	switch {
+	case currentStep == 1:
+		steps = append(steps, "أرسل رسالة المتابعة الأولى للطالب عبر واتساب.")
+	case currentStep == 2:
+		steps = append(steps, "أرسل رسالة المتابعة الثانية للطالب عبر واتساب.")
+	case currentStep == 3:
+		steps = append(steps, "أرسل رسالة المتابعة الثالثة والأخيرة للطالب عبر واتساب.")
+	default:
+		steps = append(steps, "سلسلة رسائل Sleeping Leads اكتملت. غيّر الحالة عند الرد أو التقدّم.")
+	}
+
+	if currentStep > 1 && currentStep <= 3 {
+		steps = append(steps, fmt.Sprintf("تم تسجيل الرسالة %d مسبقاً لهذا الطالب.", currentStep-1))
+	}
+
+	return []string{"SLEEPING_SEQUENCE"}, steps, "template"
+}
+
 func sanitizeJSONText(raw string) string {
 	s := strings.TrimSpace(raw)
 	s = strings.TrimPrefix(s, "```json")
@@ -258,6 +287,12 @@ func (h *PreEnrolmentHandler) rewriteSmartStepsArabic(codes []string, templateSt
 }
 
 func (h *PreEnrolmentHandler) buildSmartStepsForDetail(detail *models.LeadDetail, isFullyPaid bool, creditsRemaining int32, finalPriceValue, totalCoursePaid int32, lastOutcome string) ([]string, []string, string) {
+	if detail != nil && detail.Lead != nil && detail.Lead.Status == "lead_created" {
+		if sleepingLead, err := models.GetSleepingLeadByID(detail.Lead.ID); err == nil && sleepingLead != nil {
+			return sleepingLeadSmartSteps(sleepingLead)
+		}
+	}
+
 	codes := deterministicSmartStepCodes(detail, isFullyPaid, creditsRemaining, finalPriceValue, totalCoursePaid, lastOutcome)
 	baseArabic := translateSmartStepCodesToArabic(codes)
 	rewritten, usedAI, err := h.rewriteSmartStepsArabic(codes, baseArabic, detail)

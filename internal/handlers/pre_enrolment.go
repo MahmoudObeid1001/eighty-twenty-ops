@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,6 +77,85 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func firstNameFromFullName(fullName string) string {
+	fields := strings.Fields(strings.TrimSpace(fullName))
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+func normalizeWhatsAppPhone(phone string) string {
+	var digits strings.Builder
+	for _, r := range strings.TrimSpace(phone) {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+	digitsOnly := digits.String()
+	if strings.HasPrefix(digitsOnly, "00") {
+		digitsOnly = strings.TrimPrefix(digitsOnly, "00")
+	}
+	if strings.HasPrefix(digitsOnly, "0") {
+		digitsOnly = "20" + strings.TrimPrefix(digitsOnly, "0")
+	}
+	return digitsOnly
+}
+
+func buildWhatsAppComposeLink(phone, text string) string {
+	normalizedPhone := normalizeWhatsAppPhone(phone)
+	if normalizedPhone == "" {
+		return ""
+	}
+	base := "https://api.whatsapp.com/send?phone=" + normalizedPhone
+	if strings.TrimSpace(text) == "" {
+		return base
+	}
+	return base + "&text=" + url.QueryEscape(text)
+}
+
+func buildSleepingLeadMessage(studentFullName string, step int) string {
+	studentFirstName := firstNameFromFullName(studentFullName)
+	if studentFirstName == "" {
+		studentFirstName = "صديقنا"
+	}
+
+	switch step {
+	case 1:
+		return fmt.Sprintf(`مرحبا %s 😊
+أنا احمد من إيتي توينتي
+
+لاحظت إنك كنت بتسأل عن الكورس وبعتلنا رقمك عشان تعمل البليسمنت تيست..
+عايز أعرف، في أي حاجة وقفتك؟ 🤔
+
+أنا هنا لو في أي سؤال، كلمني براحتك 😊`, studentFirstName)
+	case 2:
+		return fmt.Sprintf(`%s، عارف إيه اللي بيفرق بين الناس اللي بتتكلم إنجليزي كويس.. والناس اللي لسه بتحاول؟ 💡
+
+مش الموهبة، مش الوقت - هو البداية الصح ✅
+
+عندنا دلوقتي طلاب بدأوا زيك بالظبط، وبعد شهرين بيتكلموا في شغلهم وانترفيوهات بثقة 💪
+
+البليسمنت تيست بتاعنا مجاني ومش بياخد أكتر من 15 دقيقة، وبيوريلك بالظبط أنت فين وإيه الخطوة الجاية 🎯
+
+نحجزه امتى بالنسبالك؟`, studentFirstName)
+	case 3:
+		return fmt.Sprintf(`%s، مش عايز آخد وقتك كتير 😊
+
+بس عارفك مهتم وعايز تطور إنجليزيتك، وده بالنسبالي كفيل إني أبعتلك الأوفر ده:
+
+🎁 أول محاضرة مجانًا + خصم ١٥٪ على أي باكدج لو اشتركت الأسبوع ده
+
+الأوفر ده مش بنعلن عنه، بس بنديه للناس اللي بتفضل معانا ومش قادرة تبدأ لأسباب تانية 💙
+
+كلمني بـ "مهتم" وأنا هرتب معاك كل حاجة في 5 دقايق 🙏
+
+بعد كده هسيبك براحتك، ومتترددش ترجع لو غيرت رأيك في أي وقت 😄`, studentFirstName)
+	default:
+		return ""
+	}
+}
+
 var groupBundlePrices = map[int32]int32{
 	1: 1300,
 	2: 2400,
@@ -144,6 +224,8 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	coldLevelFilter := r.URL.Query().Get("cold_level")
 	repeatFilter := r.URL.Query().Get("repeat")
 	opsQueueFilter := r.URL.Query().Get("ops_queue")
+	sleepingFilter := r.URL.Query().Get("sleeping")
+	isSleepingLeads := sleepingFilter == "1" || strings.EqualFold(sleepingFilter, "true")
 	includeCancelled := r.URL.Query().Get("include_cancelled") == "1" || r.URL.Query().Get("include_cancelled") == "true"
 	// When explicitly filtering by status=cancelled, include cancelled even if checkbox off
 	if statusFilter == "cancelled" {
@@ -195,7 +277,13 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	h.cfg.Debugf("List: statusFilter=%q, searchFilter=%q, paymentFilter=%q, hotFilter=%q, followUpFilter=%q, includeCancelled=%v, returningFilter=%q, coldFilter=%q, repeatFilter=%q", statusFilter, searchFilter, paymentFilter, hotFilter, followUpFilter, includeCancelled, returningFilter, coldFilter, repeatFilter)
 
 	// Get filtered leads
-	leads, err := models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter, returningFilter, coldFilter, repeatFilter, opsQueueFilter)
+	var leads []*models.LeadListItem
+	var err error
+	if isSleepingLeads {
+		leads, err = models.GetSleepingLeads(searchFilter)
+	} else {
+		leads, err = models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter, returningFilter, coldFilter, repeatFilter, opsQueueFilter)
+	}
 	if err != nil {
 		log.Printf("ERROR: Failed to load leads: %v", err)
 		if flashMessage == "" {
@@ -209,7 +297,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	var coldLevelOptions []int
 	selectedColdLevel := 0
-	if coldFilter == "1" || strings.EqualFold(coldFilter, "true") {
+	if !isSleepingLeads && (coldFilter == "1" || strings.EqualFold(coldFilter, "true")) {
 		coldLevelOptions = buildColdLevelOptions(leads)
 		if lvl, err := strconv.Atoi(strings.TrimSpace(coldLevelFilter)); err == nil && isValidAssignedLevel(lvl) {
 			selectedColdLevel = lvl
@@ -258,6 +346,8 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"ColdFilter":         coldFilter,
 		"RepeatFilter":       repeatFilter,
 		"OpsQueueFilter":     opsQueueFilter,
+		"SleepingFilter":     sleepingFilter,
+		"IsSleepingLeads":    isSleepingLeads,
 		"IncludeCancelled":   includeCancelled,
 		"FollowUpCount":      followUpCount,
 		"FollowUpFilter":     followUpFilter,
@@ -266,6 +356,51 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"SelectedColdLevel":  selectedColdLevel,
 	}
 	renderTemplate(w, r, "pre_enrolment_list.html", data)
+}
+
+func (h *PreEnrolmentHandler) SendSleepingLeadFollowUp(w http.ResponseWriter, r *http.Request) {
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 3 || pathParts[0] != "pre-enrolment" || pathParts[2] != "sleeping-follow-up" {
+		http.NotFound(w, r)
+		return
+	}
+
+	leadID, err := uuid.Parse(pathParts[1])
+	if err != nil {
+		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "Invalid lead for sleeping follow-up.")
+		return
+	}
+
+	item, err := models.GetSleepingLeadByID(leadID)
+	if err != nil {
+		log.Printf("ERROR: Failed to load sleeping lead %s: %v", leadID, err)
+		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "Couldn't load this sleeping lead right now.")
+		return
+	}
+	if item == nil || item.SleepingLeadStep < 1 || item.SleepingLeadStep > 3 {
+		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "This lead is no longer due for a sleeping follow-up.")
+		return
+	}
+
+	messageText := buildSleepingLeadMessage(item.Lead.FullName, item.SleepingLeadStep)
+	whatsAppURL := buildWhatsAppComposeLink(item.Lead.Phone, messageText)
+	if whatsAppURL == "" {
+		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "This lead does not have a valid WhatsApp number.")
+		return
+	}
+
+	userID, err := uuid.Parse(strings.TrimSpace(middleware.GetUserID(r)))
+	if err != nil {
+		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "Couldn't identify the current user for follow-up logging.")
+		return
+	}
+	if err := models.RecordSleepingLeadFollowUp(leadID, item.SleepingLeadStep, userID); err != nil {
+		log.Printf("ERROR: Failed to record sleeping follow-up for lead %s: %v", leadID, err)
+		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "Couldn't record this sleeping follow-up.")
+		return
+	}
+
+	http.Redirect(w, r, whatsAppURL, http.StatusFound)
 }
 
 func (h *PreEnrolmentHandler) NewForm(w http.ResponseWriter, r *http.Request) {

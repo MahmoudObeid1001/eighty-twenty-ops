@@ -452,12 +452,11 @@ export default function StudentSuccessDashboard() {
                             {item.phone && (
                               <a
                                 href={buildWhatsAppLink(item.phone)}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                                target="admin-whatsapp-chat"
                                 onClick={(event) => {
                                   event.preventDefault()
                                   if (!openWhatsAppLink(buildWhatsAppLink(item.phone))) {
-                                    window.open(buildWhatsAppLink(item.phone), '_blank', 'noopener,noreferrer')
+                                    window.location.href = buildWhatsAppLink(item.phone)
                                   }
                                 }}
                                 title="Open WhatsApp"
@@ -539,12 +538,11 @@ export default function StudentSuccessDashboard() {
                         {item.phone && (
                           <a
                             href={buildWhatsAppLink(item.phone)}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            target="admin-whatsapp-chat"
                             onClick={(event) => {
                               event.preventDefault()
                               if (!openWhatsAppLink(buildWhatsAppLink(item.phone))) {
-                                window.open(buildWhatsAppLink(item.phone), '_blank', 'noopener,noreferrer')
+                                window.location.href = buildWhatsAppLink(item.phone)
                               }
                             }}
                             title="Open WhatsApp"

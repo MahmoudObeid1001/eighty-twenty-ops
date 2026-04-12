@@ -147,12 +147,11 @@ function FeedbackCheckpoint({ classKey, students, onUpdate, canEdit }: { classKe
                       {s.phone && (
                         <a
                           href={buildWhatsAppLink(s.phone)}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          target="admin-whatsapp-chat"
                           onClick={(event) => {
                             event.preventDefault()
                             if (!openWhatsAppLink(buildWhatsAppLink(s.phone))) {
-                              window.open(buildWhatsAppLink(s.phone), '_blank', 'noopener,noreferrer')
+                              window.location.href = buildWhatsAppLink(s.phone)
                             }
                           }}
                           title="Open WhatsApp"
@@ -968,10 +967,10 @@ function AbsenceFeed({ classKey, onOpenFollowUp, refreshNonce, triggerRefresh, s
                         </td>
                         <td style={{ padding: '12px' }}>
                           <div style={{ display: 'flex', gap: '8px' }}>
-                            <a href={buildWhatsAppLink(item.studentPhone)} target="_blank" rel="noopener noreferrer" onClick={(event) => {
+                            <a href={buildWhatsAppLink(item.studentPhone)} target="admin-whatsapp-chat" onClick={(event) => {
                               event.preventDefault()
                               if (!openWhatsAppLink(buildWhatsAppLink(item.studentPhone))) {
-                                window.open(buildWhatsAppLink(item.studentPhone), '_blank', 'noopener,noreferrer')
+                                window.location.href = buildWhatsAppLink(item.studentPhone)
                               }
                             }} title="Open WhatsApp" aria-label={`Open WhatsApp chat for ${item.studentName}`} style={{ padding: '4px', borderRadius: '999px', background: '#25D366', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', textDecoration: 'none', boxShadow: '0 2px 8px rgba(37, 211, 102, 0.28)' }}>
                               <WhatsAppIcon />
