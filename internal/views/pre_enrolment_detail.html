@@ -213,42 +213,48 @@
         </div>
 
         {{if and (not .IsModerator) (not .IsReadOnly) .CanSetSleepingReminder}}
-        <div class="form-section" style="border-color: #FFE08A; background: #FFFDF5;">
-            <h2>Deferred Follow-up Reminder</h2>
-            <div class="section-note">Use this when the lead already replied and asked you to come back on a later date.</div>
+        <div class="form-section" style="border-color: #FFE08A; background: #FFFDF5;" dir="rtl">
+            <h2>تذكير متابعة مؤجلة</h2>
+            <div class="section-note">استخدم هذا الجزء لما الطالب يكون رد وقال نرجع له في تاريخ لاحق.</div>
+            <div
+                style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid #FFE08A; background: #FFF8E1; color: #8C4A00;">
+                <strong>تعليمات بسيطة:</strong>
+                <div style="margin-top: 6px;">اكتب تاريخ المتابعة القادم وسجّل السبب باختصار.</div>
+                <div style="margin-top: 4px;">مثال: بعد القبض، أول الشهر، بعد 20 يوم.</div>
+            </div>
 
             {{if .SleepingLeadReminder}}
             <div
                 style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid {{if .SleepingReminderDue}}#FFB300{{else}}#B3D7FF{{end}}; background: {{if .SleepingReminderDue}}#FFF8E1{{else}}#F0F8FF{{end}}; color: {{if .SleepingReminderDue}}#8C4A00{{else}}#0052A3{{end}};">
-                <strong>{{if .SleepingReminderDue}}Reminder due now{{else}}Reminder scheduled{{end}}</strong>
-                <div style="margin-top: 6px;">Date: <strong>{{.SleepingReminderDate}}</strong></div>
+                <strong>{{if .SleepingReminderDue}}التذكير مستحق الآن{{else}}تم حفظ التذكير{{end}}</strong>
+                <div style="margin-top: 6px;">التاريخ: <strong>{{.SleepingReminderDate}}</strong></div>
                 {{if .SleepingLeadReminder.Note.Valid}}
-                <div style="margin-top: 6px;">Note: {{.SleepingLeadReminder.Note.String}}</div>
+                <div style="margin-top: 6px;">السبب: {{.SleepingLeadReminder.Note.String}}</div>
                 {{end}}
             </div>
             {{end}}
 
             <div class="form-row">
                 <div class="form-group">
-                    <label for="sleeping_reminder_date">Reminder Date</label>
+                    <label for="sleeping_reminder_date">تاريخ التذكير</label>
                     <input type="date" id="sleeping_reminder_date" name="sleeping_reminder_date"
                         value="{{.SleepingReminderDate}}">
                 </div>
                 <div class="form-group">
-                    <label for="sleeping_reminder_note">Reminder Note</label>
+                    <label for="sleeping_reminder_note">سبب التأجيل</label>
                     <input type="text" id="sleeping_reminder_note" name="sleeping_reminder_note"
                         value="{{.SleepingReminderNote}}"
-                        placeholder="Example: Wants to start after salary day">
+                        placeholder="مثال: هتبدأ بعد القبض">
                 </div>
             </div>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-start;">
                 <button type="submit" name="action" value="set_sleeping_reminder" class="btn"
                     style="background-color: #FFB300; border-color: #FFB300; color: #4A3200;">
-                    {{if .SleepingLeadReminder}}Update Reminder{{else}}Set Reminder{{end}}
+                    {{if .SleepingLeadReminder}}تحديث التذكير{{else}}حفظ التذكير{{end}}
                 </button>
                 {{if .SleepingLeadReminder}}
                 <button type="submit" name="action" value="clear_sleeping_reminder" class="btn btn-secondary">
-                    Clear Reminder
+                    حذف التذكير
                 </button>
                 {{end}}
             </div>
