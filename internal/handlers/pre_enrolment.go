@@ -405,31 +405,37 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		testedResultsCount = len(testedLeads)
 	}
 
+	sleepingReminderDueCount := 0
+	if count, err := models.CountDueSleepingLeadReminders(util.CairoNow()); err == nil {
+		sleepingReminderDueCount = count
+	}
+
 	userRole := middleware.GetUserRole(r)
 	data := map[string]interface{}{
-		"Title":              "Pre-Enrolment - Eighty Twenty",
-		"Leads":              leads,
-		"UserRole":           userRole,
-		"IsModerator":        IsModerator(r),
-		"IsAdmin":            IsAdmin(r),
-		"FlashMessage":       flashMessage,
-		"FlashMessageType":   flashMessageType,
-		"StatusFilter":       statusFilter,
-		"SearchFilter":       searchFilter,
-		"PaymentFilter":      paymentFilter,
-		"HotFilter":          hotFilter,
-		"ReturningFilter":    returningFilter,
-		"ColdFilter":         coldFilter,
-		"RepeatFilter":       repeatFilter,
-		"OpsQueueFilter":     opsQueueFilter,
-		"SleepingFilter":     sleepingFilter,
-		"IsSleepingLeads":    isSleepingLeads,
-		"IncludeCancelled":   includeCancelled,
-		"FollowUpCount":      followUpCount,
-		"FollowUpFilter":     followUpFilter,
-		"TestedResultsCount": testedResultsCount,
-		"ColdLevelOptions":   coldLevelOptions,
-		"SelectedColdLevel":  selectedColdLevel,
+		"Title":                    "Pre-Enrolment - Eighty Twenty",
+		"Leads":                    leads,
+		"UserRole":                 userRole,
+		"IsModerator":              IsModerator(r),
+		"IsAdmin":                  IsAdmin(r),
+		"FlashMessage":             flashMessage,
+		"FlashMessageType":         flashMessageType,
+		"StatusFilter":             statusFilter,
+		"SearchFilter":             searchFilter,
+		"PaymentFilter":            paymentFilter,
+		"HotFilter":                hotFilter,
+		"ReturningFilter":          returningFilter,
+		"ColdFilter":               coldFilter,
+		"RepeatFilter":             repeatFilter,
+		"OpsQueueFilter":           opsQueueFilter,
+		"SleepingFilter":           sleepingFilter,
+		"IsSleepingLeads":          isSleepingLeads,
+		"IncludeCancelled":         includeCancelled,
+		"FollowUpCount":            followUpCount,
+		"FollowUpFilter":           followUpFilter,
+		"TestedResultsCount":       testedResultsCount,
+		"SleepingReminderDueCount": sleepingReminderDueCount,
+		"ColdLevelOptions":         coldLevelOptions,
+		"SelectedColdLevel":        selectedColdLevel,
 	}
 	renderTemplate(w, r, "pre_enrolment_list.html", data)
 }
@@ -848,6 +854,21 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	}
 	models.ComputeLeadFlags(tempItem)
 	tempItem.WhatsAppURL = buildLeadWhatsAppURL(tempItem)
+	sleepingReminder, reminderErr := models.GetSleepingLeadReminder(leadID)
+	if reminderErr != nil {
+		log.Printf("ERROR: Failed to get sleeping lead reminder: %v", reminderErr)
+		sleepingReminder = nil
+	}
+	sleepingReminderDue := false
+	sleepingReminderDate := ""
+	sleepingReminderNote := ""
+	if sleepingReminder != nil {
+		sleepingReminderDue = !util.CairoNow().Before(sleepingReminder.FollowUpAt)
+		sleepingReminderDate = util.FormatDateCairo(sleepingReminder.FollowUpAt)
+		if sleepingReminder.Note.Valid {
+			sleepingReminderNote = sleepingReminder.Note.String
+		}
+	}
 
 	today := time.Now().Format("2006-01-02")
 	leadPayments := []*models.LeadPayment{}
@@ -1059,24 +1080,29 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			_, reason := canMarkOfferSent(detail)
 			return reason
 		}(),
-		"StatusDisplayName":     statusInfo.DisplayName,
-		"StatusBgColor":         statusInfo.BgColor,
-		"StatusTextColor":       statusInfo.TextColor,
-		"StatusBorderColor":     statusInfo.BorderColor,
-		"CreditsRemaining":      creditsRemaining,
-		"LastOutcome":           lastOutcome,
-		"LastFinalGrade":        lastGrade,
-		"SmartStepsCodes":       []string{},
-		"SmartStepsAR":          []string{},
-		"SmartStepsSource":      "",
-		"IsRefusedRenewal":      isRefusedRenewal,
-		"RenewalRefusedAt":      refusedAtText,
-		"CanMarkRefusedRenewal": canMarkRefusedRenewal,
-		"Error":                 "",
-		"PhoneError":            "",
-		"ExistingLeadID":        nil,
-		"SuccessMessage":        "",
-		"ShowCancelModal":       false,
+		"StatusDisplayName":      statusInfo.DisplayName,
+		"StatusBgColor":          statusInfo.BgColor,
+		"StatusTextColor":        statusInfo.TextColor,
+		"StatusBorderColor":      statusInfo.BorderColor,
+		"CreditsRemaining":       creditsRemaining,
+		"LastOutcome":            lastOutcome,
+		"LastFinalGrade":         lastGrade,
+		"SmartStepsCodes":        []string{},
+		"SmartStepsAR":           []string{},
+		"SmartStepsSource":       "",
+		"IsRefusedRenewal":       isRefusedRenewal,
+		"RenewalRefusedAt":       refusedAtText,
+		"CanMarkRefusedRenewal":  canMarkRefusedRenewal,
+		"CanSetSleepingReminder": canSetSleepingReminder(detail),
+		"SleepingLeadReminder":   sleepingReminder,
+		"SleepingReminderDue":    sleepingReminderDue,
+		"SleepingReminderDate":   sleepingReminderDate,
+		"SleepingReminderNote":   sleepingReminderNote,
+		"Error":                  "",
+		"PhoneError":             "",
+		"ExistingLeadID":         nil,
+		"SuccessMessage":         "",
+		"ShowCancelModal":        false,
 		"CoursePaymentInput": map[string]string{
 			"type":   "",
 			"amount": "",
@@ -1256,6 +1282,16 @@ func canMarkOfferSent(detail *models.LeadDetail) (bool, string) {
 	}
 
 	return true, ""
+}
+
+func canSetSleepingReminder(detail *models.LeadDetail) bool {
+	if detail == nil || detail.Lead == nil || detail.Lead.Status != "lead_created" {
+		return false
+	}
+	if detail.PlacementTest == nil {
+		return true
+	}
+	return !detail.PlacementTest.TestDate.Valid && !detail.PlacementTest.TestTime.Valid
 }
 
 func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -1635,6 +1671,70 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		h.cfg.Debugf("  ✅ Lead marked refused_renewal and moved to cold_lead")
 		http.Redirect(w, r, "/pre-enrolment?cold=1&status_flash=refused", http.StatusFound)
+		return
+
+	case "set_sleeping_reminder":
+		h.cfg.Debugf("  → Action: set_sleeping_reminder")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to schedule sleeping lead reminders.", http.StatusForbidden)
+			return
+		}
+
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if !canSetSleepingReminder(detail) {
+			h.renderDetailWithError(w, r, leadID, "Callback reminders are only available for leads still waiting to book their placement test.")
+			return
+		}
+
+		reminderDate := strings.TrimSpace(r.FormValue("sleeping_reminder_date"))
+		if reminderDate == "" {
+			h.renderDetailWithError(w, r, leadID, "Please choose the reminder date.")
+			return
+		}
+		followUpAt, err := util.ParseDateCairo(reminderDate)
+		if err != nil {
+			h.renderDetailWithError(w, r, leadID, "Invalid reminder date.")
+			return
+		}
+		if followUpAt.Before(util.CairoStartOfDay(util.CairoNow())) {
+			h.renderDetailWithError(w, r, leadID, "Reminder date cannot be in the past.")
+			return
+		}
+
+		var actorID *uuid.UUID
+		if userIDStr := strings.TrimSpace(middleware.GetUserID(r)); userIDStr != "" {
+			if parsed, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+				actorID = &parsed
+			}
+		}
+
+		if err := models.UpsertSleepingLeadReminder(leadID, followUpAt, r.FormValue("sleeping_reminder_note"), actorID); err != nil {
+			log.Printf("ERROR: Failed to save sleeping lead reminder: %v", err)
+			http.Error(w, "Couldn't save the sleeping lead reminder. Please try again.", http.StatusInternalServerError)
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", fmt.Sprintf("Callback reminder saved for %s.", util.FormatDateCairo(followUpAt)))
+		return
+
+	case "clear_sleeping_reminder":
+		h.cfg.Debugf("  → Action: clear_sleeping_reminder")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to clear sleeping lead reminders.", http.StatusForbidden)
+			return
+		}
+
+		if err := models.DeleteSleepingLeadReminder(leadID); err != nil {
+			log.Printf("ERROR: Failed to clear sleeping lead reminder: %v", err)
+			http.Error(w, "Couldn't clear the sleeping lead reminder. Please try again.", http.StatusInternalServerError)
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "Callback reminder cleared.")
 		return
 
 	case "move_waiting":

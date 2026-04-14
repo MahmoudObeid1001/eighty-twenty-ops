@@ -616,6 +616,16 @@ func computeSleepingLeadStep(createdAt time.Time, lastMessageNumber int32, lastM
 	}
 }
 
+func formatSleepingLeadReminderNextAction(reminderAt sql.NullTime, reminderDue bool) string {
+	if !reminderAt.Valid {
+		return ""
+	}
+	if reminderDue {
+		return "Callback reminder due"
+	}
+	return "Callback scheduled"
+}
+
 func formatSleepingLeadNextAction(step int, dueAt time.Time, dueNow bool, lastMessageNumber int32) string {
 	if step >= 1 && step <= 3 {
 		return fmt.Sprintf("Message %d", step)
@@ -636,12 +646,15 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 			pt.assigned_level, pt.test_date,
 			p.remaining_balance, p.amount_paid,
 			o.final_price,
+			slr.follow_up_at,
+			slr.note,
 			COALESCE(last_msg.message_number, 0) AS last_message_number,
 			last_msg.sent_at
 		FROM leads l
 		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
 		LEFT JOIN payments p ON p.lead_id = l.id
 		LEFT JOIN offers o ON o.lead_id = l.id
+		LEFT JOIN sleeping_lead_reminders slr ON slr.lead_id = l.id
 		LEFT JOIN LATERAL (
 			SELECT slf.message_number, slf.sent_at
 			FROM sleeping_lead_follow_ups slf
@@ -654,7 +667,11 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 		  AND COALESCE(l.ops_queue_reason, '') = ''
 		  AND COALESCE(pt.test_date::text, '') = ''
 		  AND COALESCE(pt.test_time::text, '') = ''
-		  AND l.created_at <= NOW() - INTERVAL '48 hours'
+		  AND (
+		      (slr.follow_up_at IS NOT NULL AND slr.follow_up_at <= NOW())
+		      OR
+		      (slr.follow_up_at IS NULL AND l.created_at <= NOW() - INTERVAL '48 hours')
+		  )
 	`
 
 	args := make([]interface{}, 0, len(extraArgs))
@@ -680,6 +697,8 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 		var remainingBalance sql.NullInt32
 		var amountPaid sql.NullInt32
 		var finalPrice sql.NullInt32
+		var reminderAt sql.NullTime
+		var reminderNote sql.NullString
 		var lastMessageNumber int32
 		var lastMessageSentAt sql.NullTime
 
@@ -690,14 +709,25 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 			&assignedLevel, &testDate,
 			&remainingBalance, &amountPaid,
 			&finalPrice,
+			&reminderAt,
+			&reminderNote,
 			&lastMessageNumber,
 			&lastMessageSentAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan sleeping lead: %w", err)
 		}
 
-		nextStep, dueAt, eligible := computeSleepingLeadStep(lead.CreatedAt, lastMessageNumber, lastMessageSentAt, now)
-		nextAction := formatSleepingLeadNextAction(nextStep, dueAt, eligible, lastMessageNumber)
+		reminderDue := reminderAt.Valid && !now.Before(reminderAt.Time)
+		nextStep, dueAt, eligible := 0, time.Time{}, false
+		nextAction := ""
+		if reminderAt.Valid {
+			dueAt = reminderAt.Time
+			eligible = reminderDue
+			nextAction = formatSleepingLeadReminderNextAction(reminderAt, reminderDue)
+		} else {
+			nextStep, dueAt, eligible = computeSleepingLeadStep(lead.CreatedAt, lastMessageNumber, lastMessageSentAt, now)
+			nextAction = formatSleepingLeadNextAction(nextStep, dueAt, eligible, lastMessageNumber)
+		}
 		dueAtValue := sql.NullTime{}
 		if !dueAt.IsZero() {
 			dueAtValue = sql.NullTime{Time: dueAt, Valid: true}
@@ -718,6 +748,9 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 			SleepingLeadLastSent: lastMessageSentAt,
 			SleepingLeadDueAt:    dueAtValue,
 			SleepingLeadDueNow:   eligible,
+			SleepingReminderAt:   reminderAt,
+			SleepingReminderNote: reminderNote,
+			SleepingReminderDue:  reminderDue,
 		}
 
 		items = append(items, item)
@@ -729,6 +762,11 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].SleepingLeadDueNow != items[j].SleepingLeadDueNow {
 			return items[i].SleepingLeadDueNow
+		}
+		iDeferredFuture := items[i].SleepingReminderAt.Valid && !items[i].SleepingReminderDue
+		jDeferredFuture := items[j].SleepingReminderAt.Valid && !items[j].SleepingReminderDue
+		if iDeferredFuture != jDeferredFuture {
+			return !iDeferredFuture
 		}
 		if items[i].SleepingLeadDueAt.Valid && items[j].SleepingLeadDueAt.Valid && !items[i].SleepingLeadDueAt.Time.Equal(items[j].SleepingLeadDueAt.Time) {
 			return items[i].SleepingLeadDueAt.Time.Before(items[j].SleepingLeadDueAt.Time)
@@ -770,13 +808,84 @@ func RecordSleepingLeadFollowUp(leadID uuid.UUID, messageNumber int, sentByUserI
 	return nil
 }
 
+func GetSleepingLeadReminder(leadID uuid.UUID) (*SleepingLeadReminder, error) {
+	reminder := &SleepingLeadReminder{}
+	err := db.DB.QueryRow(`
+		SELECT lead_id, follow_up_at, note, scheduled_by_user_id::text, created_at, updated_at
+		FROM sleeping_lead_reminders
+		WHERE lead_id = $1
+	`, leadID).Scan(
+		&reminder.LeadID,
+		&reminder.FollowUpAt,
+		&reminder.Note,
+		&reminder.ScheduledByUserID,
+		&reminder.CreatedAt,
+		&reminder.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to load sleeping lead reminder: %w", err)
+	}
+	return reminder, nil
+}
+
+func UpsertSleepingLeadReminder(leadID uuid.UUID, followUpAt time.Time, note string, scheduledByUserID *uuid.UUID) error {
+	var actor interface{}
+	if scheduledByUserID != nil {
+		actor = *scheduledByUserID
+	}
+	if _, err := db.DB.Exec(`
+		INSERT INTO sleeping_lead_reminders (lead_id, follow_up_at, note, scheduled_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, NULLIF($3, ''), $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (lead_id) DO UPDATE
+		SET follow_up_at = EXCLUDED.follow_up_at,
+		    note = EXCLUDED.note,
+		    scheduled_by_user_id = EXCLUDED.scheduled_by_user_id,
+		    updated_at = CURRENT_TIMESTAMP
+	`, leadID, followUpAt, strings.TrimSpace(note), actor); err != nil {
+		return fmt.Errorf("failed to save sleeping lead reminder: %w", err)
+	}
+	return nil
+}
+
+func DeleteSleepingLeadReminder(leadID uuid.UUID) error {
+	if _, err := db.DB.Exec(`DELETE FROM sleeping_lead_reminders WHERE lead_id = $1`, leadID); err != nil {
+		return fmt.Errorf("failed to clear sleeping lead reminder: %w", err)
+	}
+	return nil
+}
+
+func CountDueSleepingLeadReminders(now time.Time) (int, error) {
+	var count int
+	err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM sleeping_lead_reminders slr
+		JOIN leads l ON l.id = slr.lead_id
+		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
+		WHERE slr.follow_up_at <= $1
+		  AND l.status = 'lead_created'
+		  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
+		  AND COALESCE(l.ops_queue_reason, '') = ''
+		  AND COALESCE(pt.test_date::text, '') = ''
+		  AND COALESCE(pt.test_time::text, '') = ''
+	`, now).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count due sleeping lead reminders: %w", err)
+	}
+	return count, nil
+}
+
 func resetSleepingLeadFollowUpsIfNeeded(leadID uuid.UUID, status string) error {
 	if status == "lead_created" {
 		return nil
 	}
-	_, err := db.DB.Exec(`DELETE FROM sleeping_lead_follow_ups WHERE lead_id = $1`, leadID)
-	if err != nil {
+	if _, err := db.DB.Exec(`DELETE FROM sleeping_lead_follow_ups WHERE lead_id = $1`, leadID); err != nil {
 		return fmt.Errorf("failed to clear sleeping lead follow-ups: %w", err)
+	}
+	if _, err := db.DB.Exec(`DELETE FROM sleeping_lead_reminders WHERE lead_id = $1`, leadID); err != nil {
+		return fmt.Errorf("failed to clear sleeping lead follow-up state: %w", err)
 	}
 	return nil
 }

@@ -32,6 +32,14 @@
 </div>
 {{end}}
 
+{{if and .IsAdmin (gt .SleepingReminderDueCount 0)}}
+<div
+    style="background-color: #FFF8E1; border: 2px solid #FFB300; color: #8C4A00; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
+    ⏰ {{.SleepingReminderDueCount}} deferred sleeping lead reminder{{if ne .SleepingReminderDueCount 1}}s{{end}} due now —
+    <a href="/pre-enrolment?sleeping=1" style="color: #8C4A00; text-decoration: underline;">View sleeping leads</a>
+</div>
+{{end}}
+
 <div style="margin-bottom: 20px;">
     <a href="/pre-enrolment/new" class="btn btn-primary">New Lead</a>
 </div>
@@ -160,7 +168,7 @@
 {{if .IsSleepingLeads}}
 <div class="cold-retarget-panel" style="background: #faf5ff; border-color: #e9d8fd;">
     <h3 style="color: #553c9a;">Sleeping Leads</h3>
-    <p style="color: #6b46c1;">These leads stayed on <strong>New Lead</strong> without a placement test date/time for 48+ hours. Clicking the message button logs the step and opens WhatsApp with the suggested text ready to review.</p>
+    <p style="color: #6b46c1;">This view includes classic sleeping leads plus deferred callback leads. Future deferred items stay visible with a muted badge and sort lower, while due reminders still surface clearly for admin follow-up.</p>
 </div>
 {{end}}
 
@@ -209,7 +217,8 @@
             {{range .Leads}}
             {{$s := .Lead.Status}}
             {{$isCancelled := eq $s "cancelled"}}
-            <tr data-lead-id="{{.Lead.ID}}" class="{{if $isCancelled}}row-cancelled{{end}}">
+            <tr data-lead-id="{{.Lead.ID}}" class="{{if $isCancelled}}row-cancelled{{end}}"
+                {{if and $.IsSleepingLeads .SleepingReminderAt.Valid (not .SleepingReminderDue)}}style="background: #f8fbff;"{{end}}>
                 <td>
                     {{.Lead.FullName}}
                     {{if .Lead.IsReturning}}
@@ -252,6 +261,12 @@
                     {{else}}{{$stage = $s}}{{end}}
 
                     <span class="badge {{$s}} {{if $isCancelled}}badge-cancelled{{end}}">{{$stage}}</span>
+                    {{if and $.IsSleepingLeads .SleepingReminderAt.Valid}}
+                    <span class="badge"
+                        style="margin-left: 5px; background-color: {{if .SleepingReminderDue}}#FFF4E6{{else}}#E6F2FF{{end}}; color: {{if .SleepingReminderDue}}#8C4A00{{else}}#1F5FAF{{end}}; border: 1px solid {{if .SleepingReminderDue}}#FFD8A8{{else}}#B3D7FF{{end}};">
+                        {{if .SleepingReminderDue}}CALLBACK DUE{{else}}DEFERRED{{end}}
+                    </span>
+                    {{end}}
                     {{if .Lead.OpsQueueReason.Valid}}
                     {{if eq .Lead.OpsQueueReason.String "private_track"}}
                     <span class="badge" style="background-color: #0d6efd; color: white; margin-left: 5px;">PRIVATE TRACK</span>
@@ -277,9 +292,17 @@
                 </td>
                 <td>{{.PaymentState}}</td>
                 <td>
-                        {{if $.IsSleepingLeads}}
+                    {{if $.IsSleepingLeads}}
                     <div class="sleeping-next-action">
-                        {{if and (gt .SleepingLeadStep 0) .SleepingLeadDueNow}}
+                        {{if .SleepingReminderAt.Valid}}
+                        <strong>{{if .SleepingReminderDue}}Callback reminder due{{else}}Callback scheduled{{end}}</strong>
+                        {{if .SleepingLeadDueAt.Valid}}
+                        <span>{{if .SleepingReminderDue}}Since{{else}}For{{end}} {{.SleepingLeadDueAt.Time.Format "2006-01-02"}}</span>
+                        {{end}}
+                        {{if .SleepingReminderNote.Valid}}
+                        <span>{{.SleepingReminderNote.String}}</span>
+                        {{end}}
+                        {{else if and (gt .SleepingLeadStep 0) .SleepingLeadDueNow}}
                         <strong>Message {{.SleepingLeadStep}}</strong>
                         {{else if gt .SleepingLeadStep 0}}
                         <strong>Message {{.SleepingLeadStep}}</strong>

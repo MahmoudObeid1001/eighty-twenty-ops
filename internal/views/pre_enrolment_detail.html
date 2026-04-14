@@ -212,6 +212,49 @@
             </div>
         </div>
 
+        {{if and (not .IsModerator) (not .IsReadOnly) .CanSetSleepingReminder}}
+        <div class="form-section" style="border-color: #FFE08A; background: #FFFDF5;">
+            <h2>Deferred Follow-up Reminder</h2>
+            <div class="section-note">Use this when the lead already replied and asked you to come back on a later date.</div>
+
+            {{if .SleepingLeadReminder}}
+            <div
+                style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid {{if .SleepingReminderDue}}#FFB300{{else}}#B3D7FF{{end}}; background: {{if .SleepingReminderDue}}#FFF8E1{{else}}#F0F8FF{{end}}; color: {{if .SleepingReminderDue}}#8C4A00{{else}}#0052A3{{end}};">
+                <strong>{{if .SleepingReminderDue}}Reminder due now{{else}}Reminder scheduled{{end}}</strong>
+                <div style="margin-top: 6px;">Date: <strong>{{.SleepingReminderDate}}</strong></div>
+                {{if .SleepingLeadReminder.Note.Valid}}
+                <div style="margin-top: 6px;">Note: {{.SleepingLeadReminder.Note.String}}</div>
+                {{end}}
+            </div>
+            {{end}}
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="sleeping_reminder_date">Reminder Date</label>
+                    <input type="date" id="sleeping_reminder_date" name="sleeping_reminder_date"
+                        value="{{.SleepingReminderDate}}">
+                </div>
+                <div class="form-group">
+                    <label for="sleeping_reminder_note">Reminder Note</label>
+                    <input type="text" id="sleeping_reminder_note" name="sleeping_reminder_note"
+                        value="{{.SleepingReminderNote}}"
+                        placeholder="Example: Wants to start after salary day">
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button type="submit" name="action" value="set_sleeping_reminder" class="btn"
+                    style="background-color: #FFB300; border-color: #FFB300; color: #4A3200;">
+                    {{if .SleepingLeadReminder}}Update Reminder{{else}}Set Reminder{{end}}
+                </button>
+                {{if .SleepingLeadReminder}}
+                <button type="submit" name="action" value="clear_sleeping_reminder" class="btn btn-secondary">
+                    Clear Reminder
+                </button>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
         {{if not .IsModerator}}
         <!-- 2. Placement Test -->
         <div class="form-section">

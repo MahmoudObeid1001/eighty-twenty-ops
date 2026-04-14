@@ -145,6 +145,18 @@ type LeadListItem struct {
 	SleepingLeadLastSent  sql.NullTime
 	SleepingLeadDueAt     sql.NullTime
 	SleepingLeadDueNow    bool
+	SleepingReminderAt    sql.NullTime
+	SleepingReminderNote  sql.NullString
+	SleepingReminderDue   bool
+}
+
+type SleepingLeadReminder struct {
+	LeadID            uuid.UUID
+	FollowUpAt        time.Time
+	Note              sql.NullString
+	ScheduledByUserID sql.NullString
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type LastClassOutcome struct {

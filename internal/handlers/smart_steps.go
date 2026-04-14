@@ -157,6 +157,23 @@ func sleepingLeadSmartSteps(item *models.LeadListItem) ([]string, []string, stri
 		return nil, nil, ""
 	}
 
+	if item.SleepingReminderAt.Valid {
+		if item.SleepingReminderDue {
+			steps := []string{"راجع الطالب اليوم لأن موعد التذكير المؤجل حان."}
+			if item.SleepingReminderNote.Valid && strings.TrimSpace(item.SleepingReminderNote.String) != "" {
+				steps = append(steps, "ملاحظة التذكير: "+strings.TrimSpace(item.SleepingReminderNote.String))
+			}
+			steps = append(steps, "حدّث الحالة أو جدّد التذكير إذا طلب الطالب موعداً آخر.")
+			return []string{"SLEEPING_REMINDER_DUE"}, steps, "template"
+		}
+
+		steps := []string{fmt.Sprintf("تم تأجيل المتابعة إلى %s.", item.SleepingReminderAt.Time.Format("2006-01-02"))}
+		if item.SleepingReminderNote.Valid && strings.TrimSpace(item.SleepingReminderNote.String) != "" {
+			steps = append(steps, "ملاحظة التذكير: "+strings.TrimSpace(item.SleepingReminderNote.String))
+		}
+		return []string{"SLEEPING_REMINDER_SET"}, steps, "template"
+	}
+
 	currentStep := item.SleepingLeadStep
 	if currentStep <= 0 {
 		currentStep = 1
