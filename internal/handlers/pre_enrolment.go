@@ -114,6 +114,80 @@ func buildWhatsAppComposeLink(phone, text string) string {
 	return base + "&text=" + url.QueryEscape(text)
 }
 
+func buildOfferSentFollowUpMessage(studentFullName string, step int) string {
+	studentFirstName := firstNameFromFullName(studentFullName)
+	if studentFirstName == "" {
+		studentFirstName = "Ahmed"
+	}
+
+	switch step {
+	case 1:
+		return fmt.Sprintf(`%s، 👋
+
+بعتنالك نتيجة البليسمنت تيست والأوفر المناسب ليك،
+ولما ماجاش رد حبيت أتأكد إن الرسالة وصلتك 😊
+
+مستواك كويس، وعندك أساس تقدر تبني عليه 💪
+ومحتاج بس الخطوة الصح عشان توصل لنتيجة حقيقية.
+
+الأوفر لسه متاح.
+ينفع نتكلم فيه؟`, studentFirstName)
+	case 2:
+		return fmt.Sprintf(`%s، 🎯
+
+هقولك على حاجة:
+ناس كتير بتعمل البليسمنت تيست وبعدها بتقف،
+مش لأنهم مش عايزين يتعلموا،
+لكن لأن بيكون فيه سؤال لسه شاغلهم.
+
+سواء كان الموضوع سعر، وقت، أو حتى هل الكورس مناسب ليك فعلًا،
+ابعتلي اللي في بالك وأنا هرد عليك بصراحة تامة، من غير أي إلزام 😊
+
+وصولك لمرحلة التيست معناه إن عندك جدية حقيقية في التطوير 💙`, studentFirstName)
+	case 3:
+		return fmt.Sprintf(`%s، 😊
+
+دي آخر مرة هتواصل فيها معاك، وبعدها هسيبلك المساحة براحتك.
+
+لكن قبل ما أقفل الملف، حبيت أقدملك فرصة مناسبة ليك:
+🎁 أول محاضرة مجانًا، عشان تشوف بنفسك الأسلوب والمدرس قبل أي قرار
+🎁 وخصم 15%% على أي باكدج لو حبيت تكمل خلال الأسبوع ده
+
+مفيش أي إلزام في المحاضرة الأولى،
+ولو ماعجبتكش، مش هتدفع أي حاجة.
+
+ده عرض بنقدمه تقديرًا إنك خدت خطوة فعلية وعملت التيست 💙
+
+لو مناسب ليك، ابعتلي:
+عايز أجرب ✅`, studentFirstName)
+	default:
+		return ""
+	}
+}
+
+func buildLeadWhatsAppURL(item *models.LeadListItem) string {
+	if item == nil || item.Lead == nil {
+		return ""
+	}
+	if item.Lead.Status == "offer_sent" && item.PaymentState == models.PaymentStateUnpaid && item.OfferFollowUpStep >= 1 && item.OfferFollowUpStep <= 3 {
+		if messageText := buildOfferSentFollowUpMessage(item.Lead.FullName, item.OfferFollowUpStep); messageText != "" {
+			if url := buildWhatsAppComposeLink(item.Lead.Phone, messageText); url != "" {
+				return url
+			}
+		}
+	}
+	return buildWhatsAppComposeLink(item.Lead.Phone, "")
+}
+
+func assignLeadWhatsAppURLs(items []*models.LeadListItem) {
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		item.WhatsAppURL = buildLeadWhatsAppURL(item)
+	}
+}
+
 func buildSleepingLeadMessage(studentFullName string, step int) string {
 	studentFirstName := firstNameFromFullName(studentFullName)
 	if studentFirstName == "" {
@@ -304,6 +378,8 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 			leads = filterLeadsByAssignedLevel(leads, selectedColdLevel)
 		}
 	}
+
+	assignLeadWhatsAppURLs(leads)
 
 	// Count follow-ups due for banner
 	// Get total count of hot leads (need to fetch all leads without hot filter)
@@ -771,6 +847,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		FinalPrice: finalPrice,
 	}
 	models.ComputeLeadFlags(tempItem)
+	tempItem.WhatsAppURL = buildLeadWhatsAppURL(tempItem)
 
 	today := time.Now().Format("2006-01-02")
 	leadPayments := []*models.LeadPayment{}
@@ -946,6 +1023,9 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"FollowUpDue":            tempItem.FollowUpDue,
 		"ShowFollowUpBanner":     showFollowUpBanner,
 		"HotLevel":               tempItem.HotLevel,
+		"NextAction":             tempItem.NextAction,
+		"LeadWhatsAppURL":        tempItem.WhatsAppURL,
+		"OfferFollowUpStep":      tempItem.OfferFollowUpStep,
 		"DaysSinceLastProgress":  tempItem.DaysSinceLastProgress,
 		"Today":                  today,
 		"LeadPayments":           leadPayments,

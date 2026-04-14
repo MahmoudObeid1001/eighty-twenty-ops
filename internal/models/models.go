@@ -131,9 +131,11 @@ type LeadListItem struct {
 	PaymentStatus         string
 	PaymentState          string // UNPAID, DEPOSIT, PAID_FULL
 	NextAction            string
+	WhatsAppURL           string
 	DaysSinceLastProgress int
 	HotLevel              string // "HOT", "WARM", "COOL", or ""
 	FollowUpDue           bool
+	OfferFollowUpStep     int
 	TestDate              sql.NullTime  // For computing days since progress
 	AmountPaid            sql.NullInt32 // For checking if paid
 	FinalPrice            sql.NullInt32 // For computing payment state

@@ -27,10 +27,11 @@
             Return to Admin Feed
         </button>
         {{end}}
-        {{if .Detail.Lead.Phone}}
-        <a href="{{whatsappLink .Detail.Lead.Phone}}" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
+        {{if .LeadWhatsAppURL}}
+        <a href="{{.LeadWhatsAppURL}}" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
             class="btn"
-            style="background: #25D366; color: white; border: 1px solid #25D366; padding: 12px 18px; font-weight: 700;">
+            style="background: #25D366; color: white; border: 1px solid #25D366; padding: 12px 18px; font-weight: 700;"
+            title="{{if gt .OfferFollowUpStep 0}}Open WhatsApp with Message {{.OfferFollowUpStep}}{{else}}Open WhatsApp{{end}}">
             WhatsApp Lead
         </a>
         {{end}}
@@ -129,12 +130,9 @@
     <div
         style="margin-top: 15px; padding-top: 15px; border-top: 1px solid {{if eq .HotLevel `HOT` }}#FF6B6B{{else if eq .HotLevel `WARM` }}#FFA500{{else}}#8C8C8C{{end}};">
         <strong>Suggested next action:</strong>
-        {{if eq .HotLevel `HOT` }}
-        <p style="margin: 5px 0;">Call today + remind about offer</p>
-        {{else if eq .HotLevel `WARM` }}
-        <p style="margin: 5px 0;">Offer small discount (expires 48h)</p>
-        {{else}}
-        <p style="margin: 5px 0;">Final follow-up then archive/waiting</p>
+        <p style="margin: 5px 0;">{{.NextAction}}</p>
+        {{if gt .OfferFollowUpStep 0}}
+        <p style="margin: 5px 0;">WhatsApp Lead opens Message {{.OfferFollowUpStep}} ready to review.</p>
         {{end}}
     </div>
 </div>
@@ -869,19 +867,13 @@
     {{else}}
     <div class="action-buttons" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E6E6E6;">
         <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-primary">Save</button>
-        {{if or .Detail.Lead.IsReturning (eq .Detail.Lead.Status "renewal_pending") (eq .Detail.Lead.Status
-        "waiting_for_round") (eq .Detail.Lead.Status "schedule_assigned") (eq .Detail.Lead.Status "ready_to_start") (eq
-        .Detail.Lead.Status "in_classes")}}
-        <button type="button" class="btn btn-secondary" disabled
-            title="Locked for returning students. Keep promoted level and continue renewal payment flow.">Mark Test
-            Booked</button>
-        {{else}}
-        <button type="submit" form="pre-enrolment-form" name="action" value="mark_test_booked"
-            class="btn btn-secondary">Mark Test Booked</button>
-        {{end}}
         {{if ne .UserRole "admin"}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_tested" class="btn btn-secondary">Mark
             Tested</button>
+        {{end}}
+        {{if and (not .Detail.Lead.OpsQueueReason.Valid) (not .IsRefundReview)}}
+        <button type="submit" form="pre-enrolment-form" name="action" value="send_private_track" class="btn"
+            style="background-color: #0d6efd; border-color: #0d6efd; color: white;">Send to Private Track</button>
         {{end}}
         {{if .CanMarkOfferSent}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
@@ -899,14 +891,6 @@
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_refused_renewal"
             class="btn btn-secondary" style="background-color: #C05621; border-color: #C05621; color: white;">Refused
             Renewal → Cold</button>
-        {{end}}
-        {{if .CanMoveWaiting}}
-        <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting"
-            class="btn btn-secondary">Move to Waiting List</button>
-        {{else}}
-        <button type="button" class="btn btn-secondary" disabled
-            title="Only returning students with prepaid entitlement can enter waiting flow.">Move to Waiting
-            List</button>
         {{end}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_ready" class="btn btn-secondary">Mark
             Ready to Start</button>

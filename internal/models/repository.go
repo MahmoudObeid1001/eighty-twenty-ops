@@ -242,6 +242,21 @@ func GetNextAction(status string) string {
 	return "Review"
 }
 
+func computeOfferSentFollowUp(daysSince int) (int, string, bool) {
+	switch {
+	case daysSince < 1:
+		return 0, "Await reply", false
+	case daysSince < 3:
+		return 1, "Send Message 1", true
+	case daysSince < 5:
+		return 2, "Send Message 2", true
+	case daysSince < 7:
+		return 3, "Send Message 3", true
+	default:
+		return 0, "Review for cold lead", true
+	}
+}
+
 // ComputeLeadFlags computes hot lead flags based on status and payment.
 // Business definition: Hot Lead = (status = TESTED OR OFFER_SENT) AND payment_state = UNPAID.
 // All such leads are hot immediately (no 2-day gate): they appear in Hot Leads filter, banner count, and detail callout.
@@ -298,18 +313,28 @@ func ComputeLeadFlags(item *LeadListItem) {
 	}
 	item.DaysSinceLastProgress = daysSince
 
-	// All TESTED/OFFER_SENT + UNPAID leads are hot: include in filter, banner, and detail callout
-	item.FollowUpDue = true
-
 	// HotLevel by days: 0–6 HOT, 7–13 WARM, 14+ COOL (just-tested leads are HOT)
 	if daysSince <= 6 {
 		item.HotLevel = "HOT"
-		item.NextAction = "Follow-up due - Call today"
 	} else if daysSince <= 13 {
 		item.HotLevel = "WARM"
-		item.NextAction = "Follow-up due - Offer discount"
 	} else {
 		item.HotLevel = "COOL"
+	}
+
+	// TESTED and OFFER_SENT follow different follow-up playbooks.
+	if stage == StageOfferSent {
+		item.OfferFollowUpStep, item.NextAction, item.FollowUpDue = computeOfferSentFollowUp(daysSince)
+		return
+	}
+
+	// All unpaid TESTED leads still require active follow-up.
+	item.FollowUpDue = true
+	if daysSince <= 6 {
+		item.NextAction = "Follow-up due - Call today"
+	} else if daysSince <= 13 {
+		item.NextAction = "Follow-up due - Offer discount"
+	} else {
 		item.NextAction = "Follow-up due - Final check"
 	}
 }
