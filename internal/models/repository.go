@@ -233,7 +233,7 @@ func GetNextAction(status string) string {
 		StageScheduleSet:              "Mark ready to start",
 		StageReadyToStart:             "Ready for activation",
 		StageRenewalPending:           "Collect renewal payment",
-		StageWaitingForRound:          "Wait for round start",
+		StageWaitingForRound:          "Batch students into class",
 		StageColdLead:                 "Retarget lead",
 	}
 	if action, ok := actions[stage]; ok {
@@ -422,6 +422,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc,
 			l.created_by_user_id, l.offer_sent_at, l.created_at, l.updated_at,
 			pt.assigned_level, pt.test_date,
+			s.class_days,
+			TO_CHAR(s.class_time, 'HH24:MI') AS class_time,
 			p.remaining_balance, p.amount_paid,
 			o.final_price,
 			osr.follow_up_at,
@@ -433,6 +435,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			COALESCE(last_refusal.refused_at, NULL) as refused_renewal_at
 		FROM leads l
 		LEFT JOIN placement_tests pt ON l.id = pt.lead_id
+		LEFT JOIN scheduling s ON s.lead_id = l.id
 		LEFT JOIN payments p ON l.id = p.lead_id
 		LEFT JOIN offers o ON l.id = o.lead_id
 		LEFT JOIN offer_sent_reminders osr ON osr.lead_id = l.id
@@ -581,6 +584,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var assignedLevel sql.NullInt32
 		var remainingBalance, amountPaid, finalPrice sql.NullInt32
 		var testDate sql.NullTime
+		var classDays, classTime sql.NullString
 		var offerReminderAt sql.NullTime
 		var offerReminderNote sql.NullString
 		var lastOfferMessageNumber int32
@@ -594,6 +598,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			&lead.IsReturning, &lead.RemainingCredits,
 			&lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 			&assignedLevel, &testDate,
+			&classDays, &classTime,
 			&remainingBalance, &amountPaid,
 			&finalPrice,
 			&offerReminderAt,
@@ -622,6 +627,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		item := &LeadListItem{
 			Lead:                  lead,
 			AssignedLevel:         assignedLevel,
+			ClassDays:             classDays,
+			ClassTime:             classTime,
 			LastOutcome:           lastOutcome,
 			LastFinalGrade:        lastFinalGrade,
 			RefusedRenewal:        refusedRenewalAt.Valid,
@@ -1535,7 +1542,23 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 	// Waiting list should return the lead to pre-enrolment feed.
 	if status == "waiting_for_round" {
-		_, err := db.DB.Exec(`
+		tx, err := db.DB.Begin()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		_, err = tx.Exec(`
+			UPDATE scheduling
+			SET class_group_index = NULL,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE lead_id = $1
+		`, leadID)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(`
 			UPDATE leads
 			SET status = $1,
 			    sent_to_classes = false,
@@ -1548,6 +1571,9 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 			WHERE id = $2
 		`, status, leadID)
 		if err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 		return resetLeadFollowUpState(leadID, status)
@@ -10558,7 +10584,7 @@ func getManagerOverviewPreEnrolmentStatusBreakdown() ([]ManagerOverviewStatusBre
 		{key: "booking_confirmed", label: "Booking confirmed / not paid"},
 		{key: "deposit_paid", label: "Deposit paid"},
 		{key: "paid_full", label: "Paid in full"},
-		{key: "waiting_for_round", label: "Waiting for class"},
+		{key: "waiting_for_round", label: "Waiting list"},
 		{key: "schedule_assigned", label: "Schedule assigned"},
 		{key: "ready_to_start", label: "Ready to start"},
 		{key: "paused", label: "Paused"},

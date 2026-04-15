@@ -983,9 +983,20 @@
             class="btn btn-secondary" style="background-color: #C05621; border-color: #C05621; color: white;">Refused
             Renewal → Cold</button>
         {{end}}
+        {{if and .CanMoveWaiting (not .IsWaitingForRound)}}
+        <button type="submit" form="pre-enrolment-form" name="action" value="move_waiting" class="btn"
+            style="background-color: #FFB300; border-color: #FFB300; color: #4A3200;">Move to Waiting List</button>
+        {{end}}
         <button type="submit" form="pre-enrolment-form" name="action" value="mark_ready" class="btn btn-secondary">Mark
             Ready to Start</button>
     </div>
+    {{if .IsWaitingForRound}}
+    <div
+        style="margin-top: 12px; padding: 12px 14px; border-radius: 4px; border: 1px solid #FFD8A8; background: #FFF8E1; color: #8C4A00;">
+        <strong>Waiting List:</strong> This lead is kept out of classes until a batch is ready. Keep the preferred
+        level/days/time updated here, then use <strong>Mark Ready to Start</strong> once the class slot is confirmed.
+    </div>
+    {{end}}
 
     <!-- Send to Classes Button - Only show if READY_TO_START and not already sent -->
     {{if and (eq .Detail.Lead.Status "ready_to_start") (not .Detail.Lead.SentToClasses)}}

@@ -124,6 +124,8 @@ type LeadDetail struct {
 type LeadListItem struct {
 	Lead                  *Lead
 	AssignedLevel         sql.NullInt32
+	ClassDays             sql.NullString
+	ClassTime             sql.NullString
 	LastOutcome           sql.NullString // latest class_enrollments.outcome (promoted/repeated)
 	LastFinalGrade        sql.NullString // latest class_enrollments.final_grade
 	RefusedRenewal        bool           // latest renewal_refusals marker exists

@@ -48,6 +48,71 @@ func buildColdLevelOptions(leads []*models.LeadListItem) []int {
 	return levels
 }
 
+type waitingListBucket struct {
+	Level          int
+	ClassDays      string
+	ClassTime      string
+	Count          int
+	MissingToReady int
+	HasSchedule    bool
+}
+
+func buildWaitingListBuckets(leads []*models.LeadListItem) []waitingListBucket {
+	type bucketKey struct {
+		level     int
+		classDays string
+		classTime string
+	}
+
+	counts := make(map[bucketKey]int)
+	for _, item := range leads {
+		if item == nil || item.Lead == nil || item.Lead.Status != "waiting_for_round" {
+			continue
+		}
+		level := 0
+		if item.AssignedLevel.Valid {
+			level = int(item.AssignedLevel.Int32)
+		}
+		days := ""
+		if item.ClassDays.Valid {
+			days = item.ClassDays.String
+		}
+		timeVal := ""
+		if item.ClassTime.Valid {
+			timeVal = item.ClassTime.String
+		}
+		counts[bucketKey{level: level, classDays: days, classTime: timeVal}]++
+	}
+
+	buckets := make([]waitingListBucket, 0, len(counts))
+	for key, count := range counts {
+		missingToReady := 0
+		if count < 4 {
+			missingToReady = 4 - count
+		}
+		buckets = append(buckets, waitingListBucket{
+			Level:          key.level,
+			ClassDays:      key.classDays,
+			ClassTime:      key.classTime,
+			Count:          count,
+			MissingToReady: missingToReady,
+			HasSchedule:    key.classDays != "" && key.classTime != "",
+		})
+	}
+
+	sort.Slice(buckets, func(i, j int) bool {
+		if buckets[i].Level != buckets[j].Level {
+			return buckets[i].Level < buckets[j].Level
+		}
+		if buckets[i].ClassDays != buckets[j].ClassDays {
+			return buckets[i].ClassDays < buckets[j].ClassDays
+		}
+		return buckets[i].ClassTime < buckets[j].ClassTime
+	})
+
+	return buckets
+}
+
 func filterLeadsByAssignedLevel(leads []*models.LeadListItem, selectedLevel int) []*models.LeadListItem {
 	if selectedLevel < 1 || selectedLevel > 10 {
 		return leads
@@ -373,6 +438,11 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	assignLeadWhatsAppURLs(leads)
+	isWaitingListView := strings.EqualFold(statusFilter, "WAITING_FOR_ROUND") || strings.EqualFold(statusFilter, "waiting_for_round")
+	waitingListBuckets := []waitingListBucket{}
+	if isWaitingListView {
+		waitingListBuckets = buildWaitingListBuckets(leads)
+	}
 
 	// Count follow-ups due for banner
 	// Get total count of hot leads (need to fetch all leads without hot filter)
@@ -429,6 +499,8 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"SleepingReminderDueCount": sleepingReminderDueCount,
 		"ColdLevelOptions":         coldLevelOptions,
 		"SelectedColdLevel":        selectedColdLevel,
+		"IsWaitingListView":        isWaitingListView,
+		"WaitingListBuckets":       waitingListBuckets,
 	}
 	renderTemplate(w, r, "pre_enrolment_list.html", data)
 }
@@ -1327,9 +1399,18 @@ func computeCancelRefundableAmount(totalCoursePaid, unusedCreditsValue int32) in
 }
 
 func canUseWaitingFlow(detail *models.LeadDetail) bool {
+	if detail == nil || detail.Lead == nil {
+		return false
+	}
+	switch detail.Lead.Status {
+	case "cancelled", "in_classes", "cold_lead":
+		return false
+	}
+
 	hasCredits := computedRemainingCredits(detail.Lead) > 0
 	alreadyInWaitingFlow := detail.Lead.Status == "waiting_for_round" || detail.Lead.Status == "schedule_assigned" || detail.Lead.Status == "ready_to_start"
-	return detail.Lead.IsReturning && (hasCredits || alreadyInWaitingFlow)
+	isFullyPaidLead := detail.Lead.Status == "paid_full"
+	return hasCredits || alreadyInWaitingFlow || isFullyPaidLead
 }
 
 func canUseCoursePaymentFlow(detail *models.LeadDetail) (bool, string) {
@@ -1928,15 +2009,16 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Guard: waiting_for_round is only valid for returning students who still have
-		// prepaid entitlement for the next round. It must not be used to bypass renewal payment.
+		// Waiting list is valid for:
+		// - fully paid group-track leads, and
+		// - returning/prepaid leads carrying credits into the next round.
 		detail, err := models.GetLeadByID(leadID)
 		if err != nil {
 			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 			return
 		}
 		if !canUseWaitingFlow(detail) {
-			h.renderDetailWithError(w, r, leadID, "Cannot move to waiting list: this lead has no prepaid credits for the next round. Use offer/payment flow.")
+			h.renderDetailWithError(w, r, leadID, "Cannot move to waiting list: this lead must be fully paid or prepaid for the next round first.")
 			return
 		}
 
@@ -3805,7 +3887,7 @@ func (h *PreEnrolmentHandler) MarkWaiting(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !canUseWaitingFlow(detail) {
-		h.renderDetailWithError(w, r, leadID, "Cannot move to waiting list: this lead has no prepaid credits for the next round. Use offer/payment flow.")
+		h.renderDetailWithError(w, r, leadID, "Cannot move to waiting list: this lead must be fully paid or prepaid for the next round first.")
 		return
 	}
 

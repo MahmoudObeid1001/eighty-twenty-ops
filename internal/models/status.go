@@ -54,10 +54,10 @@ func GetStatusDisplayInfo(status string) StatusDisplayInfo {
 			BorderColor: "#FFA500",
 		},
 		"waiting_for_round": {
-			DisplayName: "Waiting for Round",
-			BgColor:     "#FFE6E6",
-			TextColor:   "#CC0000",
-			BorderColor: "#dc3545",
+			DisplayName: "Waiting List",
+			BgColor:     "#FFF4E6",
+			TextColor:   "#8C4A00",
+			BorderColor: "#FFB300",
 		},
 		"schedule_assigned": {
 			DisplayName: "Schedule Assigned",

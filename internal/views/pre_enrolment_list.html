@@ -66,7 +66,7 @@
             <option value="SCHEDULE_SET" {{if eq $sf "SCHEDULE_SET" }}selected{{end}}>Schedule Set</option>
             <option value="READY_TO_START" {{if eq $sf "READY_TO_START" }}selected{{end}}>Ready to Start</option>
             <option value="WAITING_FOR_ROUND" {{if or (eq $sf "WAITING_FOR_ROUND") (eq $sf "waiting_for_round")
-                }}selected{{end}}>Waiting for Round
+                }}selected{{end}}>Waiting List
             </option>
             <option value="RENEWAL_PENDING" {{if or (eq $sf "RENEWAL_PENDING") (eq $sf "renewal_pending")
                 }}selected{{end}}>Renewal Pending</option>
@@ -136,6 +136,12 @@
             style="{{if $isPaidFull}}background-color: #B7E4B7; color: #1F6B3B; border-color: #B7E4B7;{{end}}">Paid
             Full</a>
 
+        {{$isWaiting := or (eq $sf "WAITING_FOR_ROUND") (eq $sf "waiting_for_round")}}
+        <a href="/pre-enrolment?status=WAITING_FOR_ROUND{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isWaiting}}active{{end}}" data-filter-key="status"
+            data-filter-value="WAITING_FOR_ROUND"
+            style="{{if $isWaiting}}background-color: #FFF4E6; color: #8C4A00; border-color: #FFB300;{{end}}">Waiting List</a>
+
         {{$isRenewal := or (eq $sf "RENEWAL_PENDING") (eq $sf "renewal_pending")}}
         <a href="/pre-enrolment?status=RENEWAL_PENDING{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
             class="quick-filter-btn {{if $isRenewal}}active{{end}}" data-filter-key="status"
@@ -169,6 +175,33 @@
 <div class="cold-retarget-panel" style="background: #faf5ff; border-color: #e9d8fd;">
     <h3 style="color: #553c9a;">Sleeping Leads</h3>
     <p style="color: #6b46c1;">This view includes classic sleeping leads plus deferred callback leads. Future deferred items stay visible with a muted badge and sort lower, while due reminders still surface clearly for admin follow-up.</p>
+</div>
+{{end}}
+
+{{if .IsWaitingListView}}
+<div class="cold-retarget-panel" style="background: #fffaf0; border-color: #ffd8a8;">
+    <h3 style="color: #8c4a00;">Waiting List Queue</h3>
+    <p style="color: #8c4a00;">These students stay out of classes until a real batch is formed. Group them by level and preferred slot, then confirm the final schedule and move them back to <strong>Ready to Start</strong>.</p>
+    {{if .WaitingListBuckets}}
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 14px;">
+        {{range .WaitingListBuckets}}
+        <div style="background: white; border: 1px solid #ffe0b2; border-radius: 8px; padding: 12px;">
+            <div style="font-weight: 700; color: #7a4200; margin-bottom: 6px;">
+                {{if gt .Level 0}}Level {{.Level}}{{else}}Level not set{{end}}
+            </div>
+            <div style="font-size: 13px; color: #6b7280; margin-bottom: 8px;">
+                {{if .HasSchedule}}{{.ClassDays}} @ {{.ClassTime}}{{else}}Schedule not set yet{{end}}
+            </div>
+            <div style="font-size: 24px; font-weight: 700; color: #8c4a00;">{{.Count}}</div>
+            <div style="font-size: 12px; color: #8c4a00;">
+                {{if gt .MissingToReady 0}}{{.MissingToReady}} more to reach a 4-student batch{{else}}Ready to confirm this batch{{end}}
+            </div>
+        </div>
+        {{end}}
+    </div>
+    {{else}}
+    <div class="cold-retarget-empty">No waiting-list students match this filter yet.</div>
+    {{end}}
 </div>
 {{end}}
 
@@ -253,7 +286,7 @@
                     {{else if eq $s "paid_full"}}{{$stage = "BOOKING_CONFIRMED_PAID_FULL"}}
                     {{else if eq $s "deposit_paid"}}{{$stage = "BOOKING_CONFIRMED_DEPOSIT"}}
                     {{else if eq $s "schedule_assigned"}}{{$stage = "SCHEDULE_SET"}}
-                    {{else if eq $s "waiting_for_round"}}{{$stage = "WAITING_FOR_ROUND"}}
+                    {{else if eq $s "waiting_for_round"}}{{$stage = "WAITING LIST"}}
                     {{else if eq $s "renewal_pending"}}{{$stage = "RENEWAL_PENDING"}}
                     {{else if eq $s "ready_to_start"}}{{$stage = "READY_TO_START"}}
                     {{else if eq $s "cold_lead"}}{{$stage = "COLD_LEAD"}}
@@ -288,6 +321,11 @@
                     {{else if eq $hl "WARM"}}{{$bg = "#FFA500"}}{{end}}
                     <span class="badge" style="background-color: {{$bg}}; color: white; margin-left: 5px;">{{$hl}} – No
                         Payment</span>
+                    {{end}}
+                    {{if and (eq $s "waiting_for_round") .ClassDays.Valid .ClassTime.Valid}}
+                    <div style="margin-top: 6px; font-size: 12px; color: #8C4A00;">
+                        Prefers {{.ClassDays.String}} @ {{.ClassTime.String}}
+                    </div>
                     {{end}}
                 </td>
                 <td>{{if .AssignedLevel.Valid}}Level {{.AssignedLevel.Int32}}{{else}}-{{end}}</td>
@@ -615,8 +653,8 @@
     }
 
     .badge.waiting_for_round {
-        background-color: #4EC6E0;
-        color: white;
+        background-color: #FFB300;
+        color: #4A3200;
     }
 
     .badge.renewal_pending {
