@@ -165,14 +165,14 @@ func TestAfterClassPipeline(t *testing.T) {
 		var isReturning bool
 		var assignedLevel int
 
-			if err := mustQueryRow(t, `
+		if err := mustQueryRow(t, `
 				SELECT l.status, COALESCE(l.remaining_credits, 0), l.is_returning, pt.assigned_level
 				FROM leads l
 				JOIN placement_tests pt ON pt.lead_id = l.id
 				WHERE l.id = $1
 			`, lead.ID).Scan(&status, &remaining, &isReturning, &assignedLevel); err != nil {
-				t.Fatalf("%s: failed to load lead status snapshot: %v", lead.Name, err)
-			}
+			t.Fatalf("%s: failed to load lead status snapshot: %v", lead.Name, err)
+		}
 
 		if status != lead.ExpectedStatus {
 			t.Fatalf("%s: expected status %s, got %s", lead.Name, lead.ExpectedStatus, status)
@@ -188,12 +188,12 @@ func TestAfterClassPipeline(t *testing.T) {
 		}
 
 		var outcome, finalGrade sql.NullString
-			if err := mustQueryRow(t, `
+		if err := mustQueryRow(t, `
 				SELECT outcome, final_grade FROM class_enrollments
 				WHERE lead_id = $1 AND class_key = $2
 			`, lead.ID, classKey).Scan(&outcome, &finalGrade); err != nil {
-				t.Fatalf("%s: failed to load class enrollment outcome: %v", lead.Name, err)
-			}
+			t.Fatalf("%s: failed to load class enrollment outcome: %v", lead.Name, err)
+		}
 
 		if !outcome.Valid || outcome.String != lead.ExpectedOutcome {
 			t.Fatalf("%s: expected outcome %s, got %s", lead.Name, lead.ExpectedOutcome, outcome.String)
@@ -204,15 +204,21 @@ func TestAfterClassPipeline(t *testing.T) {
 
 		var classDaysVal, classTimeVal sql.NullString
 		var classGroupIndex sql.NullInt32
-			if err := mustQueryRow(t, `
+		if err := mustQueryRow(t, `
 				SELECT class_days, class_time::text, class_group_index
 				FROM scheduling WHERE lead_id = $1
 			`, lead.ID).Scan(&classDaysVal, &classTimeVal, &classGroupIndex); err != nil {
-				t.Fatalf("%s: failed to load scheduling row: %v", lead.Name, err)
-			}
+			t.Fatalf("%s: failed to load scheduling row: %v", lead.Name, err)
+		}
 
-		if classDaysVal.Valid || classTimeVal.Valid || classGroupIndex.Valid {
-			t.Fatalf("%s: expected scheduling detached (NULLs), got days=%v time=%v group=%v", lead.Name, classDaysVal, classTimeVal, classGroupIndex)
+		if !classDaysVal.Valid || classDaysVal.String != classDays {
+			t.Fatalf("%s: expected class_days preference %q to be preserved, got %v", lead.Name, classDays, classDaysVal)
+		}
+		if !classTimeVal.Valid || classTimeVal.String != classTime {
+			t.Fatalf("%s: expected class_time preference %q to be preserved, got %v", lead.Name, classTime, classTimeVal)
+		}
+		if classGroupIndex.Valid {
+			t.Fatalf("%s: expected class_group_index to be cleared, got %v", lead.Name, classGroupIndex)
 		}
 	}
 }
@@ -232,7 +238,13 @@ type testUser struct {
 func mustCreateUser(t *testing.T, role, email string) testUser {
 	t.Helper()
 	id := uuid.New()
-	mustExec(t, `INSERT INTO users (id, email, password_hash, role, created_at) VALUES ($1, $2, $3, $4, NOW())`, id, email, "hash", role)
+	fullName := fmt.Sprintf("%s Test User", role)
+	phoneSeed := uint32(id[0])<<24 | uint32(id[1])<<16 | uint32(id[2])<<8 | uint32(id[3])
+	phone := fmt.Sprintf("01%09d", int(phoneSeed)%1000000000)
+	mustExec(t, `
+		INSERT INTO users (id, email, password_hash, role, full_name, phone, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+	`, id, email, "hash", role, fullName, phone)
 	return testUser{ID: id, Email: email}
 }
 

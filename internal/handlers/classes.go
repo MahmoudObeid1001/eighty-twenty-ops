@@ -85,6 +85,10 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 			flashMessage = "Class restored to Ops view"
 			flashMessageType = "success"
 		}
+		if r.URL.Query().Get("returned_to_feed") == "1" {
+			flashMessage = "Student returned to main feed as ready to start"
+			flashMessageType = "success"
+		}
 	}
 
 	// Auto-assign students without group_index
@@ -139,6 +143,9 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 			student.AvailableClassOptions = []models.MoveClassOption{{
 				Value: "new_same",
 				Label: "Create New Class (same days/time)",
+			}, {
+				Value: "main_feed",
+				Label: "Return to Main Feed (Ready to Start)",
 			}}
 			// Append available classes for this level
 			level := group.Level
@@ -196,7 +203,9 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var moveErr error
-	if strings.HasPrefix(targetGroupStr, "class_key:") {
+	if targetGroupStr == "main_feed" {
+		moveErr = models.ReturnStudentToMainFeed(leadID)
+	} else if strings.HasPrefix(targetGroupStr, "class_key:") {
 		classKey := strings.TrimPrefix(targetGroupStr, "class_key:")
 		moveErr = models.MoveStudentToClassKey(leadID, classKey)
 	} else {
@@ -230,6 +239,11 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 	if moveErr != nil {
 		log.Printf("ERROR: Failed to move student: %v", moveErr)
 		redirectWithError(w, r, "/classes", "We couldn't move this student. Please try again.")
+		return
+	}
+
+	if targetGroupStr == "main_feed" {
+		http.Redirect(w, r, "/classes?returned_to_feed=1", http.StatusFound)
 		return
 	}
 

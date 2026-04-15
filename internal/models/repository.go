@@ -2701,6 +2701,93 @@ func MoveStudentToClassKey(leadID uuid.UUID, classKey string) error {
 	return nil
 }
 
+// ReturnStudentToMainFeed removes a pre-start student from the classes board and
+// returns them to the main pre-enrolment feed while preserving ready_to_start.
+func ReturnStudentToMainFeed(leadID uuid.UUID) error {
+	var assignedLevel sql.NullInt32
+	var classDays, classTime sql.NullString
+	var groupIndex sql.NullInt32
+	err := db.DB.QueryRow(`
+		SELECT pt.assigned_level, s.class_days, s.class_time, s.class_group_index
+		FROM leads l
+		INNER JOIN placement_tests pt ON pt.lead_id = l.id
+		INNER JOIN scheduling s ON s.lead_id = l.id
+		WHERE l.id = $1
+		  AND l.status = 'ready_to_start'
+		  AND l.sent_to_classes = true
+	`, leadID).Scan(&assignedLevel, &classDays, &classTime, &groupIndex)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("student is not attached to classes")
+		}
+		return fmt.Errorf("failed to load current class attachment: %w", err)
+	}
+
+	if assignedLevel.Valid && classDays.Valid && classTime.Valid {
+		currentClassNumber := int32(1)
+		if groupIndex.Valid {
+			currentClassNumber = groupIndex.Int32
+		}
+
+		var roundStatus sql.NullString
+		var sentToMentor sql.NullBool
+		err = db.DB.QueryRow(`
+			SELECT COALESCE(round_status, 'not_started'), COALESCE(sent_to_mentor, false)
+			FROM class_groups
+			WHERE level = $1
+			  AND class_days = $2
+			  AND LEFT(class_time, 5) = TO_CHAR($3::time, 'HH24:MI')
+			  AND COALESCE(class_number, 1) = $4
+		`, assignedLevel.Int32, classDays.String, classTime.String, currentClassNumber).Scan(&roundStatus, &sentToMentor)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to verify current class state: %w", err)
+		}
+		if err == nil {
+			if roundStatus.Valid && (roundStatus.String == "active" || roundStatus.String == "closed") {
+				return fmt.Errorf("student is in a started or closed class")
+			}
+			if sentToMentor.Valid && sentToMentor.Bool {
+				return fmt.Errorf("student is in a fixed class already sent to mentor head")
+			}
+		}
+	}
+
+	now := time.Now()
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin return-to-feed transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(`
+		UPDATE scheduling
+		SET class_group_index = NULL,
+		    updated_at = $1
+		WHERE lead_id = $2
+	`, now, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to clear class attachment: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET status = 'ready_to_start',
+		    sent_to_classes = false,
+		    ops_queue_reason = NULL,
+		    updated_at = $1
+		WHERE id = $2
+	`, now, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to return student to main feed: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit return-to-feed transaction: %w", err)
+	}
+
+	return nil
+}
+
 func parseClassKey(classKey string) (int32, string, string, int32, error) {
 	parts := strings.Split(classKey, "|")
 	if len(parts) != 4 {
