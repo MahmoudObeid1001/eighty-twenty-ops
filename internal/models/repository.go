@@ -668,7 +668,7 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 		  AND COALESCE(pt.test_date::text, '') = ''
 		  AND COALESCE(pt.test_time::text, '') = ''
 		  AND (
-		      (slr.follow_up_at IS NOT NULL AND slr.follow_up_at <= NOW())
+		      slr.follow_up_at IS NOT NULL
 		      OR
 		      (slr.follow_up_at IS NULL AND l.created_at <= NOW() - INTERVAL '48 hours')
 		  )
