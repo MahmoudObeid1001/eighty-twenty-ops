@@ -508,6 +508,11 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		query += " AND COALESCE(l.ops_queue_reason, '') != 'private_track'"
 	}
 
+	// Waiting-list leads should stay out of the default arena feed.
+	if !strings.EqualFold(statusFilter, "waiting_for_round") && !strings.EqualFold(statusFilter, StageWaitingForRound) {
+		query += " AND l.status != 'waiting_for_round'"
+	}
+
 	// Exclude cancelled by default. Include if includeCancelled=true OR explicitly filtering by status=cancelled.
 	excludeCancelled := !includeCancelled && statusFilter != "cancelled"
 	if excludeCancelled {
@@ -10488,6 +10493,13 @@ func GetManagerOverviewPayload() (*ManagerOverviewPayload, error) {
 	payload.Summary.StudentsInClassesCount = studentsInClassesCount
 	payload.Summary.PreEnrolmentCount = preEnrolmentCount
 
+	waitingListCount, waitingLevelBuckets, err := getManagerWaitingListSummary()
+	if err != nil {
+		return nil, err
+	}
+	payload.Summary.WaitingListCount = waitingListCount
+	payload.WaitingListLevelBuckets = waitingLevelBuckets
+
 	currentCashBalance, err := GetCurrentCashBalance()
 	if err != nil {
 		return nil, err
@@ -10516,6 +10528,7 @@ func getManagerOpsLeadCounts() (studentsInClasses int, preEnrolmentStudents int,
 			COUNT(*) FILTER (WHERE l.status = 'in_classes')::int AS students_in_classes,
 			COUNT(*) FILTER (
 				WHERE l.status != 'in_classes'
+				  AND l.status != 'waiting_for_round'
 				  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
 				  AND l.status != 'cancelled'
 				  AND COALESCE(l.ops_queue_reason, '') != 'private_track'
@@ -10550,6 +10563,7 @@ func getManagerOverviewPreEnrolmentStatusBreakdown() ([]ManagerOverviewStatusBre
 		SELECT l.status, COUNT(*)::int AS total
 		FROM leads l
 		WHERE l.status != 'in_classes'
+		  AND l.status != 'waiting_for_round'
 		  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
 		  AND l.status != 'cancelled'
 		  AND COALESCE(l.ops_queue_reason, '') != 'private_track'
@@ -10622,6 +10636,40 @@ func getManagerOverviewPreEnrolmentStatusBreakdown() ([]ManagerOverviewStatusBre
 	}
 
 	return breakdown, nil
+}
+
+func getManagerWaitingListSummary() (int, []ManagerWaitingListLevelBucket, error) {
+	rows, err := db.DB.Query(`
+		SELECT COALESCE(pt.assigned_level, 0) AS level, COUNT(*)::int AS total
+		FROM leads l
+		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
+		WHERE l.status = 'waiting_for_round'
+		  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
+		  AND l.status != 'cancelled'
+		  AND COALESCE(l.ops_queue_reason, '') != 'private_track'
+		GROUP BY COALESCE(pt.assigned_level, 0)
+		ORDER BY COALESCE(pt.assigned_level, 0)
+	`)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to query waiting list summary: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	total := 0
+	buckets := make([]ManagerWaitingListLevelBucket, 0)
+	for rows.Next() {
+		var bucket ManagerWaitingListLevelBucket
+		if err := rows.Scan(&bucket.Level, &bucket.Count); err != nil {
+			return 0, nil, fmt.Errorf("failed to scan waiting list summary row: %w", err)
+		}
+		total += bucket.Count
+		buckets = append(buckets, bucket)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, nil, fmt.Errorf("failed to iterate waiting list summary: %w", err)
+	}
+
+	return total, buckets, nil
 }
 
 func countExpectedStudentsForSession(classKey string, sessionNumber int32) (int, error) {

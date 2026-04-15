@@ -14,7 +14,7 @@ import {
   ManagerOpsWeeklyMentorLeader,
 } from '../api/client'
 
-type ReportsViewMode = 'bi' | 'mentor' | 'daily' | 'ops' | 'ops_overview'
+type ReportsViewMode = 'bi' | 'mentor' | 'daily' | 'ops' | 'ops_overview' | 'ops_waiting'
 const CAIRO_TIME_ZONE = 'Africa/Cairo'
 
 export default function ReportsPage() {
@@ -89,6 +89,9 @@ export default function ReportsPage() {
       if (requestedTab === 'overall') {
         setViewMode('ops_overview')
         void loadManagerOverview()
+      } else if (requestedTab === 'waiting') {
+        setViewMode('ops_waiting')
+        void loadManagerOverview()
       } else {
         setViewMode('ops')
         void loadManagerOps({ date: requestedDate || undefined })
@@ -145,7 +148,7 @@ export default function ReportsPage() {
   }, [userRole, canViewManagerOps, isManagerDashboard, viewMode])
 
   useEffect(() => {
-    if (!userRole || !isManagerDashboard || !canViewManagerOps || viewMode !== 'ops_overview') {
+    if (!userRole || !isManagerDashboard || !canViewManagerOps || (viewMode !== 'ops_overview' && viewMode !== 'ops_waiting')) {
       return
     }
     void loadManagerOverview()
@@ -418,6 +421,9 @@ export default function ReportsPage() {
             <button onClick={() => setViewMode('ops_overview')} style={tabButtonStyle}>
               Overall Summary
             </button>
+            <button onClick={() => setViewMode('ops_waiting')} style={tabButtonStyle}>
+              Waiting List
+            </button>
           </div>
           <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>
@@ -465,6 +471,9 @@ export default function ReportsPage() {
             <button onClick={() => setViewMode('ops_overview')} style={{ ...tabButtonStyle, ...activeTabButtonStyle }}>
               Overall Summary
             </button>
+            <button onClick={() => setViewMode('ops_waiting')} style={tabButtonStyle}>
+              Waiting List
+            </button>
           </div>
 
           {overviewError && <div style={{ background: '#f8d7da', color: '#721c24', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{overviewError}</div>}
@@ -474,6 +483,30 @@ export default function ReportsPage() {
           )}
 
           {!overviewLoading && overviewData && <ManagerOverviewView data={overviewData} />}
+        </>
+      )}
+
+      {isManagerDashboard && canViewManagerOps && viewMode === 'ops_waiting' && (
+        <>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <button onClick={() => setViewMode('ops')} style={tabButtonStyle}>
+              Operations
+            </button>
+            <button onClick={() => setViewMode('ops_overview')} style={tabButtonStyle}>
+              Overall Summary
+            </button>
+            <button onClick={() => setViewMode('ops_waiting')} style={{ ...tabButtonStyle, ...activeTabButtonStyle }}>
+              Waiting List
+            </button>
+          </div>
+
+          {overviewError && <div style={{ background: '#f8d7da', color: '#721c24', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{overviewError}</div>}
+
+          {overviewLoading && (
+            <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '24px' }}>Loading waiting list...</div>
+          )}
+
+          {!overviewLoading && overviewData && <ManagerWaitingListView data={overviewData} />}
         </>
       )}
 
@@ -1293,7 +1326,12 @@ function ManagerOverviewView({ data }: { data: ManagerOverviewPayload }) {
           <MetricCard
             title="Pre-Enrolment Students"
             value={String(summary.pre_enrolment_count)}
-            sub="Current leads still in the pre-enrolment pipeline"
+            sub="Current arena leads still in the active pre-enrolment pipeline"
+          />
+          <MetricCard
+            title="Waiting List"
+            value={String(summary.waiting_list_count)}
+            sub="Leads parked outside arena until a batch is ready"
           />
           <MetricCard
             title="Current Cash Balance"
@@ -1329,6 +1367,62 @@ function ManagerOverviewView({ data }: { data: ManagerOverviewPayload }) {
                 {data.pre_enrolment_status_buckets.map((item) => (
                   <tr key={item.status_key}>
                     <td style={tdStyle}>{item.label}</td>
+                    <td style={tdStyle}>{item.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ReportPanel>
+    </div>
+  )
+}
+
+function ManagerWaitingListView({ data }: { data: ManagerOverviewPayload }) {
+  const total = data.summary.waiting_list_count
+  const buckets = data.waiting_list_level_buckets
+
+  return (
+    <div style={{ display: 'grid', gap: '14px' }}>
+      <ReportPanel title="Waiting List">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '12px' }}>
+          <div style={{ color: '#111827', fontWeight: 800 }}>
+            Waiting list snapshot
+          </div>
+          <div style={{ color: '#6b7280', fontSize: '13px' }}>
+            Timezone {data.timezone} · Generated {formatDateTime(data.generated_at)}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+          <MetricCard
+            title="Waiting Students"
+            value={String(total)}
+            sub="Hidden from arena until moved back to Ready to Start"
+          />
+          <MetricCard
+            title="Levels In Queue"
+            value={String(buckets.filter((item) => item.count > 0).length)}
+            sub="How many levels currently have waiting students"
+          />
+        </div>
+
+        {buckets.length === 0 ? (
+          <div style={{ color: '#6b7280' }}>No students are currently in the waiting list.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '540px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={thStyle}>Level</th>
+                  <th style={thStyle}>Students</th>
+                </tr>
+              </thead>
+              <tbody>
+                {buckets.map((item) => (
+                  <tr key={`waiting-level-${item.level}`}>
+                    <td style={tdStyle}>{item.level > 0 ? `Level ${item.level}` : 'Level not set'}</td>
                     <td style={tdStyle}>{item.count}</td>
                   </tr>
                 ))}

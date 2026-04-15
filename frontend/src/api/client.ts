@@ -649,6 +649,7 @@ export interface ManagerOpsPayload {
 export interface ManagerOverviewSummary {
   students_in_classes_count: number
   pre_enrolment_count: number
+  waiting_list_count: number
   current_cash_balance: number
   running_classes_count: number
   active_mentors_count: number
@@ -660,11 +661,17 @@ export interface ManagerOverviewStatusBreakdown {
   count: number
 }
 
+export interface ManagerWaitingListLevelBucket {
+  level: number
+  count: number
+}
+
 export interface ManagerOverviewPayload {
   timezone: string
   generated_at: string
   summary: ManagerOverviewSummary
   pre_enrolment_status_buckets: ManagerOverviewStatusBreakdown[]
+  waiting_list_level_buckets: ManagerWaitingListLevelBucket[]
 }
 
 export interface DailyReportNotification {
