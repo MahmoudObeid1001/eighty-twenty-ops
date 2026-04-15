@@ -894,6 +894,11 @@ func main() {
 			middleware.RequireAnyRole([]string{"admin", "moderator", "manager"}, cfg.SessionSecret)(preEnrolmentHandler.SendSleepingLeadFollowUp)(w, r)
 			return
 		}
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/offer-follow-up") {
+			cfg.Debugf("  → Calling preEnrolmentHandler.SendOfferSentFollowUp")
+			middleware.RequireAnyRole([]string{"admin", "moderator", "manager"}, cfg.SessionSecret)(preEnrolmentHandler.SendOfferSentFollowUp)(w, r)
+			return
+		}
 
 		switch r.Method {
 		case http.MethodGet:

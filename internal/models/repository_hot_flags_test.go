@@ -111,6 +111,67 @@ func TestComputeLeadFlagsOfferSentEscalatesToMessage3AndColdReview(t *testing.T)
 	}
 }
 
+func TestComputeLeadFlagsOfferSentWaitsAfterLoggedMessage(t *testing.T) {
+	now := time.Now()
+
+	item := &LeadListItem{
+		Lead: &Lead{
+			Status:      "offer_sent",
+			OfferSentAt: sql.NullTime{Time: now.Add(-3 * 24 * time.Hour), Valid: true},
+			UpdatedAt:   now.Add(-3 * 24 * time.Hour),
+			CreatedAt:   now.Add(-30 * 24 * time.Hour),
+		},
+		AmountPaid:            sql.NullInt32{Valid: false},
+		FinalPrice:            sql.NullInt32{Valid: false},
+		OfferFollowUpLastStep: 1,
+		OfferFollowUpLastSent: sql.NullTime{Time: now.Add(-24 * time.Hour), Valid: true},
+	}
+
+	ComputeLeadFlags(item)
+
+	if item.OfferFollowUpStep != 2 {
+		t.Fatalf("expected next step to be message 2 after logging message 1, got %d", item.OfferFollowUpStep)
+	}
+	if item.OfferFollowUpDueNow {
+		t.Fatalf("expected message 2 to stay dimmed until due")
+	}
+	if item.FollowUpDue {
+		t.Fatalf("expected no actionable follow-up before next message becomes due")
+	}
+	if !item.OfferFollowUpDueAt.Valid {
+		t.Fatalf("expected next offer follow-up due date to be set")
+	}
+}
+
+func TestComputeLeadFlagsOfferSentReminderPausesSequence(t *testing.T) {
+	now := time.Now()
+
+	item := &LeadListItem{
+		Lead: &Lead{
+			Status:      "offer_sent",
+			OfferSentAt: sql.NullTime{Time: now.Add(-5 * 24 * time.Hour), Valid: true},
+			UpdatedAt:   now.Add(-5 * 24 * time.Hour),
+			CreatedAt:   now.Add(-30 * 24 * time.Hour),
+		},
+		AmountPaid:        sql.NullInt32{Valid: false},
+		FinalPrice:        sql.NullInt32{Valid: false},
+		OfferReminderAt:   sql.NullTime{Time: now.Add(2 * 24 * time.Hour), Valid: true},
+		OfferReminderNote: sql.NullString{String: "Will pay after salary", Valid: true},
+	}
+
+	ComputeLeadFlags(item)
+
+	if item.OfferFollowUpStep != 0 {
+		t.Fatalf("expected reminder to pause message sequence, got step %d", item.OfferFollowUpStep)
+	}
+	if item.FollowUpDue {
+		t.Fatalf("expected future offer reminder to pause hot follow-up due state")
+	}
+	if item.NextAction != "Offer reminder set" {
+		t.Fatalf("expected offer reminder next action, got %q", item.NextAction)
+	}
+}
+
 func TestComputeLeadFlagsTestedUsesTestDate(t *testing.T) {
 	now := time.Now()
 

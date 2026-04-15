@@ -169,13 +169,6 @@ func buildLeadWhatsAppURL(item *models.LeadListItem) string {
 	if item == nil || item.Lead == nil {
 		return ""
 	}
-	if item.Lead.Status == "offer_sent" && item.PaymentState == models.PaymentStateUnpaid && item.OfferFollowUpStep >= 1 && item.OfferFollowUpStep <= 3 {
-		if messageText := buildOfferSentFollowUpMessage(item.Lead.FullName, item.OfferFollowUpStep); messageText != "" {
-			if url := buildWhatsAppComposeLink(item.Lead.Phone, messageText); url != "" {
-				return url
-			}
-		}
-	}
 	return buildWhatsAppComposeLink(item.Lead.Phone, "")
 }
 
@@ -479,6 +472,88 @@ func (h *PreEnrolmentHandler) SendSleepingLeadFollowUp(w http.ResponseWriter, r 
 	if err := models.RecordSleepingLeadFollowUp(leadID, item.SleepingLeadStep, userID); err != nil {
 		log.Printf("ERROR: Failed to record sleeping follow-up for lead %s: %v", leadID, err)
 		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "Couldn't record this sleeping follow-up.")
+		return
+	}
+
+	http.Redirect(w, r, whatsAppURL, http.StatusFound)
+}
+
+func (h *PreEnrolmentHandler) SendOfferSentFollowUp(w http.ResponseWriter, r *http.Request) {
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 3 || pathParts[0] != "pre-enrolment" || pathParts[2] != "offer-follow-up" {
+		http.NotFound(w, r)
+		return
+	}
+
+	leadID, err := uuid.Parse(pathParts[1])
+	if err != nil {
+		redirectWithError(w, r, "/pre-enrolment", "Invalid lead for offer follow-up.")
+		return
+	}
+
+	detail, err := models.GetLeadByID(leadID)
+	if err != nil {
+		log.Printf("ERROR: Failed to load offer follow-up lead %s: %v", leadID, err)
+		redirectWithError(w, r, "/pre-enrolment", "Couldn't load this lead right now.")
+		return
+	}
+	if detail == nil || detail.Lead == nil || detail.Lead.Status != "offer_sent" {
+		redirectWithError(w, r, "/pre-enrolment", "This lead is no longer in offer follow-up stage.")
+		return
+	}
+
+	var amountPaid, finalPrice sql.NullInt32
+	if detail.Payment != nil {
+		amountPaid = detail.Payment.AmountPaid
+	}
+	if detail.Offer != nil {
+		finalPrice = detail.Offer.FinalPrice
+	}
+	item := &models.LeadListItem{
+		Lead:       detail.Lead,
+		AmountPaid: amountPaid,
+		FinalPrice: finalPrice,
+	}
+	lastStep, lastSentAt, followUpErr := models.GetLatestOfferSentFollowUp(leadID)
+	if followUpErr != nil {
+		log.Printf("ERROR: Failed to load latest offer follow-up for lead %s: %v", leadID, followUpErr)
+		redirectWithError(w, r, "/pre-enrolment", "Couldn't load offer follow-up state.")
+		return
+	}
+	item.OfferFollowUpLastStep = lastStep
+	item.OfferFollowUpLastSent = lastSentAt
+	offerReminder, reminderErr := models.GetOfferSentReminder(leadID)
+	if reminderErr != nil {
+		log.Printf("ERROR: Failed to load offer reminder for lead %s: %v", leadID, reminderErr)
+		redirectWithError(w, r, "/pre-enrolment", "Couldn't load offer reminder state.")
+		return
+	}
+	if offerReminder != nil {
+		item.OfferReminderAt = sql.NullTime{Time: offerReminder.FollowUpAt, Valid: true}
+		item.OfferReminderNote = offerReminder.Note
+	}
+	models.ComputeLeadFlags(item)
+
+	if item.PaymentState != models.PaymentStateUnpaid || item.OfferFollowUpStep < 1 || item.OfferFollowUpStep > 3 || !item.OfferFollowUpDueNow {
+		redirectWithError(w, r, "/pre-enrolment", "This offer follow-up message is not due right now.")
+		return
+	}
+
+	messageText := buildOfferSentFollowUpMessage(item.Lead.FullName, item.OfferFollowUpStep)
+	whatsAppURL := buildWhatsAppComposeLink(item.Lead.Phone, messageText)
+	if whatsAppURL == "" {
+		redirectWithError(w, r, "/pre-enrolment", "This lead does not have a valid WhatsApp number.")
+		return
+	}
+
+	userID, err := uuid.Parse(strings.TrimSpace(middleware.GetUserID(r)))
+	if err != nil {
+		redirectWithError(w, r, "/pre-enrolment", "Couldn't identify the current user for follow-up logging.")
+		return
+	}
+	if err := models.RecordOfferSentFollowUp(leadID, item.OfferFollowUpStep, userID); err != nil {
+		log.Printf("ERROR: Failed to record offer follow-up for lead %s: %v", leadID, err)
+		redirectWithError(w, r, "/pre-enrolment", "Couldn't record this offer follow-up.")
 		return
 	}
 
@@ -852,6 +927,28 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		AmountPaid: amountPaid,
 		FinalPrice: finalPrice,
 	}
+	lastOfferStep, lastOfferSentAt, offerFollowUpErr := models.GetLatestOfferSentFollowUp(leadID)
+	if offerFollowUpErr != nil {
+		log.Printf("ERROR: Failed to get offer follow-up state: %v", offerFollowUpErr)
+	}
+	tempItem.OfferFollowUpLastStep = lastOfferStep
+	tempItem.OfferFollowUpLastSent = lastOfferSentAt
+	offerReminder, offerReminderErr := models.GetOfferSentReminder(leadID)
+	if offerReminderErr != nil {
+		log.Printf("ERROR: Failed to get offer reminder: %v", offerReminderErr)
+	}
+	offerReminderDue := false
+	offerReminderDate := ""
+	offerReminderNote := ""
+	if offerReminder != nil {
+		tempItem.OfferReminderAt = sql.NullTime{Time: offerReminder.FollowUpAt, Valid: true}
+		tempItem.OfferReminderNote = offerReminder.Note
+		offerReminderDue = !util.CairoNow().Before(offerReminder.FollowUpAt)
+		offerReminderDate = util.FormatDateCairo(offerReminder.FollowUpAt)
+		if offerReminder.Note.Valid {
+			offerReminderNote = offerReminder.Note.String
+		}
+	}
 	models.ComputeLeadFlags(tempItem)
 	tempItem.WhatsAppURL = buildLeadWhatsAppURL(tempItem)
 	sleepingReminder, reminderErr := models.GetSleepingLeadReminder(leadID)
@@ -974,7 +1071,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	if detail.Lead.OfferSentAt.Valid {
 		coldAnchor = detail.Lead.OfferSentAt.Time
 	}
-	coldEligible := detail.Lead.Status == "offer_sent" && time.Since(coldAnchor) >= 7*24*time.Hour
+	coldEligible := detail.Lead.Status == "offer_sent" && offerReminder == nil && time.Since(coldAnchor) >= 7*24*time.Hour
 
 	creditsRemaining := int32(0)
 	if detail.Lead.LevelsPurchasedTotal.Valid {
@@ -1047,6 +1144,9 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"NextAction":             tempItem.NextAction,
 		"LeadWhatsAppURL":        tempItem.WhatsAppURL,
 		"OfferFollowUpStep":      tempItem.OfferFollowUpStep,
+		"OfferFollowUpDueAt":     tempItem.OfferFollowUpDueAt,
+		"OfferFollowUpDueNow":    tempItem.OfferFollowUpDueNow,
+		"OfferFollowUpLastStep":  tempItem.OfferFollowUpLastStep,
 		"DaysSinceLastProgress":  tempItem.DaysSinceLastProgress,
 		"Today":                  today,
 		"LeadPayments":           leadPayments,
@@ -1098,6 +1198,11 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"SleepingReminderDue":    sleepingReminderDue,
 		"SleepingReminderDate":   sleepingReminderDate,
 		"SleepingReminderNote":   sleepingReminderNote,
+		"CanSetOfferReminder":    canSetOfferReminder(detail, tempItem.PaymentState),
+		"OfferReminder":          offerReminder,
+		"OfferReminderDue":       offerReminderDue,
+		"OfferReminderDate":      offerReminderDate,
+		"OfferReminderNote":      offerReminderNote,
 		"Error":                  "",
 		"PhoneError":             "",
 		"ExistingLeadID":         nil,
@@ -1292,6 +1397,13 @@ func canSetSleepingReminder(detail *models.LeadDetail) bool {
 		return true
 	}
 	return !detail.PlacementTest.TestDate.Valid && !detail.PlacementTest.TestTime.Valid
+}
+
+func canSetOfferReminder(detail *models.LeadDetail, paymentState string) bool {
+	if detail == nil || detail.Lead == nil {
+		return false
+	}
+	return detail.Lead.Status == "offer_sent" && paymentState == models.PaymentStateUnpaid
 }
 
 func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -1735,6 +1847,78 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 
 		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "Callback reminder cleared.")
+		return
+
+	case "set_offer_reminder":
+		h.cfg.Debugf("  → Action: set_offer_reminder")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to schedule offer reminders.", http.StatusForbidden)
+			return
+		}
+
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		var amountPaid, finalPrice sql.NullInt32
+		if detail.Payment != nil {
+			amountPaid = detail.Payment.AmountPaid
+		}
+		if detail.Offer != nil {
+			finalPrice = detail.Offer.FinalPrice
+		}
+		paymentState := models.GetPaymentState(amountPaid, finalPrice)
+		if !canSetOfferReminder(detail, paymentState) {
+			h.renderDetailWithError(w, r, leadID, "Offer reminders are available only for unpaid leads in Offer Sent.")
+			return
+		}
+
+		reminderDate := strings.TrimSpace(r.FormValue("offer_reminder_date"))
+		if reminderDate == "" {
+			h.renderDetailWithError(w, r, leadID, "Please choose the reminder date.")
+			return
+		}
+		followUpAt, err := util.ParseDateCairo(reminderDate)
+		if err != nil {
+			h.renderDetailWithError(w, r, leadID, "Invalid reminder date.")
+			return
+		}
+		if followUpAt.Before(util.CairoStartOfDay(util.CairoNow())) {
+			h.renderDetailWithError(w, r, leadID, "Reminder date cannot be in the past.")
+			return
+		}
+
+		var actorID *uuid.UUID
+		if userIDStr := strings.TrimSpace(middleware.GetUserID(r)); userIDStr != "" {
+			if parsed, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+				actorID = &parsed
+			}
+		}
+
+		if err := models.UpsertOfferSentReminder(leadID, followUpAt, r.FormValue("offer_reminder_note"), actorID); err != nil {
+			log.Printf("ERROR: Failed to save offer reminder: %v", err)
+			http.Error(w, "Couldn't save the offer reminder. Please try again.", http.StatusInternalServerError)
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", fmt.Sprintf("Offer reminder saved for %s.", util.FormatDateCairo(followUpAt)))
+		return
+
+	case "clear_offer_reminder":
+		h.cfg.Debugf("  → Action: clear_offer_reminder")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to clear offer reminders.", http.StatusForbidden)
+			return
+		}
+
+		if err := models.DeleteOfferSentReminder(leadID); err != nil {
+			log.Printf("ERROR: Failed to clear offer reminder: %v", err)
+			http.Error(w, "Couldn't clear the offer reminder. Please try again.", http.StatusInternalServerError)
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "Offer reminder cleared.")
 		return
 
 	case "move_waiting":

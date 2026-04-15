@@ -131,7 +131,9 @@
         style="margin-top: 15px; padding-top: 15px; border-top: 1px solid {{if eq .HotLevel `HOT` }}#FF6B6B{{else if eq .HotLevel `WARM` }}#FFA500{{else}}#8C8C8C{{end}};">
         <strong>Suggested next action:</strong>
         <p style="margin: 5px 0;">{{.NextAction}}</p>
-        {{if gt .OfferFollowUpStep 0}}
+        {{if .OfferReminder}}
+        <p style="margin: 5px 0;">يوجد تذكير محفوظ بتاريخ {{.OfferReminderDate}}.</p>
+        {{else if and (gt .OfferFollowUpStep 0) .OfferFollowUpDueNow}}
         <p style="margin: 5px 0;">WhatsApp Lead opens Message {{.OfferFollowUpStep}} ready to review.</p>
         {{end}}
     </div>
@@ -491,6 +493,46 @@
                 <small style="color: #666; display: block; margin-top: 5px;">Use this to track callbacks, objections,
                     and discount discussions before payment.</small>
             </div>
+
+            {{if .CanSetOfferReminder}}
+            <div style="margin-top: 18px; padding: 16px; border: 1px solid #FFE08A; border-radius: 6px; background: #FFFDF5;" dir="rtl">
+                <strong style="display: block; margin-bottom: 8px;">تذكير متابعة الأوفر</strong>
+                <div class="section-note" style="margin-bottom: 12px;">استخدمه لو الطالب قال إنه محتاج وقت قبل الدفع.</div>
+                {{if .OfferReminder}}
+                <div
+                    style="margin-bottom: 14px; padding: 12px 14px; border-radius: 4px; border: 1px solid {{if .OfferReminderDue}}#FFB300{{else}}#B3D7FF{{end}}; background: {{if .OfferReminderDue}}#FFF8E1{{else}}#F0F8FF{{end}}; color: {{if .OfferReminderDue}}#8C4A00{{else}}#0052A3{{end}};">
+                    <strong>{{if .OfferReminderDue}}التذكير مستحق الآن{{else}}تم حفظ التذكير{{end}}</strong>
+                    <div style="margin-top: 6px;">التاريخ: <strong>{{.OfferReminderDate}}</strong></div>
+                    {{if .OfferReminder.Note.Valid}}
+                    <div style="margin-top: 6px;">السبب: {{.OfferReminder.Note.String}}</div>
+                    {{end}}
+                </div>
+                {{end}}
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="offer_reminder_date">تاريخ التذكير</label>
+                        <input type="date" id="offer_reminder_date" name="offer_reminder_date"
+                            value="{{.OfferReminderDate}}">
+                    </div>
+                    <div class="form-group">
+                        <label for="offer_reminder_note">سبب التأجيل</label>
+                        <input type="text" id="offer_reminder_note" name="offer_reminder_note"
+                            value="{{.OfferReminderNote}}" placeholder="مثال: هيدفع أول الشهر">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-start;">
+                    <button type="submit" name="action" value="set_offer_reminder" class="btn"
+                        style="background-color: #FFB300; border-color: #FFB300; color: #4A3200;">
+                        {{if .OfferReminder}}تحديث التذكير{{else}}حفظ التذكير{{end}}
+                    </button>
+                    {{if .OfferReminder}}
+                    <button type="submit" name="action" value="clear_offer_reminder" class="btn btn-secondary">
+                        حذف التذكير
+                    </button>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
 
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
                 <span class="status-indicator {{.Detail.Lead.Status}}"

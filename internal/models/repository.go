@@ -257,6 +257,60 @@ func computeOfferSentFollowUp(daysSince int) (int, string, bool) {
 	}
 }
 
+func computeOfferSentFollowUpState(anchor time.Time, lastMessageNumber int32, lastMessageSentAt sql.NullTime, reminderAt sql.NullTime, now time.Time) (int, time.Time, bool, string, bool, bool) {
+	if reminderAt.Valid {
+		reminderDue := !now.Before(reminderAt.Time)
+		if reminderDue {
+			return 0, reminderAt.Time, true, "Offer reminder due", true, true
+		}
+		return 0, reminderAt.Time, false, "Offer reminder set", false, true
+	}
+
+	switch lastMessageNumber {
+	case 0:
+		message1At := anchor.Add(24 * time.Hour)
+		message2At := anchor.Add(72 * time.Hour)
+		message3At := anchor.Add(120 * time.Hour)
+		coldReviewAt := anchor.Add(168 * time.Hour)
+		switch {
+		case now.Before(message1At):
+			return 0, message1At, false, "Await reply", false, false
+		case now.Before(message2At):
+			return 1, message1At, true, "Send Message 1", true, false
+		case now.Before(message3At):
+			return 2, message2At, true, "Send Message 2", true, false
+		case now.Before(coldReviewAt):
+			return 3, message3At, true, "Send Message 3", true, false
+		default:
+			return 0, coldReviewAt, true, "Review for cold lead", true, false
+		}
+	case 1:
+		if !lastMessageSentAt.Valid {
+			return 0, time.Time{}, false, "Await reply", false, false
+		}
+		dueAt := lastMessageSentAt.Time.Add(48 * time.Hour)
+		if now.Before(dueAt) {
+			return 2, dueAt, false, "Await reply", false, false
+		}
+		return 2, dueAt, true, "Send Message 2", true, false
+	case 2:
+		if !lastMessageSentAt.Valid {
+			return 0, time.Time{}, false, "Await reply", false, false
+		}
+		dueAt := lastMessageSentAt.Time.Add(48 * time.Hour)
+		if now.Before(dueAt) {
+			return 3, dueAt, false, "Await reply", false, false
+		}
+		return 3, dueAt, true, "Send Message 3", true, false
+	default:
+		if !lastMessageSentAt.Valid {
+			return 0, time.Time{}, true, "Review for cold lead", true, false
+		}
+		dueAt := lastMessageSentAt.Time.Add(48 * time.Hour)
+		return 0, dueAt, !now.Before(dueAt), "Review for cold lead", !now.Before(dueAt), false
+	}
+}
+
 // ComputeLeadFlags computes hot lead flags based on status and payment.
 // Business definition: Hot Lead = (status = TESTED OR OFFER_SENT) AND payment_state = UNPAID.
 // All such leads are hot immediately (no 2-day gate): they appear in Hot Leads filter, banner count, and detail callout.
@@ -324,7 +378,18 @@ func ComputeLeadFlags(item *LeadListItem) {
 
 	// TESTED and OFFER_SENT follow different follow-up playbooks.
 	if stage == StageOfferSent {
-		item.OfferFollowUpStep, item.NextAction, item.FollowUpDue = computeOfferSentFollowUp(daysSince)
+		anchor := progressTime
+		nextStep, dueAt, dueNow, nextAction, actionable, reminderMode := computeOfferSentFollowUpState(anchor, int32(item.OfferFollowUpLastStep), item.OfferFollowUpLastSent, item.OfferReminderAt, now)
+		item.OfferFollowUpStep = nextStep
+		item.OfferFollowUpDueNow = dueNow
+		item.OfferReminderDue = reminderMode && dueNow
+		item.NextAction = nextAction
+		item.FollowUpDue = actionable
+		if !dueAt.IsZero() {
+			item.OfferFollowUpDueAt = sql.NullTime{Time: dueAt, Valid: true}
+		} else {
+			item.OfferFollowUpDueAt = sql.NullTime{}
+		}
 		return
 	}
 
@@ -359,6 +424,10 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			pt.assigned_level, pt.test_date,
 			p.remaining_balance, p.amount_paid,
 			o.final_price,
+			osr.follow_up_at,
+			osr.note,
+			COALESCE(last_offer_msg.message_number, 0) AS last_offer_message_number,
+			last_offer_msg.sent_at,
 			COALESCE(last_ce.outcome, '') as last_outcome,
 			COALESCE(last_ce.final_grade, '') as last_final_grade,
 			COALESCE(last_refusal.refused_at, NULL) as refused_renewal_at
@@ -366,6 +435,14 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		LEFT JOIN placement_tests pt ON l.id = pt.lead_id
 		LEFT JOIN payments p ON l.id = p.lead_id
 		LEFT JOIN offers o ON l.id = o.lead_id
+		LEFT JOIN offer_sent_reminders osr ON osr.lead_id = l.id
+		LEFT JOIN LATERAL (
+			SELECT osf.message_number, osf.sent_at
+			FROM offer_sent_follow_ups osf
+			WHERE osf.lead_id = l.id
+			ORDER BY osf.message_number DESC, osf.sent_at DESC
+			LIMIT 1
+		) last_offer_msg ON true
 		LEFT JOIN LATERAL (
 			SELECT outcome, final_grade
 			FROM class_enrollments ce
@@ -409,7 +486,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 	// - explicit cold bucket (status = cold_lead), or
 	// - cold candidates still in offer_sent for 7+ days with no remaining credits.
 	if coldFilter == "1" || coldFilter == "true" {
-		query += " AND (l.status = 'cold_lead' OR (l.status = 'offer_sent' AND COALESCE(l.offer_sent_at, l.updated_at) <= NOW() - INTERVAL '7 days' AND COALESCE(l.levels_purchased_total, 0) > 0 AND GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) <= 0))"
+		query += " AND (l.status = 'cold_lead' OR (l.status = 'offer_sent' AND osr.follow_up_at IS NULL AND COALESCE(l.offer_sent_at, l.updated_at) <= NOW() - INTERVAL '7 days' AND COALESCE(l.levels_purchased_total, 0) > 0 AND GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) <= 0))"
 	} else if !strings.EqualFold(statusFilter, "cold_lead") && !strings.EqualFold(statusFilter, StageColdLead) {
 		// Keep cold backlog isolated from default pipeline feed unless user explicitly enters cold mode.
 		query += " AND l.status != 'cold_lead'"
@@ -504,6 +581,10 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var assignedLevel sql.NullInt32
 		var remainingBalance, amountPaid, finalPrice sql.NullInt32
 		var testDate sql.NullTime
+		var offerReminderAt sql.NullTime
+		var offerReminderNote sql.NullString
+		var lastOfferMessageNumber int32
+		var lastOfferMessageSentAt sql.NullTime
 		var lastOutcome sql.NullString
 		var lastFinalGrade sql.NullString
 		var refusedRenewalAt sql.NullTime
@@ -515,6 +596,10 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			&assignedLevel, &testDate,
 			&remainingBalance, &amountPaid,
 			&finalPrice,
+			&offerReminderAt,
+			&offerReminderNote,
+			&lastOfferMessageNumber,
+			&lastOfferMessageSentAt,
 			&lastOutcome,
 			&lastFinalGrade,
 			&refusedRenewalAt,
@@ -535,19 +620,23 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		}
 
 		item := &LeadListItem{
-			Lead:             lead,
-			AssignedLevel:    assignedLevel,
-			LastOutcome:      lastOutcome,
-			LastFinalGrade:   lastFinalGrade,
-			RefusedRenewal:   refusedRenewalAt.Valid,
-			RefusedRenewalAt: refusedRenewalAt,
-			PaymentStatus:    GetPaymentStatus(remainingBalance, amountPaid),
-			PaymentState:     paymentState,
-			NextAction:       GetNextAction(lead.Status),
-			TestDate:         testDate,
-			AmountPaid:       amountPaid,
-			FinalPrice:       finalPrice,
-			RemainingBalance: remainingBalance,
+			Lead:                  lead,
+			AssignedLevel:         assignedLevel,
+			LastOutcome:           lastOutcome,
+			LastFinalGrade:        lastFinalGrade,
+			RefusedRenewal:        refusedRenewalAt.Valid,
+			RefusedRenewalAt:      refusedRenewalAt,
+			PaymentStatus:         GetPaymentStatus(remainingBalance, amountPaid),
+			PaymentState:          paymentState,
+			NextAction:            GetNextAction(lead.Status),
+			TestDate:              testDate,
+			AmountPaid:            amountPaid,
+			FinalPrice:            finalPrice,
+			RemainingBalance:      remainingBalance,
+			OfferFollowUpLastStep: int(lastOfferMessageNumber),
+			OfferFollowUpLastSent: lastOfferMessageSentAt,
+			OfferReminderAt:       offerReminderAt,
+			OfferReminderNote:     offerReminderNote,
 		}
 
 		// Compute hot lead flags (needs finalPrice for proper payment state)
@@ -877,6 +966,98 @@ func CountDueSleepingLeadReminders(now time.Time) (int, error) {
 	return count, nil
 }
 
+func GetOfferSentReminder(leadID uuid.UUID) (*OfferSentReminder, error) {
+	reminder := &OfferSentReminder{}
+	err := db.DB.QueryRow(`
+		SELECT lead_id, follow_up_at, note, scheduled_by_user_id::text, created_at, updated_at
+		FROM offer_sent_reminders
+		WHERE lead_id = $1
+	`, leadID).Scan(
+		&reminder.LeadID,
+		&reminder.FollowUpAt,
+		&reminder.Note,
+		&reminder.ScheduledByUserID,
+		&reminder.CreatedAt,
+		&reminder.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to load offer reminder: %w", err)
+	}
+	return reminder, nil
+}
+
+func GetLatestOfferSentFollowUp(leadID uuid.UUID) (int, sql.NullTime, error) {
+	var messageNumber int
+	var sentAt sql.NullTime
+	err := db.DB.QueryRow(`
+		SELECT message_number, sent_at
+		FROM offer_sent_follow_ups
+		WHERE lead_id = $1
+		ORDER BY message_number DESC, sent_at DESC
+		LIMIT 1
+	`, leadID).Scan(&messageNumber, &sentAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, sql.NullTime{}, nil
+		}
+		return 0, sql.NullTime{}, fmt.Errorf("failed to load latest offer follow-up: %w", err)
+	}
+	return messageNumber, sentAt, nil
+}
+
+func RecordOfferSentFollowUp(leadID uuid.UUID, messageNumber int, sentByUserID uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO offer_sent_follow_ups (lead_id, message_number, sent_by_user_id, sent_at)
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+	`, leadID, messageNumber, sentByUserID)
+	if err != nil {
+		return fmt.Errorf("failed to record offer follow-up: %w", err)
+	}
+	return nil
+}
+
+func UpsertOfferSentReminder(leadID uuid.UUID, followUpAt time.Time, note string, scheduledByUserID *uuid.UUID) error {
+	var actor interface{}
+	if scheduledByUserID != nil {
+		actor = *scheduledByUserID
+	}
+	if _, err := db.DB.Exec(`
+		INSERT INTO offer_sent_reminders (lead_id, follow_up_at, note, scheduled_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, NULLIF($3, ''), $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (lead_id) DO UPDATE
+		SET follow_up_at = EXCLUDED.follow_up_at,
+		    note = EXCLUDED.note,
+		    scheduled_by_user_id = EXCLUDED.scheduled_by_user_id,
+		    updated_at = CURRENT_TIMESTAMP
+	`, leadID, followUpAt, strings.TrimSpace(note), actor); err != nil {
+		return fmt.Errorf("failed to save offer reminder: %w", err)
+	}
+	return nil
+}
+
+func DeleteOfferSentReminder(leadID uuid.UUID) error {
+	if _, err := db.DB.Exec(`DELETE FROM offer_sent_reminders WHERE lead_id = $1`, leadID); err != nil {
+		return fmt.Errorf("failed to clear offer reminder: %w", err)
+	}
+	return nil
+}
+
+func resetOfferSentFollowUpsIfNeeded(leadID uuid.UUID, status string) error {
+	if status == "offer_sent" {
+		return nil
+	}
+	if _, err := db.DB.Exec(`DELETE FROM offer_sent_follow_ups WHERE lead_id = $1`, leadID); err != nil {
+		return fmt.Errorf("failed to clear offer follow-ups: %w", err)
+	}
+	if _, err := db.DB.Exec(`DELETE FROM offer_sent_reminders WHERE lead_id = $1`, leadID); err != nil {
+		return fmt.Errorf("failed to clear offer reminders: %w", err)
+	}
+	return nil
+}
+
 func resetSleepingLeadFollowUpsIfNeeded(leadID uuid.UUID, status string) error {
 	if status == "lead_created" {
 		return nil
@@ -886,6 +1067,16 @@ func resetSleepingLeadFollowUpsIfNeeded(leadID uuid.UUID, status string) error {
 	}
 	if _, err := db.DB.Exec(`DELETE FROM sleeping_lead_reminders WHERE lead_id = $1`, leadID); err != nil {
 		return fmt.Errorf("failed to clear sleeping lead follow-up state: %w", err)
+	}
+	return nil
+}
+
+func resetLeadFollowUpState(leadID uuid.UUID, status string) error {
+	if err := resetSleepingLeadFollowUpsIfNeeded(leadID, status); err != nil {
+		return err
+	}
+	if err := resetOfferSentFollowUpsIfNeeded(leadID, status); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1359,7 +1550,7 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 		if err != nil {
 			return err
 		}
-		return resetSleepingLeadFollowUpsIfNeeded(leadID, status)
+		return resetLeadFollowUpState(leadID, status)
 	}
 
 	_, err := db.DB.Exec(`
@@ -1376,7 +1567,7 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 	if err != nil {
 		return err
 	}
-	return resetSleepingLeadFollowUpsIfNeeded(leadID, status)
+	return resetLeadFollowUpState(leadID, status)
 }
 
 func SendLeadToPrivateTrack(leadID uuid.UUID) error {
@@ -2895,7 +3086,7 @@ func UpdateLeadStatusFromPayment(leadID uuid.UUID) error {
 		if err != nil {
 			return fmt.Errorf("failed to update lead status: %w", err)
 		}
-		if err := resetSleepingLeadFollowUpsIfNeeded(leadID, newStatus); err != nil {
+		if err := resetLeadFollowUpState(leadID, newStatus); err != nil {
 			return err
 		}
 	}
@@ -3666,7 +3857,7 @@ func CancelLead(leadID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("failed to cancel lead: %w", err)
 	}
-	return resetSleepingLeadFollowUpsIfNeeded(leadID, "cancelled")
+	return resetLeadFollowUpState(leadID, "cancelled")
 }
 
 // ReopenLead reopens a cancelled lead (sets status back to a valid active status)

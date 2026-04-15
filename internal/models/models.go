@@ -136,6 +136,13 @@ type LeadListItem struct {
 	HotLevel              string // "HOT", "WARM", "COOL", or ""
 	FollowUpDue           bool
 	OfferFollowUpStep     int
+	OfferFollowUpLastStep int
+	OfferFollowUpLastSent sql.NullTime
+	OfferFollowUpDueAt    sql.NullTime
+	OfferFollowUpDueNow   bool
+	OfferReminderAt       sql.NullTime
+	OfferReminderNote     sql.NullString
+	OfferReminderDue      bool
 	TestDate              sql.NullTime  // For computing days since progress
 	AmountPaid            sql.NullInt32 // For checking if paid
 	FinalPrice            sql.NullInt32 // For computing payment state
@@ -151,6 +158,15 @@ type LeadListItem struct {
 }
 
 type SleepingLeadReminder struct {
+	LeadID            uuid.UUID
+	FollowUpAt        time.Time
+	Note              sql.NullString
+	ScheduledByUserID sql.NullString
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type OfferSentReminder struct {
 	LeadID            uuid.UUID
 	FollowUpAt        time.Time
 	Note              sql.NullString

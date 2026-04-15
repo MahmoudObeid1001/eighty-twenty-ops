@@ -264,7 +264,13 @@
                     {{if and $.IsSleepingLeads .SleepingReminderAt.Valid}}
                     <span class="badge"
                         style="margin-left: 5px; background-color: {{if .SleepingReminderDue}}#FFF4E6{{else}}#E6F2FF{{end}}; color: {{if .SleepingReminderDue}}#8C4A00{{else}}#1F5FAF{{end}}; border: 1px solid {{if .SleepingReminderDue}}#FFD8A8{{else}}#B3D7FF{{end}};">
-                        {{if .SleepingReminderDue}}CALLBACK DUE{{else}}DEFERRED{{end}}
+                        تذكير {{.SleepingReminderAt.Time.Format "2006-01-02"}}
+                    </span>
+                    {{end}}
+                    {{if and (not $.IsSleepingLeads) .OfferReminderAt.Valid}}
+                    <span class="badge"
+                        style="margin-left: 5px; background-color: {{if .OfferReminderDue}}#FFF4E6{{else}}#E6F2FF{{end}}; color: {{if .OfferReminderDue}}#8C4A00{{else}}#1F5FAF{{end}}; border: 1px solid {{if .OfferReminderDue}}#FFD8A8{{else}}#B3D7FF{{end}};">
+                        تذكير {{.OfferReminderAt.Time.Format "2006-01-02"}}
                     </span>
                     {{end}}
                     {{if .Lead.OpsQueueReason.Valid}}
@@ -295,12 +301,12 @@
                     {{if $.IsSleepingLeads}}
                     <div class="sleeping-next-action">
                         {{if .SleepingReminderAt.Valid}}
-                        <strong>{{if .SleepingReminderDue}}Callback reminder due{{else}}Callback scheduled{{end}}</strong>
+                        <strong>{{if .SleepingReminderDue}}التذكير مستحق{{else}}تذكير{{end}}</strong>
                         {{if .SleepingLeadDueAt.Valid}}
-                        <span>{{if .SleepingReminderDue}}Since{{else}}For{{end}} {{.SleepingLeadDueAt.Time.Format "2006-01-02"}}</span>
+                        <span>بتاريخ {{.SleepingLeadDueAt.Time.Format "2006-01-02"}}</span>
                         {{end}}
                         {{if .SleepingReminderNote.Valid}}
-                        <span>{{.SleepingReminderNote.String}}</span>
+                        <span>السبب: {{.SleepingReminderNote.String}}</span>
                         {{end}}
                         {{else if and (gt .SleepingLeadStep 0) .SleepingLeadDueNow}}
                         <strong>Message {{.SleepingLeadStep}}</strong>
@@ -316,7 +322,19 @@
                         {{end}}
                     </div>
                     {{else}}
+                    {{if .OfferReminderAt.Valid}}
+                    <div class="sleeping-next-action">
+                        <strong>{{if .OfferReminderDue}}التذكير مستحق{{else}}تذكير{{end}}</strong>
+                        {{if .OfferFollowUpDueAt.Valid}}
+                        <span>بتاريخ {{.OfferFollowUpDueAt.Time.Format "2006-01-02"}}</span>
+                        {{end}}
+                        {{if .OfferReminderNote.Valid}}
+                        <span>السبب: {{.OfferReminderNote.String}}</span>
+                        {{end}}
+                    </div>
+                    {{else}}
                     {{.NextAction}}
+                    {{end}}
                     {{end}}
                 </td>
                 <td class="action-column">
@@ -341,13 +359,19 @@
                             Sequence Complete
                         </button>
                         {{end}}
-                        {{if and (not $.IsSleepingLeads) (gt .OfferFollowUpStep 0) .Lead.Phone}}
-                        <a href="{{.WhatsAppURL}}" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
+                        {{if and (not $.IsSleepingLeads) (not .OfferReminderAt.Valid) (gt .OfferFollowUpStep 0) .Lead.Phone .OfferFollowUpDueNow}}
+                        <a href="/pre-enrolment/{{.Lead.ID}}/offer-follow-up" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
                             class="btn btn-small"
                             style="background: #6f42c1; color: white; border: 1px solid #6f42c1;"
                             title="Open WhatsApp with Message {{.OfferFollowUpStep}}">
                             Message {{.OfferFollowUpStep}}
                         </a>
+                        {{else if and (not $.IsSleepingLeads) (not .OfferReminderAt.Valid) (gt .OfferFollowUpStep 0) .Lead.Phone}}
+                        <button type="button" class="btn btn-small" disabled
+                            title="{{if .OfferFollowUpDueAt.Valid}}Next offer message will be available on {{.OfferFollowUpDueAt.Time.Format `2006-01-02 03:04 PM`}}{{else}}Next offer message is not due yet.{{end}}"
+                            style="background: #E9D8FD; color: #553C9A; border: 1px solid #E9D8FD; cursor: not-allowed;">
+                            Message {{.OfferFollowUpStep}}
+                        </button>
                         {{end}}
                         {{if .WhatsAppURL}}
                         <a href="{{.WhatsAppURL}}" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
