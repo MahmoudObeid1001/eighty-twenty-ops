@@ -348,6 +348,11 @@ export default function ClassWorkspace() {
         return
       }
 
+      if (rosterReason === 'other_to_admin' && !rosterNotes.trim()) {
+        setActionError('Notes are required when the admin return reason is Other.')
+        return
+      }
+
       const res = await api.returnClassStudentToAdmin({
         lead_id: rosterStudent.lead_id,
         source_class_key: classKey,
@@ -356,7 +361,12 @@ export default function ClassWorkspace() {
       })
       await loadClass(true)
       closeRosterModal()
-      const queueLabel = res.ops_queue_reason === 'private_track' ? 'private track' : 'refund review'
+      const queueLabel =
+        res.reason === 'other_to_admin'
+          ? 'other'
+          : res.ops_queue_reason === 'private_track'
+            ? 'private track'
+            : 'refund review'
       setActionSuccess(
         `${rosterStudent.full_name} was removed from the class ${formatSourceExitLabel(res.source_exit_after_session_number)} and sent back to Admin for ${queueLabel}.`
       )
@@ -1573,6 +1583,7 @@ export default function ClassWorkspace() {
                 >
                   <option value="refund_to_admin">Refund review</option>
                   <option value="private_track_to_admin">Private track</option>
+                  <option value="other_to_admin">Other</option>
                 </select>
               </div>
             )}
@@ -1592,7 +1603,11 @@ export default function ClassWorkspace() {
                   fontSize: '14px',
                   resize: 'vertical',
                 }}
-                placeholder="Optional note for the roster change"
+                placeholder={
+                  rosterModalMode === 'return' && rosterReason === 'other_to_admin'
+                    ? 'Required note for the admin return'
+                    : 'Optional note for the roster change'
+                }
               />
             </div>
 
@@ -1612,7 +1627,11 @@ export default function ClassWorkspace() {
               </button>
               <button
                 onClick={handleSaveRosterChange}
-                disabled={rosterSaving || (rosterModalMode === 'transfer' && (!rosterTargetClassKey || transferOptionsLoading))}
+                disabled={
+                  rosterSaving ||
+                  (rosterModalMode === 'transfer' && (!rosterTargetClassKey || transferOptionsLoading)) ||
+                  (rosterModalMode === 'return' && rosterReason === 'other_to_admin' && !rosterNotes.trim())
+                }
                 style={{
                   padding: '10px 16px',
                   borderRadius: '8px',
@@ -1620,8 +1639,18 @@ export default function ClassWorkspace() {
                   background: rosterModalMode === 'transfer' ? '#0d6efd' : '#dc3545',
                   color: 'white',
                   fontWeight: 700,
-                  cursor: rosterSaving ? 'not-allowed' : 'pointer',
-                  opacity: rosterSaving || (rosterModalMode === 'transfer' && (!rosterTargetClassKey || transferOptionsLoading)) ? 0.7 : 1,
+                  cursor:
+                    rosterSaving ||
+                    (rosterModalMode === 'transfer' && (!rosterTargetClassKey || transferOptionsLoading)) ||
+                    (rosterModalMode === 'return' && rosterReason === 'other_to_admin' && !rosterNotes.trim())
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity:
+                    rosterSaving ||
+                    (rosterModalMode === 'transfer' && (!rosterTargetClassKey || transferOptionsLoading)) ||
+                    (rosterModalMode === 'return' && rosterReason === 'other_to_admin' && !rosterNotes.trim())
+                      ? 0.7
+                      : 1,
                 }}
               >
                 {rosterSaving ? 'Saving...' : rosterModalMode === 'transfer' ? 'Transfer Student' : 'Send to Admin'}

@@ -8940,8 +8940,11 @@ func TransferStudentBetweenActiveClasses(leadID uuid.UUID, sourceClassKey, targe
 func ReturnStudentToAdminFromClass(leadID uuid.UUID, sourceClassKey, reason, notes string, userID uuid.UUID) (*ClassRosterChangeResult, error) {
 	reason = strings.TrimSpace(reason)
 	notes = strings.TrimSpace(notes)
-	if reason != "refund_to_admin" && reason != "private_track_to_admin" {
+	if reason != "refund_to_admin" && reason != "private_track_to_admin" && reason != "other_to_admin" {
 		return nil, fmt.Errorf("invalid admin-return reason")
+	}
+	if reason == "other_to_admin" && notes == "" {
+		return nil, fmt.Errorf("notes are required for the 'other' admin-return reason")
 	}
 
 	tx, err := db.DB.Begin()
@@ -8987,9 +8990,11 @@ func ReturnStudentToAdminFromClass(leadID uuid.UUID, sourceClassKey, reason, not
 
 	now := time.Now()
 	sourceExitAfter := sourceCurrentSession - 1
-	queueReason := "refund_review"
+	queueReason := sql.NullString{String: "refund_review", Valid: true}
 	if reason == "private_track_to_admin" {
-		queueReason = "private_track"
+		queueReason = sql.NullString{String: "private_track", Valid: true}
+	} else if reason == "other_to_admin" {
+		queueReason = sql.NullString{}
 	}
 
 	_, err = tx.Exec(`
@@ -9054,7 +9059,7 @@ func ReturnStudentToAdminFromClass(leadID uuid.UUID, sourceClassKey, reason, not
 		SourceClassKey:               sourceClassKey,
 		SourceExitAfterSessionNumber: sourceExitAfter,
 		Reason:                       reason,
-		OpsQueueReason:               sql.NullString{String: queueReason, Valid: true},
+		OpsQueueReason:               queueReason,
 	}, nil
 }
 
@@ -11276,7 +11281,7 @@ func getClassTransferEventCountsForDateRange(startDate, endDate time.Time) (int,
 				  AND reason IN ('schedule_change', 'promotion', 'demotion', 'late_join', 'other')
 			)::int AS transfer_events,
 			COUNT(*) FILTER (
-				WHERE reason IN ('refund_to_admin', 'private_track_to_admin')
+				WHERE reason IN ('refund_to_admin', 'private_track_to_admin', 'other_to_admin')
 			)::int AS returns_to_admin
 		FROM class_transfers
 		WHERE created_at >= $1
