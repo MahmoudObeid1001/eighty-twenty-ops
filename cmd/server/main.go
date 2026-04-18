@@ -314,6 +314,15 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/classes/return-to-admin -> apiHandler.ReturnClassStudentToAdmin [mentor_head+admin+manager]")
 
+	mux.HandleFunc("/api/classes/return-early-repeat", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.ReturnClassStudentAsEarlyRepeat)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/classes/return-early-repeat -> apiHandler.ReturnClassStudentAsEarlyRepeat [mentor_head+admin+manager]")
+
 	mux.HandleFunc("/api/class", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "admin", "student_success", "manager"}, cfg.SessionSecret)(apiHandler.GetClass)(w, r)

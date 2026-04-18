@@ -87,7 +87,7 @@ export default function ClassWorkspace() {
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
   const [rescheduleSaving, setRescheduleSaving] = useState(false)
-  const [rosterModalMode, setRosterModalMode] = useState<'transfer' | 'return' | null>(null)
+  const [rosterModalMode, setRosterModalMode] = useState<'transfer' | 'return' | 'early_repeat' | null>(null)
   const [rosterStudent, setRosterStudent] = useState<Student | null>(null)
   const [transferOptions, setTransferOptions] = useState<ClassTransferOption[]>([])
   const [transferOptionsLoading, setTransferOptionsLoading] = useState(false)
@@ -320,6 +320,17 @@ export default function ClassWorkspace() {
     setTransferOptions([])
   }
 
+  function openEarlyRepeatModal(student: Student) {
+    setActionError(null)
+    setActionSuccess(null)
+    setRosterStudent(student)
+    setRosterModalMode('early_repeat')
+    setRosterReason('early_repeat_absence')
+    setRosterNotes('')
+    setRosterTargetClassKey('')
+    setTransferOptions([])
+  }
+
   async function handleSaveRosterChange() {
     if (!rosterStudent || !rosterModalMode) return
 
@@ -348,8 +359,22 @@ export default function ClassWorkspace() {
         return
       }
 
-      if (rosterReason === 'other_to_admin' && !rosterNotes.trim()) {
+      if (rosterModalMode === 'return' && rosterReason === 'other_to_admin' && !rosterNotes.trim()) {
         setActionError('Notes are required when the admin return reason is Other.')
+        return
+      }
+
+      if (rosterModalMode === 'early_repeat') {
+        const res = await api.returnClassStudentAsEarlyRepeat({
+          lead_id: rosterStudent.lead_id,
+          source_class_key: classKey,
+          notes: rosterNotes,
+        })
+        await loadClass(true)
+        closeRosterModal()
+        setActionSuccess(
+          `${rosterStudent.full_name} was marked as repeated ${formatSourceExitLabel(res.source_exit_after_session_number)} and returned to the admin feed.`
+        )
         return
       }
 
@@ -937,6 +962,23 @@ export default function ClassWorkspace() {
                           >
                             Return to Admin
                           </button>
+                          {student.missed_count !== undefined && student.missed_count > 2 && (
+                            <button
+                              onClick={() => openEarlyRepeatModal(student)}
+                              style={{
+                                padding: '6px 10px',
+                                borderRadius: '8px',
+                                border: '1px solid #9b2c2c',
+                                background: 'white',
+                                color: '#9b2c2c',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                              }}
+                            >
+                              Early Repeat
+                            </button>
+                          )}
                         </div>
                       )}
 
@@ -1507,11 +1549,19 @@ export default function ClassWorkspace() {
             }}
           >
             <h3 style={{ marginTop: 0, marginBottom: '8px' }}>
-              {rosterModalMode === 'transfer' ? 'Transfer Student' : 'Return Student to Admin'}
+              {rosterModalMode === 'transfer'
+                ? 'Transfer Student'
+                : rosterModalMode === 'early_repeat'
+                  ? 'Return Student as Early Repeat'
+                  : 'Return Student to Admin'}
             </h3>
             <p style={{ marginTop: 0, marginBottom: '16px', color: '#555' }}>
               <strong>{rosterStudent.full_name}</strong> will leave this class starting with its next uncompleted session.
-              {rosterModalMode === 'transfer' ? ' The target class will receive the student on its own current session number.' : ' Past attendance stays on this class.'}
+              {rosterModalMode === 'transfer'
+                ? ' The target class will receive the student on its own current session number.'
+                : rosterModalMode === 'early_repeat'
+                  ? ' They will be marked as repeated, treated as a returning student, and sent back to the admin feed.'
+                  : ' Past attendance stays on this class.'}
             </p>
 
             {rosterModalMode === 'transfer' ? (
@@ -1566,7 +1616,7 @@ export default function ClassWorkspace() {
                   </select>
                 </div>
               </>
-            ) : (
+            ) : rosterModalMode === 'return' ? (
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>Admin queue</label>
                 <select
@@ -1585,6 +1635,10 @@ export default function ClassWorkspace() {
                   <option value="private_track_to_admin">Private track</option>
                   <option value="other_to_admin">Other</option>
                 </select>
+              </div>
+            ) : (
+              <div style={{ marginBottom: '16px', padding: '12px 14px', borderRadius: '10px', background: '#fff4e6', color: '#8c4a00', border: '1px solid #ffd8a8' }}>
+                This action is only for students with more than 2 missed sessions. It records the student as repeated and returns them to Admin for the same level.
               </div>
             )}
 
@@ -1606,7 +1660,9 @@ export default function ClassWorkspace() {
                 placeholder={
                   rosterModalMode === 'return' && rosterReason === 'other_to_admin'
                     ? 'Required note for the admin return'
-                    : 'Optional note for the roster change'
+                    : rosterModalMode === 'early_repeat'
+                      ? 'Optional note for the early repeat return'
+                      : 'Optional note for the roster change'
                 }
               />
             </div>
@@ -1653,7 +1709,13 @@ export default function ClassWorkspace() {
                       : 1,
                 }}
               >
-                {rosterSaving ? 'Saving...' : rosterModalMode === 'transfer' ? 'Transfer Student' : 'Send to Admin'}
+                {rosterSaving
+                  ? 'Saving...'
+                  : rosterModalMode === 'transfer'
+                    ? 'Transfer Student'
+                    : rosterModalMode === 'early_repeat'
+                      ? 'Return as Early Repeat'
+                      : 'Send to Admin'}
               </button>
             </div>
           </div>

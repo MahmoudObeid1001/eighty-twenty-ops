@@ -773,6 +773,22 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  returnClassStudentAsEarlyRepeat: (payload: {
+    lead_id: string
+    source_class_key: string
+    notes?: string
+  }): Promise<{
+    ok: boolean
+    lead_id: string
+    source_class_key: string
+    source_exit_after_session_number: number
+    reason: string
+  }> =>
+    fetchAPI('/classes/return-early-repeat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   getClass: (classKey: string): Promise<ClassDetail> =>
     fetchAPI(`/class?class_key=${encodeURIComponent(classKey)}`),
 

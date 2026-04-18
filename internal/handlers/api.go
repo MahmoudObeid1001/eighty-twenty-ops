@@ -986,6 +986,49 @@ func (h *APIHandler) ReturnClassStudentToAdmin(w http.ResponseWriter, r *http.Re
 	jsonResponse(w, http.StatusOK, resp)
 }
 
+func (h *APIHandler) ReturnClassStudentAsEarlyRepeat(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		LeadID         string `json:"lead_id"`
+		SourceClassKey string `json:"source_class_key"`
+		Notes          string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	leadID, err := uuid.Parse(strings.TrimSpace(req.LeadID))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid user session")
+		return
+	}
+
+	result, err := models.ReturnStudentToAdminAsEarlyRepeat(
+		leadID,
+		strings.TrimSpace(req.SourceClassKey),
+		req.Notes,
+		userID,
+	)
+	if err != nil {
+		log.Printf("ERROR: Failed to return class student as early repeat: %v", err)
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ok":                               true,
+		"lead_id":                          result.LeadID.String(),
+		"source_class_key":                 result.SourceClassKey,
+		"source_exit_after_session_number": result.SourceExitAfterSessionNumber,
+		"reason":                           result.Reason,
+	})
+}
+
 // MarkAttendance handles JSON POST to mark student attendance
 func (h *APIHandler) MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

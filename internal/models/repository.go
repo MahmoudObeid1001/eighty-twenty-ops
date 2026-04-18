@@ -417,7 +417,7 @@ func GetPaymentStatus(remainingBalance, amountPaid sql.NullInt32) string {
 func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool, followUpFilter string, returningFilter string, coldFilter string, repeatFilter string, opsQueueReasonFilter string) ([]*LeadListItem, error) {
 	query := `
 		SELECT 
-			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.sent_to_classes,
+			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason, l.sent_to_classes,
 			COALESCE(l.is_returning, false),
 			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc,
 			l.created_by_user_id, l.offer_sent_at, l.created_at, l.updated_at,
@@ -599,7 +599,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var refusedRenewalAt sql.NullTime
 
 		err := rows.Scan(
-			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.SentToClasses,
+			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason, &lead.SentToClasses,
 			&lead.IsReturning, &lead.RemainingCredits,
 			&lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 			&assignedLevel, &testDate,
@@ -740,7 +740,7 @@ func formatSleepingLeadNextAction(step int, dueAt time.Time, dueNow bool, lastMe
 func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadListItem, error) {
 	query := `
 		SELECT
-			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.sent_to_classes,
+			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason, l.sent_to_classes,
 			COALESCE(l.is_returning, false),
 			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc,
 			l.created_by_user_id, l.offer_sent_at, l.created_at, l.updated_at,
@@ -804,7 +804,7 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 		var lastMessageSentAt sql.NullTime
 
 		if err := rows.Scan(
-			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.SentToClasses,
+			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason, &lead.SentToClasses,
 			&lead.IsReturning, &lead.RemainingCredits,
 			&lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 			&assignedLevel, &testDate,
@@ -1210,12 +1210,12 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT id, full_name, phone, source, notes, status, ops_queue_reason, sent_to_classes,
+		SELECT id, full_name, phone, source, notes, status, ops_queue_reason, mentor_head_return_reason, sent_to_classes,
 		       levels_purchased_total, levels_consumed, remaining_credits,
 		       is_returning, high_priority_follow_up, created_by_user_id, offer_sent_at, created_at, updated_at
 		FROM leads WHERE id = $1
 	`, id).Scan(
-		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason,
+		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
 		&lead.IsReturning, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 	)
@@ -2841,6 +2841,7 @@ func SendLeadToClasses(leadID uuid.UUID) error {
 	_, err := db.DB.Exec(`
 		UPDATE leads 
 		SET sent_to_classes = true, 
+		    mentor_head_return_reason = NULL,
 		    high_priority = false, 
 		    high_priority_reason = '', 
 		    updated_at = CURRENT_TIMESTAMP
@@ -2992,7 +2993,9 @@ func ReturnClassGroupFromMentor(classKey string) error {
 	// Move students back to ready_to_start so class appears as NOT STARTED in Ops.
 	_, err = db.DB.Exec(`
 		UPDATE leads l
-		SET status = 'ready_to_start', updated_at = NOW()
+		SET status = 'ready_to_start',
+		    mentor_head_return_reason = 'class_return',
+		    updated_at = NOW()
 		FROM scheduling s
 		INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
 		INNER JOIN class_groups cg ON (
@@ -8313,7 +8316,10 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 	// 7. Update lead status to 'in_classes' and mark as sent to classes
 	_, err = tx.Exec(`
 		UPDATE leads
-		SET status = 'in_classes', sent_to_classes = true, updated_at = NOW()
+		SET status = 'in_classes',
+		    sent_to_classes = true,
+		    mentor_head_return_reason = NULL,
+		    updated_at = NOW()
 		WHERE id = $1
 	`, leadID)
 	if err != nil {
@@ -8823,6 +8829,7 @@ func TransferStudentBetweenActiveClasses(leadID uuid.UUID, sourceClassKey, targe
 		SET status = 'in_classes',
 		    sent_to_classes = true,
 		    ops_queue_reason = NULL,
+		    mentor_head_return_reason = NULL,
 		    updated_at = $1
 		WHERE id = $2
 	`, now, leadID)
@@ -8991,10 +8998,14 @@ func ReturnStudentToAdminFromClass(leadID uuid.UUID, sourceClassKey, reason, not
 	now := time.Now()
 	sourceExitAfter := sourceCurrentSession - 1
 	queueReason := sql.NullString{String: "refund_review", Valid: true}
+	newStatus := "waiting_for_round"
+	mentorHeadReturnReason := sql.NullString{}
 	if reason == "private_track_to_admin" {
 		queueReason = sql.NullString{String: "private_track", Valid: true}
 	} else if reason == "other_to_admin" {
 		queueReason = sql.NullString{}
+		newStatus = "ready_to_start"
+		mentorHeadReturnReason = sql.NullString{String: "class_return", Valid: true}
 	}
 
 	_, err = tx.Exec(`
@@ -9022,12 +9033,13 @@ func ReturnStudentToAdminFromClass(leadID uuid.UUID, sourceClassKey, reason, not
 
 	_, err = tx.Exec(`
 		UPDATE leads
-		SET status = 'waiting_for_round',
+		SET status = $1,
 		    sent_to_classes = false,
-		    ops_queue_reason = $1,
-		    updated_at = $2
-		WHERE id = $3
-	`, queueReason, now, leadID)
+		    ops_queue_reason = $2,
+		    mentor_head_return_reason = $3,
+		    updated_at = $4
+		WHERE id = $5
+	`, newStatus, queueReason, mentorHeadReturnReason, now, leadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update lead for admin return: %w", err)
 	}
@@ -9060,6 +9072,215 @@ func ReturnStudentToAdminFromClass(leadID uuid.UUID, sourceClassKey, reason, not
 		SourceExitAfterSessionNumber: sourceExitAfter,
 		Reason:                       reason,
 		OpsQueueReason:               queueReason,
+	}, nil
+}
+
+func ReturnStudentToAdminAsEarlyRepeat(leadID uuid.UUID, sourceClassKey, notes string, userID uuid.UUID) (*ClassRosterChangeResult, error) {
+	notes = strings.TrimSpace(notes)
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin early-repeat transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var sourceRoundStatus string
+	err = tx.QueryRow(`
+		SELECT COALESCE(round_status, 'not_started')
+		FROM class_groups
+		WHERE class_key = $1
+	`, sourceClassKey).Scan(&sourceRoundStatus)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("source class not found")
+		}
+		return nil, fmt.Errorf("failed to load source class: %w", err)
+	}
+	if sourceRoundStatus != "active" {
+		return nil, fmt.Errorf("source class must be active")
+	}
+
+	sourceCurrentSession, err := getClassCurrentSessionTx(tx, sourceClassKey)
+	if err != nil {
+		return nil, err
+	}
+	if sourceCurrentSession > 8 {
+		return nil, fmt.Errorf("source class has no future sessions")
+	}
+
+	if err := ensureClassMembershipsTx(tx, sourceClassKey); err != nil {
+		return nil, err
+	}
+	sourceMembership, err := getApplicableMembershipTx(tx, leadID, sourceClassKey, sourceCurrentSession)
+	if err != nil {
+		return nil, err
+	}
+	if sourceMembership == nil {
+		return nil, fmt.Errorf("student is not in the source class")
+	}
+
+	sourceExitAfter := sourceCurrentSession - 1
+
+	var absenceCount int
+	err = tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM attendance a
+		INNER JOIN class_sessions cs ON cs.id = a.session_id
+		WHERE a.lead_id = $1
+		  AND cs.class_key = $2
+		  AND cs.session_number >= $3
+		  AND cs.session_number <= $4
+		  AND UPPER(COALESCE(a.status, '')) = 'ABSENT'
+	`, leadID, sourceClassKey, sourceMembership.JoinedAtSessionNumber, sourceExitAfter).Scan(&absenceCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count absences for early repeat: %w", err)
+	}
+	if absenceCount <= 2 {
+		return nil, fmt.Errorf("student must have more than 2 missed sessions for early repeat")
+	}
+
+	var level int32
+	var classDays, classTime string
+	var mentorName sql.NullString
+	err = tx.QueryRow(`
+		SELECT cg.level, cg.class_days, cg.class_time, u.email
+		FROM class_groups cg
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+		LEFT JOIN users u ON u.id = ma.mentor_user_id::uuid
+		WHERE cg.class_key = $1
+	`, sourceClassKey).Scan(&level, &classDays, &classTime, &mentorName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get class details for early repeat: %w", err)
+	}
+
+	var currentLevel sql.NullInt32
+	err = tx.QueryRow(`SELECT assigned_level FROM placement_tests WHERE lead_id = $1`, leadID).Scan(&currentLevel)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("failed to get assigned level for early repeat: %w", err)
+	}
+	if !currentLevel.Valid {
+		currentLevel = sql.NullInt32{Int32: level, Valid: true}
+	}
+
+	var purchased, consumed sql.NullInt32
+	err = tx.QueryRow(`
+		SELECT COALESCE(levels_purchased_total, 0), COALESCE(levels_consumed, 0)
+		FROM leads
+		WHERE id = $1
+	`, leadID).Scan(&purchased, &consumed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load credits for early repeat: %w", err)
+	}
+
+	creditsRemaining := int32(0)
+	if purchased.Valid {
+		creditsRemaining = purchased.Int32
+	}
+	if consumed.Valid {
+		creditsRemaining -= consumed.Int32
+	}
+	if creditsRemaining < 0 {
+		creditsRemaining = 0
+	}
+
+	newStatus := "renewal_pending"
+	if creditsRemaining > 0 {
+		newStatus = "waiting_for_round"
+	}
+	highPriorityFollowUp := newStatus == "renewal_pending"
+	now := time.Now()
+
+	_, err = tx.Exec(`
+		UPDATE class_memberships
+		SET left_after_session_number = $1,
+		    leave_reason = 'early_repeat_absence',
+		    removed_by_user_id = $2,
+		    removed_at = $3,
+		    updated_at = $3
+		WHERE id = $4
+	`, sourceExitAfter, userID, now, sourceMembership.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to close source membership for early repeat: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE scheduling
+		SET class_group_index = NULL,
+		    updated_at = $1
+		WHERE lead_id = $2
+	`, now, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detach scheduling for early repeat: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET remaining_credits = $1,
+		    status = $2,
+		    is_returning = true,
+		    high_priority_follow_up = $5,
+		    high_priority = false,
+		    high_priority_reason = '',
+		    sent_to_classes = false,
+		    ops_queue_reason = NULL,
+		    mentor_head_return_reason = 'early_repeat_absence',
+		    updated_at = $3
+		WHERE id = $4
+	`, creditsRemaining, newStatus, now, leadID, highPriorityFollowUp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update lead for early repeat: %w", err)
+	}
+
+	_, err = tx.Exec(`DELETE FROM payments WHERE lead_id = $1`, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to clear payment snapshot for early repeat: %w", err)
+	}
+	_, err = tx.Exec(`DELETE FROM offers WHERE lead_id = $1`, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to clear offer snapshot for early repeat: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO class_enrollments (
+			lead_id, class_key, level, class_days, class_time, mentor_name,
+			final_grade, outcome, enrolled_at, completed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'repeated', $7, $8)
+		ON CONFLICT (lead_id, class_key) DO UPDATE SET
+			final_grade = EXCLUDED.final_grade,
+			outcome = EXCLUDED.outcome,
+			completed_at = EXCLUDED.completed_at
+	`, leadID, sourceClassKey, currentLevel.Int32, classDays, classTime, mentorName, sourceMembership.CreatedAt, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to snapshot early repeat enrollment: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO class_transfers (
+			id,
+			lead_id,
+			source_class_key,
+			source_membership_id,
+			source_exit_after_session_number,
+			reason,
+			notes,
+			created_by_user_id,
+			created_at
+		)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, 'early_repeat_absence_to_admin', NULLIF($5, ''), $6, $7)
+	`, leadID, sourceClassKey, sourceMembership.ID, sourceExitAfter, notes, userID, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write early-repeat transfer audit: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &ClassRosterChangeResult{
+		LeadID:                       leadID,
+		SourceClassKey:               sourceClassKey,
+		SourceExitAfterSessionNumber: sourceExitAfter,
+		Reason:                       "early_repeat_absence_to_admin",
 	}, nil
 }
 
@@ -9144,7 +9365,9 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 	// 3. Update lead status to in_classes for students in this class
 	_, err = tx.Exec(`
 		UPDATE leads l
-		SET status = 'in_classes', updated_at = NOW()
+		SET status = 'in_classes',
+		    mentor_head_return_reason = NULL,
+		    updated_at = NOW()
 		FROM scheduling s
 		INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
 		INNER JOIN class_groups cg ON (
@@ -11281,7 +11504,7 @@ func getClassTransferEventCountsForDateRange(startDate, endDate time.Time) (int,
 				  AND reason IN ('schedule_change', 'promotion', 'demotion', 'late_join', 'other')
 			)::int AS transfer_events,
 			COUNT(*) FILTER (
-				WHERE reason IN ('refund_to_admin', 'private_track_to_admin', 'other_to_admin')
+				WHERE reason IN ('refund_to_admin', 'private_track_to_admin', 'other_to_admin', 'early_repeat_absence_to_admin')
 			)::int AS returns_to_admin
 		FROM class_transfers
 		WHERE created_at >= $1
