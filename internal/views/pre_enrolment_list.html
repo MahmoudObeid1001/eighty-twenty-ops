@@ -20,23 +20,23 @@
 {{if gt .FollowUpCount 0}}
 <div
     style="background-color: #FFF4E6; border: 2px solid #FFA500; color: #CC6600; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
-    🔥 {{.FollowUpCount}} hot lead{{if ne .FollowUpCount 1}}s{{end}} need follow-up today
+    🔥 يوجد {{.FollowUpCount}} {{if eq .FollowUpCount 1}}حالة{{else}}حالات{{end}} تحتاج متابعة اليوم
 </div>
 {{end}}
 
 {{if gt .TestedResultsCount 0}}
 <div
     style="background-color: #E6F7FF; border: 2px solid #4EC6E0; color: #0052A3; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
-    🧪 {{.TestedResultsCount}} new test result{{if ne .TestedResultsCount 1}}s{{end}} ready to review —
-    <a href="/pre-enrolment?status=TESTED" style="color: #0052A3; text-decoration: underline;">View tested leads</a>
+    🧪 يوجد {{.TestedResultsCount}} {{if eq .TestedResultsCount 1}}نتيجة اختبار جديدة جاهزة للمراجعة{{else}}نتائج اختبار جديدة جاهزة للمراجعة{{end}} —
+    <a href="/pre-enrolment?status=TESTED" style="color: #0052A3; text-decoration: underline;">عرض الطلاب الذين تم اختبارهم</a>
 </div>
 {{end}}
 
 {{if and .IsAdmin (gt .SleepingReminderDueCount 0)}}
 <div
     style="background-color: #FFF8E1; border: 2px solid #FFB300; color: #8C4A00; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
-    ⏰ {{.SleepingReminderDueCount}} deferred sleeping lead reminder{{if ne .SleepingReminderDueCount 1}}s{{end}} due now —
-    <a href="/pre-enrolment?sleeping=1" style="color: #8C4A00; text-decoration: underline;">View sleeping leads</a>
+    ⏰ يوجد {{.SleepingReminderDueCount}} {{if eq .SleepingReminderDueCount 1}}تذكير مؤجل مستحق الآن لطلاب الـ Sleeping Leads{{else}}تذكيرات مؤجلة مستحقة الآن لطلاب الـ Sleeping Leads{{end}} —
+    <a href="/pre-enrolment?sleeping=1" style="color: #8C4A00; text-decoration: underline;">عرض طلاب الـ Sleeping Leads</a>
 </div>
 {{end}}
 
