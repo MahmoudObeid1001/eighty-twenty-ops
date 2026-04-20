@@ -217,6 +217,37 @@ func GetCurrentClassStatus(leadID uuid.UUID) (*CurrentClassStatus, error) {
 	var mentorName sql.NullString
 
 	err = db.DB.QueryRow(`
+		SELECT
+			cg.class_key,
+			cg.level,
+			cg.class_days,
+			cg.class_time,
+			COALESCE(u.email, '') as mentor_name,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM class_sessions cs
+				WHERE cs.class_key = cg.class_key
+				  AND cs.status = 'completed'
+			), 0) + 1 as current_session
+		FROM class_memberships cm
+		INNER JOIN class_groups cg ON cg.class_key = cm.class_key
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+		LEFT JOIN users u ON u.id = ma.mentor_user_id
+		WHERE cm.lead_id = $1
+		  AND cm.left_after_session_number IS NULL
+		  AND cm.removed_at IS NULL
+		ORDER BY cm.created_at DESC
+		LIMIT 1
+	`, leadID).Scan(
+		&currentStatus.ClassKey,
+		&currentStatus.Level,
+		&currentStatus.ClassDays,
+		&currentStatus.ClassTime,
+		&mentorName,
+		&currentStatus.CurrentSession,
+	)
+	if err == sql.ErrNoRows {
+		err = db.DB.QueryRow(`
 		SELECT 
 			cg.class_key,
 			cg.level,
@@ -237,13 +268,14 @@ func GetCurrentClassStatus(leadID uuid.UUID) (*CurrentClassStatus, error) {
 		LEFT JOIN users u ON u.id = ma.mentor_user_id
 		WHERE l.id = $1
 	`, leadID).Scan(
-		&currentStatus.ClassKey,
-		&currentStatus.Level,
-		&currentStatus.ClassDays,
-		&currentStatus.ClassTime,
-		&mentorName,
-		&currentStatus.CurrentSession,
-	)
+			&currentStatus.ClassKey,
+			&currentStatus.Level,
+			&currentStatus.ClassDays,
+			&currentStatus.ClassTime,
+			&mentorName,
+			&currentStatus.CurrentSession,
+		)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
