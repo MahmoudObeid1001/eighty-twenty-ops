@@ -801,6 +801,12 @@ func main() {
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
+			case "basic-info":
+				if r.Method == http.MethodPut {
+					middleware.RequireAnyRole([]string{"admin", "mentor_head"}, cfg.SessionSecret)(handlers.UpdateStudentBasicInfo)(w, r)
+				} else {
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
 			case "history":
 				if r.Method == http.MethodGet {
 					middleware.RequireAnyRole([]string{"admin", "moderator", "mentor_head", "mentor", "student_success"}, cfg.SessionSecret)(handlers.GetStudentHistory)(w, r)

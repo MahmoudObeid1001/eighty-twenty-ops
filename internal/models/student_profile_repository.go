@@ -48,6 +48,31 @@ func SearchStudents(query string) ([]*StudentSearchResult, error) {
 	return results, nil
 }
 
+// UpdateStudentBasicInfo updates the editable identity fields for a student lead.
+func UpdateStudentBasicInfo(leadID uuid.UUID, fullName, phone string) error {
+	now := time.Now()
+	result, err := db.DB.Exec(`
+		UPDATE leads
+		SET full_name = $1,
+		    phone = $2,
+		    updated_at = $3
+		WHERE id = $4
+	`, strings.TrimSpace(fullName), strings.TrimSpace(phone), now, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to update student basic info: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm student update: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
 // GetStudentProfile returns the profile header information for a student
 func GetStudentProfile(leadID uuid.UUID) (*StudentProfile, error) {
 	profile := &StudentProfile{}

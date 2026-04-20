@@ -1119,6 +1119,12 @@ export const api = {
   getStudentProfile: (studentId: string): Promise<UniversalStudentProfile> =>
     fetchAPI(`/students/${encodeURIComponent(studentId)}/profile`),
 
+  updateStudentBasicInfo: (studentId: string, payload: UpdateStudentBasicInfoPayload): Promise<UniversalStudentProfile> =>
+    fetchAPI(`/students/${encodeURIComponent(studentId)}/basic-info`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
   getStudentHistory: (studentId: string): Promise<AcademicHistoryItem[]> =>
     fetchAPI(`/students/${encodeURIComponent(studentId)}/history`),
 
@@ -1277,6 +1283,11 @@ export interface UniversalStudentProfile {
   remaining_credits: number
   status: string
   is_returning: boolean
+}
+
+export interface UpdateStudentBasicInfoPayload {
+  full_name: string
+  phone: string
 }
 
 export interface AcademicHistoryItem {

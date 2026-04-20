@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
 
+	"eighty-twenty-ops/internal/middleware"
 	"eighty-twenty-ops/internal/models"
 
 	"github.com/google/uuid"
@@ -60,6 +62,61 @@ func GetStudentProfile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(profile); err != nil {
 		log.Printf("ERROR: Failed to encode student profile response: %v", err)
+	}
+}
+
+// UpdateStudentBasicInfo handles PUT /api/students/:id/basic-info
+func UpdateStudentBasicInfo(w http.ResponseWriter, r *http.Request) {
+	userRole := middleware.GetUserRole(r)
+	if userRole != "admin" && userRole != "mentor_head" && userRole != "manager" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	leadID, err := parseStudentID(r.URL.Path)
+	if err != nil {
+		http.Error(w, "Invalid student ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		FullName string `json:"full_name"`
+		Phone    string `json:"phone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	req.FullName = strings.TrimSpace(req.FullName)
+	req.Phone = strings.TrimSpace(req.Phone)
+	if req.FullName == "" || req.Phone == "" {
+		http.Error(w, "full_name and phone are required", http.StatusBadRequest)
+		return
+	}
+
+	if err := models.UpdateStudentBasicInfo(leadID, req.FullName, req.Phone); err != nil {
+		if phoneErr := models.IsPhoneConstraintError(err); phoneErr != nil {
+			http.Error(w, phoneErr.Message, http.StatusConflict)
+			return
+		}
+		if err == sql.ErrNoRows {
+			http.Error(w, "Student not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to update student basic info", http.StatusInternalServerError)
+		return
+	}
+
+	profile, err := models.GetStudentProfile(leadID)
+	if err != nil {
+		http.Error(w, "Student updated, but profile reload failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(profile); err != nil {
+		log.Printf("ERROR: Failed to encode updated student profile response: %v", err)
 	}
 }
 

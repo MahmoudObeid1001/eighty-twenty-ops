@@ -231,6 +231,13 @@ export default function StudentSearch() {
             {selectedStudentId && (
                 <StudentProfileModal
                     studentId={selectedStudentId}
+                    onStudentUpdated={(updatedStudent) => {
+                        setResults((current) => current.map((item) => (
+                            item.lead_id === updatedStudent.lead_id
+                                ? { ...item, full_name: updatedStudent.full_name, phone: updatedStudent.phone }
+                                : item
+                        )))
+                    }}
                     onClose={() => setSelectedStudentId(null)}
                 />
             )}

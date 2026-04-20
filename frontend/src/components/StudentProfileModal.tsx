@@ -5,14 +5,21 @@ import { api, UniversalStudentProfile, AcademicHistoryItem, CurrentClassStatus, 
 interface StudentProfileModalProps {
     studentId: string
     onClose: () => void
+    onStudentUpdated?: (student: UniversalStudentProfile) => void
 }
 
-export default function StudentProfileModal({ studentId, onClose }: StudentProfileModalProps) {
+export default function StudentProfileModal({ studentId, onClose, onStudentUpdated }: StudentProfileModalProps) {
     const [activeTab, setActiveTab] = useState<'history' | 'current' | 'notes'>('history')
     const [profile, setProfile] = useState<UniversalStudentProfile | null>(null)
     const [history, setHistory] = useState<AcademicHistoryItem[]>([])
     const [currentStatus, setCurrentStatus] = useState<CurrentClassStatus | null>(null)
     const [notes, setNotes] = useState<TimelineItem[]>([])
+    const [userRole, setUserRole] = useState<string>('')
+    const [isEditingBasicInfo, setIsEditingBasicInfo] = useState(false)
+    const [editFullName, setEditFullName] = useState('')
+    const [editPhone, setEditPhone] = useState('')
+    const [savingBasicInfo, setSavingBasicInfo] = useState(false)
+    const [basicInfoError, setBasicInfoError] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
@@ -24,21 +31,61 @@ export default function StudentProfileModal({ studentId, onClose }: StudentProfi
         setLoading(true)
         setError(null)
         try {
-            const [profileData, historyData, statusData, notesData] = await Promise.all([
+            const [profileData, historyData, statusData, notesData, me] = await Promise.all([
                 api.getStudentProfile(studentId),
                 api.getStudentHistory(studentId),
                 api.getStudentCurrentStatus(studentId),
                 api.getStudentNotes(studentId),
+                api.getMe(),
             ])
             setProfile(profileData)
             setHistory(historyData || [])
             setCurrentStatus(statusData)
             setNotes(notesData || [])
+            setUserRole(me.role || '')
         } catch (err) {
             console.error('Failed to load student data:', err)
             setError(err instanceof Error ? err.message : 'Failed to load student data')
         } finally {
             setLoading(false)
+        }
+    }
+
+    const canEditBasicInfo = userRole === 'admin' || userRole === 'mentor_head' || userRole === 'manager'
+
+    function startEditingBasicInfo() {
+        if (!profile) return
+        setEditFullName(profile.full_name)
+        setEditPhone(profile.phone)
+        setBasicInfoError(null)
+        setIsEditingBasicInfo(true)
+    }
+
+    async function handleSaveBasicInfo() {
+        if (!profile) return
+
+        const fullName = editFullName.trim()
+        const phone = editPhone.trim()
+
+        if (!fullName || !phone) {
+            setBasicInfoError('Full name and phone are required.')
+            return
+        }
+
+        setSavingBasicInfo(true)
+        setBasicInfoError(null)
+        try {
+            const updatedProfile = await api.updateStudentBasicInfo(studentId, {
+                full_name: fullName,
+                phone,
+            })
+            setProfile(updatedProfile)
+            setIsEditingBasicInfo(false)
+            onStudentUpdated?.(updatedProfile)
+        } catch (err) {
+            setBasicInfoError(err instanceof Error ? err.message : 'Failed to update student info')
+        } finally {
+            setSavingBasicInfo(false)
         }
     }
 
@@ -123,21 +170,109 @@ export default function StudentProfileModal({ studentId, onClose }: StudentProfi
                                 <strong>Remaining Credits:</strong> {profile.remaining_credits}
                             </div>
                         </div>
-                        <button
-                            onClick={onClose}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            {canEditBasicInfo && !isEditingBasicInfo && (
+                                <button
+                                    type="button"
+                                    onClick={startEditingBasicInfo}
+                                    style={{
+                                        border: '1px solid #cbd5e1',
+                                        background: '#fff',
+                                        color: '#0f172a',
+                                        borderRadius: '10px',
+                                        padding: '10px 14px',
+                                        cursor: 'pointer',
+                                        fontWeight: 700,
+                                        fontSize: '14px',
+                                    }}
+                                >
+                                    Edit name / phone
+                                </button>
+                            )}
+                            <button
+                                onClick={onClose}
+                                style={{
+                                    fontSize: '28px',
+                                    border: 'none',
+                                    background: 'none',
+                                    cursor: 'pointer',
+                                    color: '#666',
+                                    padding: '0',
+                                    lineHeight: '1',
+                                }}
+                            >
+                                ×
+                            </button>
+                        </div>
+                    </div>
+                    {isEditingBasicInfo && (
+                        <div
                             style={{
-                                fontSize: '28px',
-                                border: 'none',
-                                background: 'none',
-                                cursor: 'pointer',
-                                color: '#666',
-                                padding: '0',
-                                lineHeight: '1',
+                                marginTop: '18px',
+                                padding: '16px',
+                                border: '1px solid #dbe4ea',
+                                borderRadius: '12px',
+                                background: '#f8fbfd',
                             }}
                         >
-                            ×
-                        </button>
-                    </div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px', color: '#0f172a' }}>
+                                Edit student basic info
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                                        Full name
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editFullName}
+                                        onChange={(e) => setEditFullName(e.target.value)}
+                                        style={basicInfoInputStyle}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                                        Phone
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        value={editPhone}
+                                        onChange={(e) => setEditPhone(e.target.value)}
+                                        style={basicInfoInputStyle}
+                                    />
+                                </div>
+                            </div>
+                            {basicInfoError && (
+                                <div style={{ marginTop: '12px', color: '#b91c1c', fontSize: '13px', fontWeight: 600 }}>
+                                    {basicInfoError}
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsEditingBasicInfo(false)
+                                        setBasicInfoError(null)
+                                    }}
+                                    style={secondaryButtonStyle}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSaveBasicInfo}
+                                    disabled={savingBasicInfo}
+                                    style={{
+                                        ...primaryButtonStyle,
+                                        opacity: savingBasicInfo ? 0.7 : 1,
+                                        cursor: savingBasicInfo ? 'default' : 'pointer',
+                                    }}
+                                >
+                                    {savingBasicInfo ? 'Saving...' : 'Save changes'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Tabs */}
@@ -424,4 +559,34 @@ function getTimelineColor(type: TimelineItem['type']): string {
 function formatTimelineType(type: TimelineItem['type']): string {
     if (type === 'grade_note') return 'final grade note'
     return type
+}
+
+const basicInfoInputStyle = {
+    width: '100%',
+    padding: '10px 12px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    fontSize: '14px',
+    background: '#fff',
+}
+
+const primaryButtonStyle = {
+    border: 'none',
+    background: '#4ec6e0',
+    color: '#fff',
+    borderRadius: '10px',
+    padding: '10px 16px',
+    fontWeight: 700,
+    fontSize: '14px',
+}
+
+const secondaryButtonStyle = {
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    color: '#334155',
+    borderRadius: '10px',
+    padding: '10px 16px',
+    fontWeight: 700,
+    fontSize: '14px',
+    cursor: 'pointer',
 }
