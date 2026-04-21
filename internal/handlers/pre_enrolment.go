@@ -298,7 +298,7 @@ var groupBundlePrices = map[int32]int32{
 var privateBundlePrices = map[int32]int32{
 	1: 3000,
 	2: 5600,
-	3: 7200,
+	3: 7800,
 }
 
 func normalizePricingTrack(track string) string {

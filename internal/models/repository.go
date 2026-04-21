@@ -4045,6 +4045,50 @@ func CreateExpense(category string, amount int32, paymentMethod string, transact
 	return tx, nil
 }
 
+// CreateRevenue creates an IN transaction for manual revenue.
+func CreateRevenue(category string, amount int32, paymentMethod string, transactionDate time.Time, notes string) (*Transaction, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("amount must be positive")
+	}
+
+	if err := util.ValidateNotFutureDate(transactionDate); err != nil {
+		return nil, err
+	}
+
+	allowedMethods := map[string]bool{
+		"vodafone_cash": true,
+		"bank_transfer": true,
+		"paypal":        true,
+		"other":         true,
+	}
+	if !allowedMethods[paymentMethod] {
+		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	}
+
+	tx := &Transaction{
+		ID:              uuid.New(),
+		TransactionDate: transactionDate,
+		TransactionType: "IN",
+		Category:        category,
+		Amount:          amount,
+		PaymentMethod:   sql.NullString{String: paymentMethod, Valid: true},
+		Notes:           sql.NullString{String: notes, Valid: notes != ""},
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+
+	transactionDateValue := transactionDate.Format("2006-01-02")
+	_, err := db.DB.Exec(`
+		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, notes, created_at, updated_at)
+		VALUES ($1, $2::date, $3::text, $4::text, $5::integer, $6::text, $7, $8::timestamp with time zone, $8::timestamp with time zone)
+	`, tx.ID, transactionDateValue, tx.TransactionType, tx.Category, tx.Amount, tx.PaymentMethod, tx.Notes, tx.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create revenue: %w", err)
+	}
+
+	return tx, nil
+}
+
 // UpsertPlacementTestIncome creates or updates a finance transaction for placement test payment
 func UpsertPlacementTestIncome(leadID uuid.UUID, amountPaid int32, paymentDate sql.NullTime, paymentMethod sql.NullString) error {
 	if amountPaid <= 0 {

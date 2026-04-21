@@ -41,6 +41,7 @@
             <option value="">All Categories</option>
             <option value="placement_test" {{if eq .CategoryFilter "placement_test"}}selected{{end}}>Placement Test</option>
             <option value="course_payment" {{if eq .CategoryFilter "course_payment"}}selected{{end}}>Course Payment</option>
+            <option value="manual_revenue" {{if eq .CategoryFilter "manual_revenue"}}selected{{end}}>Manual Revenue</option>
             <option value="teacher_salary" {{if eq .CategoryFilter "teacher_salary"}}selected{{end}}>Teacher Salary</option>
             <option value="refund" {{if eq .CategoryFilter "refund"}}selected{{end}}>Refund</option>
             <option value="ads" {{if eq .CategoryFilter "ads"}}selected{{end}}>Ads</option>
@@ -60,7 +61,10 @@
         <button type="submit" class="btn btn-secondary" style="display: none;">Filter</button>
     </form>
     <div class="finance-filter-cta" style="margin-left: auto;">
+        {{if eq .UserRole "manager"}}
+        <a href="/finance/new-revenue" class="btn btn-secondary" style="margin-right: 8px;">New Revenue</a>
         <a href="/finance/new-expense" class="btn btn-primary">New Expense</a>
+        {{end}}
     </div>
 </div>
 

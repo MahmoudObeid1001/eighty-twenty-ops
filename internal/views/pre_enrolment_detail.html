@@ -653,7 +653,7 @@
                         <option value="group" {{if ne .PricingTrack "private"}}selected{{end}}>Group Track</option>
                         <option value="private" {{if eq .PricingTrack "private"}}selected{{end}}>Private Track</option>
                     </select>
-                    <small class="form-text text-muted">Private track prices: 1 level = 3000 EGP, 2 = 5600 EGP, 3 = 7200 EGP.</small>
+                    <small class="form-text text-muted">Private track prices: 1 level = 3000 EGP, 2 = 5600 EGP, 3 = 7800 EGP.</small>
                 </div>
                 <div class="form-group">
                     <label for="payment_bundle">Bundle Selector *</label>
@@ -1363,7 +1363,7 @@
         private: {
             1: 3000,
             2: 5600,
-            3: 7200
+            3: 7800
         }
     };
     let depositAmountManuallyEdited = false;

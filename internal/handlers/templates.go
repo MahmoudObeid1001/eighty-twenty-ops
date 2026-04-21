@@ -159,6 +159,7 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 		"classes_archived.html":     "classes_archived_content",
 		"finance.html":              "finance_content",
 		"finance_new_expense.html":  "finance_new_expense_content",
+		"finance_new_revenue.html":  "finance_new_revenue_content",
 		"access_restricted.html":    "access_restricted_content",
 		"mentor.html":               "mentor_content",
 		"mentor_class_detail.html":  "mentor_class_detail_content",

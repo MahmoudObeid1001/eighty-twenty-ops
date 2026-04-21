@@ -1094,7 +1094,7 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /classes/unarchive -> classesHandler.UnarchiveClass [admin+manager]")
 
-	// Finance routes - admin only
+	// Finance routes - dashboard for admin/manager
 	mux.HandleFunc("/finance", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /finance handler for %s %s", r.Method, r.URL.Path)
 		if r.URL.Path != "/finance" {
@@ -1109,7 +1109,7 @@ func main() {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /finance -> financeHandler.Dashboard [GET: admin only]")
+	cfg.Debugf("ROUTE REGISTERED: /finance -> financeHandler.Dashboard [GET: admin + manager]")
 
 	mux.HandleFunc("/finance/new-expense", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /finance/new-expense handler for %s %s", r.Method, r.URL.Path)
@@ -1121,15 +1121,35 @@ func main() {
 		switch r.Method {
 		case http.MethodGet:
 			cfg.Debugf("  → Calling financeHandler.NewExpenseForm")
-			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.NewExpenseForm)(w, r)
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(financeHandler.NewExpenseForm)(w, r)
 		case http.MethodPost:
 			cfg.Debugf("  → Calling financeHandler.CreateExpense")
-			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.CreateExpense)(w, r)
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(financeHandler.CreateExpense)(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /finance/new-expense -> financeHandler (NewExpenseForm/CreateExpense) [admin only]")
+	cfg.Debugf("ROUTE REGISTERED: /finance/new-expense -> financeHandler (NewExpenseForm/CreateExpense) [manager only]")
+
+	mux.HandleFunc("/finance/new-revenue", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		cfg.Debugf("HANDLER: /finance/new-revenue handler for %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/finance/new-revenue" {
+			cfg.Debugf("  → Path mismatch, returning 404")
+			http.NotFound(w, r)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			cfg.Debugf("  → Calling financeHandler.NewRevenueForm")
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(financeHandler.NewRevenueForm)(w, r)
+		case http.MethodPost:
+			cfg.Debugf("  → Calling financeHandler.CreateRevenue")
+			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(financeHandler.CreateRevenue)(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /finance/new-revenue -> financeHandler (NewRevenueForm/CreateRevenue) [manager only]")
 
 	// /finance/refund/{leadID} - dynamic route
 	mux.HandleFunc("/finance/refund/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {

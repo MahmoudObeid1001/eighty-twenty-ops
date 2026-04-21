@@ -154,6 +154,9 @@ func (h *FinanceHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("expense_created") == "1" {
 		flashMessage = "Expense created successfully"
 		flashMessageType = "success"
+	} else if r.URL.Query().Get("revenue_created") == "1" {
+		flashMessage = "Revenue created successfully"
+		flashMessageType = "success"
 	} else if r.URL.Query().Get("error") == "future_date" {
 		flashMessage = "Payment date cannot be in the future"
 		flashMessageType = "error"
@@ -191,9 +194,9 @@ func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Admin only
+	// Manager only for manual finance entries
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" && userRole != "manager" {
+	if userRole != "manager" {
 		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
@@ -225,9 +228,9 @@ func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Admin only
+	// Manager only for manual finance entries
 	userRole := middleware.GetUserRole(r)
-	if userRole != "admin" && userRole != "manager" {
+	if userRole != "manager" {
 		redirectWithError(w, r, "/finance", "You don't have permission to do this.")
 		return
 	}
@@ -270,6 +273,88 @@ func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/finance?expense_created=1", http.StatusFound)
+}
+
+// NewRevenueForm renders the new revenue form.
+func (h *FinanceHandler) NewRevenueForm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "This action isn't available.", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "manager" {
+		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
+		return
+	}
+
+	today := time.Now().Format("2006-01-02")
+	errorMsg := ""
+	if msg := r.URL.Query().Get("error"); msg != "" && msg != "future_date" {
+		errorMsg = msg
+	}
+	if r.URL.Query().Get("error") == "future_date" {
+		errorMsg = "Transaction date cannot be in the future"
+	}
+
+	data := map[string]interface{}{
+		"Title":    "New Revenue - Finance",
+		"Today":    today,
+		"UserRole": userRole,
+		"Error":    errorMsg,
+	}
+	renderTemplate(w, r, "finance_new_revenue.html", data)
+}
+
+// CreateRevenue handles POST to create manual revenue.
+func (h *FinanceHandler) CreateRevenue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		redirectWithError(w, r, "/finance", "This action isn't available.")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "manager" {
+		redirectWithError(w, r, "/finance", "You don't have permission to do this.")
+		return
+	}
+
+	category := r.FormValue("category")
+	amountStr := r.FormValue("amount")
+	paymentMethod := r.FormValue("payment_method")
+	dateStr := r.FormValue("transaction_date")
+	notes := r.FormValue("notes")
+
+	if category == "" || amountStr == "" || paymentMethod == "" {
+		redirectWithError(w, r, "/finance/new-revenue", "Please fill in category, amount, and payment method.")
+		return
+	}
+
+	amount, err := strconv.Atoi(amountStr)
+	if err != nil || amount <= 0 {
+		redirectWithError(w, r, "/finance/new-revenue", "Please enter a valid amount.")
+		return
+	}
+
+	transactionDate := time.Now()
+	if dateStr != "" {
+		if t, err := util.ParseDateLocal(dateStr); err == nil {
+			transactionDate = t
+		}
+	}
+
+	_, err = models.CreateRevenue(category, int32(amount), paymentMethod, transactionDate, notes)
+	if err != nil {
+		log.Printf("ERROR: Failed to create revenue: %v", err)
+		if err.Error() == "payment date cannot be in the future" {
+			http.Redirect(w, r, "/finance/new-revenue?error=future_date", http.StatusFound)
+			return
+		}
+		redirectWithError(w, r, "/finance/new-revenue", "We couldn't save this revenue entry. Please try again.")
+		return
+	}
+
+	http.Redirect(w, r, "/finance?revenue_created=1", http.StatusFound)
 }
 
 // CreateRefund handles POST to create a refund for a lead.

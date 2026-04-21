@@ -167,6 +167,8 @@
             {{template "finance_content" .}}
             {{else if eq .ContentTemplate "finance_new_expense_content"}}
             {{template "finance_new_expense_content" .}}
+            {{else if eq .ContentTemplate "finance_new_revenue_content"}}
+            {{template "finance_new_revenue_content" .}}
             {{else if eq .ContentTemplate "access_restricted_content"}}
             {{template "access_restricted_content" .}}
             {{else if eq .ContentTemplate "mentor_content"}}
