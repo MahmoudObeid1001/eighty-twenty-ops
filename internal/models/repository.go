@@ -10623,7 +10623,12 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 	}
 	now := util.CairoNow()
 
-	rows, err := db.DB.Query(`
+	hasRescheduleAudit, err := managerOpsHasRescheduleAudit()
+	if err != nil {
+		return nil, err
+	}
+
+	query := `
 		SELECT cs.id, cs.class_key, cs.session_number, cs.scheduled_date,
 		       COALESCE(cs.scheduled_time::TEXT, '') AS scheduled_time,
 		       COALESCE(cs.actual_time::TEXT, '') AS actual_time,
@@ -10637,7 +10642,23 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 		       COALESCE(msc.is_absent, false) AS mentor_absent,
 		       COALESCE(att.marked_count, 0) AS attendance_marked,
 		       COALESCE(att.attended_count, 0) AS attended_students,
-		       COALESCE(att.absent_count, 0) AS absent_students
+		       COALESCE(att.absent_count, 0) AS absent_students`
+	if hasRescheduleAudit {
+		query += `,
+		       (latest_reschedule.id IS NOT NULL) AS was_rescheduled,
+		       COALESCE(latest_reschedule.old_scheduled_date::TEXT, '') AS previous_date,
+		       COALESCE(latest_reschedule.old_scheduled_time::TEXT, '') AS previous_time,
+		       COALESCE(latest_reschedule.created_at::TEXT, '') AS rescheduled_at,
+		       COALESCE(NULLIF(TRIM(changed_by.full_name), ''), changed_by.email, '') AS rescheduled_by`
+	} else {
+		query += `,
+		       false AS was_rescheduled,
+		       '' AS previous_date,
+		       '' AS previous_time,
+		       '' AS rescheduled_at,
+		       '' AS rescheduled_by`
+	}
+	query += `
 		FROM class_sessions cs
 		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
 		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
@@ -10650,7 +10671,9 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 				COUNT(*) FILTER (WHERE a.status = 'ABSENT')::int AS absent_count
 			FROM attendance a
 			WHERE a.session_id = cs.id
-		) att ON true
+		) att ON true`
+	if hasRescheduleAudit {
+		query += `
 		LEFT JOIN LATERAL (
 			SELECT csr.id, csr.old_scheduled_date, csr.old_scheduled_time, csr.created_at, csr.changed_by_user_id
 			FROM class_session_reschedules csr
@@ -10658,11 +10681,15 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 			ORDER BY csr.created_at DESC
 			LIMIT 1
 		) latest_reschedule ON true
-		LEFT JOIN users changed_by ON changed_by.id = latest_reschedule.changed_by_user_id
+		LEFT JOIN users changed_by ON changed_by.id = latest_reschedule.changed_by_user_id`
+	}
+	query += `
 		WHERE cs.scheduled_date = $1
 		  AND COALESCE(cg.round_status, 'not_started') = 'active'
 		ORDER BY cs.scheduled_time, cg.level, cg.class_number, cs.class_key
-	`, reportDate.Format("2006-01-02"))
+	`
+
+	rows, err := db.DB.Query(query, reportDate.Format("2006-01-02"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query manager ops sessions: %w", err)
 	}
@@ -10820,6 +10847,14 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 	payload.WeeklySummary = weeklySummary
 
 	return payload, nil
+}
+
+func managerOpsHasRescheduleAudit() (bool, error) {
+	var exists bool
+	if err := db.DB.QueryRow(`SELECT to_regclass('public.class_session_reschedules') IS NOT NULL`).Scan(&exists); err != nil {
+		return false, fmt.Errorf("failed to check class session reschedule audit table: %w", err)
+	}
+	return exists, nil
 }
 
 func GetManagerOverviewPayload() (*ManagerOverviewPayload, error) {
