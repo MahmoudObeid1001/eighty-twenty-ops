@@ -10459,7 +10459,12 @@ func GetDailyReportPayload(inputDate time.Time, rankingFrom, rankingTo *time.Tim
 
 	now := util.CairoNow()
 
-	rows, err := db.DB.Query(`
+	hasRescheduleAudit, err := managerOpsHasRescheduleAudit()
+	if err != nil {
+		return nil, err
+	}
+
+	query := `
 		SELECT cs.id, cs.class_key, cs.session_number, cs.scheduled_date,
 		       COALESCE(cs.scheduled_time::TEXT, '') AS scheduled_time,
 		       COALESCE(cs.actual_time::TEXT, '') AS actual_time,
@@ -10473,12 +10478,23 @@ func GetDailyReportPayload(inputDate time.Time, rankingFrom, rankingTo *time.Tim
 		       COALESCE(msc.is_absent, false) AS mentor_absent,
 		       COALESCE(att.marked_count, 0) AS attendance_marked,
 		       COALESCE(att.attended_count, 0) AS attended_students,
-		       COALESCE(att.absent_count, 0) AS absent_students,
+		       COALESCE(att.absent_count, 0) AS absent_students`
+	if hasRescheduleAudit {
+		query += `,
 		       (latest_reschedule.id IS NOT NULL) AS was_rescheduled,
 		       COALESCE(latest_reschedule.old_scheduled_date::TEXT, '') AS previous_date,
 		       COALESCE(latest_reschedule.old_scheduled_time::TEXT, '') AS previous_time,
 		       COALESCE(latest_reschedule.created_at::TEXT, '') AS rescheduled_at,
-		       COALESCE(NULLIF(TRIM(changed_by.full_name), ''), changed_by.email, '') AS rescheduled_by
+		       COALESCE(NULLIF(TRIM(changed_by.full_name), ''), changed_by.email, '') AS rescheduled_by`
+	} else {
+		query += `,
+		       false AS was_rescheduled,
+		       '' AS previous_date,
+		       '' AS previous_time,
+		       '' AS rescheduled_at,
+		       '' AS rescheduled_by`
+	}
+	query += `
 		FROM class_sessions cs
 		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
 		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
@@ -10491,11 +10507,25 @@ func GetDailyReportPayload(inputDate time.Time, rankingFrom, rankingTo *time.Tim
 				COUNT(*) FILTER (WHERE a.status = 'ABSENT')::int AS absent_count
 			FROM attendance a
 			WHERE a.session_id = cs.id
-		) att ON true
+		) att ON true`
+	if hasRescheduleAudit {
+		query += `
+		LEFT JOIN LATERAL (
+			SELECT csr.id, csr.old_scheduled_date, csr.old_scheduled_time, csr.created_at, csr.changed_by_user_id
+			FROM class_session_reschedules csr
+			WHERE csr.class_session_id = cs.id
+			ORDER BY csr.created_at DESC
+			LIMIT 1
+		) latest_reschedule ON true
+		LEFT JOIN users changed_by ON changed_by.id = latest_reschedule.changed_by_user_id`
+	}
+	query += `
 		WHERE cs.scheduled_date = $1
 		  AND COALESCE(cg.round_status, 'not_started') = 'active'
 		ORDER BY cs.scheduled_time, cg.level, cg.class_number, cs.class_key
-	`, normalizedDate.Format("2006-01-02"))
+	`
+
+	rows, err := db.DB.Query(query, normalizedDate.Format("2006-01-02"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query daily report sessions: %w", err)
 	}
@@ -10519,6 +10549,10 @@ func GetDailyReportPayload(inputDate time.Time, rankingFrom, rankingTo *time.Tim
 		var level, classNumber int32
 		var classDays, classTime string
 		var scheduledDate time.Time
+		var previousDate string
+		var previousTime string
+		var rescheduledAt string
+		var rescheduledBy string
 		row := &ManagerOpsSessionRow{}
 
 		if err := rows.Scan(
@@ -10542,6 +10576,11 @@ func GetDailyReportPayload(inputDate time.Time, rankingFrom, rankingTo *time.Tim
 			&row.AttendanceMarked,
 			&row.AttendedStudents,
 			&row.AbsentStudents,
+			&row.WasRescheduled,
+			&previousDate,
+			&previousTime,
+			&rescheduledAt,
+			&rescheduledBy,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan daily report session: %w", err)
 		}
@@ -10562,6 +10601,10 @@ func GetDailyReportPayload(inputDate time.Time, rankingFrom, rankingTo *time.Tim
 		row.AttendanceStatus = computeManagerAttendanceStatus(expected, row.AttendanceMarked)
 		row.SessionPhase = computeManagerSessionPhase(normalizedDate, row.ScheduledTime, row.SessionStatus, now)
 		row.MentorStatus = computeManagerMentorStatus(row.ComplianceChecked, row.MentorAbsent, row.DelayMinutes)
+		row.PreviousDate = previousDate
+		row.PreviousTime = previousTime
+		row.RescheduledAt = rescheduledAt
+		row.RescheduledBy = rescheduledBy
 
 		report.ClassesScheduled++
 		report.ExpectedStudents += row.ExpectedStudents
