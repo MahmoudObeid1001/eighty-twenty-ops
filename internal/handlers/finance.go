@@ -194,9 +194,9 @@ func (h *FinanceHandler) NewExpenseForm(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Manager only for manual finance entries
+	// Admin and manager can add manual expenses
 	userRole := middleware.GetUserRole(r)
-	if userRole != "manager" {
+	if userRole != "admin" && userRole != "manager" {
 		http.Error(w, "You don't have permission to access this page.", http.StatusForbidden)
 		return
 	}
@@ -228,9 +228,9 @@ func (h *FinanceHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Manager only for manual finance entries
+	// Admin and manager can add manual expenses
 	userRole := middleware.GetUserRole(r)
-	if userRole != "manager" {
+	if userRole != "admin" && userRole != "manager" {
 		redirectWithError(w, r, "/finance", "You don't have permission to do this.")
 		return
 	}

@@ -1121,15 +1121,15 @@ func main() {
 		switch r.Method {
 		case http.MethodGet:
 			cfg.Debugf("  → Calling financeHandler.NewExpenseForm")
-			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(financeHandler.NewExpenseForm)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "manager"}, cfg.SessionSecret)(financeHandler.NewExpenseForm)(w, r)
 		case http.MethodPost:
 			cfg.Debugf("  → Calling financeHandler.CreateExpense")
-			middleware.RequireAnyRole([]string{"manager"}, cfg.SessionSecret)(financeHandler.CreateExpense)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "manager"}, cfg.SessionSecret)(financeHandler.CreateExpense)(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /finance/new-expense -> financeHandler (NewExpenseForm/CreateExpense) [manager only]")
+	cfg.Debugf("ROUTE REGISTERED: /finance/new-expense -> financeHandler (NewExpenseForm/CreateExpense) [admin + manager]")
 
 	mux.HandleFunc("/finance/new-revenue", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /finance/new-revenue handler for %s %s", r.Method, r.URL.Path)

@@ -63,6 +63,8 @@
     <div class="finance-filter-cta" style="margin-left: auto;">
         {{if eq .UserRole "manager"}}
         <a href="/finance/new-revenue" class="btn btn-secondary" style="margin-right: 8px;">New Revenue</a>
+        {{end}}
+        {{if or (eq .UserRole "admin") (eq .UserRole "manager")}}
         <a href="/finance/new-expense" class="btn btn-primary">New Expense</a>
         {{end}}
     </div>
