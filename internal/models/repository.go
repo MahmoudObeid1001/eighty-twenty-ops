@@ -4863,8 +4863,8 @@ func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime strin
 	return tx.Commit()
 }
 
-// CancelAndRescheduleSession cancels a session and reschedules it to a new date/time (same session_number)
-func CancelAndRescheduleSession(sessionID uuid.UUID, newDate time.Time, newTime string) error {
+// CancelAndRescheduleSession reschedules a session and records the previous schedule for reporting.
+func CancelAndRescheduleSession(sessionID uuid.UUID, newDate time.Time, newTime string, changedByUserID uuid.UUID) error {
 	// Parse new time to calculate end time
 	startTimeParsed, err := time.Parse("15:04", newTime)
 	if err != nil {
@@ -4873,8 +4873,49 @@ func CancelAndRescheduleSession(sessionID uuid.UUID, newDate time.Time, newTime 
 	endTimeParsed := startTimeParsed.Add(2 * time.Hour)
 	endTime := endTimeParsed.Format("15:04")
 
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin reschedule transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var classKey string
+	var sessionNumber int32
+	var oldDate time.Time
+	var oldTime string
+	err = tx.QueryRow(`
+		SELECT class_key, session_number, scheduled_date, COALESCE(scheduled_time::TEXT, '')
+		FROM class_sessions
+		WHERE id = $1
+	`, sessionID).Scan(&classKey, &sessionNumber, &oldDate, &oldTime)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("session not found")
+		}
+		return fmt.Errorf("failed to load current session schedule: %w", err)
+	}
+
 	now := time.Now()
-	_, err = db.DB.Exec(`
+	_, err = tx.Exec(`
+		INSERT INTO class_session_reschedules (
+			id,
+			class_session_id,
+			class_key,
+			session_number,
+			old_scheduled_date,
+			old_scheduled_time,
+			new_scheduled_date,
+			new_scheduled_time,
+			changed_by_user_id,
+			created_at
+		)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::time, $6, $7::time, $8, $9)
+	`, sessionID, classKey, sessionNumber, oldDate.Format("2006-01-02"), oldTime, newDate.Format("2006-01-02"), newTime, changedByUserID, now)
+	if err != nil {
+		return fmt.Errorf("failed to record session reschedule: %w", err)
+	}
+
+	_, err = tx.Exec(`
 		UPDATE class_sessions
 		SET scheduled_date = $1, scheduled_time = $2, scheduled_end_time = $3,
 		    actual_date = NULL, actual_time = NULL, actual_end_time = NULL, completed_at = NULL,
@@ -4883,6 +4924,10 @@ func CancelAndRescheduleSession(sessionID uuid.UUID, newDate time.Time, newTime 
 	`, newDate, newTime, endTime, now, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to reschedule session: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit session reschedule: %w", err)
 	}
 	return nil
 }
@@ -10428,7 +10473,12 @@ func GetDailyReportPayload(inputDate time.Time, rankingFrom, rankingTo *time.Tim
 		       COALESCE(msc.is_absent, false) AS mentor_absent,
 		       COALESCE(att.marked_count, 0) AS attendance_marked,
 		       COALESCE(att.attended_count, 0) AS attended_students,
-		       COALESCE(att.absent_count, 0) AS absent_students
+		       COALESCE(att.absent_count, 0) AS absent_students,
+		       (latest_reschedule.id IS NOT NULL) AS was_rescheduled,
+		       COALESCE(latest_reschedule.old_scheduled_date::TEXT, '') AS previous_date,
+		       COALESCE(latest_reschedule.old_scheduled_time::TEXT, '') AS previous_time,
+		       COALESCE(latest_reschedule.created_at::TEXT, '') AS rescheduled_at,
+		       COALESCE(NULLIF(TRIM(changed_by.full_name), ''), changed_by.email, '') AS rescheduled_by
 		FROM class_sessions cs
 		INNER JOIN class_groups cg ON cg.class_key = cs.class_key
 		LEFT JOIN mentor_assignments ma ON ma.class_key = cs.class_key
@@ -10601,6 +10651,14 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 			FROM attendance a
 			WHERE a.session_id = cs.id
 		) att ON true
+		LEFT JOIN LATERAL (
+			SELECT csr.id, csr.old_scheduled_date, csr.old_scheduled_time, csr.created_at, csr.changed_by_user_id
+			FROM class_session_reschedules csr
+			WHERE csr.class_session_id = cs.id
+			ORDER BY csr.created_at DESC
+			LIMIT 1
+		) latest_reschedule ON true
+		LEFT JOIN users changed_by ON changed_by.id = latest_reschedule.changed_by_user_id
 		WHERE cs.scheduled_date = $1
 		  AND COALESCE(cg.round_status, 'not_started') = 'active'
 		ORDER BY cs.scheduled_time, cg.level, cg.class_number, cs.class_key
@@ -10629,6 +10687,10 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 		var scheduledDate time.Time
 		var level, classNumber int32
 		var classDays, classTime string
+		var previousDate string
+		var previousTime string
+		var rescheduledAt string
+		var rescheduledBy string
 
 		row := &ManagerOpsSessionRow{}
 		if err := rows.Scan(
@@ -10652,6 +10714,11 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 			&row.AttendanceMarked,
 			&row.AttendedStudents,
 			&row.AbsentStudents,
+			&row.WasRescheduled,
+			&previousDate,
+			&previousTime,
+			&rescheduledAt,
+			&rescheduledBy,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan manager ops session: %w", err)
 		}
@@ -10672,6 +10739,10 @@ func GetManagerOpsPayload(inputDate time.Time, rankingFrom, rankingTo *time.Time
 		row.AttendanceStatus = computeManagerAttendanceStatus(expected, row.AttendanceMarked)
 		row.SessionPhase = computeManagerSessionPhase(reportDate, row.ScheduledTime, row.SessionStatus, now)
 		row.MentorStatus = computeManagerMentorStatus(row.ComplianceChecked, row.MentorAbsent, row.DelayMinutes)
+		row.PreviousDate = previousDate
+		row.PreviousTime = previousTime
+		row.RescheduledAt = rescheduledAt
+		row.RescheduledBy = rescheduledBy
 
 		payload.Summary.SessionsScheduled++
 		payload.Summary.ExpectedStudents += row.ExpectedStudents

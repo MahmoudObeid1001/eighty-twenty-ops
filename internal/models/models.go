@@ -885,6 +885,11 @@ type ManagerOpsSessionRow struct {
 	AttendedStudents  int       `json:"attended_students"`
 	AbsentStudents    int       `json:"absent_students"`
 	AttendanceStatus  string    `json:"attendance_status"`
+	WasRescheduled    bool      `json:"was_rescheduled"`
+	PreviousDate      string    `json:"previous_date"`
+	PreviousTime      string    `json:"previous_time"`
+	RescheduledAt     string    `json:"rescheduled_at"`
+	RescheduledBy     string    `json:"rescheduled_by"`
 }
 
 // OpsNotificationSummary contains the Mentor Head/Manager banners that still need user attention.

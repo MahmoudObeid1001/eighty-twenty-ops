@@ -630,6 +630,11 @@ export interface ManagerOpsSessionRow {
   attended_students: number
   absent_students: number
   attendance_status: string
+  was_rescheduled: boolean
+  previous_date: string
+  previous_time: string
+  rescheduled_at: string
+  rescheduled_by: string
 }
 
 export interface ManagerOpsPayload {

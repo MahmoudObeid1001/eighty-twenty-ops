@@ -2436,7 +2436,13 @@ func (h *APIHandler) RescheduleClassSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := models.CancelAndRescheduleSession(sessionID, newDate, req.NewTime); err != nil {
+	changedByUserID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid user session")
+		return
+	}
+
+	if err := models.CancelAndRescheduleSession(sessionID, newDate, req.NewTime, changedByUserID); err != nil {
 		log.Printf("ERROR: Failed to reschedule session %s for class %s: %v", req.SessionID, req.ClassKey, err)
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return

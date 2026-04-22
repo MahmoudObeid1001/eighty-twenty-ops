@@ -834,6 +834,7 @@ function ManagerOpsView({
   const summary = data.summary
   const weekly = data.weekly_summary
   const showWeeklySummary = isFridayBusinessDate(data.report_date)
+  const rescheduledRows = data.session_rows.filter((row) => row.was_rescheduled)
   const sessionsMissingCompletion = Math.max(summary.sessions_scheduled - summary.sessions_completed, 0)
   const attentionCards = [
     { label: 'Mentors Late', value: summary.late_mentor_sessions, tone: '#92400e', background: '#fef3c7' },
@@ -1016,6 +1017,49 @@ function ManagerOpsView({
             studentsOverAbsenceRanking={data.students_over_absence_ranking}
           />
         </>
+      )}
+
+      {rescheduledRows.length > 0 && (
+        <ReportPanel title="Rescheduled Sessions">
+          <div style={{ color: '#6b7280', fontSize: '13px', marginBottom: '12px' }}>
+            Latest tracked date/time change for sessions scheduled on {data.report_date}.
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '980px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={thStyle}>Class</th>
+                  <th style={thStyle}>Session</th>
+                  <th style={thStyle}>Changed From</th>
+                  <th style={thStyle}>Changed To</th>
+                  <th style={thStyle}>Changed By</th>
+                  <th style={thStyle}>Logged At</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rescheduledRows.map((row) => (
+                  <tr key={`reschedule-${row.session_id}`}>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: 700 }}>{row.class_label}</div>
+                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{row.class_key}</div>
+                    </td>
+                    <td style={tdStyle}>S{row.session_number}</td>
+                    <td style={tdStyle}>
+                      <div>{row.previous_date || '-'}</div>
+                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{formatBusinessTimeLabel(row.previous_time) || '-'}</div>
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: 700 }}>{row.scheduled_date}</div>
+                      <div style={{ color: '#6b7280', fontSize: '12px' }}>{formatBusinessTimeLabel(row.scheduled_time)}</div>
+                    </td>
+                    <td style={tdStyle}>{row.rescheduled_by || 'Unknown'}</td>
+                    <td style={tdStyle}>{formatDateTime(row.rescheduled_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ReportPanel>
       )}
 
       <DailySessionsTable reportDate={data.report_date} rows={data.session_rows} emptyLabel="No active sessions scheduled for this Cairo business day." />
@@ -1227,6 +1271,17 @@ function DailySessionsTable({
                   <td style={tdStyle}>
                     <div>{row.scheduled_date}</div>
                     <div style={{ color: '#6b7280', fontSize: '12px' }}>{formatBusinessTimeLabel(row.scheduled_time)}</div>
+                    {row.was_rescheduled && (
+                      <div style={{ marginTop: '6px', display: 'grid', gap: '2px' }}>
+                        <span style={{ ...pillStyle, background: '#fff7ed', color: '#9a3412', borderColor: '#fed7aa' }}>Rescheduled</span>
+                        <span style={{ color: '#9a3412', fontSize: '12px' }}>
+                          From {row.previous_date || '-'} {formatBusinessTimeLabel(row.previous_time) || ''}
+                        </span>
+                        <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                          By {row.rescheduled_by || 'Unknown'}{row.rescheduled_at ? ` · ${formatDateTime(row.rescheduled_at)}` : ''}
+                        </span>
+                      </div>
+                    )}
                   </td>
                   <td style={tdStyle}>
                     <div style={{ display: 'grid', gap: '4px' }}>
