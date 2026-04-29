@@ -166,7 +166,7 @@
         <a href="/pre-enrolment?snoozed=1{{if $search}}&search={{$search | urlquery}}{{end}}"
             class="quick-filter-btn {{if $isSnoozed}}active{{end}}" data-filter-key="snoozed"
             data-filter-value="1"
-            style="{{if $isSnoozed}}background-color: #0f766e; color: white; border-color: #0f766e;{{end}}">Snoozed</a>
+            style="{{if $isSnoozed}}background-color: #0f766e; color: white; border-color: #0f766e;{{end}}">المؤجلين</a>
     </div>
 </div>
 
@@ -179,8 +179,8 @@
 
 {{if .IsSnoozedLeads}}
 <div class="cold-retarget-panel" style="background: #f0fdfa; border-color: #99f6e4;">
-    <h3 style="color: #115e59;">Snoozed Leads</h3>
-    <p style="color: #0f766e;">These leads are hidden from the main feed and Sleeping Leads until their reminder date. Once the snooze date passes, they return to their original queue with <strong>Reminder Due</strong>.</p>
+    <h3 style="color: #115e59;">الحالات المؤجلة</h3>
+    <p style="color: #0f766e;">الحالات دي متشالة مؤقتاً من الـ Main Feed ومن Sleeping Leads لحد معاد التذكير. أول ما المعاد يوصل، بترجع تلقائي لليستة الأصلية وبيبقى الـ Next Action: <strong>التذكير مستحق دلوقتي</strong>.</p>
 </div>
 {{end}}
 
@@ -350,12 +350,12 @@
                 <td>
                     {{if $.IsSnoozedLeads}}
                     <div class="sleeping-next-action">
-                        <strong>Snoozed until</strong>
+                        <strong>مؤجل لحد</strong>
                         {{if .SnoozedUntil.Valid}}
                         <span>{{.SnoozedUntil.Time.Format "2006-01-02"}}</span>
                         {{end}}
                         {{if .SnoozeNote.Valid}}
-                        <span>Reason: {{.SnoozeNote.String}}</span>
+                        <span>السبب: {{.SnoozeNote.String}}</span>
                         {{end}}
                     </div>
                     {{else if $.IsSleepingLeads}}

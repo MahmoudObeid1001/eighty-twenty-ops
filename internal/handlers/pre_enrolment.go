@@ -535,7 +535,7 @@ func (h *PreEnrolmentHandler) SendSleepingLeadFollowUp(w http.ResponseWriter, r 
 		return
 	}
 	if snooze, err := models.GetLeadSnooze(leadID); err == nil && snooze != nil && util.CairoNow().Before(snooze.SnoozedUntil) {
-		redirectWithError(w, r, "/pre-enrolment?snoozed=1", fmt.Sprintf("This lead is snoozed until %s.", util.FormatDateCairo(snooze.SnoozedUntil)))
+		redirectWithError(w, r, "/pre-enrolment?snoozed=1", fmt.Sprintf("الحالة دي متأجلة لحد %s.", util.FormatDateCairo(snooze.SnoozedUntil)))
 		return
 	}
 
@@ -584,7 +584,7 @@ func (h *PreEnrolmentHandler) SendOfferSentFollowUp(w http.ResponseWriter, r *ht
 		return
 	}
 	if snooze, err := models.GetLeadSnooze(leadID); err == nil && snooze != nil && util.CairoNow().Before(snooze.SnoozedUntil) {
-		redirectWithError(w, r, "/pre-enrolment?snoozed=1", fmt.Sprintf("This lead is snoozed until %s.", util.FormatDateCairo(snooze.SnoozedUntil)))
+		redirectWithError(w, r, "/pre-enrolment?snoozed=1", fmt.Sprintf("الحالة دي متأجلة لحد %s.", util.FormatDateCairo(snooze.SnoozedUntil)))
 		return
 	}
 
@@ -1067,7 +1067,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			leadSnoozeNote = leadSnooze.Note.String
 		}
 		if leadSnoozeDue {
-			tempItem.NextAction = "Reminder Due"
+			tempItem.NextAction = "التذكير مستحق دلوقتي"
 			tempItem.FollowUpDue = true
 		}
 	}
@@ -1936,22 +1936,22 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !canSnoozeLead(detail) {
-			h.renderDetailWithError(w, r, leadID, "Snooze is available only for leads in the main pre-enrolment feed or Sleeping Leads.")
+			h.renderDetailWithError(w, r, leadID, "تأجيل المتابعة متاح بس للحالات اللي في الـ Main Feed أو Sleeping Leads.")
 			return
 		}
 
 		snoozeDate := strings.TrimSpace(r.FormValue("lead_snooze_date"))
 		if snoozeDate == "" {
-			h.renderDetailWithError(w, r, leadID, "Please choose the reminder date.")
+			h.renderDetailWithError(w, r, leadID, "من فضلك اختار تاريخ التذكير.")
 			return
 		}
 		snoozedUntil, err := util.ParseDateCairo(snoozeDate)
 		if err != nil {
-			h.renderDetailWithError(w, r, leadID, "Invalid reminder date.")
+			h.renderDetailWithError(w, r, leadID, "تاريخ التذكير غير صحيح.")
 			return
 		}
 		if snoozedUntil.Before(util.CairoStartOfDay(util.CairoNow())) {
-			h.renderDetailWithError(w, r, leadID, "Reminder date cannot be in the past.")
+			h.renderDetailWithError(w, r, leadID, "مينفعش تاريخ التذكير يكون في الماضي.")
 			return
 		}
 
@@ -1964,11 +1964,11 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		if err := models.UpsertLeadSnooze(leadID, snoozedUntil, r.FormValue("lead_snooze_note"), actorID); err != nil {
 			log.Printf("ERROR: Failed to save lead snooze: %v", err)
-			http.Error(w, "Couldn't save the snooze reminder. Please try again.", http.StatusInternalServerError)
+			http.Error(w, "ماقدرناش نحفظ تأجيل المتابعة. حاول تاني.", http.StatusInternalServerError)
 			return
 		}
 
-		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", fmt.Sprintf("Lead snoozed until %s.", util.FormatDateCairo(snoozedUntil)))
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", fmt.Sprintf("تم تأجيل المتابعة لحد %s.", util.FormatDateCairo(snoozedUntil)))
 		return
 
 	case "clear_lead_snooze":
@@ -1979,10 +1979,10 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := models.DeleteLeadSnooze(leadID); err != nil {
 			log.Printf("ERROR: Failed to clear lead snooze: %v", err)
-			http.Error(w, "Couldn't clear the snooze reminder. Please try again.", http.StatusInternalServerError)
+			http.Error(w, "ماقدرناش نلغي تأجيل المتابعة. حاول تاني.", http.StatusInternalServerError)
 			return
 		}
-		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "Lead snooze cleared.")
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "تم إلغاء تأجيل المتابعة.")
 		return
 
 	case "set_sleeping_reminder":

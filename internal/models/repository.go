@@ -413,7 +413,7 @@ func applyLeadSnoozeState(item *LeadListItem, now time.Time) {
 		return
 	}
 	item.SnoozeDue = true
-	item.NextAction = "Reminder Due"
+	item.NextAction = "التذكير مستحق دلوقتي"
 	item.FollowUpDue = true
 }
 
@@ -1057,7 +1057,7 @@ func GetSnoozedLeads(searchFilter string) ([]*LeadListItem, error) {
 			ClassTime:        classTime,
 			PaymentStatus:    GetPaymentStatus(remainingBalance, amountPaid),
 			PaymentState:     paymentState,
-			NextAction:       "Reminder scheduled",
+			NextAction:       "مؤجل لحد معاد التذكير",
 			TestDate:         testDate,
 			AmountPaid:       amountPaid,
 			FinalPrice:       finalPrice,
