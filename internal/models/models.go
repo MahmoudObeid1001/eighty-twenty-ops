@@ -293,6 +293,7 @@ type ClassMembership struct {
 	LeadID                 uuid.UUID
 	ClassKey               string
 	JoinedAtSessionNumber  int32
+	LevelConsumedAtSession sql.NullInt32
 	LeftAfterSessionNumber sql.NullInt32
 	JoinReason             string
 	LeaveReason            sql.NullString
@@ -990,15 +991,22 @@ type EligibleClass struct {
 
 // ClassEnrollment represents a historical class enrollment record
 type ClassEnrollment struct {
-	ID          uuid.UUID
-	LeadID      uuid.UUID
-	ClassKey    string
-	Level       int32
-	ClassDays   string
-	ClassTime   string
-	MentorName  sql.NullString
-	FinalGrade  sql.NullString // A, B, C, F
-	Outcome     sql.NullString // promoted, repeated
-	EnrolledAt  time.Time
-	CompletedAt sql.NullTime
+	ID                         uuid.UUID
+	LeadID                     uuid.UUID
+	ClassKey                   string
+	Level                      int32
+	ClassDays                  string
+	ClassTime                  string
+	MentorName                 sql.NullString
+	FinalGrade                 sql.NullString // A, B, C, F
+	Outcome                    sql.NullString // promoted, repeated
+	NextLevelConsumedOnClose   bool
+	ContinuationHoldActive     bool
+	ContinuationHoldReason     sql.NullString
+	ContinuationHoldAppliedBy  sql.NullString
+	ContinuationHoldAppliedAt  sql.NullTime
+	ContinuationHoldReleasedBy sql.NullString
+	ContinuationHoldReleasedAt sql.NullTime
+	EnrolledAt                 time.Time
+	CompletedAt                sql.NullTime
 }

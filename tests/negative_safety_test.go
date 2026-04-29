@@ -23,6 +23,9 @@ func TestNegativeSafetyRails(t *testing.T) {
 	if err := db.Connect(cfg.DatabaseURL); err != nil {
 		t.Fatalf("failed to connect db: %v", err)
 	}
+	if err := db.RunMigrations(); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
+	}
 	t.Cleanup(func() {
 		_ = db.Close()
 	})
@@ -146,6 +149,7 @@ func cleanupClass(t *testing.T, classKey string) {
 	mustExec(t, `DELETE FROM attendance WHERE session_id IN (SELECT id FROM class_sessions WHERE class_key = $1)`, classKey)
 	mustExec(t, `DELETE FROM class_sessions WHERE class_key = $1`, classKey)
 	mustExec(t, `DELETE FROM grades WHERE class_key = $1`, classKey)
+	mustExec(t, `DELETE FROM class_memberships WHERE class_key = $1`, classKey)
 	mustExec(t, `DELETE FROM class_enrollments WHERE class_key = $1`, classKey)
 	mustExec(t, `DELETE FROM mentor_assignments WHERE class_key = $1`, classKey)
 	mustExec(t, `DELETE FROM class_groups WHERE class_key = $1`, classKey)
@@ -157,6 +161,7 @@ func cleanupLead(t *testing.T, leadID uuid.UUID) {
 	mustExec(t, `DELETE FROM late_joiners WHERE lead_id = $1`, leadID)
 	mustExec(t, `DELETE FROM attendance WHERE lead_id = $1`, leadID)
 	mustExec(t, `DELETE FROM grades WHERE lead_id = $1`, leadID)
+	mustExec(t, `DELETE FROM class_memberships WHERE lead_id = $1`, leadID)
 	mustExec(t, `DELETE FROM class_enrollments WHERE lead_id = $1`, leadID)
 	mustExec(t, `DELETE FROM transactions WHERE lead_id = $1`, leadID)
 	mustExec(t, `DELETE FROM payment_cycles WHERE lead_id = $1`, leadID)

@@ -302,6 +302,7 @@
                     {{else if eq $s "waiting_for_round"}}{{$stage = "WAITING LIST"}}
                     {{else if eq $s "renewal_pending"}}{{$stage = "RENEWAL_PENDING"}}
                     {{else if eq $s "ready_to_start"}}{{$stage = "READY_TO_START"}}
+                    {{else if eq $s "paused"}}{{$stage = "ON HOLD"}}
                     {{else if eq $s "cold_lead"}}{{$stage = "COLD_LEAD"}}
                     {{else if eq $s "cancelled"}}{{$stage = "CANCELLED"}}
                     {{else}}{{$stage = $s}}{{end}}
@@ -493,12 +494,12 @@
                         {{end}}
                         <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
                         {{if and (not $.IsSleepingLeads) (not $.IsSnoozedLeads)}}
-                        {{if and (not $.IsModerator) (eq $s "ready_to_start") (not .Lead.SentToClasses)
+                        {{if and (not $.IsModerator) (or (eq $s "ready_to_start") (eq $s "waiting_for_round")) (not .Lead.SentToClasses)
                         .AssignedLevel.Valid}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form"
                             data-lead-id="{{.Lead.ID}}">
                             <input type="hidden" name="action" value="send_to_classes">
-                            <button type="submit" class="btn btn-success btn-small">To Classes</button>
+                            <button type="submit" class="btn btn-success btn-small">Send to Class</button>
                         </form>
                         {{end}}
                         {{if and (not $.IsModerator) (not $isCancelled)}}

@@ -1222,6 +1222,12 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	leadPayments := []*models.LeadPayment{}
 	previousPayments := []*models.LeadPayment{}
 	var cycleStart *time.Time
+	var latestEnrollment *models.ClassEnrollment
+	if latest, err := models.GetLatestClassEnrollment(leadID); err == nil {
+		latestEnrollment = latest
+	} else {
+		log.Printf("ERROR: Failed to get latest class enrollment: %v", err)
+	}
 	if detail.Lead.IsReturning {
 		if cs, err := models.GetLatestClassOutcome(leadID); err == nil && cs != nil && cs.CompletedAt.Valid {
 			cycleStart = &cs.CompletedAt.Time
@@ -1242,18 +1248,16 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		// Schedule Fallback Logic:
 		// For returning students, if their current scheduling preferences are empty,
 		// default them to the values from their latest class enrollment.
-		if detail.Lead.IsReturning && detail.Scheduling != nil && (!detail.Scheduling.ClassDays.Valid || !detail.Scheduling.ClassTime.Valid) {
-			if latest, err := models.GetLatestClassEnrollment(leadID); err == nil && latest != nil {
-				if !detail.Scheduling.ClassDays.Valid && latest.ClassDays != "" {
-					detail.Scheduling.ClassDays = sql.NullString{String: latest.ClassDays, Valid: true}
+		if detail.Lead.IsReturning && latestEnrollment != nil && detail.Scheduling != nil && (!detail.Scheduling.ClassDays.Valid || !detail.Scheduling.ClassTime.Valid) {
+			if !detail.Scheduling.ClassDays.Valid && latestEnrollment.ClassDays != "" {
+				detail.Scheduling.ClassDays = sql.NullString{String: latestEnrollment.ClassDays, Valid: true}
+			}
+			if !detail.Scheduling.ClassTime.Valid && latestEnrollment.ClassTime != "" {
+				timeStr := latestEnrollment.ClassTime
+				if len(timeStr) > 5 {
+					timeStr = timeStr[:5]
 				}
-				if !detail.Scheduling.ClassTime.Valid && latest.ClassTime != "" {
-					timeStr := latest.ClassTime
-					if len(timeStr) > 5 {
-						timeStr = timeStr[:5]
-					}
-					detail.Scheduling.ClassTime = sql.NullString{String: timeStr, Valid: true}
-				}
+				detail.Scheduling.ClassTime = sql.NullString{String: timeStr, Valid: true}
 			}
 		}
 	} else {
@@ -1323,6 +1327,21 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		coldAnchor = detail.Lead.OfferSentAt.Time
 	}
 	coldEligible := detail.Lead.Status == "offer_sent" && offerReminder == nil && time.Since(coldAnchor) >= 7*24*time.Hour
+
+	canApplyContinuationHold := (userRole == "admin" || userRole == "manager") &&
+		detail.Lead.Status == "waiting_for_round" &&
+		latestEnrollment != nil &&
+		latestEnrollment.NextLevelConsumedOnClose &&
+		!latestEnrollment.ContinuationHoldActive
+	canReleaseContinuationHold := (userRole == "admin" || userRole == "manager") &&
+		detail.Lead.Status == "paused" &&
+		latestEnrollment != nil &&
+		latestEnrollment.NextLevelConsumedOnClose &&
+		latestEnrollment.ContinuationHoldActive
+	continuationHoldReason := ""
+	if latestEnrollment != nil && latestEnrollment.ContinuationHoldReason.Valid {
+		continuationHoldReason = latestEnrollment.ContinuationHoldReason.String
+	}
 
 	creditsRemaining := int32(0)
 	if detail.Lead.LevelsPurchasedTotal.Valid {
@@ -1415,35 +1434,39 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	}
 
 	data := map[string]interface{}{
-		"Title":                  fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
-		"Detail":                 detail,
-		"UserRole":               userRole,
-		"IsModerator":            userRole == "moderator",
-		"IsAdmin":                userRole == "admin",
-		"IsReadOnly":             userRole == "student_success",
-		"ColdEligible":           coldEligible,
-		"LateJoiner":             lateJoiner,
-		"ClassCurrentSession":    classCurrentSession,
-		"PlacementTestRemaining": placementTestRemaining,
-		"FollowUpDue":            tempItem.FollowUpDue,
-		"ShowFollowUpBanner":     showFollowUpBanner,
-		"HotLevel":               tempItem.HotLevel,
-		"NextAction":             tempItem.NextAction,
-		"LeadWhatsAppURL":        tempItem.WhatsAppURL,
-		"OfferFollowUpStep":      tempItem.OfferFollowUpStep,
-		"OfferFollowUpDueAt":     tempItem.OfferFollowUpDueAt,
-		"OfferFollowUpDueNow":    tempItem.OfferFollowUpDueNow,
-		"OfferFollowUpLastStep":  tempItem.OfferFollowUpLastStep,
-		"DaysSinceLastProgress":  tempItem.DaysSinceLastProgress,
-		"Today":                  today,
-		"LeadPayments":           leadPayments,
-		"PreviousLeadPayments":   previousPayments,
-		"FinalPrice":             finalPriceValue,
-		"TotalCoursePaid":        totalCoursePaid,
-		"RemainingBalance":       remainingBalance,
-		"IsFullyPaid":            isFullyPaid,
-		"IsWaitingForRound":      detail.Lead.Status == "waiting_for_round",
-		"CanMoveWaiting":         canUseWaitingFlow(detail),
+		"Title":                      fmt.Sprintf("Pre-Enrolment Detail - %s", detail.Lead.FullName),
+		"Detail":                     detail,
+		"UserRole":                   userRole,
+		"IsModerator":                userRole == "moderator",
+		"IsAdmin":                    userRole == "admin",
+		"IsReadOnly":                 userRole == "student_success",
+		"ColdEligible":               coldEligible,
+		"LateJoiner":                 lateJoiner,
+		"ClassCurrentSession":        classCurrentSession,
+		"PlacementTestRemaining":     placementTestRemaining,
+		"FollowUpDue":                tempItem.FollowUpDue,
+		"ShowFollowUpBanner":         showFollowUpBanner,
+		"HotLevel":                   tempItem.HotLevel,
+		"NextAction":                 tempItem.NextAction,
+		"LeadWhatsAppURL":            tempItem.WhatsAppURL,
+		"OfferFollowUpStep":          tempItem.OfferFollowUpStep,
+		"OfferFollowUpDueAt":         tempItem.OfferFollowUpDueAt,
+		"OfferFollowUpDueNow":        tempItem.OfferFollowUpDueNow,
+		"OfferFollowUpLastStep":      tempItem.OfferFollowUpLastStep,
+		"DaysSinceLastProgress":      tempItem.DaysSinceLastProgress,
+		"Today":                      today,
+		"LeadPayments":               leadPayments,
+		"PreviousLeadPayments":       previousPayments,
+		"FinalPrice":                 finalPriceValue,
+		"TotalCoursePaid":            totalCoursePaid,
+		"RemainingBalance":           remainingBalance,
+		"IsFullyPaid":                isFullyPaid,
+		"IsWaitingForRound":          detail.Lead.Status == "waiting_for_round",
+		"IsPaused":                   detail.Lead.Status == "paused",
+		"CanMoveWaiting":             canUseWaitingFlow(detail),
+		"CanApplyContinuationHold":   canApplyContinuationHold,
+		"CanReleaseContinuationHold": canReleaseContinuationHold,
+		"ContinuationHoldReason":     continuationHoldReason,
 		"CoursePaymentEnabled": func() bool {
 			ok, _ := canUseCoursePaymentFlow(detail)
 			return ok
@@ -1743,6 +1766,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
+	userID, _ := uuid.Parse(middleware.GetUserID(r))
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
 		http.Error(w, "We couldn't find that lead. Please refresh and try again.", http.StatusBadRequest)
@@ -2609,9 +2633,9 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Check eligibility: status must be ready_to_start, and must have assigned_level, class_days, class_time
-		if detail.Lead.Status != "ready_to_start" {
-			h.renderDetailWithError(w, r, leadID, "Lead must be READY_TO_START to send to classes.")
+		// Check eligibility: waiting-for-round and ready-to-start leads can be sent once schedule is set.
+		if detail.Lead.Status != "ready_to_start" && detail.Lead.Status != "waiting_for_round" {
+			h.renderDetailWithError(w, r, leadID, "Lead must be READY_TO_START or WAITING_FOR_ROUND to send to classes.")
 			return
 		}
 		if detail.PlacementTest == nil || !detail.PlacementTest.AssignedLevel.Valid {
@@ -2651,6 +2675,37 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Redirect(w, r, "/pre-enrolment?sentToClasses=1", http.StatusFound)
+		return
+
+	case "apply_continuation_hold":
+		h.cfg.Debugf("  → Action: apply_continuation_hold")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to place this student on hold.", http.StatusForbidden)
+			return
+		}
+
+		reason := strings.TrimSpace(r.FormValue("continuation_hold_reason"))
+		if err := models.ApplyContinuationHold(leadID, userID, reason); err != nil {
+			h.renderDetailWithError(w, r, leadID, err.Error())
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "Continuation hold applied. The reserved next level was restored.")
+		return
+
+	case "release_continuation_hold":
+		h.cfg.Debugf("  → Action: release_continuation_hold")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to release this hold.", http.StatusForbidden)
+			return
+		}
+
+		if err := models.ReleaseContinuationHold(leadID, userID); err != nil {
+			h.renderDetailWithError(w, r, leadID, err.Error())
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "Continuation hold released. The next level was consumed again and the student is ready to start.")
 		return
 
 	case "cancel":

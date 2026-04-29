@@ -71,6 +71,12 @@ func GetStatusDisplayInfo(status string) StatusDisplayInfo {
 			TextColor:   "#006600",
 			BorderColor: "#28a745",
 		},
+		"paused": {
+			DisplayName: "On Hold",
+			BgColor:     "#EBF8FF",
+			TextColor:   "#1A365D",
+			BorderColor: "#63B3ED",
+		},
 		"cold_lead": {
 			DisplayName: "Cold Lead",
 			BgColor:     "#4A5568",

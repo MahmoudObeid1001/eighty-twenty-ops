@@ -1030,27 +1030,63 @@
     <div
         style="margin-top: 12px; padding: 12px 14px; border-radius: 4px; border: 1px solid #FFD8A8; background: #FFF8E1; color: #8C4A00;">
         <strong>Waiting List:</strong> This lead is kept out of classes until a batch is ready. Keep the preferred
-        level/days/time updated here, then use <strong>Mark Ready to Start</strong> once the class slot is confirmed.
+        level/days/time updated here, then use <strong>Send to Class</strong> once the class slot is confirmed.
+    </div>
+    {{end}}
+    {{if .IsPaused}}
+    <div
+        style="margin-top: 12px; padding: 12px 14px; border-radius: 4px; border: 1px solid #C3DAFE; background: #EBF8FF; color: #1A365D;">
+        <strong>On Hold:</strong> The reserved next level has been restored temporarily. Release the hold to consume it
+        again and move the student to <strong>Ready to Start</strong>.
+        {{if .ContinuationHoldReason}}
+        <div style="margin-top: 6px;">Reason: {{.ContinuationHoldReason}}</div>
+        {{end}}
     </div>
     {{end}}
 
-    <!-- Send to Classes Button - Only show if READY_TO_START and not already sent -->
-    {{if and (eq .Detail.Lead.Status "ready_to_start") (not .Detail.Lead.SentToClasses)}}
+    <!-- Send to Class Button - Show for READY_TO_START or WAITING_FOR_ROUND when not already sent -->
+    {{if and (or (eq .Detail.Lead.Status "ready_to_start") (eq .Detail.Lead.Status "waiting_for_round")) (not .Detail.Lead.SentToClasses)}}
     {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid .Detail.Scheduling
     .Detail.Scheduling.ClassDays.Valid .Detail.Scheduling.ClassTime.Valid}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
             <input type="hidden" name="action" value="send_to_classes">
             <button type="submit" class="btn"
-                style="background-color: #28a745; border-color: #28a745; color: white;">Send to Classes</button>
+                style="background-color: #28a745; border-color: #28a745; color: white;">Send to Class</button>
         </form>
         <p style="margin-top: 8px; font-size: 12px; color: #666;">This will move the lead to the Classes board. The lead
             must have assigned level, class days, and class time set.</p>
-        <p style="margin-top: 6px; font-size: 12px; color: #666;">Send to Classes assigns the student to a non-started
+        <p style="margin-top: 6px; font-size: 12px; color: #666;">Send to Class assigns the student to a non-started
             class group for the same level/days/time (or opens a new group if all are full). To join a running class
             (session 1 or 2), use Add as Late Joiner.</p>
     </div>
     {{end}}
+    {{end}}
+
+    {{if .CanApplyContinuationHold}}
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+            <input type="hidden" name="action" value="apply_continuation_hold">
+            <label for="continuation_hold_reason" style="display: block; font-weight: 600; margin-bottom: 8px;">Hold reason</label>
+            <textarea id="continuation_hold_reason" name="continuation_hold_reason" required
+                placeholder="Explain the exceptional situation that justifies restoring the reserved next level..."
+                style="width: 100%; min-height: 90px; padding: 10px; border-radius: 6px; border: 1px solid #CBD5E0; font-size: 14px;"></textarea>
+            <div style="margin-top: 10px;">
+                <button type="submit" class="btn"
+                    style="background-color: #2563EB; border-color: #2563EB; color: white;">Put on Hold</button>
+            </div>
+        </form>
+    </div>
+    {{end}}
+
+    {{if .CanReleaseContinuationHold}}
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
+        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
+            <input type="hidden" name="action" value="release_continuation_hold">
+            <button type="submit" class="btn"
+                style="background-color: #1F7A5A; border-color: #1F7A5A; color: white;">Release Hold</button>
+        </form>
+    </div>
     {{end}}
 
     <!-- Late Joiner Button - Only show if ready_to_start and not already sent -->

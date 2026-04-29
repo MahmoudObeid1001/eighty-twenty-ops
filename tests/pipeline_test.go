@@ -39,6 +39,9 @@ func TestAfterClassPipeline(t *testing.T) {
 	if err := db.Connect(cfg.DatabaseURL); err != nil {
 		t.Fatalf("failed to connect db: %v", err)
 	}
+	if err := db.RunMigrations(); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
+	}
 	t.Cleanup(func() {
 		_ = db.Close()
 	})
@@ -56,6 +59,14 @@ func TestAfterClassPipeline(t *testing.T) {
 	mentor := mustCreateUser(t, "mentor", fmt.Sprintf("mentor_%d@eightytwenty.test", nowSuffix))
 
 	cleanup := []func(){
+		func() {
+			mustExec(t, `DELETE FROM attendance WHERE session_id IN (SELECT id FROM class_sessions WHERE class_key = $1)`, classKey)
+		},
+		func() { mustExec(t, `DELETE FROM class_sessions WHERE class_key = $1`, classKey) },
+		func() { mustExec(t, `DELETE FROM class_memberships WHERE class_key = $1`, classKey) },
+		func() { mustExec(t, `DELETE FROM class_enrollments WHERE class_key = $1`, classKey) },
+		func() { mustExec(t, `DELETE FROM grades WHERE class_key = $1`, classKey) },
+		func() { mustExec(t, `DELETE FROM mentor_assignments WHERE class_key = $1`, classKey) },
 		func() { mustExec(t, `DELETE FROM class_groups WHERE class_key = $1`, classKey) },
 		func() { mustExec(t, `DELETE FROM users WHERE id = $1`, mentor.ID) },
 		func() { mustExec(t, `DELETE FROM users WHERE id = $1`, mentorHead.ID) },
@@ -75,6 +86,7 @@ func TestAfterClassPipeline(t *testing.T) {
 		INSERT INTO mentor_assignments (mentor_user_id, class_key, created_by_user_id)
 		VALUES ($1, $2, $3)
 	`, mentor.ID, classKey, mentorHead.ID)
+	mustCreateCompletedSessions(t, classKey, classTime)
 
 	leads := []testLead{
 		{
@@ -84,7 +96,7 @@ func TestAfterClassPipeline(t *testing.T) {
 			LevelsConsumed:     0,
 			ExpectedLevel:      2,
 			ExpectedCredits:    0,
-			ExpectedStatus:     "waiting_for_round",
+			ExpectedStatus:     "renewal_pending",
 			ExpectedOutcome:    "promoted",
 			ExpectedFinalGrade: "A",
 		},
@@ -105,7 +117,7 @@ func TestAfterClassPipeline(t *testing.T) {
 			LevelsPurchased:    5,
 			LevelsConsumed:     0,
 			ExpectedLevel:      1,
-			ExpectedCredits:    5,
+			ExpectedCredits:    3,
 			ExpectedStatus:     "waiting_for_round",
 			ExpectedOutcome:    "repeated",
 			ExpectedFinalGrade: "F",
@@ -119,6 +131,7 @@ func TestAfterClassPipeline(t *testing.T) {
 	}
 	defer func() {
 		for _, lead := range leads {
+			mustExec(t, `DELETE FROM class_memberships WHERE lead_id = $1`, lead.ID)
 			mustExec(t, `DELETE FROM leads WHERE id = $1`, lead.ID)
 		}
 	}()
@@ -277,6 +290,26 @@ func mustCreateScheduling(t *testing.T, leadID uuid.UUID, days, timeStr string, 
 		VALUES ($1, $2, $3::time, $4, NOW())
 		ON CONFLICT (lead_id) DO UPDATE SET class_days = EXCLUDED.class_days, class_time = EXCLUDED.class_time, class_group_index = EXCLUDED.class_group_index, updated_at = NOW()
 	`, leadID, days, timeStr, groupIndex)
+}
+
+func mustCreateCompletedSessions(t *testing.T, classKey, timeStr string) {
+	t.Helper()
+	for i := 1; i <= 8; i++ {
+		mustExec(t, `
+			INSERT INTO class_sessions (
+				id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time,
+				actual_date, actual_time, actual_end_time, status, completed_at, created_at, updated_at
+			)
+			VALUES (
+				gen_random_uuid(), $1, $2, CURRENT_DATE + ($2 - 1), $3::time, ($3::time + INTERVAL '2 hour')::time,
+				CURRENT_DATE + ($2 - 1), $3::time, ($3::time + INTERVAL '2 hour')::time, 'completed', NOW(), NOW(), NOW()
+			)
+			ON CONFLICT (class_key, session_number) DO UPDATE
+			SET status = 'completed',
+			    completed_at = NOW(),
+			    updated_at = NOW()
+		`, classKey, i, timeStr)
+	}
 }
 
 func mustExec(t *testing.T, query string, args ...interface{}) {

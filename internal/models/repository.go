@@ -60,6 +60,7 @@ func MapOldStatusToStage(oldStatus string) string {
 		"deposit_paid":      StageBookingConfirmedDeposit,
 		// Schedule-based statuses
 		"waiting_for_round": StageWaitingForRound,
+		"paused":            StageWaitingForRound,
 		"schedule_assigned": StageScheduleSet,
 		"renewal_pending":   StageRenewalPending,
 		"cold_lead":         StageColdLead,
@@ -1348,15 +1349,41 @@ func GetLatestClassSchedule(leadID uuid.UUID) (sql.NullString, sql.NullString, e
 func GetLatestClassEnrollment(leadID uuid.UUID) (*ClassEnrollment, error) {
 	out := &ClassEnrollment{}
 	err := db.DB.QueryRow(`
-		SELECT id, lead_id, class_key, level, class_days, 
-               TO_CHAR(class_time, 'HH24:MI') as class_time, 
-               mentor_name, final_grade, outcome, enrolled_at, completed_at
+		SELECT id, lead_id, class_key, level, class_days,
+               TO_CHAR(class_time, 'HH24:MI') as class_time,
+               mentor_name, final_grade, outcome,
+               COALESCE(next_level_consumed_on_close, false),
+               COALESCE(continuation_hold_active, false),
+               continuation_hold_reason,
+               continuation_hold_applied_by::text,
+               continuation_hold_applied_at,
+               continuation_hold_released_by::text,
+               continuation_hold_released_at,
+               enrolled_at, completed_at
 		FROM class_enrollments
 		WHERE lead_id = $1
 		ORDER BY COALESCE(completed_at, enrolled_at) DESC
 		LIMIT 1
-	`, leadID).Scan(&out.ID, &out.LeadID, &out.ClassKey, &out.Level, &out.ClassDays, &out.ClassTime,
-		&out.MentorName, &out.FinalGrade, &out.Outcome, &out.EnrolledAt, &out.CompletedAt)
+	`, leadID).Scan(
+		&out.ID,
+		&out.LeadID,
+		&out.ClassKey,
+		&out.Level,
+		&out.ClassDays,
+		&out.ClassTime,
+		&out.MentorName,
+		&out.FinalGrade,
+		&out.Outcome,
+		&out.NextLevelConsumedOnClose,
+		&out.ContinuationHoldActive,
+		&out.ContinuationHoldReason,
+		&out.ContinuationHoldAppliedBy,
+		&out.ContinuationHoldAppliedAt,
+		&out.ContinuationHoldReleasedBy,
+		&out.ContinuationHoldReleasedAt,
+		&out.EnrolledAt,
+		&out.CompletedAt,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1364,6 +1391,166 @@ func GetLatestClassEnrollment(leadID uuid.UUID) (*ClassEnrollment, error) {
 		return nil, fmt.Errorf("failed to get latest class enrollment: %w", err)
 	}
 	return out, nil
+}
+
+func ApplyContinuationHold(leadID, userID uuid.UUID, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return fmt.Errorf("hold reason is required")
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin continuation hold tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var enrollmentID uuid.UUID
+	var holdActive bool
+	err = tx.QueryRow(`
+		SELECT id, COALESCE(continuation_hold_active, false)
+		FROM class_enrollments
+		WHERE lead_id = $1
+		  AND COALESCE(next_level_consumed_on_close, false) = true
+		ORDER BY COALESCE(completed_at, enrolled_at) DESC
+		LIMIT 1
+	`, leadID).Scan(&enrollmentID, &holdActive)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("no closed class with reserved continuation level found")
+		}
+		return fmt.Errorf("failed to load latest closed enrollment: %w", err)
+	}
+	if holdActive {
+		return fmt.Errorf("continuation hold is already active for this student")
+	}
+
+	var status string
+	var purchased, consumed int32
+	err = tx.QueryRow(`
+		SELECT status, COALESCE(levels_purchased_total, 0), COALESCE(levels_consumed, 0)
+		FROM leads
+		WHERE id = $1
+		FOR UPDATE
+	`, leadID).Scan(&status, &purchased, &consumed)
+	if err != nil {
+		return fmt.Errorf("failed to load lead for continuation hold: %w", err)
+	}
+	if status != "waiting_for_round" {
+		return fmt.Errorf("continuation hold is only available for waiting-for-round students")
+	}
+	if consumed <= 0 {
+		return fmt.Errorf("student has no consumed level to restore")
+	}
+
+	now := time.Now()
+	newConsumed := consumed - 1
+	newRemaining := purchased - newConsumed
+	if newRemaining < 0 {
+		newRemaining = 0
+	}
+
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET levels_consumed = $1,
+		    remaining_credits = $2,
+		    status = 'paused',
+		    sent_to_classes = false,
+		    updated_at = $3
+		WHERE id = $4
+	`, newConsumed, newRemaining, now, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to apply continuation hold to lead: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE class_enrollments
+		SET continuation_hold_active = true,
+		    continuation_hold_reason = $1,
+		    continuation_hold_applied_by = $2,
+		    continuation_hold_applied_at = $3,
+		    continuation_hold_released_by = NULL,
+		    continuation_hold_released_at = NULL
+		WHERE id = $4
+	`, reason, userID, now, enrollmentID)
+	if err != nil {
+		return fmt.Errorf("failed to mark continuation hold on enrollment: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func ReleaseContinuationHold(leadID, userID uuid.UUID) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin continuation release tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var enrollmentID uuid.UUID
+	err = tx.QueryRow(`
+		SELECT id
+		FROM class_enrollments
+		WHERE lead_id = $1
+		  AND COALESCE(next_level_consumed_on_close, false) = true
+		  AND COALESCE(continuation_hold_active, false) = true
+		ORDER BY COALESCE(completed_at, enrolled_at) DESC
+		LIMIT 1
+	`, leadID).Scan(&enrollmentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("no active continuation hold found for this student")
+		}
+		return fmt.Errorf("failed to load active continuation hold: %w", err)
+	}
+
+	var status string
+	var purchased, consumed int32
+	err = tx.QueryRow(`
+		SELECT status, COALESCE(levels_purchased_total, 0), COALESCE(levels_consumed, 0)
+		FROM leads
+		WHERE id = $1
+		FOR UPDATE
+	`, leadID).Scan(&status, &purchased, &consumed)
+	if err != nil {
+		return fmt.Errorf("failed to load lead for continuation release: %w", err)
+	}
+	if status != "paused" {
+		return fmt.Errorf("continuation hold can only be released while the student is paused")
+	}
+
+	now := time.Now()
+	newConsumed := consumed + 1
+	newRemaining := purchased - newConsumed
+	if newRemaining < 0 {
+		newRemaining = 0
+	}
+
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET levels_consumed = $1,
+		    remaining_credits = $2,
+		    status = 'ready_to_start',
+		    sent_to_classes = false,
+		    updated_at = $3
+		WHERE id = $4
+	`, newConsumed, newRemaining, now, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to release continuation hold on lead: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE class_enrollments
+		SET continuation_hold_active = false,
+		    continuation_hold_released_by = $1,
+		    continuation_hold_released_at = $2
+		WHERE id = $3
+	`, userID, now, enrollmentID)
+	if err != nil {
+		return fmt.Errorf("failed to clear continuation hold on enrollment: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // GetPlacementTestsForStudentSuccess returns leads with placement tests scheduled.
@@ -2294,15 +2481,15 @@ func IncrementCurrentRound() error {
 	return err
 }
 
-// GetEligibleStudentsForClasses returns students eligible for classes board
-// Eligibility: status=ready_to_start, assigned_level set, class_days set, class_time set
+// GetEligibleStudentsForClasses returns students eligible for classes board.
+// Eligibility: status=ready_to_start or waiting_for_round, assigned_level set, class_days set, class_time set.
 func GetEligibleStudentsForClasses() ([]*ClassStudent, error) {
 	query := `
 		SELECT l.id, l.full_name, l.phone, s.class_group_index
 		FROM leads l
 		INNER JOIN placement_tests pt ON l.id = pt.lead_id
 		INNER JOIN scheduling s ON l.id = s.lead_id
-		WHERE l.status = 'ready_to_start'
+		WHERE l.status IN ('ready_to_start', 'waiting_for_round')
 		AND l.sent_to_classes = true
 		AND pt.assigned_level IS NOT NULL
 		AND s.class_days IS NOT NULL
@@ -2348,7 +2535,7 @@ func GetClassGroups() ([]*ClassGroup, error) {
 			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
-		WHERE (l.status = 'ready_to_start' OR l.status = 'in_classes')
+		WHERE l.status IN ('ready_to_start', 'waiting_for_round', 'in_classes')
 		AND l.sent_to_classes = true
 		AND pt.assigned_level IS NOT NULL
 		AND s.class_days IS NOT NULL
@@ -2543,7 +2730,7 @@ func AssignClassGroup(leadID uuid.UUID) (int32, error) {
 		INNER JOIN placement_tests pt ON l.id = pt.lead_id
 		INNER JOIN scheduling s ON l.id = s.lead_id
 		WHERE l.id = $1
-		AND l.status = 'ready_to_start'
+		AND l.status IN ('ready_to_start', 'waiting_for_round')
 		AND l.sent_to_classes = true
 		AND pt.assigned_level IS NOT NULL
 		AND s.class_days IS NOT NULL
@@ -2617,7 +2804,7 @@ func AssignClassGroup(leadID uuid.UUID) (int32, error) {
 			FROM leads l
 			INNER JOIN placement_tests pt ON l.id = pt.lead_id
 			INNER JOIN scheduling s ON l.id = s.lead_id
-			WHERE l.status = 'ready_to_start'
+			WHERE l.status IN ('ready_to_start', 'waiting_for_round')
 			AND l.sent_to_classes = true
 			AND pt.assigned_level = $1
 			AND s.class_days = $2
@@ -2695,7 +2882,7 @@ func MoveStudentBetweenGroups(leadID uuid.UUID, targetGroupIndex int32) error {
 		FROM leads l
 		INNER JOIN placement_tests pt ON l.id = pt.lead_id
 		INNER JOIN scheduling s ON l.id = s.lead_id
-		WHERE l.status = 'ready_to_start'
+		WHERE l.status IN ('ready_to_start', 'waiting_for_round')
 		AND l.sent_to_classes = true
 		AND pt.assigned_level = $1
 		AND s.class_days = $2
@@ -2751,7 +2938,7 @@ func GetAvailableGroupsForMove(leadID uuid.UUID) ([]int32, error) {
 			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
 			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
 		)
-		WHERE l.status = 'ready_to_start'
+		WHERE l.status IN ('ready_to_start', 'waiting_for_round')
 		AND l.sent_to_classes = true
 		AND pt.assigned_level = $1
 		AND s.class_days = $2
@@ -2876,8 +3063,8 @@ func GetMoveOptionsForLead(leadID uuid.UUID) ([]MoveClassOption, error) {
 			FROM leads l
 			INNER JOIN placement_tests pt ON l.id = pt.lead_id
 			INNER JOIN scheduling s ON l.id = s.lead_id
-			WHERE l.status = 'ready_to_start'
-			  AND l.sent_to_classes = true
+			WHERE l.status IN ('ready_to_start', 'waiting_for_round')
+			AND l.sent_to_classes = true
 			GROUP BY pt.assigned_level, s.class_days, TO_CHAR(s.class_time, 'HH24:MI'), COALESCE(s.class_group_index, 1)
 		)
 		SELECT cg.class_key, cg.class_days, cg.class_time, cg.class_number, COALESCE(c.student_count, 0)
@@ -2970,7 +3157,7 @@ func MoveStudentToClassKey(leadID uuid.UUID, classKey string) error {
 		FROM leads l
 		INNER JOIN placement_tests pt ON l.id = pt.lead_id
 		INNER JOIN scheduling s ON l.id = s.lead_id
-		WHERE l.status = 'ready_to_start'
+		WHERE l.status IN ('ready_to_start', 'waiting_for_round')
 		  AND l.sent_to_classes = true
 		  AND pt.assigned_level = $1
 		  AND s.class_days = $2
@@ -3000,20 +3187,21 @@ func MoveStudentToClassKey(leadID uuid.UUID, classKey string) error {
 }
 
 // ReturnStudentToMainFeed removes a pre-start student from the classes board and
-// returns them to the main pre-enrolment feed while preserving ready_to_start.
+// returns them to the main pre-enrolment feed while preserving ready_to_start or waiting_for_round.
 func ReturnStudentToMainFeed(leadID uuid.UUID) error {
 	var assignedLevel sql.NullInt32
 	var classDays, classTime sql.NullString
 	var groupIndex sql.NullInt32
+	var currentStatus string
 	err := db.DB.QueryRow(`
-		SELECT pt.assigned_level, s.class_days, s.class_time, s.class_group_index
+		SELECT pt.assigned_level, s.class_days, s.class_time, s.class_group_index, l.status
 		FROM leads l
 		INNER JOIN placement_tests pt ON pt.lead_id = l.id
 		INNER JOIN scheduling s ON s.lead_id = l.id
 		WHERE l.id = $1
-		  AND l.status = 'ready_to_start'
+		  AND l.status IN ('ready_to_start', 'waiting_for_round')
 		  AND l.sent_to_classes = true
-	`, leadID).Scan(&assignedLevel, &classDays, &classTime, &groupIndex)
+	`, leadID).Scan(&assignedLevel, &classDays, &classTime, &groupIndex, &currentStatus)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("student is not attached to classes")
@@ -3069,12 +3257,12 @@ func ReturnStudentToMainFeed(leadID uuid.UUID) error {
 
 	_, err = tx.Exec(`
 		UPDATE leads
-		SET status = 'ready_to_start',
+		SET status = $1,
 		    sent_to_classes = false,
 		    ops_queue_reason = NULL,
-		    updated_at = $1
-		WHERE id = $2
-	`, now, leadID)
+		    updated_at = $2
+		WHERE id = $3
+	`, currentStatus, now, leadID)
 	if err != nil {
 		return fmt.Errorf("failed to return student to main feed: %w", err)
 	}
@@ -5049,8 +5237,105 @@ func GetClassSessions(classKey string) ([]*ClassSession, error) {
 	return sessions, rows.Err()
 }
 
-// CompleteSession marks a session as completed and sets completed_at timestamp
-// If session_number = 1, also increments levels_consumed for all students in the class
+func consumeMembershipLevelTx(tx *sql.Tx, membershipID, leadID uuid.UUID, triggerSession int32, now time.Time) error {
+	_, err := tx.Exec(`
+		UPDATE leads
+		SET levels_consumed = COALESCE(levels_consumed, 0) + 1,
+		    remaining_credits = GREATEST(COALESCE(levels_purchased_total, 0) - (COALESCE(levels_consumed, 0) + 1), 0),
+		    updated_at = $1
+		WHERE id = $2
+	`, now, leadID)
+	if err != nil {
+		return fmt.Errorf("failed to consume level for lead %s: %w", leadID, err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE class_memberships
+		SET level_consumed_at_session_number = $1,
+		    updated_at = $2
+		WHERE id = $3
+	`, triggerSession, now, membershipID)
+	if err != nil {
+		return fmt.Errorf("failed to mark membership consumption: %w", err)
+	}
+	return nil
+}
+
+func applyEligibleMembershipConsumptionsTx(tx *sql.Tx, classKey string, triggerSession int32, now time.Time) error {
+	rows, err := tx.Query(`
+		SELECT cm.id, cm.lead_id
+		FROM class_memberships cm
+		INNER JOIN leads l ON l.id = cm.lead_id
+		WHERE cm.class_key = $1
+		  AND cm.removed_at IS NULL
+		  AND l.status != 'cancelled'
+		  AND cm.level_consumed_at_session_number IS NULL
+		  AND (
+		      SELECT COUNT(*)
+		      FROM class_sessions cs
+		      WHERE cs.class_key = cm.class_key
+		        AND cs.status = 'completed'
+		        AND cs.session_number >= cm.joined_at_session_number
+		  ) >= 2
+	`, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to query eligible membership consumptions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type pendingConsumption struct {
+		membershipID uuid.UUID
+		leadID       uuid.UUID
+	}
+	var pending []pendingConsumption
+	for rows.Next() {
+		var item pendingConsumption
+		if err := rows.Scan(&item.membershipID, &item.leadID); err != nil {
+			return fmt.Errorf("failed to scan eligible membership consumption: %w", err)
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate eligible membership consumptions: %w", err)
+	}
+
+	for _, item := range pending {
+		if err := consumeMembershipLevelTx(tx, item.membershipID, item.leadID, triggerSession, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureMembershipLevelConsumedTx(tx *sql.Tx, membership *ClassMembership, triggerSession int32, now time.Time) (bool, error) {
+	if membership == nil || membership.LevelConsumedAtSession.Valid {
+		return false, nil
+	}
+
+	var completedSinceJoin int32
+	err := tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM class_sessions
+		WHERE class_key = $1
+		  AND status = 'completed'
+		  AND session_number >= $2
+	`, membership.ClassKey, membership.JoinedAtSessionNumber).Scan(&completedSinceJoin)
+	if err != nil {
+		return false, fmt.Errorf("failed to count completed sessions since join: %w", err)
+	}
+	if completedSinceJoin < 2 {
+		return false, nil
+	}
+
+	if err := consumeMembershipLevelTx(tx, membership.ID, membership.LeadID, triggerSession, now); err != nil {
+		return false, err
+	}
+	membership.LevelConsumedAtSession = sql.NullInt32{Int32: triggerSession, Valid: true}
+	return true, nil
+}
+
+// CompleteSession marks a session as completed and sets completed_at timestamp.
+// Once 2 completed sessions have passed since a student's join point, the current level is consumed.
 func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime string) error {
 	tx, err := db.DB.Begin()
 	if err != nil {
@@ -5108,23 +5393,8 @@ func CompleteSession(sessionID uuid.UUID, actualDate time.Time, actualTime strin
 		return fmt.Errorf("failed to update session: %w", err)
 	}
 
-	// If session 1, increment levels_consumed for all students in class
-	if sessionNumber == 1 {
-		_, err = tx.Exec(`
-			UPDATE leads
-			SET levels_consumed = COALESCE(levels_consumed, 0) + 1, updated_at = $1
-			WHERE id IN (
-				SELECT cm.lead_id
-				FROM class_memberships cm
-				WHERE cm.class_key = $2
-				  AND cm.joined_at_session_number <= 1
-				  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= 1)
-				  AND cm.removed_at IS NULL
-			)
-		`, now, classKey)
-		if err != nil {
-			return fmt.Errorf("failed to increment levels_consumed: %w", err)
-		}
+	if err := applyEligibleMembershipConsumptionsTx(tx, classKey, sessionNumber, now); err != nil {
+		return err
 	}
 
 	return tx.Commit()
@@ -6071,6 +6341,7 @@ func getApplicableMembershipTx(tx *sql.Tx, leadID uuid.UUID, classKey string, se
 			lead_id,
 			class_key,
 			joined_at_session_number,
+			level_consumed_at_session_number,
 			left_after_session_number,
 			join_reason,
 			leave_reason,
@@ -6092,6 +6363,7 @@ func getApplicableMembershipTx(tx *sql.Tx, leadID uuid.UUID, classKey string, se
 		&item.LeadID,
 		&item.ClassKey,
 		&item.JoinedAtSessionNumber,
+		&item.LevelConsumedAtSession,
 		&item.LeftAfterSessionNumber,
 		&item.JoinReason,
 		&item.LeaveReason,
@@ -6612,21 +6884,15 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 	}
 
 	// 5. Snapshot to class_enrollments
-	_, err = tx.Exec(`
-		INSERT INTO class_enrollments (
-			lead_id, class_key, level, class_days, class_time, mentor_name,
-			final_grade, outcome, enrolled_at, completed_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		ON CONFLICT (lead_id, class_key) DO UPDATE SET
-			final_grade = EXCLUDED.final_grade,
-			outcome = EXCLUDED.outcome,
-			completed_at = EXCLUDED.completed_at
-	`, leadID, classKey, level, classDays, classTime, mentorName, finalGrade, outcome, now, now)
+	membership, err := getApplicableMembershipTx(tx, leadID, classKey, 8)
 	if err != nil {
-		return fmt.Errorf("failed to insert class enrollment: %w", err)
+		return fmt.Errorf("failed to load class membership for close-round consumption: %w", err)
+	}
+	if _, err := ensureMembershipLevelConsumedTx(tx, membership, 8, now); err != nil {
+		return fmt.Errorf("failed to finalize current-level consumption: %w", err)
 	}
 
-	// 6. Credit check and status update (compute remaining credits from purchased - consumed)
+	// 5. Credit check and status update (compute remaining credits from purchased - consumed)
 	var purchased, consumed sql.NullInt32
 	err = tx.QueryRow(`
 		SELECT COALESCE(levels_purchased_total, 0), COALESCE(levels_consumed, 0)
@@ -6647,13 +6913,37 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		creditsRemaining = 0
 	}
 
+	nextLevelConsumedOnClose := creditsRemaining > 0
 	newCredits := creditsRemaining
-	if outcome == "promoted" && newCredits > 0 {
+	newConsumed := int32(0)
+	if consumed.Valid {
+		newConsumed = consumed.Int32
+	}
+	if nextLevelConsumedOnClose {
 		newCredits -= 1
+		if newCredits < 0 {
+			newCredits = 0
+		}
+		newConsumed++
 	}
 
-	// Status is based on credits BEFORE the promotion deduction.
-	// If the student had any credits when they finished, they should wait for a round.
+	_, err = tx.Exec(`
+		INSERT INTO class_enrollments (
+			lead_id, class_key, level, class_days, class_time, mentor_name,
+			final_grade, outcome, next_level_consumed_on_close, enrolled_at, completed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (lead_id, class_key) DO UPDATE SET
+			final_grade = EXCLUDED.final_grade,
+			outcome = EXCLUDED.outcome,
+			next_level_consumed_on_close = EXCLUDED.next_level_consumed_on_close,
+			completed_at = EXCLUDED.completed_at
+	`, leadID, classKey, level, classDays, classTime, mentorName, finalGrade, outcome, nextLevelConsumedOnClose, now, now)
+	if err != nil {
+		return fmt.Errorf("failed to insert class enrollment: %w", err)
+	}
+
+	// Status is based on credits before the close-round continuation consumption.
+	// If the student had any prepaid continuation level when they finished, they wait for a round.
 	newStatus := "renewal_pending"
 	if creditsRemaining > 0 {
 		newStatus = "waiting_for_round"
@@ -6664,15 +6954,16 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 	// 7. Set returning flag and remaining credits snapshot
 	_, err = tx.Exec(`
 		UPDATE leads 
-		SET remaining_credits = $1,
-		    status = $2,
+		SET levels_consumed = $1,
+		    remaining_credits = $2,
+		    status = $3,
 		    is_returning = true,
-		    high_priority_follow_up = $5,
+		    high_priority_follow_up = $6,
 		    high_priority = false,
 		    high_priority_reason = '',
-		    updated_at = $3
-		WHERE id = $4
-	`, newCredits, newStatus, now, leadID, highPriorityFollowUp)
+		    updated_at = $4
+		WHERE id = $5
+	`, newConsumed, newCredits, newStatus, now, leadID, highPriorityFollowUp)
 	if err != nil {
 		return fmt.Errorf("failed to update lead status: %w", err)
 	}
@@ -9140,20 +9431,22 @@ func TransferStudentBetweenActiveClasses(leadID uuid.UUID, sourceClassKey, targe
 			lead_id,
 			class_key,
 			joined_at_session_number,
+			level_consumed_at_session_number,
 			join_reason,
 			added_by_user_id,
 			created_at,
 			updated_at
 		)
-		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $6)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $7)
 		ON CONFLICT (lead_id, class_key, joined_at_session_number) DO UPDATE SET
+			level_consumed_at_session_number = COALESCE(class_memberships.level_consumed_at_session_number, EXCLUDED.level_consumed_at_session_number),
 			left_after_session_number = NULL,
 			leave_reason = NULL,
 			removed_by_user_id = NULL,
 			removed_at = NULL,
 			updated_at = EXCLUDED.updated_at
 		RETURNING id
-	`, leadID, targetClassKey, targetCurrentSession, reason, userID, now).Scan(&targetMembershipID)
+	`, leadID, targetClassKey, targetCurrentSession, sourceMembership.LevelConsumedAtSession, reason, userID, now).Scan(&targetMembershipID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create target membership: %w", err)
 	}
