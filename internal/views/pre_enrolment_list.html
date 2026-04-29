@@ -32,14 +32,6 @@
 </div>
 {{end}}
 
-{{if and .IsAdmin (gt .SleepingReminderDueCount 0)}}
-<div
-    style="background-color: #FFF8E1; border: 2px solid #FFB300; color: #8C4A00; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
-    ⏰ يوجد {{.SleepingReminderDueCount}} {{if eq .SleepingReminderDueCount 1}}تذكير مؤجل مستحق الآن لطلاب الـ Sleeping Leads{{else}}تذكيرات مؤجلة مستحقة الآن لطلاب الـ Sleeping Leads{{end}} —
-    <a href="/pre-enrolment?sleeping=1" style="color: #8C4A00; text-decoration: underline;">عرض طلاب الـ Sleeping Leads</a>
-</div>
-{{end}}
-
 <div style="margin-bottom: 20px;">
     <a href="/pre-enrolment/new" class="btn btn-primary">New Lead</a>
 </div>
@@ -51,8 +43,9 @@
             class="filter-search">
         {{if .OpsQueueFilter}}<input type="hidden" name="ops_queue" value="{{.OpsQueueFilter}}">{{end}}
         {{if .IsSleepingLeads}}<input type="hidden" name="sleeping" value="1">{{end}}
+        {{if .IsSnoozedLeads}}<input type="hidden" name="snoozed" value="1">{{end}}
         {{$sf := .StatusFilter}}
-        {{if not .IsSleepingLeads}}
+        {{if and (not .IsSleepingLeads) (not .IsSnoozedLeads)}}
         <select name="status" id="status-filter" onchange="this.form.submit()" class="filter-select">
             <option value="" {{if not $sf}}selected{{end}}>All Statuses</option>
             <option value="NEW_LEAD" {{if eq $sf "NEW_LEAD" }}selected{{end}}>New Lead</option>
@@ -113,6 +106,7 @@
     {{$isCold := or (eq .ColdFilter "1") (eq .ColdFilter "true")}}
     {{$isPrivateTrack := eq .OpsQueueFilter "private_track"}}
     {{$isSleeping := .IsSleepingLeads}}
+    {{$isSnoozed := .IsSnoozedLeads}}
     <div class="quick-filters">
         {{$isHot := or (eq .HotFilter "1") (eq .HotFilter "hot")}}
         <a href="/pre-enrolment?{{if not $isHot}}hot=1{{end}}{{if $search}}{{if not $isHot}}&{{end}}search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
@@ -168,6 +162,11 @@
             class="quick-filter-btn {{if $isSleeping}}active{{end}}" data-filter-key="sleeping"
             data-filter-value="1"
             style="{{if $isSleeping}}background-color: #6f42c1; color: white; border-color: #6f42c1;{{end}}">Sleeping Leads</a>
+
+        <a href="/pre-enrolment?snoozed=1{{if $search}}&search={{$search | urlquery}}{{end}}"
+            class="quick-filter-btn {{if $isSnoozed}}active{{end}}" data-filter-key="snoozed"
+            data-filter-value="1"
+            style="{{if $isSnoozed}}background-color: #0f766e; color: white; border-color: #0f766e;{{end}}">Snoozed</a>
     </div>
 </div>
 
@@ -175,6 +174,13 @@
 <div class="cold-retarget-panel" style="background: #faf5ff; border-color: #e9d8fd;">
     <h3 style="color: #553c9a;">Sleeping Leads</h3>
     <p style="color: #6b46c1;">This view includes classic sleeping leads plus deferred callback leads. Future deferred items stay visible with a muted badge and sort lower, while due reminders still surface clearly for admin follow-up.</p>
+</div>
+{{end}}
+
+{{if .IsSnoozedLeads}}
+<div class="cold-retarget-panel" style="background: #f0fdfa; border-color: #99f6e4;">
+    <h3 style="color: #115e59;">Snoozed Leads</h3>
+    <p style="color: #0f766e;">These leads are hidden from the main feed and Sleeping Leads until their reminder date. Once the snooze date passes, they return to their original queue with <strong>Reminder Due</strong>.</p>
 </div>
 {{end}}
 
@@ -342,7 +348,17 @@
                 </td>
                 <td>{{.PaymentState}}</td>
                 <td>
-                    {{if $.IsSleepingLeads}}
+                    {{if $.IsSnoozedLeads}}
+                    <div class="sleeping-next-action">
+                        <strong>Snoozed until</strong>
+                        {{if .SnoozedUntil.Valid}}
+                        <span>{{.SnoozedUntil.Time.Format "2006-01-02"}}</span>
+                        {{end}}
+                        {{if .SnoozeNote.Valid}}
+                        <span>Reason: {{.SnoozeNote.String}}</span>
+                        {{end}}
+                    </div>
+                    {{else if $.IsSleepingLeads}}
                     <div class="sleeping-next-action">
                         {{if .SleepingReminderAt.Valid}}
                         <strong>{{if .SleepingReminderDue}}التذكير مستحق{{else}}تذكير{{end}}</strong>
@@ -383,34 +399,34 @@
                 </td>
                 <td class="action-column">
                     <div class="action-buttons-row">
-                        {{if and $.IsSleepingLeads (gt .SleepingLeadStep 0) .Lead.Phone .SleepingLeadDueNow}}
+                        {{if and (not $.IsSnoozedLeads) $.IsSleepingLeads (gt .SleepingLeadStep 0) .Lead.Phone .SleepingLeadDueNow}}
                         <a href="/pre-enrolment/{{.Lead.ID}}/sleeping-follow-up" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
                             class="btn btn-small"
                             style="background: #6f42c1; color: white; border: 1px solid #6f42c1;"
                             title="Open WhatsApp with Message {{.SleepingLeadStep}}">
                             Message {{.SleepingLeadStep}}
                         </a>
-                        {{else if and $.IsSleepingLeads (gt .SleepingLeadStep 0)}}
+                        {{else if and (not $.IsSnoozedLeads) $.IsSleepingLeads (gt .SleepingLeadStep 0)}}
                         <button type="button" class="btn btn-small" disabled
                             title="Next sleeping message is not due yet."
                             style="background: #E9D8FD; color: #553C9A; border: 1px solid #E9D8FD; cursor: not-allowed;">
                             Message {{.SleepingLeadStep}}
                         </button>
-                        {{else if and $.IsSleepingLeads (ge .SleepingLeadLastStep 3)}}
+                        {{else if and (not $.IsSnoozedLeads) $.IsSleepingLeads (ge .SleepingLeadLastStep 3)}}
                         <button type="button" class="btn btn-small" disabled
                             title="All sleeping lead messages were already used."
                             style="background: #EDF2F7; color: #4A5568; border: 1px solid #EDF2F7; cursor: not-allowed;">
                             Sequence Complete
                         </button>
                         {{end}}
-                        {{if and (not $.IsSleepingLeads) (not .OfferReminderAt.Valid) (gt .OfferFollowUpStep 0) .Lead.Phone .OfferFollowUpDueNow}}
+                        {{if and (not $.IsSnoozedLeads) (not $.IsSleepingLeads) (not .OfferReminderAt.Valid) (gt .OfferFollowUpStep 0) .Lead.Phone .OfferFollowUpDueNow}}
                         <a href="/pre-enrolment/{{.Lead.ID}}/offer-follow-up" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
                             class="btn btn-small"
                             style="background: #6f42c1; color: white; border: 1px solid #6f42c1;"
                             title="Open WhatsApp with Message {{.OfferFollowUpStep}}">
                             Message {{.OfferFollowUpStep}}
                         </a>
-                        {{else if and (not $.IsSleepingLeads) (not .OfferReminderAt.Valid) (gt .OfferFollowUpStep 0) .Lead.Phone}}
+                        {{else if and (not $.IsSnoozedLeads) (not $.IsSleepingLeads) (not .OfferReminderAt.Valid) (gt .OfferFollowUpStep 0) .Lead.Phone}}
                         <button type="button" class="btn btn-small" disabled
                             title="{{if .OfferFollowUpDueAt.Valid}}Next offer message will be available on {{.OfferFollowUpDueAt.Time.Format `2006-01-02 03:04 PM`}}{{else}}Next offer message is not due yet.{{end}}"
                             style="background: #E9D8FD; color: #553C9A; border: 1px solid #E9D8FD; cursor: not-allowed;">
@@ -429,7 +445,7 @@
                         </a>
                         {{end}}
                         <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
-                        {{if not $.IsSleepingLeads}}
+                        {{if and (not $.IsSleepingLeads) (not $.IsSnoozedLeads)}}
                         {{if and (not $.IsModerator) (eq $s "ready_to_start") (not .Lead.SentToClasses)
                         .AssignedLevel.Valid}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form"
@@ -562,6 +578,7 @@
                         params.delete('cold');
                         params.delete('cold_level');
                         params.delete('sleeping');
+                        params.delete('snoozed');
                     } else if (key === 'sleeping') {
                         params.set('sleeping', value);
                         params.delete('status');
@@ -571,10 +588,22 @@
                         params.delete('cold_level');
                         params.delete('repeat');
                         params.delete('ops_queue');
+                        params.delete('snoozed');
+                    } else if (key === 'snoozed') {
+                        params.set('snoozed', value);
+                        params.delete('status');
+                        params.delete('payment');
+                        params.delete('hot');
+                        params.delete('cold');
+                        params.delete('cold_level');
+                        params.delete('repeat');
+                        params.delete('ops_queue');
+                        params.delete('sleeping');
                     } else {
                         params.set(key, value);
                         if (key === 'ops_queue') {
                             params.delete('sleeping');
+                            params.delete('snoozed');
                         }
                     }
                 }

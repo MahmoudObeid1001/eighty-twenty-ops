@@ -214,49 +214,49 @@
             </div>
         </div>
 
-        {{if and (not .IsModerator) (not .IsReadOnly) .CanSetSleepingReminder}}
-        <div class="form-section" style="border-color: #FFE08A; background: #FFFDF5;" dir="rtl">
-            <h2>تذكير متابعة مؤجلة</h2>
-            <div class="section-note">استخدم هذا الجزء لما الطالب يكون رد وقال نرجع له في تاريخ لاحق.</div>
+        {{if and (not .IsModerator) (not .IsReadOnly) .CanSnoozeLead}}
+        <div class="form-section" style="border-color: #99f6e4; background: #f0fdfa;">
+            <h2>Snooze</h2>
+            <div class="section-note">Hide this lead from the main feed or Sleeping Leads until the chosen reminder date.</div>
             <div
-                style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid #FFE08A; background: #FFF8E1; color: #8C4A00;">
-                <strong>تعليمات بسيطة:</strong>
-                <div style="margin-top: 6px;">اكتب تاريخ المتابعة القادم وسجّل السبب باختصار.</div>
-                <div style="margin-top: 4px;">مثال: بعد القبض، أول الشهر، بعد 20 يوم.</div>
+                style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid #99f6e4; background: #ecfeff; color: #115e59;">
+                <strong>How it works:</strong>
+                <div style="margin-top: 6px;">Set a future date to defer follow-up. The lead disappears from the current queue immediately and appears in the Snoozed tab until that date.</div>
+                <div style="margin-top: 4px;">Once the date is reached, the lead returns automatically with next action <strong>Reminder Due</strong>.</div>
             </div>
 
-            {{if .SleepingLeadReminder}}
+            {{if .LeadSnooze}}
             <div
-                style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid {{if .SleepingReminderDue}}#FFB300{{else}}#B3D7FF{{end}}; background: {{if .SleepingReminderDue}}#FFF8E1{{else}}#F0F8FF{{end}}; color: {{if .SleepingReminderDue}}#8C4A00{{else}}#0052A3{{end}};">
-                <strong>{{if .SleepingReminderDue}}التذكير مستحق الآن{{else}}تم حفظ التذكير{{end}}</strong>
-                <div style="margin-top: 6px;">التاريخ: <strong>{{.SleepingReminderDate}}</strong></div>
-                {{if .SleepingLeadReminder.Note.Valid}}
-                <div style="margin-top: 6px;">السبب: {{.SleepingLeadReminder.Note.String}}</div>
+                style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid {{if .LeadSnoozeDue}}#f59e0b{{else}}#67e8f9{{end}}; background: {{if .LeadSnoozeDue}}#fffbeb{{else}}#f0fdfa{{end}}; color: {{if .LeadSnoozeDue}}#92400e{{else}}#0f766e{{end}};">
+                <strong>{{if .LeadSnoozeDue}}Reminder Due{{else}}Currently Snoozed{{end}}</strong>
+                <div style="margin-top: 6px;">Date: <strong>{{.LeadSnoozeDate}}</strong></div>
+                {{if .LeadSnooze.Note.Valid}}
+                <div style="margin-top: 6px;">Reason: {{.LeadSnooze.Note.String}}</div>
                 {{end}}
             </div>
             {{end}}
 
             <div class="form-row">
                 <div class="form-group">
-                    <label for="sleeping_reminder_date">تاريخ التذكير</label>
-                    <input type="date" id="sleeping_reminder_date" name="sleeping_reminder_date"
-                        value="{{.SleepingReminderDate}}">
+                    <label for="lead_snooze_date">Remind me on</label>
+                    <input type="date" id="lead_snooze_date" name="lead_snooze_date"
+                        value="{{.LeadSnoozeDate}}">
                 </div>
                 <div class="form-group">
-                    <label for="sleeping_reminder_note">سبب التأجيل</label>
-                    <input type="text" id="sleeping_reminder_note" name="sleeping_reminder_note"
-                        value="{{.SleepingReminderNote}}"
-                        placeholder="مثال: هتبدأ بعد القبض">
+                    <label for="lead_snooze_note">Reason</label>
+                    <input type="text" id="lead_snooze_note" name="lead_snooze_note"
+                        value="{{.LeadSnoozeNote}}"
+                        placeholder="Example: after salary, after travel, after exam">
                 </div>
             </div>
             <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-start;">
-                <button type="submit" name="action" value="set_sleeping_reminder" class="btn"
-                    style="background-color: #FFB300; border-color: #FFB300; color: #4A3200;">
-                    {{if .SleepingLeadReminder}}تحديث التذكير{{else}}حفظ التذكير{{end}}
+                <button type="submit" name="action" value="set_lead_snooze" class="btn"
+                    style="background-color: #0f766e; border-color: #0f766e; color: white;">
+                    {{if .LeadSnooze}}Update Snooze{{else}}Mark Deferred{{end}}
                 </button>
-                {{if .SleepingLeadReminder}}
-                <button type="submit" name="action" value="clear_sleeping_reminder" class="btn btn-secondary">
-                    حذف التذكير
+                {{if .LeadSnooze}}
+                <button type="submit" name="action" value="clear_lead_snooze" class="btn btn-secondary">
+                    Clear Snooze
                 </button>
                 {{end}}
             </div>

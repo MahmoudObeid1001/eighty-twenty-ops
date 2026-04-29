@@ -146,6 +146,9 @@ type LeadListItem struct {
 	OfferReminderAt       sql.NullTime
 	OfferReminderNote     sql.NullString
 	OfferReminderDue      bool
+	SnoozedUntil          sql.NullTime
+	SnoozeNote            sql.NullString
+	SnoozeDue             bool
 	TestDate              sql.NullTime  // For computing days since progress
 	AmountPaid            sql.NullInt32 // For checking if paid
 	FinalPrice            sql.NullInt32 // For computing payment state
@@ -172,6 +175,15 @@ type SleepingLeadReminder struct {
 type OfferSentReminder struct {
 	LeadID            uuid.UUID
 	FollowUpAt        time.Time
+	Note              sql.NullString
+	ScheduledByUserID sql.NullString
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type LeadSnooze struct {
+	LeadID            uuid.UUID
+	SnoozedUntil      time.Time
 	Note              sql.NullString
 	ScheduledByUserID sql.NullString
 	CreatedAt         time.Time

@@ -357,7 +357,9 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	repeatFilter := r.URL.Query().Get("repeat")
 	opsQueueFilter := r.URL.Query().Get("ops_queue")
 	sleepingFilter := r.URL.Query().Get("sleeping")
+	snoozedFilter := r.URL.Query().Get("snoozed")
 	isSleepingLeads := sleepingFilter == "1" || strings.EqualFold(sleepingFilter, "true")
+	isSnoozedLeads := snoozedFilter == "1" || strings.EqualFold(snoozedFilter, "true")
 	includeCancelled := r.URL.Query().Get("include_cancelled") == "1" || r.URL.Query().Get("include_cancelled") == "true"
 	// When explicitly filtering by status=cancelled, include cancelled even if checkbox off
 	if statusFilter == "cancelled" {
@@ -411,7 +413,9 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Get filtered leads
 	var leads []*models.LeadListItem
 	var err error
-	if isSleepingLeads {
+	if isSnoozedLeads {
+		leads, err = models.GetSnoozedLeads(searchFilter)
+	} else if isSleepingLeads {
 		leads, err = models.GetSleepingLeads(searchFilter)
 	} else {
 		leads, err = models.GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter, includeCancelled, followUpFilter, returningFilter, coldFilter, repeatFilter, opsQueueFilter)
@@ -429,7 +433,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	var coldLevelOptions []int
 	selectedColdLevel := 0
-	if !isSleepingLeads && (coldFilter == "1" || strings.EqualFold(coldFilter, "true")) {
+	if !isSleepingLeads && !isSnoozedLeads && (coldFilter == "1" || strings.EqualFold(coldFilter, "true")) {
 		coldLevelOptions = buildColdLevelOptions(leads)
 		if lvl, err := strconv.Atoi(strings.TrimSpace(coldLevelFilter)); err == nil && isValidAssignedLevel(lvl) {
 			selectedColdLevel = lvl
@@ -491,7 +495,9 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"RepeatFilter":             repeatFilter,
 		"OpsQueueFilter":           opsQueueFilter,
 		"SleepingFilter":           sleepingFilter,
+		"SnoozedFilter":            snoozedFilter,
 		"IsSleepingLeads":          isSleepingLeads,
+		"IsSnoozedLeads":           isSnoozedLeads,
 		"IncludeCancelled":         includeCancelled,
 		"FollowUpCount":            followUpCount,
 		"FollowUpFilter":           followUpFilter,
@@ -526,6 +532,10 @@ func (h *PreEnrolmentHandler) SendSleepingLeadFollowUp(w http.ResponseWriter, r 
 	}
 	if item == nil || item.SleepingLeadStep < 1 || item.SleepingLeadStep > 3 {
 		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "This lead is no longer due for a sleeping follow-up.")
+		return
+	}
+	if snooze, err := models.GetLeadSnooze(leadID); err == nil && snooze != nil && util.CairoNow().Before(snooze.SnoozedUntil) {
+		redirectWithError(w, r, "/pre-enrolment?snoozed=1", fmt.Sprintf("This lead is snoozed until %s.", util.FormatDateCairo(snooze.SnoozedUntil)))
 		return
 	}
 
@@ -571,6 +581,10 @@ func (h *PreEnrolmentHandler) SendOfferSentFollowUp(w http.ResponseWriter, r *ht
 	}
 	if detail == nil || detail.Lead == nil || detail.Lead.Status != "offer_sent" {
 		redirectWithError(w, r, "/pre-enrolment", "This lead is no longer in offer follow-up stage.")
+		return
+	}
+	if snooze, err := models.GetLeadSnooze(leadID); err == nil && snooze != nil && util.CairoNow().Before(snooze.SnoozedUntil) {
+		redirectWithError(w, r, "/pre-enrolment?snoozed=1", fmt.Sprintf("This lead is snoozed until %s.", util.FormatDateCairo(snooze.SnoozedUntil)))
 		return
 	}
 
@@ -1038,6 +1052,25 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			sleepingReminderNote = sleepingReminder.Note.String
 		}
 	}
+	leadSnooze, leadSnoozeErr := models.GetLeadSnooze(leadID)
+	if leadSnoozeErr != nil {
+		log.Printf("ERROR: Failed to get lead snooze: %v", leadSnoozeErr)
+		leadSnooze = nil
+	}
+	leadSnoozeDue := false
+	leadSnoozeDate := ""
+	leadSnoozeNote := ""
+	if leadSnooze != nil {
+		leadSnoozeDue = !util.CairoNow().Before(leadSnooze.SnoozedUntil)
+		leadSnoozeDate = util.FormatDateCairo(leadSnooze.SnoozedUntil)
+		if leadSnooze.Note.Valid {
+			leadSnoozeNote = leadSnooze.Note.String
+		}
+		if leadSnoozeDue {
+			tempItem.NextAction = "Reminder Due"
+			tempItem.FollowUpDue = true
+		}
+	}
 
 	today := time.Now().Format("2006-01-02")
 	leadPayments := []*models.LeadPayment{}
@@ -1265,16 +1298,21 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"IsRefusedRenewal":       isRefusedRenewal,
 		"RenewalRefusedAt":       refusedAtText,
 		"CanMarkRefusedRenewal":  canMarkRefusedRenewal,
-		"CanSetSleepingReminder": canSetSleepingReminder(detail),
+		"CanSetSleepingReminder": false,
 		"SleepingLeadReminder":   sleepingReminder,
 		"SleepingReminderDue":    sleepingReminderDue,
 		"SleepingReminderDate":   sleepingReminderDate,
 		"SleepingReminderNote":   sleepingReminderNote,
-		"CanSetOfferReminder":    canSetOfferReminder(detail, tempItem.PaymentState),
+		"CanSetOfferReminder":    false,
 		"OfferReminder":          offerReminder,
 		"OfferReminderDue":       offerReminderDue,
 		"OfferReminderDate":      offerReminderDate,
 		"OfferReminderNote":      offerReminderNote,
+		"CanSnoozeLead":          canSnoozeLead(detail),
+		"LeadSnooze":             leadSnooze,
+		"LeadSnoozeDue":          leadSnoozeDue,
+		"LeadSnoozeDate":         leadSnoozeDate,
+		"LeadSnoozeNote":         leadSnoozeNote,
 		"Error":                  "",
 		"PhoneError":             "",
 		"ExistingLeadID":         nil,
@@ -1478,6 +1516,25 @@ func canSetSleepingReminder(detail *models.LeadDetail) bool {
 		return true
 	}
 	return !detail.PlacementTest.TestDate.Valid && !detail.PlacementTest.TestTime.Valid
+}
+
+func canSnoozeLead(detail *models.LeadDetail) bool {
+	if detail == nil || detail.Lead == nil {
+		return false
+	}
+	if canSetSleepingReminder(detail) {
+		return true
+	}
+	if detail.Lead.Status == "in_classes" || detail.Lead.Status == "cancelled" {
+		return false
+	}
+	if detail.Lead.SentToClasses {
+		return false
+	}
+	if detail.Lead.OpsQueueReason.Valid && detail.Lead.OpsQueueReason.String == "private_track" {
+		return false
+	}
+	return true
 }
 
 func canSetOfferReminder(detail *models.LeadDetail, paymentState string) bool {
@@ -1864,6 +1921,68 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		h.cfg.Debugf("  ✅ Lead marked refused_renewal and moved to cold_lead")
 		http.Redirect(w, r, "/pre-enrolment?cold=1&status_flash=refused", http.StatusFound)
+		return
+
+	case "set_lead_snooze":
+		h.cfg.Debugf("  → Action: set_lead_snooze")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to snooze leads.", http.StatusForbidden)
+			return
+		}
+
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if !canSnoozeLead(detail) {
+			h.renderDetailWithError(w, r, leadID, "Snooze is available only for leads in the main pre-enrolment feed or Sleeping Leads.")
+			return
+		}
+
+		snoozeDate := strings.TrimSpace(r.FormValue("lead_snooze_date"))
+		if snoozeDate == "" {
+			h.renderDetailWithError(w, r, leadID, "Please choose the reminder date.")
+			return
+		}
+		snoozedUntil, err := util.ParseDateCairo(snoozeDate)
+		if err != nil {
+			h.renderDetailWithError(w, r, leadID, "Invalid reminder date.")
+			return
+		}
+		if snoozedUntil.Before(util.CairoStartOfDay(util.CairoNow())) {
+			h.renderDetailWithError(w, r, leadID, "Reminder date cannot be in the past.")
+			return
+		}
+
+		var actorID *uuid.UUID
+		if userIDStr := strings.TrimSpace(middleware.GetUserID(r)); userIDStr != "" {
+			if parsed, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+				actorID = &parsed
+			}
+		}
+
+		if err := models.UpsertLeadSnooze(leadID, snoozedUntil, r.FormValue("lead_snooze_note"), actorID); err != nil {
+			log.Printf("ERROR: Failed to save lead snooze: %v", err)
+			http.Error(w, "Couldn't save the snooze reminder. Please try again.", http.StatusInternalServerError)
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", fmt.Sprintf("Lead snoozed until %s.", util.FormatDateCairo(snoozedUntil)))
+		return
+
+	case "clear_lead_snooze":
+		h.cfg.Debugf("  → Action: clear_lead_snooze")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to clear snoozed leads.", http.StatusForbidden)
+			return
+		}
+		if err := models.DeleteLeadSnooze(leadID); err != nil {
+			log.Printf("ERROR: Failed to clear lead snooze: %v", err)
+			http.Error(w, "Couldn't clear the snooze reminder. Please try again.", http.StatusInternalServerError)
+			return
+		}
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", "Lead snooze cleared.")
 		return
 
 	case "set_sleeping_reminder":

@@ -404,6 +404,19 @@ func ComputeLeadFlags(item *LeadListItem) {
 	}
 }
 
+func applyLeadSnoozeState(item *LeadListItem, now time.Time) {
+	if item == nil || item.Lead == nil || !item.SnoozedUntil.Valid {
+		return
+	}
+	if now.Before(item.SnoozedUntil.Time) {
+		item.SnoozeDue = false
+		return
+	}
+	item.SnoozeDue = true
+	item.NextAction = "Reminder Due"
+	item.FollowUpDue = true
+}
+
 func GetPaymentStatus(remainingBalance, amountPaid sql.NullInt32) string {
 	if remainingBalance.Valid && remainingBalance.Int32 > 0 {
 		return "Deposit"
@@ -426,6 +439,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			TO_CHAR(s.class_time, 'HH24:MI') AS class_time,
 			p.remaining_balance, p.amount_paid,
 			o.final_price,
+			ls.snoozed_until,
+			ls.note,
 			osr.follow_up_at,
 			osr.note,
 			COALESCE(last_offer_msg.message_number, 0) AS last_offer_message_number,
@@ -438,6 +453,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		LEFT JOIN scheduling s ON s.lead_id = l.id
 		LEFT JOIN payments p ON l.id = p.lead_id
 		LEFT JOIN offers o ON l.id = o.lead_id
+		LEFT JOIN lead_snoozes ls ON ls.lead_id = l.id
 		LEFT JOIN offer_sent_reminders osr ON osr.lead_id = l.id
 		LEFT JOIN LATERAL (
 			SELECT osf.message_number, osf.sent_at
@@ -463,6 +479,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		WHERE 1=1
 		AND l.status != 'in_classes'
 		AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
+		AND (ls.snoozed_until IS NULL OR ls.snoozed_until <= NOW())
 		AND NOT (
 			l.status = 'lead_created'
 			AND COALESCE(l.ops_queue_reason, '') = ''
@@ -590,6 +607,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var remainingBalance, amountPaid, finalPrice sql.NullInt32
 		var testDate sql.NullTime
 		var classDays, classTime sql.NullString
+		var snoozedUntil sql.NullTime
+		var snoozeNote sql.NullString
 		var offerReminderAt sql.NullTime
 		var offerReminderNote sql.NullString
 		var lastOfferMessageNumber int32
@@ -606,6 +625,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			&classDays, &classTime,
 			&remainingBalance, &amountPaid,
 			&finalPrice,
+			&snoozedUntil,
+			&snoozeNote,
 			&offerReminderAt,
 			&offerReminderNote,
 			&lastOfferMessageNumber,
@@ -647,12 +668,15 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			RemainingBalance:      remainingBalance,
 			OfferFollowUpLastStep: int(lastOfferMessageNumber),
 			OfferFollowUpLastSent: lastOfferMessageSentAt,
+			SnoozedUntil:          snoozedUntil,
+			SnoozeNote:            snoozeNote,
 			OfferReminderAt:       offerReminderAt,
 			OfferReminderNote:     offerReminderNote,
 		}
 
 		// Compute hot lead flags (needs finalPrice for proper payment state)
 		ComputeLeadFlags(item)
+		applyLeadSnoozeState(item, util.CairoNow())
 
 		leads = append(leads, item)
 	}
@@ -747,6 +771,8 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 			pt.assigned_level, pt.test_date,
 			p.remaining_balance, p.amount_paid,
 			o.final_price,
+			ls.snoozed_until,
+			ls.note,
 			slr.follow_up_at,
 			slr.note,
 			COALESCE(last_msg.message_number, 0) AS last_message_number,
@@ -755,6 +781,7 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
 		LEFT JOIN payments p ON p.lead_id = l.id
 		LEFT JOIN offers o ON o.lead_id = l.id
+		LEFT JOIN lead_snoozes ls ON ls.lead_id = l.id
 		LEFT JOIN sleeping_lead_reminders slr ON slr.lead_id = l.id
 		LEFT JOIN LATERAL (
 			SELECT slf.message_number, slf.sent_at
@@ -766,6 +793,7 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 		WHERE l.status = 'lead_created'
 		  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
 		  AND COALESCE(l.ops_queue_reason, '') = ''
+		  AND (ls.snoozed_until IS NULL OR ls.snoozed_until <= NOW())
 		  AND COALESCE(pt.test_date::text, '') = ''
 		  AND COALESCE(pt.test_time::text, '') = ''
 		  AND (
@@ -798,6 +826,8 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 		var remainingBalance sql.NullInt32
 		var amountPaid sql.NullInt32
 		var finalPrice sql.NullInt32
+		var snoozedUntil sql.NullTime
+		var snoozeNote sql.NullString
 		var reminderAt sql.NullTime
 		var reminderNote sql.NullString
 		var lastMessageNumber int32
@@ -810,6 +840,8 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 			&assignedLevel, &testDate,
 			&remainingBalance, &amountPaid,
 			&finalPrice,
+			&snoozedUntil,
+			&snoozeNote,
 			&reminderAt,
 			&reminderNote,
 			&lastMessageNumber,
@@ -844,6 +876,8 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 			AmountPaid:           amountPaid,
 			FinalPrice:           finalPrice,
 			RemainingBalance:     remainingBalance,
+			SnoozedUntil:         snoozedUntil,
+			SnoozeNote:           snoozeNote,
 			SleepingLeadStep:     nextStep,
 			SleepingLeadLastStep: int(lastMessageNumber),
 			SleepingLeadLastSent: lastMessageSentAt,
@@ -853,6 +887,7 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 			SleepingReminderNote: reminderNote,
 			SleepingReminderDue:  reminderDue,
 		}
+		applyLeadSnoozeState(item, now)
 
 		items = append(items, item)
 	}
@@ -896,6 +931,148 @@ func GetSleepingLeadByID(leadID uuid.UUID) (*LeadListItem, error) {
 		return nil, nil
 	}
 	return items[0], nil
+}
+
+func GetLeadSnooze(leadID uuid.UUID) (*LeadSnooze, error) {
+	snooze := &LeadSnooze{}
+	err := db.DB.QueryRow(`
+		SELECT lead_id, snoozed_until, note, scheduled_by_user_id::text, created_at, updated_at
+		FROM lead_snoozes
+		WHERE lead_id = $1
+	`, leadID).Scan(
+		&snooze.LeadID,
+		&snooze.SnoozedUntil,
+		&snooze.Note,
+		&snooze.ScheduledByUserID,
+		&snooze.CreatedAt,
+		&snooze.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to load lead snooze: %w", err)
+	}
+	return snooze, nil
+}
+
+func UpsertLeadSnooze(leadID uuid.UUID, snoozedUntil time.Time, note string, scheduledByUserID *uuid.UUID) error {
+	var actor interface{}
+	if scheduledByUserID != nil {
+		actor = *scheduledByUserID
+	}
+	if _, err := db.DB.Exec(`
+		INSERT INTO lead_snoozes (lead_id, snoozed_until, note, scheduled_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, NULLIF($3, ''), $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (lead_id) DO UPDATE
+		SET snoozed_until = EXCLUDED.snoozed_until,
+		    note = EXCLUDED.note,
+		    scheduled_by_user_id = EXCLUDED.scheduled_by_user_id,
+		    updated_at = CURRENT_TIMESTAMP
+	`, leadID, snoozedUntil, strings.TrimSpace(note), actor); err != nil {
+		return fmt.Errorf("failed to save lead snooze: %w", err)
+	}
+	return nil
+}
+
+func DeleteLeadSnooze(leadID uuid.UUID) error {
+	if _, err := db.DB.Exec(`DELETE FROM lead_snoozes WHERE lead_id = $1`, leadID); err != nil {
+		return fmt.Errorf("failed to clear lead snooze: %w", err)
+	}
+	return nil
+}
+
+func GetSnoozedLeads(searchFilter string) ([]*LeadListItem, error) {
+	query := `
+		SELECT
+			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason, l.sent_to_classes,
+			COALESCE(l.is_returning, false),
+			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc,
+			l.created_by_user_id, l.offer_sent_at, l.created_at, l.updated_at,
+			pt.assigned_level, pt.test_date,
+			s.class_days,
+			TO_CHAR(s.class_time, 'HH24:MI') AS class_time,
+			p.remaining_balance, p.amount_paid,
+			o.final_price,
+			ls.snoozed_until,
+			ls.note
+		FROM lead_snoozes ls
+		INNER JOIN leads l ON l.id = ls.lead_id
+		LEFT JOIN placement_tests pt ON l.id = pt.lead_id
+		LEFT JOIN scheduling s ON s.lead_id = l.id
+		LEFT JOIN payments p ON l.id = p.lead_id
+		LEFT JOIN offers o ON l.id = o.lead_id
+		WHERE ls.snoozed_until > NOW()
+	`
+
+	args := []interface{}{}
+	if trimmed := strings.TrimSpace(searchFilter); trimmed != "" {
+		query += " AND (LOWER(l.full_name) LIKE LOWER($1) OR l.phone LIKE $1)"
+		args = append(args, "%"+trimmed+"%")
+	}
+	query += " ORDER BY ls.snoozed_until ASC, l.updated_at DESC"
+
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query snoozed leads: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := make([]*LeadListItem, 0)
+	for rows.Next() {
+		lead := &Lead{}
+		var assignedLevel sql.NullInt32
+		var testDate sql.NullTime
+		var classDays, classTime sql.NullString
+		var remainingBalance, amountPaid, finalPrice sql.NullInt32
+		var snoozedUntil sql.NullTime
+		var snoozeNote sql.NullString
+
+		if err := rows.Scan(
+			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason, &lead.SentToClasses,
+			&lead.IsReturning, &lead.RemainingCredits,
+			&lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
+			&assignedLevel, &testDate,
+			&classDays, &classTime,
+			&remainingBalance, &amountPaid,
+			&finalPrice,
+			&snoozedUntil,
+			&snoozeNote,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan snoozed lead: %w", err)
+		}
+
+		paymentState := GetPaymentState(amountPaid, finalPrice)
+		if lead.IsReturning && lead.RemainingCredits.Valid && lead.RemainingCredits.Int32 > 0 {
+			switch lead.Status {
+			case "waiting_for_round", "schedule_assigned", "ready_to_start":
+				paymentState = PaymentStatePaidFull
+			}
+		}
+
+		item := &LeadListItem{
+			Lead:             lead,
+			AssignedLevel:    assignedLevel,
+			ClassDays:        classDays,
+			ClassTime:        classTime,
+			PaymentStatus:    GetPaymentStatus(remainingBalance, amountPaid),
+			PaymentState:     paymentState,
+			NextAction:       "Reminder scheduled",
+			TestDate:         testDate,
+			AmountPaid:       amountPaid,
+			FinalPrice:       finalPrice,
+			RemainingBalance: remainingBalance,
+			SnoozedUntil:     snoozedUntil,
+			SnoozeNote:       snoozeNote,
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating snoozed leads: %w", err)
+	}
+
+	return items, nil
 }
 
 func RecordSleepingLeadFollowUp(leadID uuid.UUID, messageNumber int, sentByUserID uuid.UUID) error {
@@ -965,10 +1142,12 @@ func CountDueSleepingLeadReminders(now time.Time) (int, error) {
 		FROM sleeping_lead_reminders slr
 		JOIN leads l ON l.id = slr.lead_id
 		LEFT JOIN placement_tests pt ON pt.lead_id = l.id
+		LEFT JOIN lead_snoozes ls ON ls.lead_id = l.id
 		WHERE slr.follow_up_at <= $1
 		  AND l.status = 'lead_created'
 		  AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
 		  AND COALESCE(l.ops_queue_reason, '') = ''
+		  AND (ls.snoozed_until IS NULL OR ls.snoozed_until <= $1)
 		  AND COALESCE(pt.test_date::text, '') = ''
 		  AND COALESCE(pt.test_time::text, '') = ''
 	`, now).Scan(&count)
