@@ -10494,6 +10494,13 @@ func gradeMirrorNoteID(gradeID uuid.UUID) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("grade-note:"+gradeID.String()))
 }
 
+func validateFinalGradeNotes(notes string) error {
+	if len(strings.Fields(strings.TrimSpace(notes))) < 10 {
+		return fmt.Errorf("final grading comment must be at least 10 words")
+	}
+	return nil
+}
+
 func syncGradeNoteMirror(gradeID uuid.UUID, leadID uuid.UUID, classKey string, notes string, createdByUserID uuid.UUID) error {
 	noteID := gradeMirrorNoteID(gradeID)
 	trimmed := strings.TrimSpace(notes)
@@ -10525,6 +10532,10 @@ func syncGradeNoteMirror(gradeID uuid.UUID, leadID uuid.UUID, classKey string, n
 
 // InsertGrade creates a new grade record (session 8 only)
 func InsertGrade(leadID uuid.UUID, classKey string, grade string, notes string, createdByUserID uuid.UUID) (uuid.UUID, error) {
+	if err := validateFinalGradeNotes(notes); err != nil {
+		return uuid.Nil, err
+	}
+
 	gradeID := uuid.New()
 	var actualGradeID uuid.UUID
 
@@ -10571,6 +10582,10 @@ func DeleteGrade(leadID uuid.UUID, classKey string) error {
 
 // UpdateGrade updates an existing grade record
 func UpdateGrade(gradeID uuid.UUID, grade string, notes string, updatedByUserID uuid.UUID) error {
+	if err := validateFinalGradeNotes(notes); err != nil {
+		return err
+	}
+
 	var leadID uuid.UUID
 	var classKey string
 	err := db.DB.QueryRow(`

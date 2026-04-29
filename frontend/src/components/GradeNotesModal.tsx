@@ -76,9 +76,14 @@ export default function GradeNotesModal({
 
         <div style={{ padding: '20px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '10px', fontSize: '13px', color: '#666', flexWrap: 'wrap' }}>
-            <span>Target: enough room for 300+ words.</span>
-            <span>{wordCount} words</span>
+            <span>Minimum required: 10 words. Space supports 300+ words.</span>
+            <span style={{ color: wordCount < 10 ? '#b02a37' : '#666', fontWeight: wordCount < 10 ? 700 : 400 }}>{wordCount} words</span>
           </div>
+          {wordCount < 10 && canEdit && (
+            <div style={{ marginBottom: '10px', fontSize: '13px', color: '#b02a37' }}>
+              Final grading comment is required and must be at least 10 words.
+            </div>
+          )}
 
           <textarea
             value={value}

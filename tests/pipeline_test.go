@@ -133,7 +133,7 @@ func TestAfterClassPipeline(t *testing.T) {
 			"lead_id":   lead.ID.String(),
 			"class_key": classKey,
 			"grade":     lead.ExpectedFinalGrade,
-			"notes":     "test grade",
+			"notes":     "This student completed the round well and showed strong improvement throughout sessions.",
 		}
 		body, _ := json.Marshal(payload)
 		req := httptest.NewRequest(http.MethodPost, "/api/mentor/grades", bytes.NewReader(body))

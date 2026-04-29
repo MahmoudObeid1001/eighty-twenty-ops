@@ -450,6 +450,9 @@ export default function ClassWorkspace() {
 
         const targetGrade = getTargetGrade(student.lead_id)
         if (!targetGrade) continue
+        if (countGradeNoteWords(draft.notes) < 10) {
+          throw new Error(`Final grading note for ${student.full_name} must be at least 10 words.`)
+        }
 
         await api.createGrade({
           lead_id: student.lead_id,
@@ -473,6 +476,11 @@ export default function ClassWorkspace() {
     if (!trimmed) return 'Add Notes'
     if (trimmed.length <= 28) return trimmed
     return `${trimmed.slice(0, 28)}...`
+  }
+
+  function countGradeNoteWords(notes: string) {
+    const trimmed = notes.trim()
+    return trimmed ? trimmed.split(/\s+/).length : 0
   }
 
   const overdueSessions = useMemo(() => {

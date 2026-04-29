@@ -116,6 +116,10 @@ func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
 	// Create grade (session 8 is set automatically)
 	gradeID, err := models.InsertGrade(leadID, req.ClassKey, req.Grade, req.Notes, userID)
 	if err != nil {
+		if strings.Contains(err.Error(), "at least 10 words") {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			jsonError(w, http.StatusConflict, "Grade already exists for this student in this class")
 			return
@@ -263,6 +267,10 @@ func (h *APIHandler) UpdateGrade(w http.ResponseWriter, r *http.Request) {
 
 	err = models.UpdateGrade(gradeID, req.Grade, req.Notes, userID)
 	if err != nil {
+		if strings.Contains(err.Error(), "at least 10 words") {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		log.Printf("ERROR: Failed to update grade: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to update grade")
 		return
