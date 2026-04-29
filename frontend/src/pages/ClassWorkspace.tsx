@@ -413,7 +413,7 @@ export default function ClassWorkspace() {
 
   function getTargetGrade(leadId: string): string {
     const calculatedGrade = gradePreviews[leadId]?.calculated_grade || ''
-    if (userRole === 'mentor_head') {
+    if (userRole === 'mentor_head' || userRole === 'mentor') {
       return gradeDrafts[leadId]?.grade || calculatedGrade
     }
     return calculatedGrade
@@ -481,6 +481,13 @@ export default function ClassWorkspace() {
   function countGradeNoteWords(notes: string) {
     const trimmed = notes.trim()
     return trimmed ? trimmed.split(/\s+/).length : 0
+  }
+
+  function getSavedGradeDifference(leadId: string) {
+    const calculatedGrade = gradePreviews[leadId]?.calculated_grade || ''
+    const savedGrade = grades[leadId]?.grade || ''
+    if (!savedGrade || !calculatedGrade || savedGrade === calculatedGrade) return null
+    return { calculatedGrade, savedGrade }
   }
 
   const overdueSessions = useMemo(() => {
@@ -1104,7 +1111,7 @@ export default function ClassWorkspace() {
         <div className="workspace-grading" style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #dee2e6' }}>
           <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Final Class Grading</h2>
           <p style={{ color: '#666', marginBottom: '24px', fontSize: '14px' }}>
-            Grades are calculated from attendance, tasks, and participation. Save commits the calculated values.
+            Grades are calculated from attendance, tasks, and participation. Mentors can adjust the final grade, and Mentor Head reviews any difference before closing the round.
           </p>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -1138,6 +1145,7 @@ export default function ClassWorkspace() {
               const calculatedGrade = preview?.calculated_grade || ''
               const targetGrade = getTargetGrade(student.lead_id)
               const isDirty = isGradeChanged(student.lead_id)
+              const savedGradeDifference = userRole === 'mentor_head' ? getSavedGradeDifference(student.lead_id) : null
 
               return (
                 <div
@@ -1183,6 +1191,11 @@ export default function ClassWorkspace() {
                         Missing calculation data for this student.
                       </div>
                     )}
+                    {savedGradeDifference && (
+                      <div style={{ marginTop: '6px', fontSize: '12px', color: '#7c2d12', fontWeight: 600 }}>
+                        Calculated: {savedGradeDifference.calculatedGrade} | Mentor Set: {savedGradeDifference.savedGrade}
+                      </div>
+                    )}
                   </div>
 
                   <div className="workspace-grade-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1195,7 +1208,7 @@ export default function ClassWorkspace() {
                       const canInteractGradeFields = !savingAllGrades && classData.class.round_status !== 'closed' && canEditGrades
                       return (
                         <>
-                    {userRole === 'mentor_head' && (
+                    {(userRole === 'mentor_head' || userRole === 'mentor') && (
                       <select
                         className="workspace-grade-select"
                         value={currentGrade.grade || calculatedGrade}
@@ -1217,7 +1230,7 @@ export default function ClassWorkspace() {
                           fontWeight: 600,
                           cursor: canEditGrades ? 'pointer' : 'not-allowed',
                         }}
-                        title="Mentor Head can override calculated grade"
+                        title={userRole === 'mentor_head' ? 'Mentor Head can approve or adjust the final grade' : 'Mentor can adjust the final grade for Mentor Head review'}
                       >
                         <option value="A">Grade A</option>
                         <option value="B">Grade B</option>

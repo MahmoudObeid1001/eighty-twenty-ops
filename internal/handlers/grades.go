@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -96,20 +95,16 @@ func (h *APIHandler) CreateGrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate mentor-submitted grade against calculated value (mentor head may override).
+	// Validate that the student exists in the class roster for grade calculation.
+	// Mentors may override the calculated grade, but Mentor Head remains the approver who closes the round.
 	previews, err := models.GetGradePreviewsByClass(req.ClassKey)
 	if err != nil {
 		log.Printf("ERROR: Failed to compute grade previews for class %s: %v", req.ClassKey, err)
-		jsonError(w, http.StatusInternalServerError, "Failed to validate grade against calculated breakdown")
+		jsonError(w, http.StatusInternalServerError, "Failed to load calculated grade breakdown")
 		return
 	}
-	preview, ok := previews[leadID]
-	if !ok {
+	if _, ok := previews[leadID]; !ok {
 		jsonError(w, http.StatusBadRequest, "Student not found in class roster for grade calculation")
-		return
-	}
-	if userRole != "mentor_head" && req.Grade != preview.CalculatedGrade {
-		jsonError(w, http.StatusBadRequest, fmt.Sprintf("Submitted grade %s does not match calculated grade %s", req.Grade, preview.CalculatedGrade))
 		return
 	}
 
