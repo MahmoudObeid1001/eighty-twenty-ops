@@ -2566,6 +2566,54 @@ func GetAvailableGroupsForMove(leadID uuid.UUID) ([]int32, error) {
 	return availableGroups, rows.Err()
 }
 
+// GetNextClassGroupIndexForLead returns the next unused class group index for the lead's
+// current level + days + time. This must consider all existing groups, including
+// active/sent/closed ones, otherwise mid-round new classes can incorrectly reuse older numbers.
+func GetNextClassGroupIndexForLead(leadID uuid.UUID) (int32, error) {
+	var assignedLevel sql.NullInt32
+	var classDays, classTime sql.NullString
+	err := db.DB.QueryRow(`
+		SELECT pt.assigned_level, s.class_days, s.class_time
+		FROM leads l
+		INNER JOIN placement_tests pt ON l.id = pt.lead_id
+		INNER JOIN scheduling s ON l.id = s.lead_id
+		WHERE l.id = $1
+	`, leadID).Scan(&assignedLevel, &classDays, &classTime)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get student details: %w", err)
+	}
+	if !assignedLevel.Valid || !classDays.Valid || !classTime.Valid {
+		return 0, fmt.Errorf("student is missing level or schedule")
+	}
+
+	var maxIndex int32
+	err = db.DB.QueryRow(`
+		WITH existing_groups AS (
+			SELECT COALESCE(cg.class_number, 1) AS group_index
+			FROM class_groups cg
+			WHERE cg.level = $1
+			  AND cg.class_days = $2
+			  AND LEFT(cg.class_time, 5) = TO_CHAR($3::time, 'HH24:MI')
+			UNION
+			SELECT COALESCE(s.class_group_index, 1) AS group_index
+			FROM scheduling s
+			INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id
+			INNER JOIN leads l ON l.id = s.lead_id
+			WHERE pt.assigned_level = $1
+			  AND s.class_days = $2
+			  AND s.class_time = $3
+			  AND l.sent_to_classes = true
+		)
+		SELECT COALESCE(MAX(group_index), 0)
+		FROM existing_groups
+	`, assignedLevel.Int32, classDays.String, classTime.String).Scan(&maxIndex)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get next class group index: %w", err)
+	}
+
+	return maxIndex + 1, nil
+}
+
 // GetMoveOptionsForLead returns available class options across the same level.
 // Includes a "new_same" option for opening a new class with the same days/time.
 func GetMoveOptionsForLead(leadID uuid.UUID) ([]MoveClassOption, error) {

@@ -217,21 +217,13 @@ func (h *ClassesHandler) Move(w http.ResponseWriter, r *http.Request) {
 
 		// If target_group is 0 or new_same, create new group (find next available index)
 		if targetGroupStr == "new_same" || targetGroup == 0 {
-			availableGroups, err := models.GetAvailableGroupsForMove(leadID)
+			nextGroupIndex, err := models.GetNextClassGroupIndexForLead(leadID)
 			if err != nil {
-				log.Printf("ERROR: Failed to get available groups: %v", err)
-				redirectWithError(w, r, "/classes", "Couldn't load available classes. Please try again.")
+				log.Printf("ERROR: Failed to get next class group index: %v", err)
+				redirectWithError(w, r, "/classes", "Couldn't create the next class number. Please try again.")
 				return
 			}
-
-			// Find next group index (max + 1)
-			maxIndex := int32(0)
-			for _, idx := range availableGroups {
-				if idx > maxIndex {
-					maxIndex = idx
-				}
-			}
-			targetGroup = int(maxIndex + 1)
+			targetGroup = int(nextGroupIndex)
 		}
 
 		moveErr = models.MoveStudentBetweenGroups(leadID, int32(targetGroup))
