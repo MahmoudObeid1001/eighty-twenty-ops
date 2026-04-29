@@ -35,6 +35,13 @@
             WhatsApp Lead
         </a>
         {{end}}
+        {{if and (or .IsAdmin (eq .UserRole "manager")) .IsRefusedRenewal .RefusedFollowUpDueNow}}
+        <button type="button" class="btn"
+            style="background: #C05621; color: white; border: 1px solid #C05621; padding: 12px 18px; font-weight: 700;"
+            onclick="openRefusedRenewalMessageModal()">
+            {{if .RefusedFollowUpManual}}Send Manual{{else}}Send Message{{end}}
+        </button>
+        {{end}}
         <!-- Unified Status Banner (top-right) -->
         <div class="pre-enrolment-status-banner"
             style="background-color: {{.StatusBgColor}}; color: {{.StatusTextColor}}; border: 2px solid {{.StatusBorderColor}}; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -84,13 +91,19 @@
     </div>
     {{end}}
 
-    {{if .IsRefusedRenewal}}
+    {{if and .IsRefusedRenewal (or .IsAdmin (eq .UserRole "manager"))}}
     <div
         style="margin-top: 10px; background: #FFF4E6; border: 1px solid #FFD8A8; border-left: 4px solid #FF922B; border-radius: 4px; padding: 10px 12px; color: #8C4A00;">
         <strong>Renewal Refused:</strong> This returning student is tagged as refused renewal and is tracked in cold
         leads.
         {{if .RenewalRefusedAt}}
         <span> ({{.RenewalRefusedAt}})</span>
+        {{end}}
+        {{if .RenewalRefusedReasonLabel}}
+        <div style="margin-top: 6px;">Reason: <strong>{{.RenewalRefusedReasonLabel}}</strong></div>
+        {{end}}
+        {{if .RenewalRefusedOtherNote}}
+        <div style="margin-top: 6px;">Details: {{.RenewalRefusedOtherNote}}</div>
         {{end}}
     </div>
     {{end}}
@@ -147,6 +160,20 @@
 </div>
 {{end}}
 
+<div style="display: flex; gap: 10px; margin-bottom: 18px; border-bottom: 1px solid #E5E7EB;">
+    <button type="button" class="pre-enrolment-tab-btn is-active" data-panel="student-card-panel"
+        onclick="switchPreEnrolmentTab('student-card-panel', this)"
+        style="background: transparent; border: 0; border-bottom: 3px solid #0EA5E9; padding: 12px 4px; margin-bottom: -1px; font-weight: 700; color: #0EA5E9; cursor: pointer;">
+        Student Card
+    </button>
+    <button type="button" class="pre-enrolment-tab-btn" data-panel="contact-history-panel"
+        onclick="switchPreEnrolmentTab('contact-history-panel', this)"
+        style="background: transparent; border: 0; border-bottom: 3px solid transparent; padding: 12px 4px; margin-bottom: -1px; font-weight: 700; color: #6B7280; cursor: pointer;">
+        Contact History
+    </button>
+</div>
+
+<div id="student-card-panel" class="pre-enrolment-tab-panel">
 <!-- Main form for full edit - uses single endpoint with action parameter -->
 <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="pre-enrolment-form">
     <input type="hidden" name="status" value="{{.Detail.Lead.Status}}">
@@ -987,7 +1014,8 @@
             to Cold Leads</button>
         {{end}}
         {{if .CanMarkRefusedRenewal}}
-        <button type="submit" form="pre-enrolment-form" name="action" value="mark_refused_renewal"
+        <button type="button"
+            onclick="openRefusedRenewalModal()"
             class="btn btn-secondary" style="background-color: #C05621; border-color: #C05621; color: white;">Refused
             Renewal → Cold</button>
         {{end}}
@@ -1258,6 +1286,120 @@
     </div>
     {{end}}
 
+    <div id="refusedRenewalModal" class="pre-enrolment-modal-overlay"
+        style="position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.55); z-index: 1100; display: none; align-items: center; justify-content: center; padding: 20px;">
+        <div class="pre-enrolment-modal-card"
+            style="background: white; padding: 28px; border-radius: 12px; width: min(560px, 100%); max-height: 90vh; overflow-y: auto;">
+            <h2 style="margin-top: 0; color: #9C4221;">Refused Renewal</h2>
+            <p style="color: #6B7280; margin-bottom: 18px;">Choose the refusal reason before moving this student to cold leads.</p>
+
+            <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+                <input type="hidden" name="action" value="mark_refused_renewal">
+
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label for="refused_renewal_reason">Reason *</label>
+                    <select id="refused_renewal_reason" name="refused_renewal_reason" required onchange="toggleRefusedRenewalOtherReason()">
+                        <option value="">Select reason</option>
+                        <option value="time_pressure">Busy / Exams</option>
+                        <option value="financial">Financial reasons</option>
+                        <option value="not_satisfied">Not satisfied</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="refused-renewal-other-reason-group" style="display: none; margin-bottom: 16px;">
+                    <label for="refused_renewal_other_reason">Other reason *</label>
+                    <textarea id="refused_renewal_other_reason" name="refused_renewal_other_reason" rows="4"
+                        placeholder="Write the refusal reason..."></textarea>
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="closeRefusedRenewalModal()">Cancel</button>
+                    <button type="submit" class="btn"
+                        style="background-color: #C05621; border-color: #C05621; color: white;">Confirm Refusal</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{if .IsRefusedRenewal}}
+    <div id="refusedRenewalMessageModal" class="pre-enrolment-modal-overlay"
+        style="position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.55); z-index: 1200; display: none; align-items: center; justify-content: center; padding: 20px;">
+        <div class="pre-enrolment-modal-card"
+            style="background: white; padding: 24px; border-radius: 12px; width: min(920px, 100%); max-height: 90vh; overflow-y: auto;">
+            <div style="display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px;">
+                <div>
+                    <h2 style="margin: 0 0 6px 0; color: #9C4221;">Refused Renewal Message Bank</h2>
+                    <p style="margin: 0; color: #6B7280;">{{.Detail.Lead.FullName}} • Step {{.RefusedFollowUpStep}}{{if .RenewalRefusedReasonLabel}} • {{.RenewalRefusedReasonLabel}}{{end}}</p>
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="closeRefusedRenewalMessageModal()">Close</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 18px;">
+                <div>
+                    <div style="font-size: 12px; font-weight: 700; color: #9C4221; margin-bottom: 10px;">Reasons</div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        {{range .RefusedRenewalReasonTabs}}
+                        <button type="button"
+                            class="detail-refused-renewal-tab-btn"
+                            data-reason-key="{{.Key}}"
+                            onclick="selectDetailRefusedRenewalReasonTab('{{.Key}}')"
+                            style="text-align: left; border: 1px solid #E5E7EB; background: #F9FAFB; color: #374151; border-radius: 8px; padding: 10px 12px; font-weight: 600;">
+                            {{.Label}}
+                        </button>
+                        {{end}}
+                    </div>
+                </div>
+
+                <div>
+                    {{range .RefusedRenewalReasonTabs}}
+                    {{$reasonKey := .Key}}
+                    <div class="detail-refused-renewal-template-panel" data-reason-panel="{{$reasonKey}}" style="display: none;">
+                        <div style="font-size: 12px; font-weight: 700; color: #9C4221; margin-bottom: 10px;">Message bank</div>
+                        {{with index $.RefusedTemplatesByReason $reasonKey}}
+                        {{range .}}
+                        <div style="border: 1px solid #E5E7EB; border-radius: 8px; padding: 14px; background: #FFFDF9; margin-bottom: 12px;">
+                            <div style="font-weight: 700; color: #2D3748; margin-bottom: 8px;">{{.Title}}</div>
+                            <pre style="white-space: pre-wrap; margin: 0 0 12px 0; font-family: inherit; color: #374151;">{{.Body}}</pre>
+                            <button type="button" class="btn btn-small"
+                                onclick="useDetailRefusedRenewalTemplate('{{.ID}}', {{printf \"%q\" .Body}})"
+                                style="background: #C05621; color: white; border: 1px solid #C05621;">
+                                Use this message
+                            </button>
+                        </div>
+                        {{end}}
+                        {{else}}
+                        <div style="border: 1px dashed #D1D5DB; border-radius: 8px; padding: 18px; color: #6B7280;">
+                            No template yet for this reason. Write the message manually below.
+                        </div>
+                        {{end}}
+                    </div>
+                    {{end}}
+
+                    <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+                        <input type="hidden" name="action" value="send_refused_renewal_message">
+                        <input type="hidden" name="refused_follow_up_step" value="{{.RefusedFollowUpStep}}">
+                        <input type="hidden" name="refused_follow_up_template_id" id="detail-refused-follow-up-template-id" value="">
+                        <div style="margin-top: 16px;">
+                            <label for="detail-refused-follow-up-message" style="display: block; font-weight: 700; margin-bottom: 8px;">Editable message</label>
+                            <textarea id="detail-refused-follow-up-message" name="refused_follow_up_message" rows="9" required
+                                style="width: 100%; border: 1px solid #D1D5DB; border-radius: 8px; padding: 12px; font: inherit; resize: vertical;"></textarea>
+                            <small style="display: block; margin-top: 8px; color: #6B7280;">Template stays unchanged. Only the final edited text is stored in contact history.</small>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;">
+                            <button type="button" class="btn btn-secondary" onclick="closeRefusedRenewalMessageModal()">Cancel</button>
+                            <button type="submit" class="btn"
+                                style="background: #25D366; color: white; border: 1px solid #25D366;">
+                                Ready to Send
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{end}}
+
     <!-- Late Join Modal -->
     <div id="lateJoinModal" class="pre-enrolment-modal-overlay"
         style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; display: none; align-items: center; justify-content: center;">
@@ -1294,6 +1436,57 @@
     {{end}}
     {{end}}
 </form>
+</div>
+
+<div id="contact-history-panel" class="pre-enrolment-tab-panel" style="display: none;">
+    <div class="form-section">
+        <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px;">
+            <div>
+                <h2 style="margin: 0 0 4px 0;">Contact History</h2>
+                <p style="margin: 0; color: #6B7280;">WhatsApp actions and prepared messages from pre-enrolment are stored here.</p>
+            </div>
+            {{if and (or .IsAdmin (eq .UserRole "manager")) .IsRefusedRenewal .RefusedFollowUpDueNow}}
+            <button type="button" class="btn"
+                style="background: #C05621; border-color: #C05621; color: white;"
+                onclick="openRefusedRenewalMessageModal()">
+                {{if .RefusedFollowUpManual}}Send Manual{{else}}Send Message{{end}}
+            </button>
+            {{end}}
+        </div>
+
+        {{if .ContactHistory}}
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+            {{range .ContactHistory}}
+            <div style="border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px; background: #FAFAFA;">
+                <div style="display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 8px;">
+                    <strong style="color: #1F2937;">
+                        {{if eq .Source "lead_whatsapp"}}Opened WhatsApp chat
+                        {{else if eq .Source "offer_sent_sequence"}}Offer follow-up
+                        {{else if eq .Source "sleeping_lead_sequence"}}Sleeping lead follow-up
+                        {{else if eq .Source "refused_renewal_sequence"}}Refused renewal follow-up
+                        {{else}}{{.Source}}{{end}}
+                    </strong>
+                    <span style="font-size: 12px; color: #6B7280;">{{.CreatedAt.Format "2006-01-02 03:04 PM"}}</span>
+                </div>
+                <div style="font-size: 13px; color: #6B7280; margin-bottom: 8px;">
+                    {{if .CreatedByName}}By {{.CreatedByName}}{{else}}By system{{end}}
+                    {{if .TemplateKey.Valid}} • Template: {{.TemplateKey.String}}{{end}}
+                </div>
+                {{if .MessageText.Valid}}
+                <pre style="white-space: pre-wrap; margin: 0; font-family: inherit; color: #374151;">{{.MessageText.String}}</pre>
+                {{else}}
+                <div style="color: #9CA3AF;">No message body stored for this action.</div>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+        {{else}}
+        <div style="border: 1px dashed #D1D5DB; border-radius: 10px; padding: 24px; color: #6B7280;">
+            No contact history has been recorded for this lead yet.
+        </div>
+        {{end}}
+    </div>
+</div>
 
 <script>
     function togglePrintedFields() {
@@ -1726,5 +1919,81 @@
                 alert('Error: ' + err.message);
             });
     }
+
+    function switchPreEnrolmentTab(panelId, button) {
+        document.querySelectorAll('.pre-enrolment-tab-panel').forEach(function (panel) {
+            panel.style.display = panel.id === panelId ? 'block' : 'none';
+        });
+        document.querySelectorAll('.pre-enrolment-tab-btn').forEach(function (tabButton) {
+            const active = tabButton === button;
+            tabButton.style.borderBottomColor = active ? '#0EA5E9' : 'transparent';
+            tabButton.style.color = active ? '#0EA5E9' : '#6B7280';
+        });
+    }
+
+    function openRefusedRenewalModal() {
+        const modal = document.getElementById('refusedRenewalModal');
+        if (modal) modal.style.display = 'flex';
+        toggleRefusedRenewalOtherReason();
+    }
+
+    function closeRefusedRenewalModal() {
+        const modal = document.getElementById('refusedRenewalModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function toggleRefusedRenewalOtherReason() {
+        const reasonSelect = document.getElementById('refused_renewal_reason');
+        const group = document.getElementById('refused-renewal-other-reason-group');
+        const textarea = document.getElementById('refused_renewal_other_reason');
+        if (!reasonSelect || !group || !textarea) return;
+        const showOther = reasonSelect.value === 'other';
+        group.style.display = showOther ? 'block' : 'none';
+        textarea.required = showOther;
+        if (!showOther) textarea.value = '';
+    }
+
+    function openRefusedRenewalMessageModal() {
+        const modal = document.getElementById('refusedRenewalMessageModal');
+        if (!modal) return;
+        modal.style.display = 'flex';
+        selectDetailRefusedRenewalReasonTab('{{if .RenewalRefusedReason}}{{.RenewalRefusedReason}}{{else}}time_pressure{{end}}');
+    }
+
+    function closeRefusedRenewalMessageModal() {
+        const modal = document.getElementById('refusedRenewalMessageModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function selectDetailRefusedRenewalReasonTab(reasonKey) {
+        const templateInput = document.getElementById('detail-refused-follow-up-template-id');
+        if (templateInput) templateInput.value = '';
+        document.querySelectorAll('.detail-refused-renewal-tab-btn').forEach(function (button) {
+            const active = button.dataset.reasonKey === reasonKey;
+            button.style.background = active ? '#C05621' : '#F9FAFB';
+            button.style.color = active ? 'white' : '#374151';
+            button.style.borderColor = active ? '#C05621' : '#E5E7EB';
+        });
+        document.querySelectorAll('.detail-refused-renewal-template-panel').forEach(function (panel) {
+            panel.style.display = panel.dataset.reasonPanel === reasonKey ? 'block' : 'none';
+        });
+    }
+
+    function useDetailRefusedRenewalTemplate(templateID, templateBody) {
+        const templateInput = document.getElementById('detail-refused-follow-up-template-id');
+        const messageInput = document.getElementById('detail-refused-follow-up-message');
+        if (templateInput) templateInput.value = templateID || '';
+        if (messageInput) {
+            messageInput.value = templateBody || '';
+            messageInput.focus();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        toggleRefusedRenewalOtherReason();
+        if (document.querySelector('.detail-refused-renewal-tab-btn')) {
+            selectDetailRefusedRenewalReasonTab('{{if .RenewalRefusedReason}}{{.RenewalRefusedReason}}{{else}}time_pressure{{end}}');
+        }
+    });
 </script>
 {{end}}

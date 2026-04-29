@@ -57,6 +57,11 @@ type waitingListBucket struct {
 	HasSchedule    bool
 }
 
+type refusalReasonTab struct {
+	Key   string
+	Label string
+}
+
 func buildWaitingListBuckets(leads []*models.LeadListItem) []waitingListBucket {
 	type bucketKey struct {
 		level     int
@@ -234,7 +239,7 @@ func buildLeadWhatsAppURL(item *models.LeadListItem) string {
 	if item == nil || item.Lead == nil {
 		return ""
 	}
-	return buildWhatsAppComposeLink(item.Lead.Phone, "")
+	return fmt.Sprintf("/pre-enrolment/%s?open_whatsapp=1", item.Lead.ID.String())
 }
 
 func assignLeadWhatsAppURLs(items []*models.LeadListItem) {
@@ -244,6 +249,59 @@ func assignLeadWhatsAppURLs(items []*models.LeadListItem) {
 		}
 		item.WhatsAppURL = buildLeadWhatsAppURL(item)
 	}
+}
+
+func refusedRenewalReasonTabs() []refusalReasonTab {
+	return []refusalReasonTab{
+		{Key: models.RefusedRenewalReasonTimePressure, Label: "Busy / Exams"},
+		{Key: models.RefusedRenewalReasonFinancial, Label: "Financial"},
+		{Key: models.RefusedRenewalReasonNotSatisfied, Label: "Not satisfied"},
+		{Key: models.RefusedRenewalReasonOther, Label: "Other"},
+	}
+}
+
+func refusalReasonLabel(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case models.RefusedRenewalReasonTimePressure:
+		return "Busy / Exams"
+	case models.RefusedRenewalReasonFinancial:
+		return "Financial reasons"
+	case models.RefusedRenewalReasonNotSatisfied:
+		return "Not satisfied"
+	case models.RefusedRenewalReasonOther:
+		return "Other"
+	default:
+		return ""
+	}
+}
+
+func groupRefusedRenewalTemplatesByReason(items []*models.RefusedRenewalMessageTemplate) map[string][]*models.RefusedRenewalMessageTemplate {
+	grouped := map[string][]*models.RefusedRenewalMessageTemplate{
+		models.RefusedRenewalReasonTimePressure: {},
+		models.RefusedRenewalReasonFinancial:    {},
+		models.RefusedRenewalReasonNotSatisfied: {},
+		models.RefusedRenewalReasonOther:        {},
+	}
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		grouped[item.RefusalReason] = append(grouped[item.RefusalReason], item)
+	}
+	return grouped
+}
+
+func countDueRefusedRenewalBannerItems(leads []*models.LeadListItem) int {
+	count := 0
+	for _, item := range leads {
+		if item == nil || item.Lead == nil || !item.RefusedRenewal {
+			continue
+		}
+		if item.RefusedFollowUpDueNow && item.RefusedFollowUpStep > 0 && item.RefusedFollowUpStep < 3 {
+			count++
+		}
+	}
+	return count
 }
 
 func buildSleepingLeadMessage(studentFullName string, step int) string {
@@ -372,6 +430,25 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(paymentFilter, "all") {
 		paymentFilter = ""
 	}
+	if r.URL.Query().Get("dismiss_refused_banner") == "1" {
+		var actorID *uuid.UUID
+		if userIDStr := strings.TrimSpace(middleware.GetUserID(r)); userIDStr != "" {
+			if parsed, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+				actorID = &parsed
+			}
+		}
+		if err := models.DismissGlobalBannerForDate(models.RefusedRenewalBannerKey, util.CairoStartOfDay(util.CairoNow()), actorID); err != nil {
+			log.Printf("ERROR: Failed to dismiss refused renewal banner: %v", err)
+		}
+		params := r.URL.Query()
+		params.Del("dismiss_refused_banner")
+		u := "/pre-enrolment"
+		if encoded := params.Encode(); encoded != "" {
+			u += "?" + encoded
+		}
+		http.Redirect(w, r, u, http.StatusFound)
+		return
+	}
 
 	// Check for flash messages in query params (separate from filter status)
 	flashMessage, flashMessageType := flashFromQuery(r)
@@ -477,6 +554,23 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		sleepingReminderDueCount = count
 	}
 
+	refusedTemplates, err := models.GetRefusedRenewalMessageTemplates()
+	if err != nil {
+		log.Printf("ERROR: Failed to load refused renewal templates: %v", err)
+		refusedTemplates = []*models.RefusedRenewalMessageTemplate{}
+	}
+	refusedTemplatesByReason := groupRefusedRenewalTemplatesByReason(refusedTemplates)
+	refusedRenewalDueCount := 0
+	refusedRenewalBannerDismissed := false
+	if coldLeads, coldErr := models.GetAllLeads("", "", "", "", false, "", "", "1", "", ""); coldErr == nil {
+		refusedRenewalDueCount = countDueRefusedRenewalBannerItems(coldLeads)
+		if dismissed, dismissErr := models.IsGlobalBannerDismissedForDate(models.RefusedRenewalBannerKey, util.CairoStartOfDay(util.CairoNow())); dismissErr == nil {
+			refusedRenewalBannerDismissed = dismissed
+		}
+	} else {
+		log.Printf("ERROR: Failed to count refused renewal due follow-ups: %v", coldErr)
+	}
+
 	userRole := middleware.GetUserRole(r)
 	data := map[string]interface{}{
 		"Title":                    "Pre-Enrolment - Eighty Twenty",
@@ -503,6 +597,10 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"FollowUpFilter":           followUpFilter,
 		"TestedResultsCount":       testedResultsCount,
 		"SleepingReminderDueCount": sleepingReminderDueCount,
+		"RefusedRenewalReasonTabs": refusedRenewalReasonTabs(),
+		"RefusedTemplatesByReason": refusedTemplatesByReason,
+		"RefusedRenewalDueCount":   refusedRenewalDueCount,
+		"ShowRefusedRenewalBanner": refusedRenewalDueCount > 0 && !refusedRenewalBannerDismissed,
 		"ColdLevelOptions":         coldLevelOptions,
 		"SelectedColdLevel":        selectedColdLevel,
 		"IsWaitingListView":        isWaitingListView,
@@ -555,6 +653,18 @@ func (h *PreEnrolmentHandler) SendSleepingLeadFollowUp(w http.ResponseWriter, r 
 		log.Printf("ERROR: Failed to record sleeping follow-up for lead %s: %v", leadID, err)
 		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "Couldn't record this sleeping follow-up.")
 		return
+	}
+	if err := models.RecordPreEnrolmentContactHistory(models.ContactHistoryLogInput{
+		LeadID:          leadID,
+		Channel:         "whatsapp",
+		EventType:       "message_ready",
+		Source:          "sleeping_lead_sequence",
+		TemplateKey:     fmt.Sprintf("sleeping_message_%d", item.SleepingLeadStep),
+		MessageText:     messageText,
+		Metadata:        map[string]interface{}{"step": item.SleepingLeadStep},
+		CreatedByUserID: &userID,
+	}); err != nil {
+		log.Printf("ERROR: Failed to log sleeping lead contact history for lead %s: %v", leadID, err)
 	}
 
 	http.Redirect(w, r, whatsAppURL, http.StatusFound)
@@ -641,6 +751,18 @@ func (h *PreEnrolmentHandler) SendOfferSentFollowUp(w http.ResponseWriter, r *ht
 		log.Printf("ERROR: Failed to record offer follow-up for lead %s: %v", leadID, err)
 		redirectWithError(w, r, "/pre-enrolment", "Couldn't record this offer follow-up.")
 		return
+	}
+	if err := models.RecordPreEnrolmentContactHistory(models.ContactHistoryLogInput{
+		LeadID:          leadID,
+		Channel:         "whatsapp",
+		EventType:       "message_ready",
+		Source:          "offer_sent_sequence",
+		TemplateKey:     fmt.Sprintf("offer_message_%d", item.OfferFollowUpStep),
+		MessageText:     messageText,
+		Metadata:        map[string]interface{}{"step": item.OfferFollowUpStep},
+		CreatedByUserID: &userID,
+	}); err != nil {
+		log.Printf("ERROR: Failed to log offer follow-up contact history for lead %s: %v", leadID, err)
 	}
 
 	http.Redirect(w, r, whatsAppURL, http.StatusFound)
@@ -754,6 +876,30 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	detail, err := models.GetLeadByID(leadID)
 	if err != nil {
 		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+		return
+	}
+	if r.URL.Query().Get("open_whatsapp") == "1" {
+		whatsAppURL := buildWhatsAppComposeLink(detail.Lead.Phone, "")
+		if whatsAppURL == "" {
+			redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "This lead does not have a valid WhatsApp number.")
+			return
+		}
+		var actorID *uuid.UUID
+		if userIDStr := strings.TrimSpace(middleware.GetUserID(r)); userIDStr != "" {
+			if parsed, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+				actorID = &parsed
+			}
+		}
+		if err := models.RecordPreEnrolmentContactHistory(models.ContactHistoryLogInput{
+			LeadID:          leadID,
+			Channel:         "whatsapp",
+			EventType:       "chat_opened",
+			Source:          "lead_whatsapp",
+			CreatedByUserID: actorID,
+		}); err != nil {
+			log.Printf("ERROR: Failed to log manual WhatsApp open for lead %s: %v", leadID, err)
+		}
+		http.Redirect(w, r, whatsAppURL, http.StatusFound)
 		return
 	}
 
@@ -1204,8 +1350,44 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	}
 	isRefusedRenewal := latestRefusal != nil
 	refusedAtText := ""
+	refusedReason := ""
+	refusedReasonLabelText := ""
+	refusedOtherNote := ""
+	refusedFollowUpStep := 0
+	refusedFollowUpDueAt := ""
+	refusedFollowUpDueNow := false
+	refusedFollowUpManual := false
 	if latestRefusal != nil {
 		refusedAtText = latestRefusal.RefusedAt.Format("2006-01-02")
+		refusedReason = latestRefusal.Reason
+		refusedReasonLabelText = refusalReasonLabel(latestRefusal.Reason)
+		if latestRefusal.Notes.Valid {
+			refusedOtherNote = latestRefusal.Notes.String
+		}
+		lastRefusedStep, lastRefusedSentAt, followUpErr := models.GetLatestRefusedRenewalFollowUp(leadID)
+		if followUpErr != nil {
+			log.Printf("ERROR: Failed to get refused renewal follow-up state: %v", followUpErr)
+		} else {
+			var dueAt time.Time
+			var dueNow bool
+			var manualAvailable bool
+			refusedFollowUpStep, dueAt, dueNow, manualAvailable = models.ComputeRefusedRenewalFollowUpState(latestRefusal.RefusedAt, lastRefusedStep, lastRefusedSentAt, util.CairoNow())
+			refusedFollowUpDueNow = dueNow
+			refusedFollowUpManual = manualAvailable
+			if !dueAt.IsZero() {
+				refusedFollowUpDueAt = util.FormatDateCairo(dueAt)
+			}
+		}
+	}
+	refusedTemplates, err := models.GetRefusedRenewalMessageTemplates()
+	if err != nil {
+		log.Printf("ERROR: Failed to load refused renewal templates: %v", err)
+		refusedTemplates = []*models.RefusedRenewalMessageTemplate{}
+	}
+	contactHistory, err := models.GetPreEnrolmentContactHistory(leadID)
+	if err != nil {
+		log.Printf("ERROR: Failed to load pre-enrolment contact history: %v", err)
+		contactHistory = []*models.ContactHistoryItem{}
 	}
 	canMarkRefusedRenewal := userRole == "admin" &&
 		detail.Lead.IsReturning &&
@@ -1285,39 +1467,49 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			_, reason := canMarkOfferSent(detail)
 			return reason
 		}(),
-		"StatusDisplayName":      statusInfo.DisplayName,
-		"StatusBgColor":          statusInfo.BgColor,
-		"StatusTextColor":        statusInfo.TextColor,
-		"StatusBorderColor":      statusInfo.BorderColor,
-		"CreditsRemaining":       creditsRemaining,
-		"LastOutcome":            lastOutcome,
-		"LastFinalGrade":         lastGrade,
-		"SmartStepsCodes":        []string{},
-		"SmartStepsAR":           []string{},
-		"SmartStepsSource":       "",
-		"IsRefusedRenewal":       isRefusedRenewal,
-		"RenewalRefusedAt":       refusedAtText,
-		"CanMarkRefusedRenewal":  canMarkRefusedRenewal,
-		"CanSetSleepingReminder": false,
-		"SleepingLeadReminder":   sleepingReminder,
-		"SleepingReminderDue":    sleepingReminderDue,
-		"SleepingReminderDate":   sleepingReminderDate,
-		"SleepingReminderNote":   sleepingReminderNote,
-		"CanSetOfferReminder":    false,
-		"OfferReminder":          offerReminder,
-		"OfferReminderDue":       offerReminderDue,
-		"OfferReminderDate":      offerReminderDate,
-		"OfferReminderNote":      offerReminderNote,
-		"CanSnoozeLead":          canSnoozeLead(detail),
-		"LeadSnooze":             leadSnooze,
-		"LeadSnoozeDue":          leadSnoozeDue,
-		"LeadSnoozeDate":         leadSnoozeDate,
-		"LeadSnoozeNote":         leadSnoozeNote,
-		"Error":                  "",
-		"PhoneError":             "",
-		"ExistingLeadID":         nil,
-		"SuccessMessage":         "",
-		"ShowCancelModal":        false,
+		"StatusDisplayName":         statusInfo.DisplayName,
+		"StatusBgColor":             statusInfo.BgColor,
+		"StatusTextColor":           statusInfo.TextColor,
+		"StatusBorderColor":         statusInfo.BorderColor,
+		"CreditsRemaining":          creditsRemaining,
+		"LastOutcome":               lastOutcome,
+		"LastFinalGrade":            lastGrade,
+		"SmartStepsCodes":           []string{},
+		"SmartStepsAR":              []string{},
+		"SmartStepsSource":          "",
+		"IsRefusedRenewal":          isRefusedRenewal,
+		"RenewalRefusedAt":          refusedAtText,
+		"RenewalRefusedReason":      refusedReason,
+		"RenewalRefusedReasonLabel": refusedReasonLabelText,
+		"RenewalRefusedOtherNote":   refusedOtherNote,
+		"CanMarkRefusedRenewal":     canMarkRefusedRenewal,
+		"RefusedFollowUpStep":       refusedFollowUpStep,
+		"RefusedFollowUpDueAt":      refusedFollowUpDueAt,
+		"RefusedFollowUpDueNow":     refusedFollowUpDueNow,
+		"RefusedFollowUpManual":     refusedFollowUpManual,
+		"RefusedRenewalReasonTabs":  refusedRenewalReasonTabs(),
+		"RefusedTemplatesByReason":  groupRefusedRenewalTemplatesByReason(refusedTemplates),
+		"ContactHistory":            contactHistory,
+		"CanSetSleepingReminder":    false,
+		"SleepingLeadReminder":      sleepingReminder,
+		"SleepingReminderDue":       sleepingReminderDue,
+		"SleepingReminderDate":      sleepingReminderDate,
+		"SleepingReminderNote":      sleepingReminderNote,
+		"CanSetOfferReminder":       false,
+		"OfferReminder":             offerReminder,
+		"OfferReminderDue":          offerReminderDue,
+		"OfferReminderDate":         offerReminderDate,
+		"OfferReminderNote":         offerReminderNote,
+		"CanSnoozeLead":             canSnoozeLead(detail),
+		"LeadSnooze":                leadSnooze,
+		"LeadSnoozeDue":             leadSnoozeDue,
+		"LeadSnoozeDate":            leadSnoozeDate,
+		"LeadSnoozeNote":            leadSnoozeNote,
+		"Error":                     "",
+		"PhoneError":                "",
+		"ExistingLeadID":            nil,
+		"SuccessMessage":            "",
+		"ShowCancelModal":           false,
 		"CoursePaymentInput": map[string]string{
 			"type":   "",
 			"amount": "",
@@ -1913,7 +2105,17 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				actorID = &parsed
 			}
 		}
-		if err := models.MarkRenewalRefusedAndSetCold(leadID, actorID, ""); err != nil {
+		reason := strings.TrimSpace(r.FormValue("refused_renewal_reason"))
+		otherReasonText := strings.TrimSpace(r.FormValue("refused_renewal_other_reason"))
+		if !models.IsValidRefusedRenewalReason(reason) {
+			h.renderDetailWithError(w, r, leadID, "Please choose a refusal reason.")
+			return
+		}
+		if reason == models.RefusedRenewalReasonOther && otherReasonText == "" {
+			h.renderDetailWithError(w, r, leadID, "Please write the reason when choosing Other.")
+			return
+		}
+		if err := models.MarkRenewalRefusedAndSetCold(leadID, actorID, reason, otherReasonText); err != nil {
 			log.Printf("ERROR: Failed to mark renewal refused: %v", err)
 			http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 			return
@@ -1921,6 +2123,121 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		h.cfg.Debugf("  ✅ Lead marked refused_renewal and moved to cold_lead")
 		http.Redirect(w, r, "/pre-enrolment?cold=1&status_flash=refused", http.StatusFound)
+		return
+
+	case "send_refused_renewal_message":
+		h.cfg.Debugf("  → Action: send_refused_renewal_message")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to send refused renewal messages.", http.StatusForbidden)
+			return
+		}
+
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if detail == nil || detail.Lead == nil || detail.Lead.Status != "cold_lead" {
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "This lead is not in cold leads anymore.")
+			return
+		}
+
+		latestRefusal, err := models.GetLatestRenewalRefusal(leadID)
+		if err != nil {
+			log.Printf("ERROR: Failed to load renewal refusal for lead %s: %v", leadID, err)
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "Couldn't load refused renewal state.")
+			return
+		}
+		if latestRefusal == nil {
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "This lead does not have a refused renewal record.")
+			return
+		}
+
+		lastStep, lastSentAt, err := models.GetLatestRefusedRenewalFollowUp(leadID)
+		if err != nil {
+			log.Printf("ERROR: Failed to load refused renewal follow-up state for lead %s: %v", leadID, err)
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "Couldn't load refused renewal follow-up state.")
+			return
+		}
+		nextStep, _, dueNow, _ := models.ComputeRefusedRenewalFollowUpState(latestRefusal.RefusedAt, lastStep, lastSentAt, util.CairoNow())
+		if !dueNow {
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "This refused renewal follow-up is not due yet.")
+			return
+		}
+
+		requestedStep, err := strconv.Atoi(strings.TrimSpace(r.FormValue("refused_follow_up_step")))
+		if err != nil || requestedStep < 1 || requestedStep > 3 {
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "Invalid refused renewal message step.")
+			return
+		}
+		if nextStep != requestedStep && !(nextStep == 3 && requestedStep == 3) {
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "This refused renewal message step is no longer available.")
+			return
+		}
+
+		messageText := strings.TrimSpace(r.FormValue("refused_follow_up_message"))
+		if messageText == "" {
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "Please prepare the WhatsApp message before sending.")
+			return
+		}
+
+		whatsAppURL := buildWhatsAppComposeLink(detail.Lead.Phone, messageText)
+		if whatsAppURL == "" {
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "This lead does not have a valid WhatsApp number.")
+			return
+		}
+
+		userID, err := uuid.Parse(strings.TrimSpace(middleware.GetUserID(r)))
+		if err != nil {
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "Couldn't identify the current user for follow-up logging.")
+			return
+		}
+
+		var templateID *uuid.UUID
+		templateKey := ""
+		templateIDRaw := strings.TrimSpace(r.FormValue("refused_follow_up_template_id"))
+		if templateIDRaw != "" {
+			parsedTemplateID, parseErr := uuid.Parse(templateIDRaw)
+			if parseErr != nil {
+				redirectWithError(w, r, "/pre-enrolment?cold=1", "Invalid message template.")
+				return
+			}
+			template, templateErr := models.GetRefusedRenewalMessageTemplateByID(parsedTemplateID)
+			if templateErr != nil {
+				log.Printf("ERROR: Failed to load refused renewal message template %s: %v", parsedTemplateID, templateErr)
+				redirectWithError(w, r, "/pre-enrolment?cold=1", "Couldn't load the selected message template.")
+				return
+			}
+			if template == nil {
+				redirectWithError(w, r, "/pre-enrolment?cold=1", "Selected message template was not found.")
+				return
+			}
+			templateID = &parsedTemplateID
+			templateKey = template.TemplateKey
+		}
+
+		if err := models.RecordRefusedRenewalFollowUp(leadID, requestedStep, templateID, messageText, userID); err != nil {
+			log.Printf("ERROR: Failed to record refused renewal follow-up for lead %s: %v", leadID, err)
+			redirectWithError(w, r, "/pre-enrolment?cold=1", "Couldn't record this refused renewal follow-up.")
+			return
+		}
+		if err := models.RecordPreEnrolmentContactHistory(models.ContactHistoryLogInput{
+			LeadID:      leadID,
+			Channel:     "whatsapp",
+			EventType:   "message_ready",
+			Source:      "refused_renewal_sequence",
+			TemplateKey: templateKey,
+			MessageText: messageText,
+			Metadata: map[string]interface{}{
+				"step":           requestedStep,
+				"refusal_reason": latestRefusal.Reason,
+			},
+			CreatedByUserID: &userID,
+		}); err != nil {
+			log.Printf("ERROR: Failed to log refused renewal contact history for lead %s: %v", leadID, err)
+		}
+
+		http.Redirect(w, r, whatsAppURL, http.StatusFound)
 		return
 
 	case "set_lead_snooze":

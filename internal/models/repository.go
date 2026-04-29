@@ -447,7 +447,11 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			last_offer_msg.sent_at,
 			COALESCE(last_ce.outcome, '') as last_outcome,
 			COALESCE(last_ce.final_grade, '') as last_final_grade,
-			COALESCE(last_refusal.refused_at, NULL) as refused_renewal_at
+			COALESCE(last_refusal.refused_at, NULL) as refused_renewal_at,
+			COALESCE(last_refusal.reason, '') as refused_renewal_reason,
+			COALESCE(last_refusal.notes, '') as refused_renewal_notes,
+			COALESCE(last_refused_msg.message_number, 0) as last_refused_message_number,
+			last_refused_msg.sent_at
 		FROM leads l
 		LEFT JOIN placement_tests pt ON l.id = pt.lead_id
 		LEFT JOIN scheduling s ON s.lead_id = l.id
@@ -470,12 +474,19 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			LIMIT 1
 		) last_ce ON true
 		LEFT JOIN LATERAL (
-			SELECT refused_at
+			SELECT refused_at, reason, notes
 			FROM renewal_refusals rr
 			WHERE rr.lead_id = l.id
 			ORDER BY rr.refused_at DESC
 			LIMIT 1
 		) last_refusal ON true
+		LEFT JOIN LATERAL (
+			SELECT rrf.message_number, rrf.sent_at
+			FROM refused_renewal_follow_ups rrf
+			WHERE rrf.lead_id = l.id
+			ORDER BY rrf.message_number DESC, rrf.sent_at DESC
+			LIMIT 1
+		) last_refused_msg ON true
 		WHERE 1=1
 		AND l.status != 'in_classes'
 		AND (l.sent_to_classes IS NULL OR l.sent_to_classes = false)
@@ -616,6 +627,10 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var lastOutcome sql.NullString
 		var lastFinalGrade sql.NullString
 		var refusedRenewalAt sql.NullTime
+		var refusedRenewalReason string
+		var refusedRenewalNotes string
+		var lastRefusedMessageNumber int32
+		var lastRefusedMessageSentAt sql.NullTime
 
 		err := rows.Scan(
 			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason, &lead.SentToClasses,
@@ -634,6 +649,10 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			&lastOutcome,
 			&lastFinalGrade,
 			&refusedRenewalAt,
+			&refusedRenewalReason,
+			&refusedRenewalNotes,
+			&lastRefusedMessageNumber,
+			&lastRefusedMessageSentAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan lead: %w", err)
@@ -651,31 +670,48 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		}
 
 		item := &LeadListItem{
-			Lead:                  lead,
-			AssignedLevel:         assignedLevel,
-			ClassDays:             classDays,
-			ClassTime:             classTime,
-			LastOutcome:           lastOutcome,
-			LastFinalGrade:        lastFinalGrade,
-			RefusedRenewal:        refusedRenewalAt.Valid,
-			RefusedRenewalAt:      refusedRenewalAt,
-			PaymentStatus:         GetPaymentStatus(remainingBalance, amountPaid),
-			PaymentState:          paymentState,
-			NextAction:            GetNextAction(lead.Status),
-			TestDate:              testDate,
-			AmountPaid:            amountPaid,
-			FinalPrice:            finalPrice,
-			RemainingBalance:      remainingBalance,
-			OfferFollowUpLastStep: int(lastOfferMessageNumber),
-			OfferFollowUpLastSent: lastOfferMessageSentAt,
-			SnoozedUntil:          snoozedUntil,
-			SnoozeNote:            snoozeNote,
-			OfferReminderAt:       offerReminderAt,
-			OfferReminderNote:     offerReminderNote,
+			Lead:                    lead,
+			AssignedLevel:           assignedLevel,
+			ClassDays:               classDays,
+			ClassTime:               classTime,
+			LastOutcome:             lastOutcome,
+			LastFinalGrade:          lastFinalGrade,
+			RefusedRenewal:          refusedRenewalAt.Valid,
+			RefusedRenewalAt:        refusedRenewalAt,
+			RefusedFollowUpLastStep: int(lastRefusedMessageNumber),
+			RefusedFollowUpLastSent: lastRefusedMessageSentAt,
+			PaymentStatus:           GetPaymentStatus(remainingBalance, amountPaid),
+			PaymentState:            paymentState,
+			NextAction:              GetNextAction(lead.Status),
+			TestDate:                testDate,
+			AmountPaid:              amountPaid,
+			FinalPrice:              finalPrice,
+			RemainingBalance:        remainingBalance,
+			OfferFollowUpLastStep:   int(lastOfferMessageNumber),
+			OfferFollowUpLastSent:   lastOfferMessageSentAt,
+			SnoozedUntil:            snoozedUntil,
+			SnoozeNote:              snoozeNote,
+			OfferReminderAt:         offerReminderAt,
+			OfferReminderNote:       offerReminderNote,
+		}
+		if refusedRenewalReason != "" {
+			item.RenewalRefusalReason = sql.NullString{String: refusedRenewalReason, Valid: true}
+		}
+		if refusedRenewalNotes != "" {
+			item.RenewalRefusalNotes = sql.NullString{String: refusedRenewalNotes, Valid: true}
 		}
 
 		// Compute hot lead flags (needs finalPrice for proper payment state)
 		ComputeLeadFlags(item)
+		if refusedRenewalAt.Valid {
+			nextStep, dueAt, dueNow, manualAvailable := ComputeRefusedRenewalFollowUpState(refusedRenewalAt.Time, int(lastRefusedMessageNumber), lastRefusedMessageSentAt, util.CairoNow())
+			item.RefusedFollowUpStep = nextStep
+			item.RefusedFollowUpDueNow = dueNow
+			item.RefusedFollowUpManual = manualAvailable
+			if !dueAt.IsZero() {
+				item.RefusedFollowUpDueAt = sql.NullTime{Time: dueAt, Valid: true}
+			}
+		}
 		applyLeadSnoozeState(item, util.CairoNow())
 
 		leads = append(leads, item)
@@ -1894,7 +1930,7 @@ func ReturnPrivateTrackLeadToAdminFeed(leadID uuid.UUID) error {
 
 // MarkRenewalRefusedAndSetCold moves a returning lead to cold_lead and writes an
 // auditable refusal event for renewal reporting.
-func MarkRenewalRefusedAndSetCold(leadID uuid.UUID, refusedByUserID *uuid.UUID, notes string) error {
+func MarkRenewalRefusedAndSetCold(leadID uuid.UUID, refusedByUserID *uuid.UUID, reason, notes string) error {
 	tx, err := db.DB.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin refusal tx: %w", err)
@@ -1919,10 +1955,14 @@ func MarkRenewalRefusedAndSetCold(leadID uuid.UUID, refusedByUserID *uuid.UUID, 
 	if refusedByUserID != nil {
 		refusedBy = *refusedByUserID
 	}
+	cleanReason := strings.TrimSpace(reason)
+	if !IsValidRefusedRenewalReason(cleanReason) {
+		return fmt.Errorf("invalid refusal reason")
+	}
 	_, err = tx.Exec(`
 		INSERT INTO renewal_refusals (id, lead_id, refused_at, refused_by_user_id, reason, notes, created_at)
-		VALUES ($1, $2, $3, $4, 'refused_renewal', $5, $3)
-	`, uuid.New(), leadID, now, refusedBy, strings.TrimSpace(notes))
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $3)
+	`, uuid.New(), leadID, now, refusedBy, cleanReason, strings.TrimSpace(notes))
 	if err != nil {
 		return fmt.Errorf("failed to insert renewal refusal: %w", err)
 	}
