@@ -215,14 +215,14 @@
         </div>
 
         {{if and (not .IsModerator) (not .IsReadOnly) .CanSnoozeLead}}
-        <div class="form-section" style="border-color: #99f6e4; background: #f0fdfa;">
+        <div class="form-section" dir="rtl" style="border-color: #99f6e4; background: #f0fdfa; direction: rtl; text-align: right; unicode-bidi: plaintext;">
             <h2>تأجيل المتابعة</h2>
-            <div class="section-note">اخفّي الحالة دي من الـ Main Feed أو Sleeping Leads لحد تاريخ التذكير اللي هتحدديه.</div>
+            <div class="section-note" style="direction: rtl; text-align: right; unicode-bidi: plaintext;">اخفي الحالة دي من الـ Main Feed أو Sleeping Leads لحد تاريخ التذكير اللي هتحدده.</div>
             <div
-                style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid #99f6e4; background: #ecfeff; color: #115e59;">
+                style="margin-bottom: 16px; padding: 12px 14px; border-radius: 4px; border: 1px solid #99f6e4; background: #ecfeff; color: #115e59; direction: rtl; text-align: right; unicode-bidi: plaintext;">
                 <strong>بتشتغل إزاي؟</strong>
-                <div style="margin-top: 6px;">اختاري تاريخ قدّام لتأجيل المتابعة. الحالة هتختفي فوراً من الليستة الحالية، وهتظهر في تاب المؤجلين لحد التاريخ ده.</div>
-                <div style="margin-top: 4px;">أول ما التاريخ يوصل، الحالة هترجع تلقائي ويظهر في الـ Next Action: <strong>التذكير مستحق دلوقتي</strong>.</div>
+                <div style="margin-top: 6px;">اختار تاريخ قدّام لتأجيل المتابعة. الحالة هتختفي فوراً من الليستة الحالية، وهتظهر في تاب Snoozed لحد التاريخ ده.</div>
+                <div style="margin-top: 4px;">أول ما التاريخ يوصل، الحالة هترجع تلقائي وهيظهر في الـ Next Action: <strong>التذكير مستحق دلوقتي</strong>.</div>
             </div>
 
             {{if .LeadSnooze}}
@@ -236,7 +236,7 @@
             </div>
             {{end}}
 
-            <div class="form-row">
+            <div class="form-row" style="flex-direction: row-reverse;">
                 <div class="form-group">
                     <label for="lead_snooze_date">فكرني يوم</label>
                     <input type="date" id="lead_snooze_date" name="lead_snooze_date"
@@ -249,7 +249,7 @@
                         placeholder="مثال: بعد القبض، بعد السفر، بعد الامتحان">
                 </div>
             </div>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-start;">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
                 <button type="submit" name="action" value="set_lead_snooze" class="btn"
                     style="background-color: #0f766e; border-color: #0f766e; color: white;">
                     {{if .LeadSnooze}}تحديث التأجيل{{else}}تأجيل المتابعة{{end}}

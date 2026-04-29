@@ -166,7 +166,7 @@
         <a href="/pre-enrolment?snoozed=1{{if $search}}&search={{$search | urlquery}}{{end}}"
             class="quick-filter-btn {{if $isSnoozed}}active{{end}}" data-filter-key="snoozed"
             data-filter-value="1"
-            style="{{if $isSnoozed}}background-color: #0f766e; color: white; border-color: #0f766e;{{end}}">المؤجلين</a>
+            style="{{if $isSnoozed}}background-color: #0f766e; color: white; border-color: #0f766e;{{end}}">Snoozed</a>
     </div>
 </div>
 
@@ -179,7 +179,7 @@
 
 {{if .IsSnoozedLeads}}
 <div class="cold-retarget-panel" style="background: #f0fdfa; border-color: #99f6e4;">
-    <h3 style="color: #115e59;">الحالات المؤجلة</h3>
+    <h3 style="color: #115e59;">Snoozed</h3>
     <p style="color: #0f766e;">الحالات دي متشالة مؤقتاً من الـ Main Feed ومن Sleeping Leads لحد معاد التذكير. أول ما المعاد يوصل، بترجع تلقائي لليستة الأصلية وبيبقى الـ Next Action: <strong>التذكير مستحق دلوقتي</strong>.</p>
 </div>
 {{end}}
