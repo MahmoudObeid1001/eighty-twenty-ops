@@ -5635,7 +5635,7 @@ func round2(v float64) float64 {
 // - missing task rows count as not completed for sessions 2..8
 // - missing participation score defaults to 3/5 for attended sessions
 func GetGradePreviewsByClass(classKey string) (map[uuid.UUID]GradePreview, error) {
-	students, err := GetStudentsInClassGroup(classKey)
+	students, err := GetStudentsForMentorHeadClass(classKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load class students: %w", err)
 	}

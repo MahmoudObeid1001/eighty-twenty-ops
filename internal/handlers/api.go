@@ -731,7 +731,7 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 	// Pre-start visibility includes ready_to_start roster for sent/not_started classes.
 	// Mentors get the same visibility for their assigned class, but actions remain locked until round is active.
 	var students []*models.ClassStudent
-	if userRole == "mentor_head" || userRole == "admin" || userRole == "mentor" {
+	if userRole == "mentor_head" || userRole == "admin" || userRole == "mentor" || userRole == "manager" {
 		students, err = models.GetStudentsForMentorHeadClass(classKey)
 	} else {
 		students, err = models.GetStudentsInClassGroup(classKey)
