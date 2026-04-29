@@ -5,6 +5,7 @@ import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import StudentModal from '../components/StudentModal'
 import ComplianceModal from '../components/ComplianceModal'
 import StudentReportCard from '../components/StudentReportCard'
+import GradeNotesModal from '../components/GradeNotesModal'
 import { buildWhatsAppLink, openWhatsAppLink } from '../utils/whatsapp'
 
 type Tab = 'students' | 'absence' | 'followups' | 'feedback' | 'feedback_collected' | 'final_grading'
@@ -335,6 +336,7 @@ export default function StudentSuccessClass() {
   const [reportOpen, setReportOpen] = useState(false)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportData, setReportData] = useState<StudentReportCardData | null>(null)
+  const [gradeNotesModal, setGradeNotesModal] = useState<{ leadId: string; studentName: string; value: string } | null>(null)
 
   const triggerRefresh = () => setRefreshNonce((n) => n + 1)
 
@@ -420,6 +422,29 @@ export default function StudentSuccessClass() {
     } finally {
       setSubmittingGrade(null)
     }
+  }
+
+  function getNotesButtonLabel(notes: string) {
+    const trimmed = notes.trim()
+    if (!trimmed) return 'Add Notes'
+    if (trimmed.length <= 28) return trimmed
+    return `${trimmed.slice(0, 28)}...`
+  }
+
+  function openGradeNotesModal(student: StudentRow) {
+    setGradeNotesModal({
+      leadId: student.lead_id,
+      studentName: student.full_name,
+      value: grades[student.lead_id]?.notes || '',
+    })
+  }
+
+  async function saveGradeNotesModal() {
+    if (!gradeNotesModal) return
+    const grade = grades[gradeNotesModal.leadId]?.grade || ''
+    if (!grade) return
+    await handleUpdateGrade(gradeNotesModal.leadId, grade, gradeNotesModal.value)
+    setGradeNotesModal(null)
   }
 
   async function handleOpenReport(leadId: string) {
@@ -629,22 +654,32 @@ export default function StudentSuccessClass() {
                     <option value="C">Grade C</option>
                     <option value="F">Grade F</option>
                   </select>
-                  <input
-                    type="text"
-                    placeholder="Add final notes..."
-                    value={grades[student.lead_id]?.notes || ''}
-                    disabled={!canEditGrades || !(grades[student.lead_id]?.grade)}
-                    onChange={(e) => {
-                      if (!canEditGrades) return
-                      setGrades((prev) => ({ ...prev, [student.lead_id]: { ...prev[student.lead_id], notes: e.target.value } }))
+                  <button
+                    type="button"
+                    disabled={(canEditGrades && !(grades[student.lead_id]?.grade)) || (!canEditGrades && !(grades[student.lead_id]?.notes || '').trim())}
+                    onClick={() => openGradeNotesModal(student)}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid #ddd',
+                      fontSize: '14px',
+                      width: '240px',
+                      background: canEditGrades ? '#fff' : '#f5f5f5',
+                      textAlign: 'left',
+                      color: (grades[student.lead_id]?.notes || '').trim() ? '#111827' : '#6b7280',
+                      cursor: ((canEditGrades && !(grades[student.lead_id]?.grade)) || (!canEditGrades && !(grades[student.lead_id]?.notes || '').trim())) ? 'not-allowed' : 'pointer',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
-                    onBlur={(e) => {
-                      if (!canEditGrades) return
-                      if (!grades[student.lead_id]?.grade) return
-                      handleUpdateGrade(student.lead_id, grades[student.lead_id]?.grade || '', e.target.value)
-                    }}
-                    style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', width: '240px', background: canEditGrades ? '#fff' : '#f5f5f5' }}
-                  />
+                    title={
+                      grades[student.lead_id]?.grade
+                        ? ((grades[student.lead_id]?.notes || '').trim() ? grades[student.lead_id]?.notes : 'Add final notes')
+                        : 'Select a grade first'
+                    }
+                  >
+                    {getNotesButtonLabel(grades[student.lead_id]?.notes || '')}
+                  </button>
                   <button
                     onClick={() => handleOpenReport(student.lead_id)}
                     disabled={reportLoading}
@@ -680,6 +715,19 @@ export default function StudentSuccessClass() {
             return attended > 0 ? attended : 0
           })()}
           onClose={() => setSelectedStudent(null)}
+        />
+      )}
+
+      {gradeNotesModal && (
+        <GradeNotesModal
+          open={true}
+          studentName={gradeNotesModal.studentName}
+          value={gradeNotesModal.value}
+          onChange={(value) => setGradeNotesModal((prev) => (prev ? { ...prev, value } : prev))}
+          onClose={() => setGradeNotesModal(null)}
+          onSave={saveGradeNotesModal}
+          saving={submittingGrade === gradeNotesModal.leadId}
+          canEdit={canEditGrades}
         />
       )}
 

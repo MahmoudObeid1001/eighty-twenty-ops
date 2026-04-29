@@ -5,6 +5,7 @@ import StudentModal from '../components/StudentModal'
 import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import ComplianceModal from '../components/ComplianceModal'
 import StudentReportCard from '../components/StudentReportCard'
+import GradeNotesModal from '../components/GradeNotesModal'
 
 function formatSessionDateLabel(value: string) {
   const date = new Date(`${value}T00:00:00`)
@@ -80,6 +81,7 @@ export default function ClassWorkspace() {
   const [reportOpen, setReportOpen] = useState(false)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportData, setReportData] = useState<StudentReportCardData | null>(null)
+  const [gradeNotesStudent, setGradeNotesStudent] = useState<Student | null>(null)
   const [shiftStartModalOpen, setShiftStartModalOpen] = useState(false)
   const [shiftStartDate, setShiftStartDate] = useState('')
   const [shiftStartSaving, setShiftStartSaving] = useState(false)
@@ -464,6 +466,13 @@ export default function ClassWorkspace() {
     } finally {
       setSavingAllGrades(false)
     }
+  }
+
+  function getNotesButtonLabel(notes: string) {
+    const trimmed = notes.trim()
+    if (!trimmed) return 'Add Notes'
+    if (trimmed.length <= 28) return trimmed
+    return `${trimmed.slice(0, 28)}...`
   }
 
   const overdueSessions = useMemo(() => {
@@ -1209,15 +1218,13 @@ export default function ClassWorkspace() {
                       </select>
                     )}
 
-                    <input
+                    <button
+                      type="button"
                       className="workspace-grade-note-input"
-                      type="text"
-                      placeholder="Add final notes..."
-                      value={currentGrade.notes}
                       disabled={!canInteractGradeFields}
-                      onChange={(e) => {
+                      onClick={() => {
                         if (!canEditGrades) return
-                        setGradeDrafts((prev) => ({ ...prev, [student.lead_id]: { ...currentGrade, notes: e.target.value } }))
+                        setGradeNotesStudent(student)
                       }}
                       style={{
                         padding: '8px 12px',
@@ -1226,8 +1233,17 @@ export default function ClassWorkspace() {
                         width: '240px',
                         fontSize: '14px',
                         background: canEditGrades ? 'white' : '#f5f5f5',
+                        textAlign: 'left',
+                        color: currentGrade.notes.trim() ? '#111827' : '#6b7280',
+                        cursor: canInteractGradeFields ? 'pointer' : 'not-allowed',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
                       }}
-                    />
+                      title={currentGrade.notes.trim() ? currentGrade.notes : 'Add final notes'}
+                    >
+                      {getNotesButtonLabel(currentGrade.notes)}
+                    </button>
 
                     <button
                       onClick={() => handleOpenReport(student.lead_id)}
@@ -1763,6 +1779,21 @@ export default function ClassWorkspace() {
               : 0
           }
           onClose={() => setSelectedStudent(null)}
+        />
+      )}
+      {gradeNotesStudent && (
+        <GradeNotesModal
+          open={true}
+          studentName={gradeNotesStudent.full_name}
+          value={gradeDrafts[gradeNotesStudent.lead_id]?.notes || ''}
+          onChange={(value) => {
+            setGradeDrafts((prev) => {
+              const currentGrade = prev[gradeNotesStudent.lead_id] || grades[gradeNotesStudent.lead_id] || { grade: '', notes: '' }
+              return { ...prev, [gradeNotesStudent.lead_id]: { ...currentGrade, notes: value } }
+            })
+          }}
+          onClose={() => setGradeNotesStudent(null)}
+          canEdit={!savingAllGrades && classData?.class.round_status !== 'closed' && canEditGrades}
         />
       )}
       {canOpenCompliance && (
