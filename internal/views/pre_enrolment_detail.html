@@ -1114,16 +1114,16 @@
     {{if and .Detail.Payment .Detail.Payment.AmountPaid.Valid (gt .Detail.Payment.AmountPaid.Int32 0)}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <h3 style="margin-top: 0; color: #CC0000;">Refund</h3>
-        <div style="display: grid; gap: 12px; max-width: 500px;">
+        <form method="POST" action="/finance/refund/{{.Detail.Lead.ID}}"
+            style="display: grid; gap: 12px; max-width: 500px;">
             <div class="form-row">
                 <div class="form-group">
-                    <label for="refund_create_amount">Amount (EGP) *</label>
-                    <input type="number" id="refund_create_amount" name="amount" min="1" step="1" required
-                        form="refund-create-form">
+                    <label for="refund_amount">Amount (EGP) *</label>
+                    <input type="number" id="refund_amount" name="amount" min="1" step="1" required>
                 </div>
                 <div class="form-group">
-                    <label for="refund_create_payment_method">Payment Method *</label>
-                    <select id="refund_create_payment_method" name="payment_method" required form="refund-create-form">
+                    <label for="refund_payment_method">Payment Method *</label>
+                    <select id="refund_payment_method" name="payment_method" required>
                         <option value="">Select method</option>
                         <option value="vodafone_cash">Vodafone Cash</option>
                         <option value="bank_transfer">Bank Transfer</option>
@@ -1134,19 +1134,18 @@
             </div>
             <div class="form-row">
                 <div class="form-group">
-                    <label for="refund_create_date">Date</label>
-                    <input type="date" id="refund_create_date" name="transaction_date" value="{{.Today}}" max="{{.Today}}"
-                        form="refund-create-form">
+                    <label for="refund_date">Date</label>
+                    <input type="date" id="refund_date" name="transaction_date" value="{{.Today}}" max="{{.Today}}">
                 </div>
             </div>
             <div class="form-group">
-                <label for="refund_create_notes">Notes</label>
-                <textarea id="refund_create_notes" name="notes" rows="2"
-                    placeholder="Optional notes about this refund..." form="refund-create-form"></textarea>
+                <label for="refund_notes">Notes</label>
+                <textarea id="refund_notes" name="notes" rows="2"
+                    placeholder="Optional notes about this refund..."></textarea>
             </div>
-            <button type="submit" class="btn" form="refund-create-form"
+            <button type="submit" class="btn"
                 style="background-color: #dc3545; border-color: #dc3545; color: white;">Create Refund</button>
-        </div>
+        </form>
     </div>
     {{end}}
 
@@ -1157,13 +1156,19 @@
             style="background-color: #FFF4E6; border: 1px solid #FFA500; padding: 15px; margin-bottom: 15px; border-radius: 4px;">
             <strong>⚠️ This lead is cancelled.</strong> You can reopen it to reactivate.
         </div>
-        <button type="submit" class="btn" form="reopen-lead-form"
-            style="background-color: #28a745; border-color: #28a745; color: white;">Reopen Lead</button>
+        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
+            <input type="hidden" name="action" value="reopen">
+            <button type="submit" class="btn"
+                style="background-color: #28a745; border-color: #28a745; color: white;">Reopen Lead</button>
+        </form>
     </div>
     {{else if not .IsModerator}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
-        <a href="/pre-enrolment/{{.Detail.Lead.ID}}?action={{if .IsRefundReview}}refund_review{{else}}cancel{{end}}" class="btn"
-            style="display: inline-block; background-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; border-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; color: white; text-decoration: none;">{{if .IsRefundReview}}Open Refund Review{{else}}Cancel Lead{{end}}</a>
+        <form method="GET" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
+            <input type="hidden" name="action" value="{{if .IsRefundReview}}refund_review{{else}}cancel{{end}}">
+            <button type="submit" class="btn"
+                style="background-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; border-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; color: white;">{{if .IsRefundReview}}Open Refund Review{{else}}Cancel Lead{{end}}</button>
+        </form>
     </div>
     {{end}}
 
@@ -1234,12 +1239,14 @@
             {{end}}
 
             {{if gt .TotalRefundableAmount 0}}
-            <div>
+            <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+                <input type="hidden" name="action" value="cancel">
+                {{if .IsRefundReview}}<input type="hidden" name="refund_review_flow" value="1">{{end}}
+
                 <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="cancel_refund_amount">Refund Amount (EGP) *</label>
-                    <input type="number" id="cancel_refund_amount" name="refund_amount" min="1"
-                        max="{{.TotalRefundableAmount}}" value="{{.TotalRefundableAmount}}" step="1" required
-                        form="cancel-with-refund-form">
+                    <label for="refund_amount">Refund Amount (EGP) *</label>
+                    <input type="number" id="refund_amount" name="refund_amount" min="1"
+                        max="{{.TotalRefundableAmount}}" value="{{.TotalRefundableAmount}}" step="1" required>
                     <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalRefundableAmount}} EGP
                         {{if gt .UnusedCreditsValue 0}}(based on unused credits valuation){{end}}</small>
                     {{if or (eq .ErrorCode "refund_required") (eq .ErrorCode "invalid_amount") (eq .ErrorCode
@@ -1249,8 +1256,8 @@
                 </div>
 
                 <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="cancel_refund_method">Refund Payment Method *</label>
-                    <select id="cancel_refund_method" name="refund_method" required form="cancel-with-refund-form">
+                    <label for="refund_method">Refund Payment Method *</label>
+                    <select id="refund_method" name="refund_method" required>
                         <option value="">Select method</option>
                         <option value="vodafone_cash">Vodafone Cash</option>
                         <option value="bank_transfer">Bank Transfer</option>
@@ -1263,9 +1270,8 @@
                 </div>
 
                 <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="cancel_refund_date">Refund Date *</label>
-                    <input type="date" id="cancel_refund_date" name="refund_date" value="{{.Today}}" max="{{.Today}}" required
-                        form="cancel-with-refund-form">
+                    <label for="refund_date">Refund Date *</label>
+                    <input type="date" id="refund_date" name="refund_date" value="{{.Today}}" max="{{.Today}}" required>
                     <small style="color: #666; display: block; margin-top: 5px;">Date cannot be in the future</small>
                     {{if or (eq .ErrorCode "date_required") (eq .ErrorCode "invalid_date") (eq .ErrorCode
                     "future_date")}}
@@ -1274,30 +1280,34 @@
                 </div>
 
                 <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="cancel_refund_notes">Notes</label>
-                    <textarea id="cancel_refund_notes" name="refund_notes" rows="3"
-                        placeholder="Optional notes about this cancellation and refund..." form="cancel-with-refund-form"></textarea>
+                    <label for="refund_notes">Notes</label>
+                    <textarea id="refund_notes" name="refund_notes" rows="3"
+                        placeholder="Optional notes about this cancellation and refund..."></textarea>
                     <small style="color: #666; display: block; margin-top: 5px;">Recommended: Add notes about why the
                         lead was cancelled</small>
                 </div>
 
                 <div class="pre-enrolment-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
-                    <button type="submit" class="btn" form="cancel-with-refund-form"
+                    <button type="submit" class="btn"
                         style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">{{if .IsRefundReview}}Confirm Refund Review & Cancel{{else}}Confirm Cancel
                         & Refund{{end}}</button>
                     <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary"
                         style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
                 </div>
-            </div>
+            </form>
             {{else}}
             <p style="color: #666; margin: 20px 0;">{{if .IsRefundReview}}No refundable course payment was detected for this lead. If that is unexpected, stop here and verify the payment record before cancelling.{{else}}This lead has no course payments, so no refund is needed.{{end}}</p>
-            <div class="pre-enrolment-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
-                <button type="submit" class="btn" form="cancel-no-refund-form"
-                    style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">{{if .IsRefundReview}}Confirm Review & Cancel{{else}}Confirm
-                    Cancel{{end}}</button>
-                <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary"
-                    style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
-            </div>
+            <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+                <input type="hidden" name="action" value="cancel">
+                {{if .IsRefundReview}}<input type="hidden" name="refund_review_flow" value="1">{{end}}
+                <div class="pre-enrolment-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn"
+                        style="background-color: #dc3545; border-color: #dc3545; color: white; flex: 1;">{{if .IsRefundReview}}Confirm Review & Cancel{{else}}Confirm
+                        Cancel{{end}}</button>
+                    <a href="/pre-enrolment/{{.Detail.Lead.ID}}" class="btn btn-secondary"
+                        style="flex: 1; text-align: center; text-decoration: none; display: inline-block; padding: 10px;">Close</a>
+                </div>
+            </form>
             {{end}}
         </div>
     </div>
@@ -1310,11 +1320,12 @@
             <h2 style="margin-top: 0; color: #9C4221;">Refused Renewal</h2>
             <p style="color: #6B7280; margin-bottom: 18px;">Choose the refusal reason before moving this student to cold leads.</p>
 
-            <div>
+            <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+                <input type="hidden" name="action" value="mark_refused_renewal">
+
                 <div class="form-group" style="margin-bottom: 16px;">
                     <label for="refused_renewal_reason">Reason *</label>
-                    <select id="refused_renewal_reason" name="refused_renewal_reason" required onchange="toggleRefusedRenewalOtherReason()"
-                        form="refused-renewal-form">
+                    <select id="refused_renewal_reason" name="refused_renewal_reason" required onchange="toggleRefusedRenewalOtherReason()">
                         <option value="">Select reason</option>
                         <option value="time_pressure">Busy / Exams</option>
                         <option value="financial">Financial reasons</option>
@@ -1326,15 +1337,15 @@
                 <div class="form-group" id="refused-renewal-other-reason-group" style="display: none; margin-bottom: 16px;">
                     <label for="refused_renewal_other_reason">Other reason *</label>
                     <textarea id="refused_renewal_other_reason" name="refused_renewal_other_reason" rows="4"
-                        placeholder="Write the refusal reason..." form="refused-renewal-form"></textarea>
+                        placeholder="Write the refusal reason..."></textarea>
                 </div>
 
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
                     <button type="button" class="btn btn-secondary" onclick="closeRefusedRenewalModal()">Cancel</button>
-                    <button type="submit" class="btn" form="refused-renewal-form"
+                    <button type="submit" class="btn"
                         style="background-color: #C05621; border-color: #C05621; color: white;">Confirm Refusal</button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
 
@@ -1392,20 +1403,24 @@
                     </div>
                     {{end}}
 
-                    <div style="margin-top: 16px;">
-                        <label for="detail-refused-follow-up-message" style="display: block; font-weight: 700; margin-bottom: 8px;">Editable message</label>
-                        <textarea id="detail-refused-follow-up-message" name="refused_follow_up_message" rows="9" required
-                            form="detail-refused-renewal-message-form"
-                            style="width: 100%; border: 1px solid #D1D5DB; border-radius: 8px; padding: 12px; font: inherit; resize: vertical;"></textarea>
-                        <small style="display: block; margin-top: 8px; color: #6B7280;">Template stays unchanged. Only the final edited text is stored in contact history.</small>
-                    </div>
-                    <div style="display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;">
-                        <button type="button" class="btn btn-secondary" onclick="closeRefusedRenewalMessageModal()">Cancel</button>
-                        <button type="submit" class="btn" form="detail-refused-renewal-message-form"
-                            style="background: #25D366; color: white; border: 1px solid #25D366;">
-                            Ready to Send
-                        </button>
-                    </div>
+                    <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
+                        <input type="hidden" name="action" value="send_refused_renewal_message">
+                        <input type="hidden" name="refused_follow_up_step" value="{{.RefusedFollowUpStep}}">
+                        <input type="hidden" name="refused_follow_up_template_id" id="detail-refused-follow-up-template-id" value="">
+                        <div style="margin-top: 16px;">
+                            <label for="detail-refused-follow-up-message" style="display: block; font-weight: 700; margin-bottom: 8px;">Editable message</label>
+                            <textarea id="detail-refused-follow-up-message" name="refused_follow_up_message" rows="9" required
+                                style="width: 100%; border: 1px solid #D1D5DB; border-radius: 8px; padding: 12px; font: inherit; resize: vertical;"></textarea>
+                            <small style="display: block; margin-top: 8px; color: #6B7280;">Template stays unchanged. Only the final edited text is stored in contact history.</small>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;">
+                            <button type="button" class="btn btn-secondary" onclick="closeRefusedRenewalMessageModal()">Cancel</button>
+                            <button type="submit" class="btn"
+                                style="background: #25D366; color: white; border: 1px solid #25D366;">
+                                Ready to Send
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -1449,22 +1464,6 @@
     {{end}}
 </form>
 
-<form method="POST" action="/finance/refund/{{.Detail.Lead.ID}}" id="refund-create-form" style="display: none;"></form>
-
-<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="reopen-lead-form" style="display: none;">
-    <input type="hidden" name="action" value="reopen">
-</form>
-
-<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="cancel-with-refund-form" style="display: none;">
-    <input type="hidden" name="action" value="cancel">
-    {{if .IsRefundReview}}<input type="hidden" name="refund_review_flow" value="1">{{end}}
-</form>
-
-<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="cancel-no-refund-form" style="display: none;">
-    <input type="hidden" name="action" value="cancel">
-    {{if .IsRefundReview}}<input type="hidden" name="refund_review_flow" value="1">{{end}}
-</form>
-
 <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="send-to-classes-form" style="display: none;">
     <input type="hidden" name="action" value="send_to_classes">
 </form>
@@ -1475,16 +1474,6 @@
 
 <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="release-continuation-hold-form" style="display: none;">
     <input type="hidden" name="action" value="release_continuation_hold">
-</form>
-
-<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="refused-renewal-form" style="display: none;">
-    <input type="hidden" name="action" value="mark_refused_renewal">
-</form>
-
-<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="detail-refused-renewal-message-form" style="display: none;">
-    <input type="hidden" name="action" value="send_refused_renewal_message">
-    <input type="hidden" name="refused_follow_up_step" value="{{.RefusedFollowUpStep}}">
-    <input type="hidden" name="refused_follow_up_template_id" id="detail-refused-follow-up-template-id" value="">
 </form>
 </div>
 
