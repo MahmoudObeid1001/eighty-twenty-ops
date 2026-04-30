@@ -1021,7 +1021,10 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	data["CancelFlowMode"] = actionMode
 
 	isFullyPaid := data["IsFullyPaid"].(bool)
-	if isFullyPaid && detail.Lead.Status != "paid_full" && detail.Lead.Status != "cancelled" {
+	if isFullyPaid &&
+		detail.Lead.Status != "paid_full" &&
+		detail.Lead.Status != "cancelled" &&
+		!isPaidWaitingFlowStatus(detail.Lead.Status) {
 		_ = models.UpdateLeadStatusFromPayment(leadID)
 	}
 

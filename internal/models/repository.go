@@ -3634,7 +3634,11 @@ func UpdateLeadStatusFromPayment(leadID uuid.UUID) error {
 		return fmt.Errorf("failed to get lead status: %w", err)
 	}
 	// Don't override statuses that are already beyond payment gating.
-	if currentStatus == "cancelled" || currentStatus == "ready_to_start" || currentStatus == "in_classes" {
+	if currentStatus == "cancelled" ||
+		currentStatus == "waiting_for_round" ||
+		currentStatus == "schedule_assigned" ||
+		currentStatus == "ready_to_start" ||
+		currentStatus == "in_classes" {
 		return nil
 	}
 	var finalPrice sql.NullInt32
