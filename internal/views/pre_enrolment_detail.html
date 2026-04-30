@@ -1049,11 +1049,8 @@
     {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid .Detail.Scheduling
     .Detail.Scheduling.ClassDays.Valid .Detail.Scheduling.ClassTime.Valid}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
-        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
-            <input type="hidden" name="action" value="send_to_classes">
-            <button type="submit" class="btn"
-                style="background-color: #28a745; border-color: #28a745; color: white;">Send to Class</button>
-        </form>
+        <button type="submit" form="send-to-classes-form" class="btn"
+            style="background-color: #28a745; border-color: #28a745; color: white;">Send to Class</button>
         <p style="margin-top: 8px; font-size: 12px; color: #666;">This will move the lead to the Classes board. The lead
             must have assigned level, class days, and class time set.</p>
         <p style="margin-top: 6px; font-size: 12px; color: #666;">Send to Class assigns the student to a non-started
@@ -1065,27 +1062,21 @@
 
     {{if .CanApplyContinuationHold}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
-        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
-            <input type="hidden" name="action" value="apply_continuation_hold">
-            <label for="continuation_hold_reason" style="display: block; font-weight: 600; margin-bottom: 8px;">Hold reason</label>
-            <textarea id="continuation_hold_reason" name="continuation_hold_reason" required
-                placeholder="Explain the exceptional situation that justifies restoring the reserved next level..."
-                style="width: 100%; min-height: 90px; padding: 10px; border-radius: 6px; border: 1px solid #CBD5E0; font-size: 14px;"></textarea>
-            <div style="margin-top: 10px;">
-                <button type="submit" class="btn"
-                    style="background-color: #2563EB; border-color: #2563EB; color: white;">Put on Hold</button>
-            </div>
-        </form>
+        <label for="continuation_hold_reason" style="display: block; font-weight: 600; margin-bottom: 8px;">Hold reason</label>
+        <textarea id="continuation_hold_reason" name="continuation_hold_reason" form="apply-continuation-hold-form" required
+            placeholder="Explain the exceptional situation that justifies restoring the reserved next level..."
+            style="width: 100%; min-height: 90px; padding: 10px; border-radius: 6px; border: 1px solid #CBD5E0; font-size: 14px;"></textarea>
+        <div style="margin-top: 10px;">
+            <button type="submit" form="apply-continuation-hold-form" class="btn"
+                style="background-color: #2563EB; border-color: #2563EB; color: white;">Put on Hold</button>
+        </div>
     </div>
     {{end}}
 
     {{if .CanReleaseContinuationHold}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
-        <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
-            <input type="hidden" name="action" value="release_continuation_hold">
-            <button type="submit" class="btn"
-                style="background-color: #1F7A5A; border-color: #1F7A5A; color: white;">Release Hold</button>
-        </form>
+        <button type="submit" form="release-continuation-hold-form" class="btn"
+            style="background-color: #1F7A5A; border-color: #1F7A5A; color: white;">Release Hold</button>
     </div>
     {{end}}
 
@@ -1471,6 +1462,18 @@
     </div>
     {{end}}
     {{end}}
+</form>
+
+<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="send-to-classes-form" style="display: none;">
+    <input type="hidden" name="action" value="send_to_classes">
+</form>
+
+<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="apply-continuation-hold-form" style="display: none;">
+    <input type="hidden" name="action" value="apply_continuation_hold">
+</form>
+
+<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="release-continuation-hold-form" style="display: none;">
+    <input type="hidden" name="action" value="release_continuation_hold">
 </form>
 </div>
 
