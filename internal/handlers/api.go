@@ -3866,45 +3866,63 @@ func (h *APIHandler) UploadFeedbackCollected(w http.ResponseWriter, r *http.Requ
 	note := r.FormValue("note")
 
 	file, header, err := r.FormFile("file")
-	if err != nil {
-		jsonError(w, http.StatusBadRequest, "file is required")
+	hasFile := err == nil
+	if err != nil && !errors.Is(err, http.ErrMissingFile) {
+		jsonError(w, http.StatusBadRequest, "Invalid file upload")
 		return
 	}
-	defer func() {
-		_ = file.Close()
-	}()
-
-	// Save file under web/static/uploads/feedback_collected
-	workDir, _ := os.Getwd()
-	uploadDir := filepath.Join(workDir, "web", "static", "uploads", "feedback_collected")
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		jsonError(w, http.StatusInternalServerError, "Failed to create upload directory")
-		return
+	if hasFile {
+		defer func() {
+			_ = file.Close()
+		}()
 	}
-	ext := filepath.Ext(header.Filename)
-	fileID := uuid.New().String()
-	fileName := fileID + ext
-	dstPath := filepath.Join(uploadDir, fileName)
-
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Failed to save file")
-		return
-	}
-	defer func() {
-		_ = dst.Close()
-	}()
-	size, err := io.Copy(dst, file)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Failed to write file")
+	if !hasFile && strings.TrimSpace(note) == "" {
+		jsonError(w, http.StatusBadRequest, "Either a file or a note is required")
 		return
 	}
 
-	fileURL := "/static/uploads/feedback_collected/" + fileName
+	originalFileName := ""
+	fileURL := ""
+	mimeType := ""
+	var size int64
+	if hasFile {
+		// Save file under web/static/uploads/feedback_collected
+		workDir, _ := os.Getwd()
+		uploadDir := filepath.Join(workDir, "web", "static", "uploads", "feedback_collected")
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			jsonError(w, http.StatusInternalServerError, "Failed to create upload directory")
+			return
+		}
+		ext := filepath.Ext(header.Filename)
+		fileID := uuid.New().String()
+		fileName := fileID + ext
+		dstPath := filepath.Join(uploadDir, fileName)
+
+		dst, err := os.Create(dstPath)
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, "Failed to save file")
+			return
+		}
+		defer func() {
+			_ = dst.Close()
+		}()
+		size, err = io.Copy(dst, file)
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, "Failed to write file")
+			return
+		}
+
+		originalFileName = header.Filename
+		fileURL = "/static/uploads/feedback_collected/" + fileName
+		mimeType = header.Header.Get("Content-Type")
+	} else {
+		originalFileName = "Written feedback"
+	}
+
 	uploadedByID, _ := uuid.Parse(middleware.GetUserID(r))
 
 	record, err := models.CreateFeedbackCollectedUpload(
-		leadID, classKey, sessionNumber, header.Filename, fileURL, header.Header.Get("Content-Type"), size, note, uploadedByID,
+		leadID, classKey, sessionNumber, originalFileName, fileURL, mimeType, size, note, uploadedByID,
 	)
 	if err != nil {
 		log.Printf("ERROR: Failed to save feedback upload: %v", err)
