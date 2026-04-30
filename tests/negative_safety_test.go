@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -118,6 +119,62 @@ func TestNegativeSafetyRails(t *testing.T) {
 		h.CloseRound(res, req)
 
 		requireErrorResponse(t, res, http.StatusBadRequest, "missing final grade")
+	})
+
+	t.Run("send to class skips a closed group even when class time formats differ", func(t *testing.T) {
+		leadID := createLeadWithStatus(t, "Waiting Returner", uniquePhone(nowSuffix, 3), "waiting_for_round", admin.ID)
+		t.Cleanup(func() { cleanupLead(t, leadID) })
+
+		level := int32(7)
+		classDays := "Sat/Tues"
+		classTimeText := "07:30"
+		classTimeScheduling := "07:30:00"
+		closedClassKey := models.GenerateClassKey(level, classDays, classTimeText, 1)
+
+		mustExec(t, `
+			INSERT INTO placement_tests (lead_id, assigned_level, updated_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (lead_id) DO UPDATE
+			SET assigned_level = EXCLUDED.assigned_level, updated_at = NOW()
+		`, leadID, level)
+		mustExec(t, `
+			INSERT INTO scheduling (lead_id, class_days, class_time, class_group_index, updated_at)
+			VALUES ($1, $2, $3::time, NULL, NOW())
+			ON CONFLICT (lead_id) DO UPDATE
+			SET class_days = EXCLUDED.class_days,
+			    class_time = EXCLUDED.class_time,
+			    class_group_index = EXCLUDED.class_group_index,
+			    updated_at = NOW()
+		`, leadID, classDays, classTimeScheduling)
+		mustExec(t, `
+			INSERT INTO class_groups (class_key, level, class_days, class_time, class_number, sent_to_mentor, round_status, updated_at)
+			VALUES ($1, $2, $3, $4, 1, false, 'closed', NOW())
+		`, closedClassKey, level, classDays, classTimeText)
+		t.Cleanup(func() { cleanupClass(t, closedClassKey) })
+
+		if err := models.SendLeadToClasses(leadID); err != nil {
+			t.Fatalf("SendLeadToClasses failed: %v", err)
+		}
+
+		var sentToClasses bool
+		var assignedGroup sql.NullInt32
+		if err := mustQueryRow(t, `
+				SELECT l.sent_to_classes, s.class_group_index
+				FROM leads l
+				JOIN scheduling s ON s.lead_id = l.id
+				WHERE l.id = $1
+			`, leadID).Scan(&sentToClasses, &assignedGroup); err != nil {
+			t.Fatalf("failed to load assigned group: %v", err)
+		}
+		if !sentToClasses {
+			t.Fatalf("expected lead to stay sent_to_classes")
+		}
+		if !assignedGroup.Valid {
+			t.Fatalf("expected class_group_index to be assigned")
+		}
+		if assignedGroup.Int32 != 2 {
+			t.Fatalf("expected closed group 1 to be skipped and group 2 assigned, got %d", assignedGroup.Int32)
+		}
 	})
 }
 

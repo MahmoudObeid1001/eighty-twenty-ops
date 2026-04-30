@@ -2748,7 +2748,7 @@ func AssignClassGroup(leadID uuid.UUID) (int32, error) {
 		FROM class_groups
 		WHERE level = $1
 		  AND class_days = $2
-		  AND class_time = $3
+		  AND LEFT(class_time, 5) = TO_CHAR($3::time, 'HH24:MI')
 	`, assignedLevel.Int32, classDays.String, classTime.String)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query class groups: %w", err)
@@ -2787,7 +2787,7 @@ func AssignClassGroup(leadID uuid.UUID) (int32, error) {
 			FROM class_groups
 			WHERE level = $1
 			  AND class_days = $2
-			  AND class_time = $3
+			  AND LEFT(class_time, 5) = TO_CHAR($3::time, 'HH24:MI')
 			  AND COALESCE(class_number, 1) = $4
 		`, assignedLevel.Int32, classDays.String, classTime.String, groupIndex).Scan(&roundStatus, &sentToMentor)
 		if err == nil {
@@ -2857,7 +2857,7 @@ func MoveStudentBetweenGroups(leadID uuid.UUID, targetGroupIndex int32) error {
 		FROM class_groups
 		WHERE level = $1
 		  AND class_days = $2
-		  AND class_time = $3
+		  AND LEFT(class_time, 5) = TO_CHAR($3::time, 'HH24:MI')
 		  AND COALESCE(class_number, 1) = $4
 	`, assignedLevel.Int32, classDays.String, classTime.String, targetGroupIndex).Scan(&roundStatus, &sentToMentor)
 	if err != nil && err != sql.ErrNoRows {
