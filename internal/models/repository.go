@@ -1393,6 +1393,54 @@ func GetLatestClassEnrollment(leadID uuid.UUID) (*ClassEnrollment, error) {
 	return out, nil
 }
 
+func GetLatestContinuationHoldCandidate(leadID uuid.UUID) (*ClassEnrollment, error) {
+	out := &ClassEnrollment{}
+	err := db.DB.QueryRow(`
+		SELECT id, lead_id, class_key, level, class_days,
+               TO_CHAR(class_time, 'HH24:MI') as class_time,
+               mentor_name, final_grade, outcome,
+               COALESCE(next_level_consumed_on_close, false),
+               COALESCE(continuation_hold_active, false),
+               continuation_hold_reason,
+               continuation_hold_applied_by::text,
+               continuation_hold_applied_at,
+               continuation_hold_released_by::text,
+               continuation_hold_released_at,
+               enrolled_at, completed_at
+		FROM class_enrollments
+		WHERE lead_id = $1
+		  AND COALESCE(next_level_consumed_on_close, false) = true
+		ORDER BY COALESCE(completed_at, enrolled_at) DESC
+		LIMIT 1
+	`, leadID).Scan(
+		&out.ID,
+		&out.LeadID,
+		&out.ClassKey,
+		&out.Level,
+		&out.ClassDays,
+		&out.ClassTime,
+		&out.MentorName,
+		&out.FinalGrade,
+		&out.Outcome,
+		&out.NextLevelConsumedOnClose,
+		&out.ContinuationHoldActive,
+		&out.ContinuationHoldReason,
+		&out.ContinuationHoldAppliedBy,
+		&out.ContinuationHoldAppliedAt,
+		&out.ContinuationHoldReleasedBy,
+		&out.ContinuationHoldReleasedAt,
+		&out.EnrolledAt,
+		&out.CompletedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest continuation hold candidate: %w", err)
+	}
+	return out, nil
+}
+
 func ApplyContinuationHold(leadID, userID uuid.UUID, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {

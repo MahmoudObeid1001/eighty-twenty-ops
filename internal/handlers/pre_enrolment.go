@@ -1331,19 +1331,24 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	}
 	coldEligible := detail.Lead.Status == "offer_sent" && offerReminder == nil && time.Since(coldAnchor) >= 7*24*time.Hour
 
+	var continuationHoldCandidate *models.ClassEnrollment
+	if candidate, err := models.GetLatestContinuationHoldCandidate(leadID); err == nil {
+		continuationHoldCandidate = candidate
+	} else {
+		log.Printf("ERROR: Failed to get continuation hold candidate: %v", err)
+	}
+
 	canApplyContinuationHold := (userRole == "admin" || userRole == "manager") &&
 		detail.Lead.Status == "waiting_for_round" &&
-		latestEnrollment != nil &&
-		latestEnrollment.NextLevelConsumedOnClose &&
-		!latestEnrollment.ContinuationHoldActive
+		continuationHoldCandidate != nil &&
+		!continuationHoldCandidate.ContinuationHoldActive
 	canReleaseContinuationHold := (userRole == "admin" || userRole == "manager") &&
 		detail.Lead.Status == "paused" &&
-		latestEnrollment != nil &&
-		latestEnrollment.NextLevelConsumedOnClose &&
-		latestEnrollment.ContinuationHoldActive
+		continuationHoldCandidate != nil &&
+		continuationHoldCandidate.ContinuationHoldActive
 	continuationHoldReason := ""
-	if latestEnrollment != nil && latestEnrollment.ContinuationHoldReason.Valid {
-		continuationHoldReason = latestEnrollment.ContinuationHoldReason.String
+	if continuationHoldCandidate != nil && continuationHoldCandidate.ContinuationHoldReason.Valid {
+		continuationHoldReason = continuationHoldCandidate.ContinuationHoldReason.String
 	}
 
 	creditsRemaining := int32(0)
