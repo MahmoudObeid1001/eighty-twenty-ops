@@ -6880,8 +6880,13 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		return fmt.Errorf("failed to count absences: %w", err)
 	}
 
-	// Determine outcome: repeat if absences > 2 OR grade = 'F'
-	shouldRepeat := absences > 2 || (finalGrade.Valid && finalGrade.String == "F")
+	absenceOverrideApproved, err := isAbsencePromotionOverrideApprovedTx(tx, leadID, classKey)
+	if err != nil {
+		return err
+	}
+
+	// Determine outcome: repeat if absences > 2 OR grade = 'F', unless Mentor Head approved an absence override.
+	shouldRepeat := (absences > 2 && !absenceOverrideApproved) || (finalGrade.Valid && finalGrade.String == "F")
 	outcome := "promoted"
 	if shouldRepeat {
 		outcome = "repeated"
@@ -7090,6 +7095,14 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 		return fmt.Errorf("cannot close round: %d student(s) are missing final grades", studentsWithoutGrades)
 	}
 
+	pendingOverrideCount, err := countPendingAbsencePromotionOverridesTx(tx, classKey)
+	if err != nil {
+		return err
+	}
+	if pendingOverrideCount > 0 {
+		return fmt.Errorf("cannot close round: %d absence promotion override request(s) still need Mentor Head review", pendingOverrideCount)
+	}
+
 	// For each student, promote them to the next level
 	for _, leadID := range leadIDs {
 		if err := PromoteStudent(tx, leadID, classKey, now); err != nil {
@@ -7139,6 +7152,219 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 	}
 
 	return tx.Commit()
+}
+
+type AbsencePromotionOverrideItem struct {
+	ID                uuid.UUID      `json:"id"`
+	LeadID            uuid.UUID      `json:"lead_id"`
+	ClassKey          string         `json:"class_key"`
+	FullName          string         `json:"full_name"`
+	Phone             string         `json:"phone"`
+	Absences          int            `json:"absences"`
+	FinalGrade        sql.NullString `json:"final_grade"`
+	Status            sql.NullString `json:"status"`
+	Reason            sql.NullString `json:"reason"`
+	RequestedByName   sql.NullString `json:"requested_by_name"`
+	RequestedAt       sql.NullTime   `json:"requested_at"`
+	ReviewedByName    sql.NullString `json:"reviewed_by_name"`
+	ReviewedAt        sql.NullTime   `json:"reviewed_at"`
+	ReviewNote        sql.NullString `json:"review_note"`
+	OverrideAvailable bool           `json:"override_available"`
+}
+
+func GetClassAbsencePromotionOverrides(classKey string) ([]AbsencePromotionOverrideItem, error) {
+	rows, err := db.DB.Query(`
+		WITH active_students AS (
+			SELECT cm.lead_id
+			FROM class_memberships cm
+			INNER JOIN leads l ON l.id = cm.lead_id
+			WHERE cm.class_key = $1
+			  AND cm.joined_at_session_number <= 8
+			  AND (cm.left_after_session_number IS NULL OR cm.left_after_session_number >= 8)
+			  AND cm.removed_at IS NULL
+			  AND l.status != 'cancelled'
+		),
+		absence_counts AS (
+			SELECT a.lead_id, COUNT(*)::int AS absences
+			FROM attendance a
+			INNER JOIN class_sessions cs ON cs.id = a.session_id
+			WHERE cs.class_key = $1
+			  AND a.status IN ('ABSENT', 'LATE')
+			GROUP BY a.lead_id
+		),
+		final_grades AS (
+			SELECT lead_id, grade
+			FROM grades
+			WHERE class_key = $1
+			  AND session_number = 8
+		)
+		SELECT
+			COALESCE(apo.id, '00000000-0000-0000-0000-000000000000'::uuid),
+			l.id,
+			$1,
+			l.full_name,
+			l.phone,
+			COALESCE(ac.absences, 0),
+			fg.grade,
+			apo.status,
+			apo.reason,
+			COALESCE(requested_by.name, requested_by.email),
+			apo.requested_at,
+			COALESCE(reviewed_by.name, reviewed_by.email),
+			apo.reviewed_at,
+			apo.review_note,
+			(COALESCE(ac.absences, 0) > 2 AND fg.grade IS NOT NULL AND fg.grade <> 'F') AS override_available
+		FROM active_students ast
+		INNER JOIN leads l ON l.id = ast.lead_id
+		LEFT JOIN absence_counts ac ON ac.lead_id = l.id
+		LEFT JOIN final_grades fg ON fg.lead_id = l.id
+		LEFT JOIN absence_promotion_overrides apo ON apo.lead_id = l.id AND apo.class_key = $1
+		LEFT JOIN users requested_by ON requested_by.id = apo.requested_by_user_id
+		LEFT JOIN users reviewed_by ON reviewed_by.id = apo.reviewed_by_user_id
+		WHERE COALESCE(ac.absences, 0) > 2 OR apo.id IS NOT NULL
+		ORDER BY l.full_name
+	`, classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query absence promotion overrides: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := []AbsencePromotionOverrideItem{}
+	for rows.Next() {
+		var item AbsencePromotionOverrideItem
+		if err := rows.Scan(
+			&item.ID,
+			&item.LeadID,
+			&item.ClassKey,
+			&item.FullName,
+			&item.Phone,
+			&item.Absences,
+			&item.FinalGrade,
+			&item.Status,
+			&item.Reason,
+			&item.RequestedByName,
+			&item.RequestedAt,
+			&item.ReviewedByName,
+			&item.ReviewedAt,
+			&item.ReviewNote,
+			&item.OverrideAvailable,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan absence promotion override: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func RequestAbsencePromotionOverride(leadID uuid.UUID, classKey, reason string, requestedBy uuid.UUID) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return fmt.Errorf("justification note is required")
+	}
+	eligible, err := isAbsencePromotionOverrideEligible(leadID, classKey)
+	if err != nil {
+		return err
+	}
+	if !eligible {
+		return fmt.Errorf("absence promotion override is available only for students with more than 2 absences and a non-F final grade")
+	}
+	_, err = db.DB.Exec(`
+		INSERT INTO absence_promotion_overrides (
+			lead_id, class_key, reason, status, requested_by_user_id, requested_at, updated_at
+		)
+		VALUES ($1, $2, $3, 'pending', $4, NOW(), NOW())
+		ON CONFLICT (lead_id, class_key) DO UPDATE SET
+			reason = EXCLUDED.reason,
+			status = 'pending',
+			requested_by_user_id = EXCLUDED.requested_by_user_id,
+			requested_at = NOW(),
+			reviewed_by_user_id = NULL,
+			reviewed_at = NULL,
+			review_note = NULL,
+			updated_at = NOW()
+	`, leadID, classKey, reason, requestedBy)
+	if err != nil {
+		return fmt.Errorf("failed to request absence promotion override: %w", err)
+	}
+	return nil
+}
+
+func ReviewAbsencePromotionOverride(leadID uuid.UUID, classKey, status, reviewNote string, reviewedBy uuid.UUID) error {
+	status = strings.TrimSpace(status)
+	if status != "approved" && status != "rejected" {
+		return fmt.Errorf("review status must be approved or rejected")
+	}
+	res, err := db.DB.Exec(`
+		UPDATE absence_promotion_overrides
+		SET status = $1,
+		    review_note = NULLIF($2, ''),
+		    reviewed_by_user_id = $3,
+		    reviewed_at = NOW(),
+		    updated_at = NOW()
+		WHERE lead_id = $4
+		  AND class_key = $5
+	`, status, strings.TrimSpace(reviewNote), reviewedBy, leadID, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to review absence promotion override: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("absence promotion override request not found")
+	}
+	return nil
+}
+
+func isAbsencePromotionOverrideEligible(leadID uuid.UUID, classKey string) (bool, error) {
+	var absences int
+	var finalGrade sql.NullString
+	err := db.DB.QueryRow(`
+		WITH absence_count AS (
+			SELECT COUNT(*)::int AS absences
+			FROM attendance a
+			INNER JOIN class_sessions cs ON cs.id = a.session_id
+			WHERE a.lead_id = $1
+			  AND cs.class_key = $2
+			  AND a.status IN ('ABSENT', 'LATE')
+		)
+		SELECT ac.absences, g.grade
+		FROM absence_count ac
+		LEFT JOIN grades g ON g.lead_id = $1 AND g.class_key = $2 AND g.session_number = 8
+	`, leadID, classKey).Scan(&absences, &finalGrade)
+	if err != nil {
+		return false, fmt.Errorf("failed to verify absence promotion override eligibility: %w", err)
+	}
+	return absences > 2 && finalGrade.Valid && finalGrade.String != "F", nil
+}
+
+func isAbsencePromotionOverrideApprovedTx(tx *sql.Tx, leadID uuid.UUID, classKey string) (bool, error) {
+	var approved bool
+	err := tx.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM absence_promotion_overrides
+			WHERE lead_id = $1
+			  AND class_key = $2
+			  AND status = 'approved'
+		)
+	`, leadID, classKey).Scan(&approved)
+	if err != nil {
+		return false, fmt.Errorf("failed to check absence promotion override: %w", err)
+	}
+	return approved, nil
+}
+
+func countPendingAbsencePromotionOverridesTx(tx *sql.Tx, classKey string) (int, error) {
+	var count int
+	err := tx.QueryRow(`
+		SELECT COUNT(*)::int
+		FROM absence_promotion_overrides
+		WHERE class_key = $1
+		  AND status = 'pending'
+	`, classKey).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count pending absence promotion overrides: %w", err)
+	}
+	return count, nil
 }
 
 // ReopenClosedRound reopens a closed class if fewer than 8 sessions are completed.

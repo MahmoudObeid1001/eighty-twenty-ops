@@ -264,6 +264,24 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/close-round -> apiHandler.CloseRound [mentor_head+admin+manager]")
 
+	mux.HandleFunc("/api/mentor-head/absence-promotion-overrides", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetAbsencePromotionOverrides)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/absence-promotion-overrides -> apiHandler.GetAbsencePromotionOverrides [mentor_head+admin+manager]")
+
+	mux.HandleFunc("/api/mentor-head/absence-promotion-overrides/review", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.ReviewAbsencePromotionOverride)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/absence-promotion-overrides/review -> apiHandler.ReviewAbsencePromotionOverride [mentor_head+admin+manager]")
+
 	mux.HandleFunc("/api/mentor-head/reopen-round", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.ReopenRound)(w, r)
@@ -322,6 +340,15 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/classes/return-early-repeat -> apiHandler.ReturnClassStudentAsEarlyRepeat [mentor_head+admin+manager]")
+
+	mux.HandleFunc("/api/classes/request-absence-promotion-override", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.RequestAbsencePromotionOverride)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/classes/request-absence-promotion-override -> apiHandler.RequestAbsencePromotionOverride [mentor+mentor_head+admin+manager]")
 
 	mux.HandleFunc("/api/class", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {

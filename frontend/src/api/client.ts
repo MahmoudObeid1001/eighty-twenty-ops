@@ -147,9 +147,33 @@ export interface Student {
   full_name: string
   phone: string
   missed_count?: number
+  absence_override_status?: 'pending' | 'approved' | 'rejected'
+  absence_override_reason?: string
+  absence_override_review_note?: string
+  absence_override_available?: boolean
+  absence_override_requested_by?: string
+  absence_override_requested_at?: string
   attendance?: Record<string, string> // session_id -> status
   session_performance?: Record<string, { task_completed: boolean; participation_score: number }>
   joined_at_session_number?: number // NEW
+}
+
+export interface AbsencePromotionOverrideItem {
+  id: string
+  lead_id: string
+  class_key: string
+  full_name: string
+  phone: string
+  absences: number
+  final_grade?: string
+  status?: 'pending' | 'approved' | 'rejected'
+  reason?: string
+  requested_by_name?: string
+  requested_at?: string
+  reviewed_by_name?: string
+  reviewed_at?: string
+  review_note?: string
+  override_available: boolean
 }
 
 export interface Note {
@@ -860,6 +884,30 @@ export const api = {
     fetchAPI('/mentor-head/close-round', {
       method: 'POST',
       body: JSON.stringify({ class_key: classKey }),
+    }),
+
+  getAbsencePromotionOverrides: (classKey: string): Promise<{ items: AbsencePromotionOverrideItem[] }> =>
+    fetchAPI(`/mentor-head/absence-promotion-overrides?class_key=${encodeURIComponent(classKey)}`),
+
+  requestAbsencePromotionOverride: (payload: {
+    lead_id: string
+    class_key: string
+    reason: string
+  }): Promise<{ ok: boolean }> =>
+    fetchAPI('/classes/request-absence-promotion-override', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  reviewAbsencePromotionOverride: (payload: {
+    lead_id: string
+    class_key: string
+    status: 'approved' | 'rejected'
+    review_note?: string
+  }): Promise<{ ok: boolean }> =>
+    fetchAPI('/mentor-head/absence-promotion-overrides/review', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
   reopenRound: (classKey: string): Promise<{ ok: boolean }> =>

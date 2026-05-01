@@ -750,13 +750,19 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type StudentResponse struct {
-		LeadID                string                            `json:"lead_id"`
-		FullName              string                            `json:"full_name"`
-		Phone                 string                            `json:"phone"`
-		MissedCount           int                               `json:"missed_count"`
-		JoinedAtSessionNumber *int32                            `json:"joined_at_session_number,omitempty"`
-		Attendance            map[string]string                 `json:"attendance"`          // session_id -> status
-		SessionPerformance    map[string]map[string]interface{} `json:"session_performance"` // session_id -> {task_completed, participation_score}
+		LeadID                     string                            `json:"lead_id"`
+		FullName                   string                            `json:"full_name"`
+		Phone                      string                            `json:"phone"`
+		MissedCount                int                               `json:"missed_count"`
+		JoinedAtSessionNumber      *int32                            `json:"joined_at_session_number,omitempty"`
+		AbsenceOverrideStatus      string                            `json:"absence_override_status,omitempty"`
+		AbsenceOverrideReason      string                            `json:"absence_override_reason,omitempty"`
+		AbsenceOverrideReviewNote  string                            `json:"absence_override_review_note,omitempty"`
+		AbsenceOverrideAvailable   bool                              `json:"absence_override_available,omitempty"`
+		AbsenceOverrideRequestedBy string                            `json:"absence_override_requested_by,omitempty"`
+		AbsenceOverrideRequestedAt string                            `json:"absence_override_requested_at,omitempty"`
+		Attendance                 map[string]string                 `json:"attendance"`          // session_id -> status
+		SessionPerformance         map[string]map[string]interface{} `json:"session_performance"` // session_id -> {task_completed, participation_score}
 	}
 
 	type SessionResponse struct {
@@ -800,6 +806,15 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WARNING: Failed to get session performance map for class %s: %v", classKey, err)
 		performanceBySession = make(map[uuid.UUID]map[uuid.UUID]*models.SessionPerformance)
 	}
+	overrideItems, err := models.GetClassAbsencePromotionOverrides(classKey)
+	if err != nil {
+		log.Printf("WARNING: Failed to load absence promotion overrides for class %s: %v", classKey, err)
+		overrideItems = []models.AbsencePromotionOverrideItem{}
+	}
+	overridesByLeadID := make(map[uuid.UUID]models.AbsencePromotionOverrideItem, len(overrideItems))
+	for _, item := range overrideItems {
+		overridesByLeadID[item.LeadID] = item
+	}
 
 	studentList := make([]StudentResponse, 0, len(students))
 	for _, s := range students {
@@ -820,7 +835,7 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 			if byLead, ok := attendanceBySession[session.ID]; ok {
 				if att, ok := byLead[s.LeadID]; ok && att != nil {
 					swa.Attendance[session.ID.String()] = att.Status
-					if strings.EqualFold(att.Status, "ABSENT") {
+					if strings.EqualFold(att.Status, "ABSENT") || strings.EqualFold(att.Status, "LATE") {
 						swa.MissedCount++
 					}
 				}
@@ -832,6 +847,24 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 						"participation_score": perf.ParticipationScore,
 					}
 				}
+			}
+		}
+		if overrideItem, ok := overridesByLeadID[s.LeadID]; ok {
+			swa.AbsenceOverrideAvailable = overrideItem.OverrideAvailable
+			if overrideItem.Status.Valid {
+				swa.AbsenceOverrideStatus = overrideItem.Status.String
+			}
+			if overrideItem.Reason.Valid {
+				swa.AbsenceOverrideReason = overrideItem.Reason.String
+			}
+			if overrideItem.ReviewNote.Valid {
+				swa.AbsenceOverrideReviewNote = overrideItem.ReviewNote.String
+			}
+			if overrideItem.RequestedByName.Valid {
+				swa.AbsenceOverrideRequestedBy = overrideItem.RequestedByName.String
+			}
+			if overrideItem.RequestedAt.Valid {
+				swa.AbsenceOverrideRequestedAt = overrideItem.RequestedAt.Time.Format(time.RFC3339)
 			}
 		}
 		studentList = append(studentList, swa)
@@ -2527,6 +2560,165 @@ func (h *APIHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *APIHandler) GetAbsencePromotionOverrides(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	classKeyRaw := r.URL.Query().Get("class_key")
+	classKey, err := url.QueryUnescape(classKeyRaw)
+	if err != nil {
+		classKey = classKeyRaw
+	}
+	if strings.TrimSpace(classKey) == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+	items, err := models.GetClassAbsencePromotionOverrides(classKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to load absence promotion overrides: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load absence override requests")
+		return
+	}
+	type overrideResponse struct {
+		ID                string `json:"id"`
+		LeadID            string `json:"lead_id"`
+		ClassKey          string `json:"class_key"`
+		FullName          string `json:"full_name"`
+		Phone             string `json:"phone"`
+		Absences          int    `json:"absences"`
+		FinalGrade        string `json:"final_grade,omitempty"`
+		Status            string `json:"status,omitempty"`
+		Reason            string `json:"reason,omitempty"`
+		RequestedByName   string `json:"requested_by_name,omitempty"`
+		RequestedAt       string `json:"requested_at,omitempty"`
+		ReviewedByName    string `json:"reviewed_by_name,omitempty"`
+		ReviewedAt        string `json:"reviewed_at,omitempty"`
+		ReviewNote        string `json:"review_note,omitempty"`
+		OverrideAvailable bool   `json:"override_available"`
+	}
+	resp := make([]overrideResponse, 0, len(items))
+	for _, item := range items {
+		row := overrideResponse{
+			ID:                item.ID.String(),
+			LeadID:            item.LeadID.String(),
+			ClassKey:          item.ClassKey,
+			FullName:          item.FullName,
+			Phone:             item.Phone,
+			Absences:          item.Absences,
+			OverrideAvailable: item.OverrideAvailable,
+		}
+		if item.FinalGrade.Valid {
+			row.FinalGrade = item.FinalGrade.String
+		}
+		if item.Status.Valid {
+			row.Status = item.Status.String
+		}
+		if item.Reason.Valid {
+			row.Reason = item.Reason.String
+		}
+		if item.RequestedByName.Valid {
+			row.RequestedByName = item.RequestedByName.String
+		}
+		if item.RequestedAt.Valid {
+			row.RequestedAt = item.RequestedAt.Time.Format(time.RFC3339)
+		}
+		if item.ReviewedByName.Valid {
+			row.ReviewedByName = item.ReviewedByName.String
+		}
+		if item.ReviewedAt.Valid {
+			row.ReviewedAt = item.ReviewedAt.Time.Format(time.RFC3339)
+		}
+		if item.ReviewNote.Valid {
+			row.ReviewNote = item.ReviewNote.String
+		}
+		resp = append(resp, row)
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"items": resp})
+}
+
+func (h *APIHandler) RequestAbsencePromotionOverride(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor" && userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+	var req struct {
+		LeadID   string `json:"lead_id"`
+		ClassKey string `json:"class_key"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	leadID, err := uuid.Parse(strings.TrimSpace(req.LeadID))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "valid lead_id is required")
+		return
+	}
+	classKey := strings.TrimSpace(req.ClassKey)
+	if classKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+	if userRole == "mentor" {
+		userID, err := uuid.Parse(middleware.GetUserID(r))
+		if err != nil {
+			jsonError(w, http.StatusForbidden, "Forbidden")
+			return
+		}
+		assignment, err := models.GetMentorAssignment(classKey)
+		if err != nil || assignment == nil || assignment.MentorUserID != userID {
+			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
+			return
+		}
+	}
+	requestedBy, _ := uuid.Parse(middleware.GetUserID(r))
+	if err := models.RequestAbsencePromotionOverride(leadID, classKey, req.Reason, requestedBy); err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *APIHandler) ReviewAbsencePromotionOverride(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	var req struct {
+		LeadID     string `json:"lead_id"`
+		ClassKey   string `json:"class_key"`
+		Status     string `json:"status"`
+		ReviewNote string `json:"review_note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	leadID, err := uuid.Parse(strings.TrimSpace(req.LeadID))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "valid lead_id is required")
+		return
+	}
+	classKey := strings.TrimSpace(req.ClassKey)
+	if classKey == "" {
+		jsonError(w, http.StatusBadRequest, "class_key is required")
+		return
+	}
+	reviewedBy, _ := uuid.Parse(middleware.GetUserID(r))
+	if err := models.ReviewAbsencePromotionOverride(leadID, classKey, req.Status, req.ReviewNote, reviewedBy); err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

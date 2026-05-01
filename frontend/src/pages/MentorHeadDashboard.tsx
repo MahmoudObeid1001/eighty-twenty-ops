@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api, type MentorHeadDashboard as MentorHeadDashboardData, MentorHeadClass } from '../api/client'
+import { api, type AbsencePromotionOverrideItem, type MentorHeadDashboard as MentorHeadDashboardData, MentorHeadClass } from '../api/client'
 import MentorHeadComplaints from '../components/MentorHeadComplaints'
 
 export default function MentorHeadDashboard() {
@@ -21,6 +21,9 @@ export default function MentorHeadDashboard() {
     open: false,
     classKey: null,
   })
+  const [closeOverrideItems, setCloseOverrideItems] = useState<AbsencePromotionOverrideItem[]>([])
+  const [closeOverridesLoading, setCloseOverridesLoading] = useState(false)
+  const [overrideActioning, setOverrideActioning] = useState<string | null>(null)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
@@ -135,12 +138,43 @@ export default function MentorHeadDashboard() {
     }
   }
 
-  function openCloseConfirm(classKey: string) {
+  async function openCloseConfirm(classKey: string) {
     setCloseConfirm({ open: true, classKey })
+    setCloseOverrideItems([])
+    setCloseOverridesLoading(true)
+    try {
+      const res = await api.getAbsencePromotionOverrides(classKey)
+      setCloseOverrideItems(res.items || [])
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to load absence override requests' })
+    } finally {
+      setCloseOverridesLoading(false)
+    }
   }
 
   function closeCloseConfirm() {
     setCloseConfirm({ open: false, classKey: null })
+    setCloseOverrideItems([])
+  }
+
+  async function handleReviewOverride(item: AbsencePromotionOverrideItem, status: 'approved' | 'rejected') {
+    if (!closeConfirm.classKey) return
+    const note = window.prompt(status === 'approved' ? 'Optional approval note:' : 'Optional rejection note:') || ''
+    try {
+      setOverrideActioning(`${item.lead_id}:${status}`)
+      await api.reviewAbsencePromotionOverride({
+        lead_id: item.lead_id,
+        class_key: closeConfirm.classKey,
+        status,
+        review_note: note.trim(),
+      })
+      const res = await api.getAbsencePromotionOverrides(closeConfirm.classKey)
+      setCloseOverrideItems(res.items || [])
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to review absence override' })
+    } finally {
+      setOverrideActioning(null)
+    }
   }
 
   async function confirmCloseRound() {
@@ -244,6 +278,7 @@ export default function MentorHeadDashboard() {
   }
 
   const groups = dashboard ? groupClassesByMentor(dashboard.classes) : []
+  const pendingCloseOverrides = closeOverrideItems.filter((item) => item.status === 'pending')
 
   return (
     <div>
@@ -739,6 +774,74 @@ export default function MentorHeadDashboard() {
             <p style={{ marginTop: 0, marginBottom: '16px', color: '#666', fontSize: '14px' }}>
               Do you really want to close this class? This will move it to Closed Classes.
             </p>
+            {closeOverridesLoading ? (
+              <div style={{ marginBottom: '16px', padding: '12px', border: '1px solid #eee', borderRadius: '6px', color: '#666' }}>
+                Loading absence override requests...
+              </div>
+            ) : closeOverrideItems.length > 0 ? (
+              <div style={{ marginBottom: '16px', display: 'grid', gap: '10px' }}>
+                {closeOverrideItems.map((item) => (
+                  <div
+                    key={item.lead_id}
+                    style={{
+                      border: '1px solid #f0d98c',
+                      borderRadius: '6px',
+                      padding: '10px',
+                      background: '#fffdf2',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#333' }}>
+                      {item.full_name} · {item.absences} missed · Grade {item.final_grade || '-'}
+                    </div>
+                    {item.reason && (
+                      <div style={{ marginTop: '6px', color: '#555' }}>
+                        Justification: {item.reason}
+                      </div>
+                    )}
+                    <div style={{ marginTop: '6px', color: item.status === 'approved' ? '#155724' : item.status === 'rejected' ? '#721c24' : '#856404', fontWeight: 700 }}>
+                      Status: {item.status || 'not requested'}
+                    </div>
+                    {item.status === 'pending' && (
+                      <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleReviewOverride(item, 'approved')}
+                          disabled={!!overrideActioning}
+                          style={{
+                            padding: '6px 10px',
+                            border: 'none',
+                            borderRadius: '4px',
+                            background: '#28a745',
+                            color: 'white',
+                            fontWeight: 700,
+                            cursor: overrideActioning ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReviewOverride(item, 'rejected')}
+                          disabled={!!overrideActioning}
+                          style={{
+                            padding: '6px 10px',
+                            border: '1px solid #dc3545',
+                            borderRadius: '4px',
+                            background: 'white',
+                            color: '#dc3545',
+                            fontWeight: 700,
+                            cursor: overrideActioning ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
                 onClick={closeCloseConfirm}
@@ -754,18 +857,18 @@ export default function MentorHeadDashboard() {
               </button>
               <button
                 onClick={confirmCloseRound}
-                disabled={actioning === `${closeConfirm.classKey}:close`}
+                disabled={actioning === `${closeConfirm.classKey}:close` || pendingCloseOverrides.length > 0}
                 style={{
                   padding: '8px 14px',
                   borderRadius: '6px',
                   border: 'none',
-                  background: actioning === `${closeConfirm.classKey}:close` ? '#ccc' : '#dc3545',
+                  background: actioning === `${closeConfirm.classKey}:close` || pendingCloseOverrides.length > 0 ? '#ccc' : '#dc3545',
                   color: 'white',
-                  cursor: actioning === `${closeConfirm.classKey}:close` ? 'not-allowed' : 'pointer',
+                  cursor: actioning === `${closeConfirm.classKey}:close` || pendingCloseOverrides.length > 0 ? 'not-allowed' : 'pointer',
                   fontWeight: 600,
                 }}
               >
-                {actioning === `${closeConfirm.classKey}:close` ? 'Closing...' : 'Yes, Close'}
+                {actioning === `${closeConfirm.classKey}:close` ? 'Closing...' : pendingCloseOverrides.length > 0 ? 'Review Required' : 'Yes, Close'}
               </button>
             </div>
           </div>

@@ -97,6 +97,7 @@ export default function ClassWorkspace() {
   const [rosterReason, setRosterReason] = useState('schedule_change')
   const [rosterNotes, setRosterNotes] = useState('')
   const [rosterSaving, setRosterSaving] = useState(false)
+  const [absenceOverrideSaving, setAbsenceOverrideSaving] = useState<string | null>(null)
 
   async function handleOpenReport(leadId: string) {
     try {
@@ -468,6 +469,29 @@ export default function ClassWorkspace() {
       setActionError(err instanceof Error ? err.message : 'Failed to save grades')
     } finally {
       setSavingAllGrades(false)
+    }
+  }
+
+  async function handleRequestAbsenceOverride(student: Student) {
+    const reason = window.prompt(`Justification for promoting ${student.full_name} despite ${student.missed_count || 0} missed sessions:`)
+    if (!reason || !reason.trim()) {
+      return
+    }
+    try {
+      setAbsenceOverrideSaving(student.lead_id)
+      setActionError(null)
+      setActionSuccess(null)
+      await api.requestAbsencePromotionOverride({
+        lead_id: student.lead_id,
+        class_key: classKey,
+        reason: reason.trim(),
+      })
+      await loadClass(true)
+      setActionSuccess('Promotion override request sent to Mentor Head.')
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to request promotion override')
+    } finally {
+      setAbsenceOverrideSaving(null)
     }
   }
 
@@ -1146,6 +1170,14 @@ export default function ClassWorkspace() {
               const targetGrade = getTargetGrade(student.lead_id)
               const isDirty = isGradeChanged(student.lead_id)
               const savedGradeDifference = userRole === 'mentor_head' ? getSavedGradeDifference(student.lead_id) : null
+              const canRequestAbsenceOverride =
+                (userRole === 'mentor' || userRole === 'mentor_head') &&
+                classData.class.round_status !== 'closed' &&
+                student.missed_count !== undefined &&
+                student.missed_count > 2 &&
+                targetGrade !== '' &&
+                targetGrade !== 'F' &&
+                student.absence_override_status !== 'approved'
 
               return (
                 <div
@@ -1195,6 +1227,43 @@ export default function ClassWorkspace() {
                       <div style={{ marginTop: '6px', fontSize: '12px', color: '#7c2d12', fontWeight: 600 }}>
                         Calculated: {savedGradeDifference.calculatedGrade} | Mentor Set: {savedGradeDifference.savedGrade}
                       </div>
+                    )}
+                    {student.absence_override_status && (
+                      <div
+                        style={{
+                          marginTop: '8px',
+                          fontSize: '12px',
+                          color: student.absence_override_status === 'approved' ? '#155724' : student.absence_override_status === 'rejected' ? '#721c24' : '#856404',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Absence override: {student.absence_override_status}
+                        {student.absence_override_reason ? ` - ${student.absence_override_reason}` : ''}
+                      </div>
+                    )}
+                    {canRequestAbsenceOverride && (
+                      <button
+                        type="button"
+                        onClick={() => handleRequestAbsenceOverride(student)}
+                        disabled={absenceOverrideSaving === student.lead_id}
+                        style={{
+                          marginTop: '10px',
+                          padding: '7px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #856404',
+                          background: student.absence_override_status === 'pending' ? '#fff3cd' : '#fff',
+                          color: '#856404',
+                          fontWeight: 700,
+                          cursor: absenceOverrideSaving === student.lead_id ? 'not-allowed' : 'pointer',
+                          fontSize: '12px',
+                        }}
+                      >
+                        {absenceOverrideSaving === student.lead_id
+                          ? 'Sending...'
+                          : student.absence_override_status === 'pending'
+                            ? 'Update Override Request'
+                            : 'Request Promote Despite Absences'}
+                      </button>
                     )}
                   </div>
 
