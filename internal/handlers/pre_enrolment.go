@@ -1466,6 +1466,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"LeadPayments":               leadPayments,
 		"PreviousLeadPayments":       previousPayments,
 		"FinalPrice":                 finalPriceValue,
+		"FinalPriceSet":              detail.Offer != nil && detail.Offer.FinalPrice.Valid,
 		"TotalCoursePaid":            totalCoursePaid,
 		"RemainingBalance":           remainingBalance,
 		"IsFullyPaid":                isFullyPaid,
@@ -1946,12 +1947,15 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Bundle is now optional - OP Admin can send all bundle options without pre-selecting
-		// Only validate consistency: if bundle is selected, final_price should be set, and vice versa
-		bundle := r.FormValue("bundle")
-		finalPrice := r.FormValue("final_price")
+		// Bundle is now optional - OP Admin can send all bundle options without pre-selecting.
+		// Accept both the legacy Offer fields and the newer Course Payment pricing fields.
+		bundle := firstNonEmpty(r.FormValue("bundle"), r.FormValue("bundle_id"), r.FormValue("payment_bundle"))
+		finalPrice := firstNonEmpty(r.FormValue("final_price"), r.FormValue("payment_final_price"))
+		basePrice := firstNonEmpty(r.FormValue("base_price"), r.FormValue("payment_base_price"))
+		discountValue := firstNonEmpty(r.FormValue("discount"), r.FormValue("discount_amount"), r.FormValue("payment_discount_amount"))
+		discountType := strings.ToLower(firstNonEmpty(r.FormValue("discount_type"), r.FormValue("payment_discount_type")))
 
-		// If bundle is selected, final_price must be set
+		// If bundle is selected, final_price must be set (0 is valid, empty is not).
 		if bundle != "" && finalPrice == "" {
 			log.Printf("ERROR: Validation failed for mark_offer_sent: bundle selected but no final_price")
 			h.renderDetailWithError(w, r, leadID, "Please set Final Price for the selected bundle.")
@@ -2036,19 +2040,20 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if fp, err := strconv.Atoi(finalPrice); err == nil {
 			detail.Offer.FinalPrice = sql.NullInt32{Int32: int32(fp), Valid: true}
 		}
-		if basePrice := r.FormValue("base_price"); basePrice != "" {
+		if basePrice != "" {
 			if bp, err := strconv.Atoi(basePrice); err == nil {
 				detail.Offer.BasePrice = sql.NullInt32{Int32: int32(bp), Valid: true}
 			}
 		}
-		if discount := r.FormValue("discount"); discount != "" {
-			if strings.HasSuffix(discount, "%") {
-				if pct, err := strconv.Atoi(strings.TrimSuffix(discount, "%")); err == nil {
+		if discountValue != "" {
+			if discountType == "percent" || strings.HasSuffix(discountValue, "%") {
+				discountValue = strings.TrimSuffix(discountValue, "%")
+				if pct, err := strconv.Atoi(discountValue); err == nil {
 					detail.Offer.DiscountValue = sql.NullInt32{Int32: int32(pct), Valid: true}
 					detail.Offer.DiscountType = sql.NullString{String: "percent", Valid: true}
 				}
 			} else {
-				if amt, err := strconv.Atoi(discount); err == nil {
+				if amt, err := strconv.Atoi(discountValue); err == nil {
 					detail.Offer.DiscountValue = sql.NullInt32{Int32: int32(amt), Valid: true}
 					detail.Offer.DiscountType = sql.NullString{String: "amount", Valid: true}
 				}
@@ -3913,7 +3918,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 
 		// Validation: If stage reaches OFFER_SENT or later, final_price must be valid
 		if newStage == models.StageOfferSent || newStage == models.StageBookingConfirmedPaidFull || newStage == models.StageBookingConfirmedDeposit {
-			if detail.Offer == nil || !detail.Offer.FinalPrice.Valid || detail.Offer.FinalPrice.Int32 <= 0 {
+			if detail.Offer == nil || !detail.Offer.FinalPrice.Valid || detail.Offer.FinalPrice.Int32 < 0 {
 				h.renderDetailWithError(w, r, leadID, "Final price is required when sending an offer. Please fill in the Offer & Pricing section.")
 				return
 			}

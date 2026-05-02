@@ -665,7 +665,7 @@
                     <tr>
                         <td style="padding: 8px;"><strong>Offer Final Price:</strong></td>
                         <td style="padding: 8px; text-align: right;">
-                            {{if gt .FinalPrice 0}}
+                            {{if .FinalPriceSet}}
                             <span style="font-weight: 600; color: #1976D2;">{{.FinalPrice}} EGP</span>
                             {{else}}
                             <span style="color: #dc3545;">Not set</span>
@@ -676,7 +676,7 @@
                         <td style="padding: 8px;"><strong>Total Course Paid:</strong></td>
                         <td style="padding: 8px; text-align: right; font-weight: 600;">{{.TotalCoursePaid}} EGP</td>
                     </tr>
-                    {{if gt .FinalPrice 0}}
+                    {{if .FinalPriceSet}}
                     <tr>
                         <td style="padding: 8px;"><strong>Remaining Balance:</strong></td>
                         <td
