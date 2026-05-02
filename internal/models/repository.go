@@ -6971,7 +6971,7 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		ON CONFLICT (lead_id, class_key) DO UPDATE SET
 			final_grade = EXCLUDED.final_grade,
 			outcome = EXCLUDED.outcome,
-			next_level_consumed_on_close = EXCLUDED.next_level_consumed_on_close,
+			next_level_consumed_on_close = class_enrollments.next_level_consumed_on_close OR EXCLUDED.next_level_consumed_on_close,
 			completed_at = EXCLUDED.completed_at
 	`, leadID, classKey, level, classDays, classTime, mentorName, finalGrade, outcome, nextLevelConsumedOnClose, now, now)
 	if err != nil {
@@ -7061,6 +7061,23 @@ func CloseRound(classKey string, closedByUserID uuid.UUID) error {
 		_ = tx.Rollback()
 	}()
 	now := time.Now()
+
+	var roundStatus string
+	err = tx.QueryRow(`
+		SELECT COALESCE(round_status, 'not_started')
+		FROM class_groups
+		WHERE class_key = $1
+		FOR UPDATE
+	`, classKey).Scan(&roundStatus)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("cannot close round: class not found")
+		}
+		return fmt.Errorf("failed to lock class for close round: %w", err)
+	}
+	if roundStatus == "closed" {
+		return fmt.Errorf("cannot close round: class is already closed")
+	}
 
 	if err := ensureClassMembershipsTx(tx, classKey); err != nil {
 		return err
