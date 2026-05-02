@@ -3230,25 +3230,37 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			pt.TestType = sql.NullString{String: testType, Valid: true}
 		}
 		if assignedLevel := r.FormValue("assigned_level"); assignedLevel != "" {
-			// GUARD: Only Student Success can set assigned_level
-			// Ops Admin can book tests (date/time) but cannot mark results
-			if userRole != "student_success" {
-				h.renderDetailWithError(w, r, leadID, "Only Student Success can assign a level after conducting the placement test.")
-				return
-			}
-
 			level, err := strconv.Atoi(assignedLevel)
 			if err != nil || !isValidAssignedLevel(level) {
 				h.renderDetailWithError(w, r, leadID, "Invalid assigned level. Allowed: 1–10.")
 				return
 			}
+
+			// Non-Student-Success users may submit the already-assigned level as part of the
+			// shared save form. Preserve the existing value, but reject attempts to change it.
+			if userRole != "student_success" {
+				existingSameLevel := existingDetail.PlacementTest != nil &&
+					existingDetail.PlacementTest.AssignedLevel.Valid &&
+					int(existingDetail.PlacementTest.AssignedLevel.Int32) == level
+				if !existingSameLevel {
+					h.renderDetailWithError(w, r, leadID, "Only Student Success can assign a level after conducting the placement test.")
+					return
+				}
+			}
+
 			pt.AssignedLevel = sql.NullInt32{Int32: int32(level), Valid: true}
 		}
 		if testNotes := r.FormValue("test_notes"); testNotes != "" {
-			// GUARD: Only Student Success can set test notes
+			// Non-Student-Success users may submit existing notes from the shared save form,
+			// but they cannot change them.
 			if userRole != "student_success" {
-				h.renderDetailWithError(w, r, leadID, "Only Student Success can add test notes after conducting the placement test.")
-				return
+				existingSameNotes := existingDetail.PlacementTest != nil &&
+					existingDetail.PlacementTest.TestNotes.Valid &&
+					existingDetail.PlacementTest.TestNotes.String == testNotes
+				if !existingSameNotes {
+					h.renderDetailWithError(w, r, leadID, "Only Student Success can add test notes after conducting the placement test.")
+					return
+				}
 			}
 			pt.TestNotes = sql.NullString{String: testNotes, Valid: true}
 		}
