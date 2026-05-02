@@ -1730,13 +1730,18 @@
 
         const finalDue = Math.max(0, basePrice - discountAmount);
         basePriceEl.value = basePrice > 0 ? `${basePrice} EGP` : '';
-        finalValueEl.value = finalDue > 0 ? String(finalDue) : '';
+        finalValueEl.value = String(finalDue);
         finalDisplayEl.textContent = `${basePrice} - ${discountAmount} = ${finalDue} EGP`;
 
         const paymentType = paymentTypeEl ? paymentTypeEl.value : "";
         const isDeposit = paymentType === "deposit";
-        if (!isDeposit || !depositAmountManuallyEdited) {
-            amountEl.value = finalDue > 0 ? String(finalDue) : "";
+        if (finalDue === 0) {
+            if (paymentTypeEl) {
+                paymentTypeEl.value = "";
+            }
+            amountEl.value = "";
+        } else if (!isDeposit || !depositAmountManuallyEdited) {
+            amountEl.value = String(finalDue);
         }
     }
 

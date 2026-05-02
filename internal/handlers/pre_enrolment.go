@@ -3590,12 +3590,27 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	coursePaymentDateStr := strings.TrimSpace(r.FormValue("course_payment_date"))
 	coursePaymentNotes := r.FormValue("course_payment_notes")
 	coursePaymentEnabled, coursePaymentLockReason := canUseCoursePaymentFlow(existingDetail)
+	courseOfferFinalPrice := int32(0)
+	if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
+		courseOfferFinalPrice = detail.Offer.FinalPrice.Int32
+	} else if existingDetail.Offer != nil && existingDetail.Offer.FinalPrice.Valid {
+		courseOfferFinalPrice = existingDetail.Offer.FinalPrice.Int32
+	}
 	// Treat course payment as "intentional input" only when explicit payment selectors are touched.
 	// Amount/date may be auto-filled by UI pricing helpers and must not, by themselves, trigger validation.
 	coursePaymentFieldsTouched := coursePaymentType != "" || coursePaymentMethod != ""
 	if coursePaymentFieldsTouched && !coursePaymentEnabled {
 		h.renderDetailWithError(w, r, leadID, coursePaymentLockReason)
 		return
+	}
+	if coursePaymentFieldsTouched && courseOfferFinalPrice == 0 {
+		h.cfg.Debugf("  💸 Zero-value offer: ignoring course payment fields, leadID=%s", leadID)
+		coursePaymentType = ""
+		coursePaymentAmountStr = ""
+		coursePaymentMethod = ""
+		coursePaymentDateStr = ""
+		coursePaymentNotes = ""
+		coursePaymentFieldsTouched = false
 	}
 	if coursePaymentFieldsTouched {
 		missingFields := make([]string, 0, 4)
@@ -4039,12 +4054,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var finalPriceValue int32 = 0
-		if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
-			finalPriceValue = detail.Offer.FinalPrice.Int32
-		} else if existingDetail.Offer != nil && existingDetail.Offer.FinalPrice.Valid {
-			finalPriceValue = existingDetail.Offer.FinalPrice.Int32
-		}
+		finalPriceValue := courseOfferFinalPrice
 		if finalPriceValue <= 0 {
 			h.renderDetailWithError(w, r, leadID, "Final offer amount must be set from bundle and discount before collecting payment.")
 			return
