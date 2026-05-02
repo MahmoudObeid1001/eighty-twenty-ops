@@ -1301,8 +1301,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	// - waiting_for_round: Already paid via previous bundle, no payment needed
 	// - renewal_pending: Need to pay for new offer
 	hasCredits := computedRemainingCredits(detail.Lead) > 0
-	isWaitingForRound := detail.Lead.Status == "waiting_for_round"
-	isFullyPaid := (detail.Offer != nil && detail.Offer.FinalPrice.Valid && totalCoursePaid >= finalPriceValue) || hasCredits || isWaitingForRound
+	isFullyPaid := (detail.Offer != nil && detail.Offer.FinalPrice.Valid && totalCoursePaid >= finalPriceValue) || hasCredits
 
 	pipelineStatuses := map[string]bool{
 		"lead_created": true, "test_booked": true, "tested": true, "offer_sent": true,
@@ -1361,6 +1360,9 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	if creditsRemaining < 0 {
 		creditsRemaining = 0
 	}
+	hasCarryoverCredits := creditsRemaining > 0
+
+	canApplyContinuationHold = canApplyContinuationHold && hasCarryoverCredits
 
 	lastOutcome, lastGrade := "", ""
 	if latest, err := models.GetLatestClassOutcome(leadID); err == nil && latest != nil {
@@ -1471,6 +1473,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"RemainingBalance":           remainingBalance,
 		"IsFullyPaid":                isFullyPaid,
 		"IsWaitingForRound":          detail.Lead.Status == "waiting_for_round",
+		"HasCarryoverCredits":        hasCarryoverCredits,
 		"IsPaused":                   detail.Lead.Status == "paused",
 		"CanMoveWaiting":             canUseWaitingFlow(detail),
 		"CanApplyContinuationHold":   canApplyContinuationHold,
@@ -1952,30 +1955,6 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Bundle is now optional - OP Admin can send all bundle options without pre-selecting.
-		// Accept both the legacy Offer fields and the newer Course Payment pricing fields.
-		bundle := firstNonEmpty(r.FormValue("bundle"), r.FormValue("bundle_id"), r.FormValue("payment_bundle"))
-		finalPrice := firstNonEmpty(r.FormValue("final_price"), r.FormValue("payment_final_price"))
-		basePrice := firstNonEmpty(r.FormValue("base_price"), r.FormValue("payment_base_price"))
-		discountValue := firstNonEmpty(r.FormValue("discount"), r.FormValue("discount_amount"), r.FormValue("payment_discount_amount"))
-		discountType := strings.ToLower(firstNonEmpty(r.FormValue("discount_type"), r.FormValue("payment_discount_type")))
-
-		// If bundle is selected, final_price must be set (0 is valid, empty is not).
-		if bundle != "" && finalPrice == "" {
-			log.Printf("ERROR: Validation failed for mark_offer_sent: bundle selected but no final_price")
-			h.renderDetailWithError(w, r, leadID, "Please set Final Price for the selected bundle.")
-			return
-		}
-
-		// If final_price is set, bundle must be selected
-		if finalPrice != "" && bundle == "" {
-			log.Printf("ERROR: Validation failed for mark_offer_sent: final_price set but no bundle")
-			h.renderDetailWithError(w, r, leadID, "Please select a bundle for the specified price.")
-			return
-		}
-
-		// Both can be empty - means OP Admin is sending all options to student
-
 		// Update or create offer
 		detail, err := models.GetLeadByID(leadID)
 		if err != nil {
@@ -1984,6 +1963,47 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		if allowed, reason := canMarkOfferSent(detail); !allowed {
 			h.renderDetailWithError(w, r, leadID, reason)
+			return
+		}
+		coursePaymentEnabled, _ := canUseCoursePaymentFlow(detail)
+
+		// Bundle is optional for Packages Sent. Only use payment pricing fields when the
+		// course-payment panel is actually active; otherwise hidden payment fields from the
+		// locked renewal screen would incorrectly force bundle/final-price validation.
+		bundle := strings.TrimSpace(r.FormValue("bundle"))
+		finalPrice := strings.TrimSpace(r.FormValue("final_price"))
+		basePrice := strings.TrimSpace(r.FormValue("base_price"))
+		discountValue := strings.TrimSpace(r.FormValue("discount"))
+		discountType := strings.ToLower(strings.TrimSpace(r.FormValue("discount_type")))
+		if coursePaymentEnabled {
+			if bundle == "" {
+				bundle = firstNonEmpty(r.FormValue("bundle_id"), r.FormValue("payment_bundle"))
+			}
+			if finalPrice == "" {
+				finalPrice = strings.TrimSpace(r.FormValue("payment_final_price"))
+			}
+			if basePrice == "" {
+				basePrice = strings.TrimSpace(r.FormValue("payment_base_price"))
+			}
+			if discountValue == "" {
+				discountValue = firstNonEmpty(r.FormValue("discount_amount"), r.FormValue("payment_discount_amount"))
+			}
+			if discountType == "" {
+				discountType = strings.ToLower(firstNonEmpty(r.FormValue("payment_discount_type"), r.FormValue("discount_type")))
+			}
+		}
+
+		// If bundle is selected, final_price must be set (0 is valid, empty is not).
+		if bundle != "" && finalPrice == "" {
+			log.Printf("ERROR: Validation failed for mark_offer_sent: bundle selected but no final_price")
+			h.renderDetailWithError(w, r, leadID, "Please set Final Price for the selected bundle.")
+			return
+		}
+
+		// If final_price is set, bundle must be selected.
+		if finalPrice != "" && bundle == "" {
+			log.Printf("ERROR: Validation failed for mark_offer_sent: final_price set but no bundle")
+			h.renderDetailWithError(w, r, leadID, "Please select a bundle for the specified price.")
 			return
 		}
 
@@ -2584,7 +2604,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		currentStatus := detail.Lead.Status
 		isWaitingForRound := currentStatus == "waiting_for_round"
 		hasCredits := computedRemainingCredits(detail.Lead) > 0
-		isFullyPaid := (detail.Offer != nil && detail.Offer.FinalPrice.Valid && totalCoursePaid >= finalPriceValue) || hasCredits || isWaitingForRound
+		isFullyPaid := (detail.Offer != nil && detail.Offer.FinalPrice.Valid && totalCoursePaid >= finalPriceValue) || hasCredits
 
 		log.Printf("💳 PAYMENT CHECK for lead %s: status=%s, finalPrice=%d, totalPaid=%d, remainingCredits=%d, hasCredits=%v, isWaitingForRound=%v, isFullyPaid=%v",
 			leadID, currentStatus, finalPriceValue, totalCoursePaid,
@@ -3382,6 +3402,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	paymentDiscountType := strings.ToLower(firstNonEmpty(r.FormValue("discount_type"), r.FormValue("payment_discount_type")))
 	paymentFinalPriceStr := r.FormValue("payment_final_price")
 	pricingTrack := normalizePricingTrack(firstNonEmpty(r.FormValue("pricing_track"), inferOfferPricingTrack(existingDetail.Offer)))
+	coursePaymentEnabledForExisting, _ := canUseCoursePaymentFlow(existingDetail)
+	if !coursePaymentEnabledForExisting {
+		paymentBundleStr = ""
+		paymentDiscountAmountStr = ""
+		paymentDiscountType = ""
+		paymentFinalPriceStr = ""
+	}
 
 	// Check if this is an explicit offer save action
 	action := r.FormValue("action")
