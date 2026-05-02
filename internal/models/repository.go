@@ -122,8 +122,8 @@ func ComputeStageFromFormCompletion(detail *LeadDetail, currentStatus string) (n
 		}
 	}
 
-	// 3. If offer final price exists (or bundle selected + final price) -> at least OFFER_SENT
-	if detail.Offer != nil && detail.Offer.FinalPrice.Valid && detail.Offer.FinalPrice.Int32 > 0 {
+	// 3. If offer final price exists (including 0 for a fully discounted offer) -> at least OFFER_SENT
+	if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
 		stagesBeforeOfferSent := map[string]bool{
 			StageNewLead:        true,
 			StageTestBooked:     true,
@@ -3673,7 +3673,7 @@ func UpdateLeadStatusFromPayment(leadID uuid.UUID) error {
 	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("failed to get offer: %w", err)
 	}
-	if err == sql.ErrNoRows || !finalPrice.Valid || finalPrice.Int32 <= 0 {
+	if err == sql.ErrNoRows || !finalPrice.Valid {
 		return nil
 	}
 	totalCoursePaid, err := GetTotalCoursePaidCurrentCycle(leadID)

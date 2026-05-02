@@ -1291,7 +1291,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	// Use -1 to indicate "not applicable" when FinalPrice is not set
 	// (0 means "paid in full", which is different from "price not set yet")
 	var remainingBalance int32 = -1
-	if finalPriceValue > 0 {
+	if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
 		remainingBalance = finalPriceValue - totalCoursePaid
 		if remainingBalance < 0 {
 			remainingBalance = 0
@@ -1302,7 +1302,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	// - renewal_pending: Need to pay for new offer
 	hasCredits := computedRemainingCredits(detail.Lead) > 0
 	isWaitingForRound := detail.Lead.Status == "waiting_for_round"
-	isFullyPaid := (finalPriceValue > 0 && totalCoursePaid >= finalPriceValue) || hasCredits || isWaitingForRound
+	isFullyPaid := (detail.Offer != nil && detail.Offer.FinalPrice.Valid && totalCoursePaid >= finalPriceValue) || hasCredits || isWaitingForRound
 
 	pipelineStatuses := map[string]bool{
 		"lead_created": true, "test_booked": true, "tested": true, "offer_sent": true,
@@ -1672,7 +1672,8 @@ func canUseWaitingFlow(detail *models.LeadDetail) bool {
 	hasCredits := computedRemainingCredits(detail.Lead) > 0
 	alreadyInWaitingFlow := detail.Lead.Status == "waiting_for_round" || detail.Lead.Status == "schedule_assigned" || detail.Lead.Status == "ready_to_start"
 	isFullyPaidLead := detail.Lead.Status == "paid_full"
-	return hasCredits || alreadyInWaitingFlow || isFullyPaidLead
+	hasZeroValueOffer := detail.Offer != nil && detail.Offer.FinalPrice.Valid && detail.Offer.FinalPrice.Int32 == 0
+	return hasCredits || alreadyInWaitingFlow || isFullyPaidLead || hasZeroValueOffer
 }
 
 func canUseCoursePaymentFlow(detail *models.LeadDetail) (bool, string) {
@@ -2575,7 +2576,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		currentStatus := detail.Lead.Status
 		isWaitingForRound := currentStatus == "waiting_for_round"
 		hasCredits := computedRemainingCredits(detail.Lead) > 0
-		isFullyPaid := (finalPriceValue > 0 && totalCoursePaid >= finalPriceValue) || hasCredits || isWaitingForRound
+		isFullyPaid := (detail.Offer != nil && detail.Offer.FinalPrice.Valid && totalCoursePaid >= finalPriceValue) || hasCredits || isWaitingForRound
 
 		log.Printf("💳 PAYMENT CHECK for lead %s: status=%s, finalPrice=%d, totalPaid=%d, remainingCredits=%d, hasCredits=%v, isWaitingForRound=%v, isFullyPaid=%v",
 			leadID, currentStatus, finalPriceValue, totalCoursePaid,
@@ -3763,7 +3764,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				totalCoursePaid = 0
 			}
 
-			isFullyPaid := finalPriceValue > 0 && totalCoursePaid >= finalPriceValue
+			isFullyPaid := existingDetail.Offer != nil && existingDetail.Offer.FinalPrice.Valid && totalCoursePaid >= finalPriceValue
 
 			if !isFullyPaid {
 				h.renderDetailWithError(w, r, leadID, "Cannot schedule before full payment. Course must be fully paid before setting class days and time.")
