@@ -1676,6 +1676,10 @@ func canUseWaitingFlow(detail *models.LeadDetail) bool {
 	return hasCredits || alreadyInWaitingFlow || isFullyPaidLead || hasZeroValueOffer
 }
 
+func canApproveZeroValueOffer(userRole string) bool {
+	return userRole == "manager"
+}
+
 func canUseCoursePaymentFlow(detail *models.LeadDetail) (bool, string) {
 	if detail == nil || detail.Lead == nil {
 		return false, "Course payment is locked until lead details are loaded."
@@ -2059,6 +2063,10 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 					detail.Offer.DiscountType = sql.NullString{String: "amount", Valid: true}
 				}
 			}
+		}
+		if detail.Offer.FinalPrice.Valid && detail.Offer.FinalPrice.Int32 == 0 && !canApproveZeroValueOffer(userRole) {
+			h.renderDetailWithError(w, r, leadID, "Only Manager can approve a zero-value offer.")
+			return
 		}
 
 		if err := models.UpdateOffer(detail.Offer); err != nil {
@@ -3510,6 +3518,14 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		finalPriceVal := int32(0)
 		if offer.FinalPrice.Valid {
 			finalPriceVal = offer.FinalPrice.Int32
+		}
+		if offer.FinalPrice.Valid && offer.FinalPrice.Int32 == 0 {
+			if existingOffer == nil || !existingOffer.FinalPrice.Valid || existingOffer.FinalPrice.Int32 != 0 || isExplicitOfferSave {
+				if !canApproveZeroValueOffer(userRole) {
+					h.renderDetailWithError(w, r, leadID, "Only Manager can approve a zero-value offer.")
+					return
+				}
+			}
 		}
 		h.cfg.Debugf("  💰 Offer prepared for save: FinalPrice.Valid=%v, FinalPrice.Int32=%d, leadID=%s",
 			offer.FinalPrice.Valid, finalPriceVal, leadID)
