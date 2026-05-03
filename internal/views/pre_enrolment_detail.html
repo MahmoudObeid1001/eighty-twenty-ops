@@ -648,8 +648,13 @@
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
                 <span class="status-indicator {{.Detail.Lead.Status}}"
                     style="opacity: 0.8; font-size: 12px;">{{.StatusDisplayName}}</span>
+                {{if eq .Detail.Lead.Status "offer_sent"}}
+                <button type="submit" form="pre-enrolment-form" name="action" value="save"
+                    class="btn btn-secondary">Save Offer Notes</button>
+                {{else}}
                 <button type="submit" form="pre-enrolment-form" name="action" value="mark_offer_sent"
                     class="btn btn-secondary">Packages Sent</button>
+                {{end}}
             </div>
         </div>
 
@@ -1781,14 +1786,15 @@
             if (discountAmount > basePrice) discountAmount = basePrice;
         }
 
-        const finalDue = Math.max(0, basePrice - discountAmount);
+        const hasBundle = Boolean(bundleId && prices[bundleId]);
+        const finalDue = hasBundle ? Math.max(0, basePrice - discountAmount) : 0;
         basePriceEl.value = basePrice > 0 ? `${basePrice} EGP` : '';
-        finalValueEl.value = String(finalDue);
-        finalDisplayEl.textContent = `${basePrice} - ${discountAmount} = ${finalDue} EGP`;
+        finalValueEl.value = hasBundle ? String(finalDue) : '';
+        finalDisplayEl.textContent = hasBundle ? `${basePrice} - ${discountAmount} = ${finalDue} EGP` : 'Select a bundle to calculate final due';
 
         const paymentType = paymentTypeEl ? paymentTypeEl.value : "";
         const isDeposit = paymentType === "deposit";
-        if (finalDue === 0) {
+        if (!hasBundle || finalDue === 0) {
             if (paymentTypeEl) {
                 paymentTypeEl.value = "";
             }
