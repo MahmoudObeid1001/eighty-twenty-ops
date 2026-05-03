@@ -191,6 +191,59 @@
 </div>
 {{end}}
 
+{{if .CanAddBundleCredit}}
+<div
+    style="background-color: #FFF8E1; border: 2px solid #F59E0B; border-left: 6px solid #F59E0B; padding: 18px 20px; margin-bottom: 20px; border-radius: 4px;">
+    <h3 style="margin-top: 0; color: #92400E;">Add Bundle Credit</h3>
+    <p style="margin: 0 0 12px; color: #78350F;">Use this when a waiting-list student buys extra future levels. This
+        increases purchased credits and keeps the student in the waiting list.</p>
+    <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: grid; gap: 12px;">
+        <input type="hidden" name="action" value="add_bundle_credit">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="bundle_credit_levels">Levels to Add *</label>
+                <select id="bundle_credit_levels" name="bundle_credit_levels" required>
+                    <option value="">Select levels</option>
+                    <option value="1">1 level</option>
+                    <option value="2">2 levels</option>
+                    <option value="3">3 levels</option>
+                    <option value="4">4 levels</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="bundle_credit_amount">Amount Paid (EGP) *</label>
+                <input type="number" id="bundle_credit_amount" name="bundle_credit_amount" min="1" step="1" required>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="bundle_credit_method">Payment Method *</label>
+                <select id="bundle_credit_method" name="bundle_credit_method" required>
+                    <option value="">Select method</option>
+                    <option value="vodafone_cash">Vodafone Cash</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="paypal">PayPal</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="bundle_credit_date">Payment Date *</label>
+                <input type="date" id="bundle_credit_date" name="bundle_credit_date" value="{{.Today}}" max="{{.Today}}" required>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="bundle_credit_notes">Notes</label>
+            <input type="text" id="bundle_credit_notes" name="bundle_credit_notes"
+                placeholder="Optional: extra bundle while waiting for next round">
+        </div>
+        <div>
+            <button type="submit" class="btn"
+                style="background-color: #F59E0B; border-color: #F59E0B; color: #3A2500;">Add Bundle Credit</button>
+        </div>
+    </form>
+</div>
+{{end}}
+
 <div style="display: flex; gap: 10px; margin-bottom: 18px; border-bottom: 1px solid #E5E7EB;">
     <button type="button" class="pre-enrolment-tab-btn is-active" data-panel="student-card-panel"
         onclick="switchPreEnrolmentTab('student-card-panel', this)"

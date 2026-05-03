@@ -1349,6 +1349,8 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	if continuationHoldCandidate != nil && continuationHoldCandidate.ContinuationHoldReason.Valid {
 		continuationHoldReason = continuationHoldCandidate.ContinuationHoldReason.String
 	}
+	canAddBundleCredit := (userRole == "admin" || userRole == "manager") &&
+		detail.Lead.Status == "waiting_for_round"
 
 	creditsRemaining := int32(0)
 	if detail.Lead.LevelsPurchasedTotal.Valid {
@@ -1479,6 +1481,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"CanApplyContinuationHold":   canApplyContinuationHold,
 		"CanReleaseContinuationHold": canReleaseContinuationHold,
 		"ContinuationHoldReason":     continuationHoldReason,
+		"CanAddBundleCredit":         canAddBundleCredit,
 		"CoursePaymentEnabled": func() bool {
 			ok, _ := canUseCoursePaymentFlow(detail)
 			return ok
@@ -2533,6 +2536,51 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		h.cfg.Debugf("  ✅ Status updated to waiting_for_round, redirecting to list")
 		http.Redirect(w, r, "/pre-enrolment?status_flash=waiting", http.StatusFound)
+		return
+
+	case "add_bundle_credit":
+		h.cfg.Debugf("  → Action: add_bundle_credit")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to add bundle credit.", http.StatusForbidden)
+			return
+		}
+
+		addedLevelsStr := strings.TrimSpace(r.FormValue("bundle_credit_levels"))
+		amountStr := strings.TrimSpace(r.FormValue("bundle_credit_amount"))
+		paymentMethod := strings.TrimSpace(r.FormValue("bundle_credit_method"))
+		paymentDateStr := strings.TrimSpace(r.FormValue("bundle_credit_date"))
+		notes := strings.TrimSpace(r.FormValue("bundle_credit_notes"))
+
+		addedLevels, err := strconv.Atoi(addedLevelsStr)
+		if err != nil || addedLevels < 1 || addedLevels > 4 {
+			h.renderDetailWithError(w, r, leadID, "Choose how many levels to add (1 to 4).")
+			return
+		}
+		amount, err := strconv.Atoi(amountStr)
+		if err != nil || amount <= 0 {
+			h.renderDetailWithError(w, r, leadID, "Enter a valid bundle credit payment amount.")
+			return
+		}
+		if paymentMethod == "" {
+			h.renderDetailWithError(w, r, leadID, "Choose a payment method for the bundle credit.")
+			return
+		}
+		if paymentDateStr == "" {
+			h.renderDetailWithError(w, r, leadID, "Choose a payment date for the bundle credit.")
+			return
+		}
+		paymentDate, err := util.ParseDateLocal(paymentDateStr)
+		if err != nil {
+			h.renderDetailWithError(w, r, leadID, "Invalid bundle credit payment date.")
+			return
+		}
+
+		if _, err := models.AddWaitingListBundleCredit(leadID, int32(addedLevels), int32(amount), paymentMethod, paymentDate, notes); err != nil {
+			h.renderDetailWithError(w, r, leadID, err.Error())
+			return
+		}
+
+		redirectWithFlash(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID), "success", fmt.Sprintf("Added %d bundle credit level(s).", addedLevels))
 		return
 
 	case "send_private_track":

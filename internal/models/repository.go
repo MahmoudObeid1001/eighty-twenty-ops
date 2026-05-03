@@ -4290,6 +4290,111 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 	return payment, nil
 }
 
+func AddWaitingListBundleCredit(leadID uuid.UUID, addedLevels int32, amount int32, paymentMethod string, paymentDate time.Time, notes string) (*LeadPayment, error) {
+	if addedLevels <= 0 || addedLevels > 4 {
+		return nil, fmt.Errorf("added levels must be between 1 and 4")
+	}
+	if amount <= 0 {
+		return nil, fmt.Errorf("amount must be positive")
+	}
+	if err := util.ValidateNotFutureDate(paymentDate); err != nil {
+		return nil, err
+	}
+
+	allowedMethods := map[string]bool{
+		"vodafone_cash": true,
+		"bank_transfer": true,
+		"paypal":        true,
+		"other":         true,
+	}
+	if !allowedMethods[paymentMethod] {
+		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin add bundle credit transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var status string
+	var purchased, consumed int32
+	err = tx.QueryRow(`
+		SELECT status, COALESCE(levels_purchased_total, 0), COALESCE(levels_consumed, 0)
+		FROM leads
+		WHERE id = $1
+		FOR UPDATE
+	`, leadID).Scan(&status, &purchased, &consumed)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("lead not found")
+		}
+		return nil, fmt.Errorf("failed to load lead for bundle credit: %w", err)
+	}
+	if status != "waiting_for_round" {
+		return nil, fmt.Errorf("bundle credit can only be added while the student is in waiting list")
+	}
+
+	now := time.Now()
+	payment := &LeadPayment{
+		ID:            uuid.New(),
+		LeadID:        leadID,
+		Kind:          "top_up",
+		Amount:        amount,
+		PaymentMethod: paymentMethod,
+		PaymentDate:   paymentDate,
+		Notes:         sql.NullString{String: notes, Valid: strings.TrimSpace(notes) != ""},
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO lead_payments (id, lead_id, kind, amount, payment_method, payment_date, notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+	`, payment.ID, payment.LeadID, payment.Kind, payment.Amount, payment.PaymentMethod, payment.PaymentDate, payment.Notes, payment.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bundle credit payment: %w", err)
+	}
+
+	refKey := fmt.Sprintf("lead:%s:course_payment:%s", leadID.String(), payment.ID.String())
+	refIDStr := leadID.String()
+	paymentDateValue := paymentDate.Format("2006-01-02")
+	_, err = tx.Exec(`
+		INSERT INTO transactions (id, transaction_date, transaction_type, category, amount, payment_method, lead_id, ref_type, ref_id, ref_sub_type, ref_key, notes, created_at, updated_at)
+		VALUES ($1, $2::date, $3::text, $4::text, $5::integer, $6::text, $7::uuid, $8::text, $9::text, $10::text, $11::text, $12, $13::timestamp with time zone, $13::timestamp with time zone)
+	`, uuid.New(), paymentDateValue, "IN", "course_payment", amount, paymentMethod, leadID, "lead", refIDStr, "bundle_credit", refKey, payment.Notes, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bundle credit finance transaction: %w", err)
+	}
+
+	newPurchased := purchased + addedLevels
+	newRemaining := newPurchased - consumed
+	if newRemaining < 0 {
+		newRemaining = 0
+	}
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET levels_purchased_total = $1,
+		    remaining_credits = $2,
+		    status = 'waiting_for_round',
+		    sent_to_classes = false,
+		    ops_queue_reason = NULL,
+		    high_priority_follow_up = false,
+		    high_priority = false,
+		    high_priority_reason = '',
+		    updated_at = $3
+		WHERE id = $4
+	`, newPurchased, newRemaining, now, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update bundle credits: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return payment, nil
+}
+
 // CreateRefund creates a refund transaction (OUT) for a lead
 func CreateRefund(leadID uuid.UUID, amount int32, paymentMethod string, transactionDate time.Time, notes string) (*Transaction, error) {
 	if amount <= 0 {
