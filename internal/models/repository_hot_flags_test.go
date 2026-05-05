@@ -37,6 +37,37 @@ func TestComputeLeadFlagsOfferSentUsesOfferSentAt(t *testing.T) {
 	}
 }
 
+func TestComputeLeadFlagsReturningOfferSentSkipsOfferSequence(t *testing.T) {
+	now := time.Now()
+
+	item := &LeadListItem{
+		Lead: &Lead{
+			Status:      "offer_sent",
+			IsReturning: true,
+			OfferSentAt: sql.NullTime{Time: now.Add(-5 * 24 * time.Hour), Valid: true},
+			UpdatedAt:   now.Add(-5 * 24 * time.Hour),
+			CreatedAt:   now.Add(-30 * 24 * time.Hour),
+		},
+		AmountPaid: sql.NullInt32{Valid: false},
+		FinalPrice: sql.NullInt32{Valid: false},
+	}
+
+	ComputeLeadFlags(item)
+
+	if item.OfferFollowUpStep != 0 {
+		t.Fatalf("expected returning offer_sent lead to skip offer sequence, got step %d", item.OfferFollowUpStep)
+	}
+	if item.OfferFollowUpDueNow {
+		t.Fatalf("expected returning offer_sent lead not to have offer message due")
+	}
+	if item.FollowUpDue {
+		t.Fatalf("expected returning offer_sent lead not to be due for the standard offer sequence")
+	}
+	if item.NextAction != "Renewal follow-up needed" {
+		t.Fatalf("expected renewal follow-up action, got %q", item.NextAction)
+	}
+}
+
 func TestComputeLeadFlagsOfferSentWaitsFirst24Hours(t *testing.T) {
 	now := time.Now()
 

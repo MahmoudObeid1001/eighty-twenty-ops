@@ -379,6 +379,25 @@ func ComputeLeadFlags(item *LeadListItem) {
 
 	// TESTED and OFFER_SENT follow different follow-up playbooks.
 	if stage == StageOfferSent {
+		if item.Lead.IsReturning {
+			item.OfferFollowUpStep = 0
+			item.OfferFollowUpDueNow = false
+			item.OfferFollowUpDueAt = sql.NullTime{}
+			if item.OfferReminderAt.Valid {
+				reminderDue := !now.Before(item.OfferReminderAt.Time)
+				item.OfferReminderDue = reminderDue
+				item.FollowUpDue = reminderDue
+				if reminderDue {
+					item.NextAction = "Offer reminder due"
+				} else {
+					item.NextAction = "Offer reminder set"
+				}
+			} else {
+				item.FollowUpDue = false
+				item.NextAction = "Renewal follow-up needed"
+			}
+			return
+		}
 		anchor := progressTime
 		nextStep, dueAt, dueNow, nextAction, actionable, reminderMode := computeOfferSentFollowUpState(anchor, int32(item.OfferFollowUpLastStep), item.OfferFollowUpLastSent, item.OfferReminderAt, now)
 		item.OfferFollowUpStep = nextStep
