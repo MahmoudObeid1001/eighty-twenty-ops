@@ -494,7 +494,7 @@
                         {{end}}
                         <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-primary btn-small">Open</a>
                         {{if and (not $.IsSleepingLeads) (not $.IsSnoozedLeads)}}
-                        {{if and (not $.IsModerator) (or (eq $s "ready_to_start") (eq $s "waiting_for_round")) (not .Lead.SentToClasses)
+                        {{if and (not $.IsModerator) (or (eq $s "ready_to_start") (eq $s "waiting_for_round")) (not .Lead.SentToClasses) (not (and .Lead.OpsQueueReason.Valid (eq .Lead.OpsQueueReason.String "refund_review")))
                         .AssignedLevel.Valid}}
                         <form method="POST" action="/pre-enrolment/{{.Lead.ID}}" class="send-to-classes-form"
                             data-lead-id="{{.Lead.ID}}">

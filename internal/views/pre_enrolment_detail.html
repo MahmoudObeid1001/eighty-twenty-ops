@@ -1134,7 +1134,7 @@
     {{end}}
 
     <!-- Send to Class Button - Show for READY_TO_START or WAITING_FOR_ROUND when not already sent -->
-    {{if and (or (eq .Detail.Lead.Status "ready_to_start") (eq .Detail.Lead.Status "waiting_for_round")) (not .Detail.Lead.SentToClasses)}}
+    {{if and (or (eq .Detail.Lead.Status "ready_to_start") (eq .Detail.Lead.Status "waiting_for_round")) (not .Detail.Lead.SentToClasses) (not .IsRefundReview)}}
     {{if and .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid .Detail.Scheduling
     .Detail.Scheduling.ClassDays.Valid .Detail.Scheduling.ClassTime.Valid}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
@@ -1233,11 +1233,8 @@
     </div>
     {{else if not .IsModerator}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
-        <form method="GET" action="/pre-enrolment/{{.Detail.Lead.ID}}" style="display: inline-block;">
-            <input type="hidden" name="action" value="{{if .IsRefundReview}}refund_review{{else}}cancel{{end}}">
-            <button type="submit" class="btn"
-                style="background-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; border-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; color: white;">{{if .IsRefundReview}}Open Refund Review{{else}}Cancel Lead{{end}}</button>
-        </form>
+        <a href="/pre-enrolment/{{.Detail.Lead.ID}}?action={{if .IsRefundReview}}refund_review{{else}}cancel{{end}}" class="btn"
+            style="background-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; border-color: {{if .IsRefundReview}}#FF8C00{{else}}#dc3545{{end}}; color: white;">{{if .IsRefundReview}}Open Refund Review{{else}}Cancel Lead{{end}}</a>
     </div>
     {{end}}
 

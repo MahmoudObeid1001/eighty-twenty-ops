@@ -10045,10 +10045,11 @@ func ReturnStudentToAdminFromClass(leadID uuid.UUID, sourceClassKey, reason, not
 	now := time.Now()
 	sourceExitAfter := sourceCurrentSession - 1
 	queueReason := sql.NullString{String: "refund_review", Valid: true}
-	newStatus := "waiting_for_round"
+	newStatus := "ready_to_start"
 	mentorHeadReturnReason := sql.NullString{}
 	if reason == "private_track_to_admin" {
 		queueReason = sql.NullString{String: "private_track", Valid: true}
+		newStatus = "waiting_for_round"
 	} else if reason == "other_to_admin" {
 		queueReason = sql.NullString{}
 		newStatus = "ready_to_start"
