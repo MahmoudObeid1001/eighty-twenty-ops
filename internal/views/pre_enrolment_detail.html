@@ -1391,7 +1391,7 @@
 
                 <div class="form-group" style="margin-bottom: 16px;">
                     <label for="refused_renewal_reason">Reason *</label>
-                    <select id="refused_renewal_reason" name="refused_renewal_reason" required onchange="toggleRefusedRenewalOtherReason()">
+                    <select id="refused_renewal_reason" name="refused_renewal_reason" onchange="toggleRefusedRenewalOtherReason()">
                         <option value="">Select reason</option>
                         <option value="time_pressure">Busy / Exams</option>
                         <option value="financial">Financial reasons</option>
@@ -1475,7 +1475,7 @@
                         <input type="hidden" name="refused_follow_up_template_id" id="detail-refused-follow-up-template-id" value="">
                         <div style="margin-top: 16px;">
                             <label for="detail-refused-follow-up-message" style="display: block; font-weight: 700; margin-bottom: 8px;">Editable message</label>
-                            <textarea id="detail-refused-follow-up-message" name="refused_follow_up_message" rows="9" required
+                            <textarea id="detail-refused-follow-up-message" name="refused_follow_up_message" rows="9"
                                 style="width: 100%; border: 1px solid #D1D5DB; border-radius: 8px; padding: 12px; font: inherit; resize: vertical;"></textarea>
                             <small style="display: block; margin-top: 8px; color: #6B7280;">Template stays unchanged. Only the final edited text is stored in contact history.</small>
                         </div>
@@ -1513,7 +1513,7 @@
             <div class="form-group" style="margin-bottom: 15px;">
                 <label for="late_join_reason">Reason for Late Join *</label>
                 <textarea id="late_join_reason" name="late_join_reason" rows="3"
-                    placeholder="Explain why this student is joining late..." required></textarea>
+                    placeholder="Explain why this student is joining late..."></textarea>
                 <small style="color: #666; display: block; margin-top: 5px;">Minimum 10 characters.</small>
             </div>
 
