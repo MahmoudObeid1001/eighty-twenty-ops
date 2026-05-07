@@ -465,6 +465,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			osr.note,
 			COALESCE(last_offer_msg.message_number, 0) AS last_offer_message_number,
 			last_offer_msg.sent_at,
+			COALESCE(last_ce.level, 0) as last_completed_level,
+			COALESCE(last_ce_attendance.attended_sessions, 0) as last_attended_sessions,
 			COALESCE(last_ce.outcome, '') as last_outcome,
 			COALESCE(last_ce.final_grade, '') as last_final_grade,
 			COALESCE(last_refusal.refused_at, NULL) as refused_renewal_at,
@@ -487,12 +489,18 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			LIMIT 1
 		) last_offer_msg ON true
 		LEFT JOIN LATERAL (
-			SELECT outcome, final_grade
+			SELECT class_key, level, outcome, final_grade
 			FROM class_enrollments ce
 			WHERE ce.lead_id = l.id
 			ORDER BY COALESCE(ce.completed_at, ce.enrolled_at) DESC
 			LIMIT 1
 		) last_ce ON true
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*) FILTER (WHERE a.status = 'PRESENT')::int AS attended_sessions
+			FROM class_sessions cs
+			LEFT JOIN attendance a ON a.session_id = cs.id AND a.lead_id = l.id
+			WHERE cs.class_key = last_ce.class_key
+		) last_ce_attendance ON true
 		LEFT JOIN LATERAL (
 			SELECT refused_at, reason, notes
 			FROM renewal_refusals rr
@@ -644,6 +652,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var offerReminderNote sql.NullString
 		var lastOfferMessageNumber int32
 		var lastOfferMessageSentAt sql.NullTime
+		var latestCompletedLevel int32
+		var latestAttendedSessions int
 		var lastOutcome sql.NullString
 		var lastFinalGrade sql.NullString
 		var refusedRenewalAt sql.NullTime
@@ -666,6 +676,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			&offerReminderNote,
 			&lastOfferMessageNumber,
 			&lastOfferMessageSentAt,
+			&latestCompletedLevel,
+			&latestAttendedSessions,
 			&lastOutcome,
 			&lastFinalGrade,
 			&refusedRenewalAt,
@@ -694,6 +706,8 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			AssignedLevel:           assignedLevel,
 			ClassDays:               classDays,
 			ClassTime:               classTime,
+			LatestCompletedLevel:    sql.NullInt32{Int32: int32(latestCompletedLevel), Valid: latestCompletedLevel > 0},
+			LatestAttendedSessions:  latestAttendedSessions,
 			LastOutcome:             lastOutcome,
 			LastFinalGrade:          lastFinalGrade,
 			RefusedRenewal:          refusedRenewalAt.Valid,
@@ -1365,8 +1379,28 @@ func GetLatestClassSchedule(leadID uuid.UUID) (sql.NullString, sql.NullString, e
 	return classDays, classTime, nil
 }
 
+func CountPresentedAttendanceForClass(leadID uuid.UUID, classKey string) (int, error) {
+	var attendedSessions int
+	err := db.DB.QueryRow(`
+		SELECT COUNT(*)::int
+		FROM attendance a
+		INNER JOIN class_sessions cs ON cs.id = a.session_id
+		WHERE a.lead_id = $1
+		  AND cs.class_key = $2
+		  AND a.status = 'PRESENT'
+	`, leadID, classKey).Scan(&attendedSessions)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count presented attendance for class: %w", err)
+	}
+	return attendedSessions, nil
+}
+
 func GetLatestClassEnrollment(leadID uuid.UUID) (*ClassEnrollment, error) {
 	out := &ClassEnrollment{}
+	var classKey sql.NullString
+	var level sql.NullInt32
+	var classDays sql.NullString
+	var classTime sql.NullString
 	err := db.DB.QueryRow(`
 		SELECT id, lead_id, class_key, level, class_days,
                TO_CHAR(class_time, 'HH24:MI') as class_time,
@@ -1386,10 +1420,10 @@ func GetLatestClassEnrollment(leadID uuid.UUID) (*ClassEnrollment, error) {
 	`, leadID).Scan(
 		&out.ID,
 		&out.LeadID,
-		&out.ClassKey,
-		&out.Level,
-		&out.ClassDays,
-		&out.ClassTime,
+		&classKey,
+		&level,
+		&classDays,
+		&classTime,
 		&out.MentorName,
 		&out.FinalGrade,
 		&out.Outcome,
@@ -1408,6 +1442,18 @@ func GetLatestClassEnrollment(leadID uuid.UUID) (*ClassEnrollment, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest class enrollment: %w", err)
+	}
+	if classKey.Valid {
+		out.ClassKey = classKey.String
+	}
+	if level.Valid {
+		out.Level = level.Int32
+	}
+	if classDays.Valid {
+		out.ClassDays = classDays.String
+	}
+	if classTime.Valid {
+		out.ClassTime = classTime.String
 	}
 	return out, nil
 }

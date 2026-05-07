@@ -35,11 +35,11 @@
             WhatsApp Lead
         </a>
         {{end}}
-        {{if and (or .IsAdmin (eq .UserRole "manager")) .IsRefusedRenewal .RefusedFollowUpDueNow}}
+        {{if and (or .IsAdmin (eq .UserRole "manager")) .HasUnifiedMessageBank}}
         <button type="button" class="btn"
-            style="background: #C05621; color: white; border: 1px solid #C05621; padding: 12px 18px; font-weight: 700;"
-            onclick="openRefusedRenewalMessageModal()">
-            {{if .RefusedFollowUpManual}}Send Manual{{else}}Send Message{{end}}
+            style="background: #2563EB; color: white; border: 1px solid #2563EB; padding: 12px 18px; font-weight: 700;"
+            onclick="openMessageBankModal('{{.MessageBankDefaultCategory}}')">
+            Message Bank
         </button>
         {{end}}
         <!-- Unified Status Banner (top-right) -->
@@ -1415,80 +1415,108 @@
         </div>
     </div>
 
-    {{if .IsRefusedRenewal}}
-    <div id="refusedRenewalMessageModal" class="pre-enrolment-modal-overlay"
+    {{if .HasUnifiedMessageBank}}
+    <div id="messageBankModal" class="pre-enrolment-modal-overlay"
         style="position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.55); z-index: 1200; display: none; align-items: center; justify-content: center; padding: 20px;">
         <div class="pre-enrolment-modal-card"
-            style="background: white; padding: 24px; border-radius: 12px; width: min(920px, 100%); max-height: 90vh; overflow-y: auto;">
+            style="background: white; padding: 24px; border-radius: 12px; width: min(980px, 100%); max-height: 90vh; overflow-y: auto;">
             <div style="display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px;">
                 <div>
-                    <h2 style="margin: 0 0 6px 0; color: #9C4221;">Refused Renewal Message Bank</h2>
-                    <p style="margin: 0; color: #6B7280;">{{.Detail.Lead.FullName}} • Step {{.RefusedFollowUpStep}}{{if .RenewalRefusedReasonLabel}} • {{.RenewalRefusedReasonLabel}}{{end}}</p>
+                    <h2 style="margin: 0 0 6px 0; color: #1F2937;">Message Bank</h2>
+                    <p style="margin: 0; color: #6B7280;">{{.Detail.Lead.FullName}}</p>
                 </div>
-                <button type="button" class="btn btn-secondary" onclick="closeRefusedRenewalMessageModal()">Close</button>
+                <button type="button" class="btn btn-secondary" onclick="closeMessageBankModal()">Close</button>
             </div>
 
-            <div style="display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 18px;">
-                <div>
-                    <div style="font-size: 12px; font-weight: 700; color: #9C4221; margin-bottom: 10px;">Reasons</div>
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px;">
+                <button type="button" class="detail-message-bank-tab" data-category="renewal_pending" onclick="selectDetailMessageBankCategory('renewal_pending')">Renewal Pending</button>
+                <button type="button" class="detail-message-bank-tab" data-category="refused_renewal" onclick="selectDetailMessageBankCategory('refused_renewal')">Refused Renewal Message</button>
+                <button type="button" class="detail-message-bank-tab" data-category="sleeping_leads" onclick="selectDetailMessageBankCategory('sleeping_leads')">Sleeping Leads</button>
+                <button type="button" class="detail-message-bank-tab" data-category="after_placement_test" onclick="selectDetailMessageBankCategory('after_placement_test')">After Placement Test</button>
+            </div>
+
+            <div class="detail-message-bank-panel" data-category-panel="renewal_pending" style="display: none;">
+                <div style="font-size: 12px; font-weight: 700; color: #2563EB; margin-bottom: 10px;">Renewal Pending Templates</div>
+                <div id="detail-renewal-template-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
+            </div>
+
+            <div class="detail-message-bank-panel" data-category-panel="refused_renewal" style="display: none;">
+                <div style="display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 18px;">
+                    <div>
+                        <div style="font-size: 12px; font-weight: 700; color: #9C4221; margin-bottom: 10px;">Reasons</div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            {{range .RefusedRenewalReasonTabs}}
+                            <button type="button"
+                                class="detail-refused-renewal-tab-btn"
+                                data-reason-key="{{.Key}}"
+                                onclick="selectDetailRefusedRenewalReasonTab('{{.Key}}')"
+                                style="text-align: left; border: 1px solid #E5E7EB; background: #F9FAFB; color: #374151; border-radius: 8px; padding: 10px 12px; font-weight: 600;">
+                                {{.Label}}
+                            </button>
+                            {{end}}
+                        </div>
+                    </div>
+
+                    <div>
                         {{range .RefusedRenewalReasonTabs}}
-                        <button type="button"
-                            class="detail-refused-renewal-tab-btn"
-                            data-reason-key="{{.Key}}"
-                            onclick="selectDetailRefusedRenewalReasonTab('{{.Key}}')"
-                            style="text-align: left; border: 1px solid #E5E7EB; background: #F9FAFB; color: #374151; border-radius: 8px; padding: 10px 12px; font-weight: 600;">
-                            {{.Label}}
-                        </button>
-                        {{end}}
-                    </div>
-                </div>
-
-                <div>
-                    {{range .RefusedRenewalReasonTabs}}
-                    {{$reasonKey := .Key}}
-                    <div class="detail-refused-renewal-template-panel" data-reason-panel="{{$reasonKey}}" style="display: none;">
-                        <div style="font-size: 12px; font-weight: 700; color: #9C4221; margin-bottom: 10px;">Message bank</div>
-                        {{with index $.RefusedTemplatesByReason $reasonKey}}
-                        {{range .}}
-                        <div style="border: 1px solid #E5E7EB; border-radius: 8px; padding: 14px; background: #FFFDF9; margin-bottom: 12px;">
-                            <div style="font-weight: 700; color: #2D3748; margin-bottom: 8px;">{{.Title}}</div>
-                            <pre style="white-space: pre-wrap; margin: 0 0 12px 0; font-family: inherit; color: #374151;">{{.Body}}</pre>
-                            <button type="button" class="btn btn-small"
-                                onclick="useDetailRefusedRenewalTemplate('{{.ID}}', '{{js .Body}}')"
-                                style="background: #C05621; color: white; border: 1px solid #C05621;">
-                                Use this message
-                            </button>
-                        </div>
-                        {{end}}
-                        {{else}}
-                        <div style="border: 1px dashed #D1D5DB; border-radius: 8px; padding: 18px; color: #6B7280;">
-                            No template yet for this reason. Write the message manually below.
+                        {{$reasonKey := .Key}}
+                        <div class="detail-refused-renewal-template-panel" data-reason-panel="{{$reasonKey}}" style="display: none;">
+                            <div style="font-size: 12px; font-weight: 700; color: #9C4221; margin-bottom: 10px;">Message bank</div>
+                            {{with index $.RefusedTemplatesByReason $reasonKey}}
+                            {{range .}}
+                            <div style="border: 1px solid #E5E7EB; border-radius: 8px; padding: 14px; background: #FFFDF9; margin-bottom: 12px;">
+                                <div style="font-weight: 700; color: #2D3748; margin-bottom: 8px;">{{.Title}}</div>
+                                <pre style="white-space: pre-wrap; margin: 0 0 12px 0; font-family: inherit; color: #374151;">{{.Body}}</pre>
+                                <button type="button" class="btn btn-small"
+                                    onclick="useDetailRefusedRenewalTemplate('{{.ID}}', '{{js .Body}}')"
+                                    style="background: #C05621; color: white; border: 1px solid #C05621;">
+                                    Use this message
+                                </button>
+                            </div>
+                            {{end}}
+                            {{else}}
+                            <div style="border: 1px dashed #D1D5DB; border-radius: 8px; padding: 18px; color: #6B7280;">
+                                No template yet for this reason. Write the message manually below.
+                            </div>
+                            {{end}}
                         </div>
                         {{end}}
                     </div>
-                    {{end}}
-
-                    <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}">
-                        <input type="hidden" name="action" value="send_refused_renewal_message">
-                        <input type="hidden" name="refused_follow_up_step" value="{{.RefusedFollowUpStep}}">
-                        <input type="hidden" name="refused_follow_up_template_id" id="detail-refused-follow-up-template-id" value="">
-                        <div style="margin-top: 16px;">
-                            <label for="detail-refused-follow-up-message" style="display: block; font-weight: 700; margin-bottom: 8px;">Editable message</label>
-                            <textarea id="detail-refused-follow-up-message" name="refused_follow_up_message" rows="9"
-                                style="width: 100%; border: 1px solid #D1D5DB; border-radius: 8px; padding: 12px; font: inherit; resize: vertical;"></textarea>
-                            <small style="display: block; margin-top: 8px; color: #6B7280;">Template stays unchanged. Only the final edited text is stored in contact history.</small>
-                        </div>
-                        <div style="display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;">
-                            <button type="button" class="btn btn-secondary" onclick="closeRefusedRenewalMessageModal()">Cancel</button>
-                            <button type="submit" class="btn"
-                                style="background: #25D366; color: white; border: 1px solid #25D366;">
-                                Ready to Send
-                            </button>
-                        </div>
-                    </form>
                 </div>
             </div>
+
+            <div class="detail-message-bank-panel" data-category-panel="sleeping_leads" style="display: none;">
+                <div style="font-size: 12px; font-weight: 700; color: #6f42c1; margin-bottom: 10px;">Sleeping Leads Templates</div>
+                <div id="detail-sleeping-template-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
+            </div>
+
+            <div class="detail-message-bank-panel" data-category-panel="after_placement_test" style="display: none;">
+                <div style="font-size: 12px; font-weight: 700; color: #0f766e; margin-bottom: 10px;">After Placement Test Templates</div>
+                <div id="detail-after-placement-template-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
+            </div>
+
+            <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" target="admin-whatsapp-chat" style="margin-top: 18px;">
+                <input type="hidden" name="action" id="detail-message-bank-action" value="">
+                <input type="hidden" name="renewal_pending_template_key" id="detail-message-bank-renewal-key" value="{{.RenewalPendingMessageKey}}">
+                <input type="hidden" name="renewal_pending_level" id="detail-message-bank-renewal-level" value="{{.RenewalPendingMessageLevel}}">
+                <input type="hidden" name="refused_follow_up_step" id="detail-message-bank-refused-step" value="{{.RefusedFollowUpStep}}">
+                <input type="hidden" name="refused_follow_up_template_id" id="detail-message-bank-refused-template-id" value="">
+                <input type="hidden" name="sleeping_follow_up_step" id="detail-message-bank-sleeping-step" value="{{.SleepingLeadStep}}">
+                <input type="hidden" name="offer_follow_up_step" id="detail-message-bank-offer-step" value="{{.OfferFollowUpStep}}">
+                <div>
+                    <label for="detail-message-bank-text" style="display: block; font-weight: 700; margin-bottom: 8px;">Editable message</label>
+                    <textarea id="detail-message-bank-text" name="message_bank_text" rows="9" required
+                        style="width: 100%; border: 1px solid #D1D5DB; border-radius: 8px; padding: 12px; font: inherit; resize: vertical;"></textarea>
+                    <small id="detail-message-bank-help" style="display: block; margin-top: 8px; color: #6B7280;">Choose a template from the active tab, then edit before sending.</small>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="closeMessageBankModal()">Cancel</button>
+                    <button type="submit" class="btn"
+                        style="background: #25D366; color: white; border: 1px solid #25D366;">
+                        Ready to Send
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
     {{end}}
@@ -1550,11 +1578,11 @@
                 <h2 style="margin: 0 0 4px 0;">Contact History</h2>
                 <p style="margin: 0; color: #6B7280;">WhatsApp actions and prepared messages from pre-enrolment are stored here.</p>
             </div>
-            {{if and (or .IsAdmin (eq .UserRole "manager")) .IsRefusedRenewal .RefusedFollowUpDueNow}}
+            {{if and (or .IsAdmin (eq .UserRole "manager")) .HasUnifiedMessageBank}}
             <button type="button" class="btn"
-                style="background: #C05621; border-color: #C05621; color: white;"
-                onclick="openRefusedRenewalMessageModal()">
-                {{if .RefusedFollowUpManual}}Send Manual{{else}}Send Message{{end}}
+                style="background: #2563EB; border-color: #2563EB; color: white;"
+                onclick="openMessageBankModal('{{.MessageBankDefaultCategory}}')">
+                Message Bank
             </button>
             {{end}}
         </div>
@@ -1566,8 +1594,9 @@
                 <div style="display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 8px;">
                     <strong style="color: #1F2937;">
                         {{if eq .Source "lead_whatsapp"}}Opened WhatsApp chat
-                        {{else if eq .Source "offer_sent_sequence"}}Offer follow-up
+                        {{else if eq .Source "offer_sent_sequence"}}After placement test follow-up
                         {{else if eq .Source "sleeping_lead_sequence"}}Sleeping lead follow-up
+                        {{else if eq .Source "renewal_pending_post_level"}}Renewal pending message
                         {{else if eq .Source "refused_renewal_sequence"}}Refused renewal follow-up
                         {{else}}{{.Source}}{{end}}
                     </strong>
@@ -2064,20 +2093,291 @@
         if (!showOther) textarea.value = '';
     }
 
-    function openRefusedRenewalMessageModal() {
-        const modal = document.getElementById('refusedRenewalMessageModal');
-        if (!modal) return;
-        modal.style.display = 'flex';
-        selectDetailRefusedRenewalReasonTab('{{if .RenewalRefusedReason}}{{.RenewalRefusedReason}}{{else}}time_pressure{{end}}');
+    function normalizeDetailMessageText(messageText) {
+        if (!messageText) return '';
+        return String(messageText)
+            .replace(/\\u000A/g, '\n')
+            .replace(/\\n/g, '\n')
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n');
     }
 
-    function closeRefusedRenewalMessageModal() {
-        const modal = document.getElementById('refusedRenewalMessageModal');
+    function firstDetailName(fullName) {
+        const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+        return parts.length ? parts[0] : '';
+    }
+
+    function buildDetailRenewalTemplates() {
+        const fullName = {{printf "%q" .Detail.Lead.FullName}};
+        const level = {{.RenewalPendingMessageLevel}};
+        return [
+            {
+                key: 'promoted',
+                title: 'Promoted ✅',
+                text: `السلام عليكم استاذ ${fullName}، 🎉
+حضرتك خصلت معانا ليفل ${level} بنجاح ما شاء الله ،وبنباركلك على تقدمك للمستوى 🎉
+صراحةً حضورك وجديتك كانوا واضحين من أول يوم، والمنتور بيشكر فيك جدا💪
+دلوقتي هو أفضل وقت تكمل — ونبني ع الانجاز اللي حققته
+تحب نرتب للمستوى الجاي؟ 😊`
+            },
+            {
+                key: 'repeated_low_attendance',
+                title: 'Repeated, Low Attendance or Zero Attendance 🔴',
+                text: `السلام عليكم استاذ ${fullName}،
+حضرتك كنت مشترك معانا في ليفل ${level} وحاليا الليفل خلص، وحبيت أتواصل معاك لان بصراحة لاحظنا إن حضورك كان محدود الفترة دي — وده خلانا نفكر ازاي نقدر نساعدك ، بس عايزين نفهم — في حاجة حصلت أو في اي ظرف وقفك؟ دا هيساعدنا نعرف نفيدك أحسن 😊`
+            },
+            {
+                key: 'repeated_partial_attendance',
+                title: 'Repeated, Partial Attendance 🟡',
+                text: `السلام عليكم استاذ ${fullName}، 👋
+المستوى ${level} خلص، وعندي كلام مهم لحضرتك
+صحيح الحضور كان متقطع الفترة دي — بس السيشنز اللي حضرتها كان واضح إنك جاد وعندك هدف 💪
+وعشان كده مش عايزك تعيد نفس المستوى من غير ما تاخد فرصة حقيقية تكمله صح
+عندنا ليك:
+🎁 خصم ٤٠٪ على إعادة المستوى ${level} — عشان تكمل اللي بدأته بالراحة والتركيز اللي يستاهله
+الأوفر ده مش بنعلن عنه، وهو بس ليك لأن إحنا شايفين إنك تستاهل الفرصة دي 💙
+تحب نحجز مكان لليفل الجديد؟ 😊`
+            }
+        ];
+    }
+
+    function buildDetailSleepingTemplates() {
+        const firstName = firstDetailName({{printf "%q" .Detail.Lead.FullName}}) || 'صديقنا';
+        return [
+            { step: 1, title: 'Message 1', text: `مرحبا ${firstName} 😊
+أنا احمد من إيتي توينتي
+
+لاحظت إنك كنت بتسأل عن الكورس وبعتلنا رقمك عشان تعمل البليسمنت تيست..
+عايز أعرف، في أي حاجة وقفتك؟ 🤔
+
+أنا هنا لو في أي سؤال، كلمني براحتك 😊` },
+            { step: 2, title: 'Message 2', text: `${firstName}، عارف إيه اللي بيفرق بين الناس اللي بتتكلم إنجليزي كويس.. والناس اللي لسه بتحاول؟ 💡
+
+مش الموهبة، مش الوقت - هو البداية الصح ✅
+
+عندنا دلوقتي طلاب بدأوا زيك بالظبط، وبعد شهرين بيتكلموا في شغلهم وانترفيوهات بثقة 💪
+
+البليسمنت تيست بتاعنا مجاني ومش بياخد أكتر من 15 دقيقة، وبيوريلك بالظبط أنت فين وإيه الخطوة الجاية 🎯
+
+نحجزه امتى بالنسبالك؟` },
+            { step: 3, title: 'Message 3', text: `${firstName}، مش عايز آخد وقتك كتير 😊
+
+بس عارفك مهتم وعايز تطور إنجليزيتك، وده بالنسبالي كفيل إني أبعتلك الأوفر ده:
+
+🎁 أول محاضرة مجانًا + خصم ١٥٪ على أي باكدج لو اشتركت الأسبوع ده
+
+الأوفر ده مش بنعلن عنه، بس بنديه للناس اللي بتفضل معانا ومش قادرة تبدأ لأسباب تانية 💙
+
+كلمني بـ "مهتم" وأنا هرتب معاك كل حاجة في 5 دقايق 🙏
+
+بعد كده هسيبك براحتك، ومتترددش ترجع لو غيرت رأيك في أي وقت 😄` }
+        ];
+    }
+
+    function buildDetailAfterPlacementTemplates() {
+        const firstName = firstDetailName({{printf "%q" .Detail.Lead.FullName}}) || 'Ahmed';
+        return [
+            { step: 1, title: 'Message 1', text: `${firstName}، 👋
+
+بعتنالك نتيجة البليسمنت تيست والأوفر المناسب ليك،
+ولما ماجاش رد حبيت أتأكد إن الرسالة وصلتك 😊
+
+مستواك كويس، وعندك أساس تقدر تبني عليه 💪
+ومحتاج بس الخطوة الصح عشان توصل لنتيجة حقيقية.
+
+الأوفر لسه متاح.
+ينفع نتكلم فيه؟` },
+            { step: 2, title: 'Message 2', text: `${firstName}، 🎯
+
+هقولك على حاجة:
+ناس كتير بتعمل البليسمنت تيست وبعدها بتقف،
+مش لأنهم مش عايزين يتعلموا،
+لكن لأن بيكون فيه سؤال لسه شاغلهم.
+
+سواء كان الموضوع سعر، وقت، أو حتى هل الكورس مناسب ليك فعلًا،
+ابعتلي اللي في بالك وأنا هرد عليك بصراحة تامة، من غير أي إلزام 😊
+
+وصولك لمرحلة التيست معناه إن عندك جدية حقيقية في التطوير 💙` },
+            { step: 3, title: 'Message 3', text: `${firstName}، 😊
+
+دي آخر مرة هتواصل فيها معاك، وبعدها هسيبلك المساحة براحتك.
+
+لكن قبل ما أقفل الملف، حبيت أقدملك فرصة مناسبة ليك:
+🎁 أول محاضرة مجانًا، عشان تشوف بنفسك الأسلوب والمدرس قبل أي قرار
+🎁 وخصم 15% على أي باكدج لو حبيت تكمل خلال الأسبوع ده
+
+مفيش أي إلزام في المحاضرة الأولى،
+ولو ماعجبتكش، مش هتدفع أي حاجة.
+
+ده عرض بنقدمه تقديرًا إنك خدت خطوة فعلية وعملت التيست 💙
+
+لو مناسب ليك، ابعتلي:
+عايز أجرب ✅` }
+        ];
+    }
+
+    function detailEncodeMessageText(value) {
+        return encodeURIComponent(String(value || ''));
+    }
+
+    function renderDetailTemplateCard(item, options) {
+        const canUse = !options || options.canUse !== false;
+        const selected = options && options.selected;
+        const tone = options && options.tone ? options.tone : '#2563EB';
+        const note = options && options.note ? `<div style="font-size: 12px; color: #6B7280; margin-top: 8px;">${options.note}</div>` : '';
+        return `
+            <div style="border: 2px solid ${selected ? tone : '#E5E7EB'}; border-radius: 10px; padding: 14px; background: ${selected ? '#F8FBFF' : '#FFFDF9'};">
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px;">
+                    <div style="font-weight: 700; color: #2D3748;">${item.title}</div>
+                    ${selected ? `<span style="font-size: 11px; font-weight: 700; color: ${tone};">Selected</span>` : ''}
+                </div>
+                <pre style="white-space: pre-wrap; margin: 0 0 12px 0; font-family: inherit; color: #374151;">${item.text}</pre>
+                <button type="button" class="btn btn-small"
+                    onclick="${item.useAction}"
+                    ${canUse ? '' : 'disabled'}
+                    style="background: ${canUse ? tone : '#E5E7EB'}; color: ${canUse ? 'white' : '#6B7280'}; border: 1px solid ${canUse ? tone : '#E5E7EB'}; cursor: ${canUse ? 'pointer' : 'not-allowed'};">
+                    ${canUse ? 'Use this message' : 'Preview only'}
+                </button>
+                ${note}
+            </div>
+        `;
+    }
+
+    function renderDetailRenewalTemplates() {
+        const container = document.getElementById('detail-renewal-template-list');
+        if (!container) return;
+        if (!{{.RenewalPendingMessageLevel}}) {
+            container.innerHTML = '<div style="border: 1px dashed #D1D5DB; border-radius: 8px; padding: 18px; color: #6B7280;">This lead does not have a completed level for renewal pending templates.</div>';
+            return;
+        }
+        const selectedKey = {{printf "%q" .RenewalPendingMessageKey}};
+        container.innerHTML = buildDetailRenewalTemplates().map(function (item) {
+            return renderDetailTemplateCard({
+                title: item.title,
+                text: item.text,
+                useAction: `useDetailRenewalMessageEncoded('${item.key}', '${detailEncodeMessageText(item.text)}')`
+            }, { selected: item.key === selectedKey, tone: '#2563EB' });
+        }).join('');
+    }
+
+    function renderDetailSleepingTemplates() {
+        const container = document.getElementById('detail-sleeping-template-list');
+        if (!container) return;
+        const currentStep = {{.SleepingLeadStep}};
+        container.innerHTML = buildDetailSleepingTemplates().map(function (item) {
+            return renderDetailTemplateCard({
+                title: item.title,
+                text: item.text,
+                useAction: `useDetailStepMessageEncoded('send_sleeping_lead_message', 'sleeping', ${item.step}, '${detailEncodeMessageText(item.text)}')`
+            }, {
+                selected: item.step === currentStep,
+                canUse: item.step === currentStep,
+                tone: '#6f42c1',
+                note: item.step === currentStep ? 'This is the current due step for this lead.' : 'Visible for reference only.'
+            });
+        }).join('');
+    }
+
+    function renderDetailAfterPlacementTemplates() {
+        const container = document.getElementById('detail-after-placement-template-list');
+        if (!container) return;
+        const currentStep = {{.OfferFollowUpStep}};
+        container.innerHTML = buildDetailAfterPlacementTemplates().map(function (item) {
+            return renderDetailTemplateCard({
+                title: item.title,
+                text: item.text,
+                useAction: `useDetailStepMessageEncoded('send_offer_sent_message', 'offer', ${item.step}, '${detailEncodeMessageText(item.text)}')`
+            }, {
+                selected: item.step === currentStep,
+                canUse: item.step === currentStep,
+                tone: '#0f766e',
+                note: item.step === currentStep ? 'This is the current due step for this lead.' : 'Visible for reference only.'
+            });
+        }).join('');
+    }
+
+    function openMessageBankModal(defaultCategory) {
+        const modal = document.getElementById('messageBankModal');
+        if (!modal) return;
+        renderDetailRenewalTemplates();
+        renderDetailSleepingTemplates();
+        renderDetailAfterPlacementTemplates();
+        selectDetailRefusedRenewalReasonTab('{{if .RenewalRefusedReason}}{{.RenewalRefusedReason}}{{else}}time_pressure{{end}}');
+        selectDetailMessageBankCategory(defaultCategory || '{{.MessageBankDefaultCategory}}');
+        modal.style.display = 'flex';
+    }
+
+    function closeMessageBankModal() {
+        const modal = document.getElementById('messageBankModal');
         if (modal) modal.style.display = 'none';
     }
 
+    function selectDetailMessageBankCategory(category) {
+        document.querySelectorAll('.detail-message-bank-tab').forEach(function (button) {
+            const active = button.dataset.category === category;
+            button.style.background = active ? '#111827' : '#F9FAFB';
+            button.style.color = active ? 'white' : '#374151';
+            button.style.border = active ? '1px solid #111827' : '1px solid #E5E7EB';
+            button.style.borderRadius = '999px';
+            button.style.padding = '8px 14px';
+            button.style.fontWeight = '700';
+        });
+        document.querySelectorAll('.detail-message-bank-panel').forEach(function (panel) {
+            panel.style.display = panel.dataset.categoryPanel === category ? 'block' : 'none';
+        });
+        const actionInput = document.getElementById('detail-message-bank-action');
+        const renewalKeyInput = document.getElementById('detail-message-bank-renewal-key');
+        const renewalLevelInput = document.getElementById('detail-message-bank-renewal-level');
+        const textarea = document.getElementById('detail-message-bank-text');
+        const help = document.getElementById('detail-message-bank-help');
+        if (!actionInput || !renewalKeyInput || !renewalLevelInput || !textarea || !help) return;
+        if (category === 'renewal_pending') {
+            actionInput.value = 'send_renewal_pending_message';
+            renewalKeyInput.value = {{printf "%q" .RenewalPendingMessageKey}};
+            renewalLevelInput.value = String({{.RenewalPendingMessageLevel}});
+            textarea.value = {{printf "%q" .RenewalPendingMessageText}};
+            help.textContent = 'All 3 renewal pending templates are available. The system-selected one is highlighted.';
+        } else if (category === 'sleeping_leads') {
+            actionInput.value = 'send_sleeping_lead_message';
+            renewalKeyInput.value = '';
+            textarea.value = normalizeDetailMessageText(buildDetailSleepingTemplates().find(function (item) { return item.step === {{.SleepingLeadStep}}; })?.text || '');
+            help.textContent = 'All sleeping leads templates are visible. The currently due step is highlighted.';
+        } else if (category === 'after_placement_test') {
+            actionInput.value = 'send_offer_sent_message';
+            renewalKeyInput.value = '';
+            textarea.value = normalizeDetailMessageText(buildDetailAfterPlacementTemplates().find(function (item) { return item.step === {{.OfferFollowUpStep}}; })?.text || '');
+            help.textContent = 'All after placement test templates are visible. The currently due step is highlighted.';
+        } else {
+            actionInput.value = 'send_refused_renewal_message';
+            renewalKeyInput.value = '';
+            textarea.value = '';
+            help.textContent = 'Choose the refused renewal reason and template, then edit before sending.';
+        }
+    }
+
+    function useDetailMessageBankTextEncoded(action, encodedMessageText) {
+        const actionInput = document.getElementById('detail-message-bank-action');
+        const textarea = document.getElementById('detail-message-bank-text');
+        if (actionInput) actionInput.value = action;
+        if (textarea) textarea.value = decodeURIComponent(encodedMessageText || '');
+    }
+
+    function useDetailRenewalMessageEncoded(templateKey, encodedMessageText) {
+        const renewalKeyInput = document.getElementById('detail-message-bank-renewal-key');
+        if (renewalKeyInput) renewalKeyInput.value = templateKey || '';
+        useDetailMessageBankTextEncoded('send_renewal_pending_message', encodedMessageText);
+    }
+
+    function useDetailStepMessageEncoded(action, kind, step, encodedMessageText) {
+        const sleepingStepInput = document.getElementById('detail-message-bank-sleeping-step');
+        const offerStepInput = document.getElementById('detail-message-bank-offer-step');
+        if (kind === 'sleeping' && sleepingStepInput) sleepingStepInput.value = String(step);
+        if (kind === 'offer' && offerStepInput) offerStepInput.value = String(step);
+        useDetailMessageBankTextEncoded(action, encodedMessageText);
+    }
+
     function selectDetailRefusedRenewalReasonTab(reasonKey) {
-        const templateInput = document.getElementById('detail-refused-follow-up-template-id');
+        const templateInput = document.getElementById('detail-message-bank-refused-template-id');
         if (templateInput) templateInput.value = '';
         document.querySelectorAll('.detail-refused-renewal-tab-btn').forEach(function (button) {
             const active = button.dataset.reasonKey === reasonKey;
@@ -2091,17 +2391,14 @@
     }
 
     function normalizeDetailRefusedRenewalTemplateMessage(templateBody) {
-        if (!templateBody) return '';
-        return String(templateBody)
-            .replace(/\\u000A/g, '\n')
-            .replace(/\\n/g, '\n')
-            .replace(/\r\n/g, '\n')
-            .replace(/\r/g, '\n');
+        return normalizeDetailMessageText(templateBody);
     }
 
     function useDetailRefusedRenewalTemplate(templateID, templateBody) {
-        const templateInput = document.getElementById('detail-refused-follow-up-template-id');
-        const messageInput = document.getElementById('detail-refused-follow-up-message');
+        const actionInput = document.getElementById('detail-message-bank-action');
+        const templateInput = document.getElementById('detail-message-bank-refused-template-id');
+        const messageInput = document.getElementById('detail-message-bank-text');
+        if (actionInput) actionInput.value = 'send_refused_renewal_message';
         if (templateInput) templateInput.value = templateID || '';
         if (messageInput) {
             messageInput.value = normalizeDetailRefusedRenewalTemplateMessage(templateBody);

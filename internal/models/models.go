@@ -124,52 +124,57 @@ type LeadDetail struct {
 }
 
 type LeadListItem struct {
-	Lead                    *Lead
-	AssignedLevel           sql.NullInt32
-	ClassDays               sql.NullString
-	ClassTime               sql.NullString
-	LastOutcome             sql.NullString // latest class_enrollments.outcome (promoted/repeated)
-	LastFinalGrade          sql.NullString // latest class_enrollments.final_grade
-	RefusedRenewal          bool           // latest renewal_refusals marker exists
-	RefusedRenewalAt        sql.NullTime   // latest refusal timestamp
-	RenewalRefusalReason    sql.NullString
-	RenewalRefusalNotes     sql.NullString
-	PaymentStatus           string
-	PaymentState            string // UNPAID, DEPOSIT, PAID_FULL
-	NextAction              string
-	WhatsAppURL             string
-	DaysSinceLastProgress   int
-	HotLevel                string // "HOT", "WARM", "COOL", or ""
-	FollowUpDue             bool
-	OfferFollowUpStep       int
-	OfferFollowUpLastStep   int
-	OfferFollowUpLastSent   sql.NullTime
-	OfferFollowUpDueAt      sql.NullTime
-	OfferFollowUpDueNow     bool
-	OfferReminderAt         sql.NullTime
-	OfferReminderNote       sql.NullString
-	OfferReminderDue        bool
-	RefusedFollowUpStep     int
-	RefusedFollowUpLastStep int
-	RefusedFollowUpLastSent sql.NullTime
-	RefusedFollowUpDueAt    sql.NullTime
-	RefusedFollowUpDueNow   bool
-	RefusedFollowUpManual   bool
-	SnoozedUntil            sql.NullTime
-	SnoozeNote              sql.NullString
-	SnoozeDue               bool
-	TestDate                sql.NullTime  // For computing days since progress
-	AmountPaid              sql.NullInt32 // For checking if paid
-	FinalPrice              sql.NullInt32 // For computing payment state
-	RemainingBalance        sql.NullInt32 // For computing payment state
-	SleepingLeadStep        int
-	SleepingLeadLastStep    int
-	SleepingLeadLastSent    sql.NullTime
-	SleepingLeadDueAt       sql.NullTime
-	SleepingLeadDueNow      bool
-	SleepingReminderAt      sql.NullTime
-	SleepingReminderNote    sql.NullString
-	SleepingReminderDue     bool
+	Lead                       *Lead
+	AssignedLevel              sql.NullInt32
+	ClassDays                  sql.NullString
+	ClassTime                  sql.NullString
+	LatestCompletedLevel       sql.NullInt32
+	LatestAttendedSessions     int
+	LastOutcome                sql.NullString // latest class_enrollments.outcome (promoted/repeated)
+	LastFinalGrade             sql.NullString // latest class_enrollments.final_grade
+	RefusedRenewal             bool           // latest renewal_refusals marker exists
+	RefusedRenewalAt           sql.NullTime   // latest refusal timestamp
+	RenewalRefusalReason       sql.NullString
+	RenewalRefusalNotes        sql.NullString
+	RenewalPendingMessageKey   string
+	RenewalPendingMessageLabel string
+	RenewalPendingMessageText  string
+	PaymentStatus              string
+	PaymentState               string // UNPAID, DEPOSIT, PAID_FULL
+	NextAction                 string
+	WhatsAppURL                string
+	DaysSinceLastProgress      int
+	HotLevel                   string // "HOT", "WARM", "COOL", or ""
+	FollowUpDue                bool
+	OfferFollowUpStep          int
+	OfferFollowUpLastStep      int
+	OfferFollowUpLastSent      sql.NullTime
+	OfferFollowUpDueAt         sql.NullTime
+	OfferFollowUpDueNow        bool
+	OfferReminderAt            sql.NullTime
+	OfferReminderNote          sql.NullString
+	OfferReminderDue           bool
+	RefusedFollowUpStep        int
+	RefusedFollowUpLastStep    int
+	RefusedFollowUpLastSent    sql.NullTime
+	RefusedFollowUpDueAt       sql.NullTime
+	RefusedFollowUpDueNow      bool
+	RefusedFollowUpManual      bool
+	SnoozedUntil               sql.NullTime
+	SnoozeNote                 sql.NullString
+	SnoozeDue                  bool
+	TestDate                   sql.NullTime  // For computing days since progress
+	AmountPaid                 sql.NullInt32 // For checking if paid
+	FinalPrice                 sql.NullInt32 // For computing payment state
+	RemainingBalance           sql.NullInt32 // For computing payment state
+	SleepingLeadStep           int
+	SleepingLeadLastStep       int
+	SleepingLeadLastSent       sql.NullTime
+	SleepingLeadDueAt          sql.NullTime
+	SleepingLeadDueNow         bool
+	SleepingReminderAt         sql.NullTime
+	SleepingReminderNote       sql.NullString
+	SleepingReminderDue        bool
 }
 
 type SleepingLeadReminder struct {

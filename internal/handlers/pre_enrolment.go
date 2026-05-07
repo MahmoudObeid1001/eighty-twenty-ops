@@ -62,6 +62,15 @@ type refusalReasonTab struct {
 	Label string
 }
 
+type renewalPendingMessageDecision struct {
+	Key              string
+	Label            string
+	Text             string
+	Outcome          string
+	Level            int
+	AttendedSessions int
+}
+
 func buildWaitingListBuckets(leads []*models.LeadListItem) []waitingListBucket {
 	type bucketKey struct {
 		level     int
@@ -273,6 +282,94 @@ func refusalReasonLabel(reason string) string {
 	default:
 		return ""
 	}
+}
+
+func buildRenewalPendingMessage(fullName string, level int, outcome string, attendedSessions int) (*renewalPendingMessageDecision, bool) {
+	fullName = strings.TrimSpace(fullName)
+	if fullName == "" {
+		fullName = "حضرتك"
+	}
+	if level <= 0 {
+		return nil, false
+	}
+
+	outcome = strings.TrimSpace(outcome)
+	switch {
+	case strings.EqualFold(outcome, "promoted"):
+		return &renewalPendingMessageDecision{
+			Key:              "promoted",
+			Label:            "Promoted",
+			Outcome:          outcome,
+			Level:            level,
+			AttendedSessions: attendedSessions,
+			Text: fmt.Sprintf(`السلام عليكم استاذ %s، 🎉
+حضرتك خصلت معانا ليفل %d بنجاح ما شاء الله ،وبنباركلك على تقدمك للمستوى 🎉
+صراحةً حضورك وجديتك كانوا واضحين من أول يوم، والمنتور بيشكر فيك جدا💪
+دلوقتي هو أفضل وقت تكمل — ونبني ع الانجاز اللي حققته
+تحب نرتب للمستوى الجاي؟ 😊`, fullName, level),
+		}, true
+	case strings.EqualFold(outcome, "repeated") && attendedSessions >= 3:
+		return &renewalPendingMessageDecision{
+			Key:              "repeated_partial_attendance",
+			Label:            "Repeated - Partial Attendance",
+			Outcome:          outcome,
+			Level:            level,
+			AttendedSessions: attendedSessions,
+			Text: fmt.Sprintf(`السلام عليكم استاذ %s، 👋
+المستوى %d خلص، وعندي كلام مهم لحضرتك
+صحيح الحضور كان متقطع الفترة دي — بس السيشنز اللي حضرتها كان واضح إنك جاد وعندك هدف 💪
+وعشان كده مش عايزك تعيد نفس المستوى من غير ما تاخد فرصة حقيقية تكمله صح
+عندنا ليك:
+🎁 خصم ٤٠٪ على إعادة المستوى %d — عشان تكمل اللي بدأته بالراحة والتركيز اللي يستاهله
+الأوفر ده مش بنعلن عنه، وهو بس ليك لأن إحنا شايفين إنك تستاهل الفرصة دي 💙
+تحب نحجز مكان لليفل الجديد؟ 😊`, fullName, level, level),
+		}, true
+	case strings.EqualFold(outcome, "repeated"):
+		return &renewalPendingMessageDecision{
+			Key:              "repeated_low_attendance",
+			Label:            "Repeated - Low Attendance",
+			Outcome:          outcome,
+			Level:            level,
+			AttendedSessions: attendedSessions,
+			Text: fmt.Sprintf(`السلام عليكم استاذ %s،
+حضرتك كنت مشترك معانا في ليفل %d وحاليا الليفل خلص، وحبيت أتواصل معاك لان بصراحة لاحظنا إن حضورك كان محدود الفترة دي — وده خلانا نفكر ازاي نقدر نساعدك ، بس عايزين نفهم — في حاجة حصلت أو في اي ظرف وقفك؟ دا هيساعدنا نعرف نفيدك أحسن 😊`, fullName, level),
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+func renewalPendingLabelForKey(key string) string {
+	switch strings.TrimSpace(key) {
+	case "promoted":
+		return "Promoted"
+	case "repeated_low_attendance":
+		return "Repeated - Low Attendance"
+	case "repeated_partial_attendance":
+		return "Repeated - Partial Attendance"
+	default:
+		return ""
+	}
+}
+
+func applyRenewalPendingMessageToLead(item *models.LeadListItem) {
+	if item == nil || item.Lead == nil {
+		return
+	}
+	item.RenewalPendingMessageKey = ""
+	item.RenewalPendingMessageLabel = ""
+	item.RenewalPendingMessageText = ""
+	if item.Lead.Status != "renewal_pending" || !item.Lead.IsReturning || !item.LastOutcome.Valid || !item.LatestCompletedLevel.Valid {
+		return
+	}
+
+	decision, ok := buildRenewalPendingMessage(item.Lead.FullName, int(item.LatestCompletedLevel.Int32), item.LastOutcome.String, item.LatestAttendedSessions)
+	if !ok {
+		return
+	}
+	item.RenewalPendingMessageKey = decision.Key
+	item.RenewalPendingMessageLabel = decision.Label
+	item.RenewalPendingMessageText = decision.Text
 }
 
 func groupRefusedRenewalTemplatesByReason(items []*models.RefusedRenewalMessageTemplate) map[string][]*models.RefusedRenewalMessageTemplate {
@@ -519,6 +616,9 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	assignLeadWhatsAppURLs(leads)
+	for _, item := range leads {
+		applyRenewalPendingMessageToLead(item)
+	}
 	isWaitingListView := strings.EqualFold(statusFilter, "WAITING_FOR_ROUND") || strings.EqualFold(statusFilter, "waiting_for_round")
 	waitingListBuckets := []waitingListBucket{}
 	if isWaitingListView {
@@ -1186,6 +1286,11 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	}
 	models.ComputeLeadFlags(tempItem)
 	tempItem.WhatsAppURL = buildLeadWhatsAppURL(tempItem)
+	sleepingLeadItem, sleepingLeadErr := models.GetSleepingLeadByID(leadID)
+	if sleepingLeadErr != nil {
+		log.Printf("ERROR: Failed to get sleeping lead state: %v", sleepingLeadErr)
+		sleepingLeadItem = nil
+	}
 	sleepingReminder, reminderErr := models.GetSleepingLeadReminder(leadID)
 	if reminderErr != nil {
 		log.Printf("ERROR: Failed to get sleeping lead reminder: %v", reminderErr)
@@ -1375,6 +1480,20 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			lastGrade = latest.FinalGrade.String
 		}
 	}
+	var renewalPendingDecision *renewalPendingMessageDecision
+	if detail.Lead.Status == "renewal_pending" && detail.Lead.IsReturning && latestEnrollment != nil {
+		attendedSessions := 0
+		if latestEnrollment.ClassKey != "" {
+			if count, err := models.CountPresentedAttendanceForClass(leadID, latestEnrollment.ClassKey); err == nil {
+				attendedSessions = count
+			} else {
+				log.Printf("ERROR: Failed to count presented attendance for lead %s in class %s: %v", leadID, latestEnrollment.ClassKey, err)
+			}
+		}
+		if decision, ok := buildRenewalPendingMessage(detail.Lead.FullName, int(latestEnrollment.Level), lastOutcome, attendedSessions); ok {
+			renewalPendingDecision = decision
+		}
+	}
 	latestRefusal, err := models.GetLatestRenewalRefusal(leadID)
 	if err != nil {
 		log.Printf("ERROR: Failed to get latest renewal refusal: %v", err)
@@ -1482,6 +1601,61 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"CanReleaseContinuationHold": canReleaseContinuationHold,
 		"ContinuationHoldReason":     continuationHoldReason,
 		"CanAddBundleCredit":         canAddBundleCredit,
+		"SleepingLeadStep": func() int {
+			if sleepingLeadItem == nil {
+				return 0
+			}
+			return sleepingLeadItem.SleepingLeadStep
+		}(),
+		"SleepingLeadDueNow": func() bool {
+			if sleepingLeadItem == nil {
+				return false
+			}
+			return sleepingLeadItem.SleepingLeadDueNow
+		}(),
+		"HasRenewalPendingMessage": renewalPendingDecision != nil,
+		"RenewalPendingMessageKey": func() string {
+			if renewalPendingDecision == nil {
+				return ""
+			}
+			return renewalPendingDecision.Key
+		}(),
+		"RenewalPendingMessageLabel": func() string {
+			if renewalPendingDecision == nil {
+				return ""
+			}
+			return renewalPendingDecision.Label
+		}(),
+		"RenewalPendingMessageText": func() string {
+			if renewalPendingDecision == nil {
+				return ""
+			}
+			return renewalPendingDecision.Text
+		}(),
+		"RenewalPendingMessageLevel": func() int {
+			if renewalPendingDecision == nil {
+				return 0
+			}
+			return renewalPendingDecision.Level
+		}(),
+		"HasUnifiedMessageBank": (renewalPendingDecision != nil) ||
+			(sleepingLeadItem != nil && sleepingLeadItem.SleepingLeadDueNow && sleepingLeadItem.SleepingLeadStep > 0) ||
+			(tempItem.OfferFollowUpDueNow && tempItem.OfferFollowUpStep > 0) ||
+			(refusedFollowUpDueNow && refusedFollowUpStep > 0),
+		"MessageBankDefaultCategory": func() string {
+			switch {
+			case renewalPendingDecision != nil:
+				return "renewal_pending"
+			case refusedFollowUpDueNow && refusedFollowUpStep > 0:
+				return "refused_renewal"
+			case sleepingLeadItem != nil && sleepingLeadItem.SleepingLeadDueNow && sleepingLeadItem.SleepingLeadStep > 0:
+				return "sleeping_leads"
+			case tempItem.OfferFollowUpDueNow && tempItem.OfferFollowUpStep > 0:
+				return "after_placement_test"
+			default:
+				return ""
+			}
+		}(),
 		"CoursePaymentEnabled": func() bool {
 			ok, _ := canUseCoursePaymentFlow(detail)
 			return ok
@@ -2244,7 +2418,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		messageText := strings.TrimSpace(r.FormValue("refused_follow_up_message"))
+		messageText := strings.TrimSpace(firstNonEmpty(r.FormValue("refused_follow_up_message"), r.FormValue("message_bank_text")))
 		if messageText == "" {
 			redirectWithError(w, r, "/pre-enrolment?cold=1", "Please prepare the WhatsApp message before sending.")
 			return
@@ -2304,6 +2478,230 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			CreatedByUserID: &userID,
 		}); err != nil {
 			log.Printf("ERROR: Failed to log refused renewal contact history for lead %s: %v", leadID, err)
+		}
+
+		http.Redirect(w, r, whatsAppURL, http.StatusFound)
+		return
+
+	case "send_renewal_pending_message":
+		h.cfg.Debugf("  → Action: send_renewal_pending_message")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to send renewal pending messages.", http.StatusForbidden)
+			return
+		}
+
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if detail == nil || detail.Lead == nil || detail.Lead.Status != "renewal_pending" || !detail.Lead.IsReturning {
+			h.renderDetailWithError(w, r, leadID, "رسالة التجديد دي متاحة بس للطلبة العائدين اللي لسه في Renewal Pending.")
+			return
+		}
+
+		levelValue, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("renewal_pending_level")))
+		if levelValue <= 0 {
+			h.renderDetailWithError(w, r, leadID, "مافيش مستوى مكتمل نقدر نبني عليه رسالة التجديد.")
+			return
+		}
+
+		templateKey := strings.TrimSpace(r.FormValue("renewal_pending_template_key"))
+		templateLabel := renewalPendingLabelForKey(templateKey)
+		if templateLabel == "" {
+			h.renderDetailWithError(w, r, leadID, "مافيش رسالة تجديد مناسبة للحالة دي.")
+			return
+		}
+
+		messageText := strings.TrimSpace(firstNonEmpty(r.FormValue("renewal_pending_message_text"), r.FormValue("message_bank_text")))
+		if messageText == "" {
+			h.renderDetailWithError(w, r, leadID, "من فضلك جهز رسالة التجديد قبل الإرسال.")
+			return
+		}
+
+		whatsAppURL := buildWhatsAppComposeLink(detail.Lead.Phone, messageText)
+		if whatsAppURL == "" {
+			h.renderDetailWithError(w, r, leadID, "This lead does not have a valid WhatsApp number.")
+			return
+		}
+
+		userID, err := uuid.Parse(strings.TrimSpace(middleware.GetUserID(r)))
+		if err != nil {
+			h.renderDetailWithError(w, r, leadID, "Couldn't identify the current user for follow-up logging.")
+			return
+		}
+
+		if err := models.RecordPreEnrolmentContactHistory(models.ContactHistoryLogInput{
+			LeadID:      leadID,
+			Channel:     "whatsapp",
+			EventType:   "message_ready",
+			Source:      "renewal_pending_post_level",
+			TemplateKey: templateKey,
+			MessageText: messageText,
+			Metadata: map[string]interface{}{
+				"message_label":   templateLabel,
+				"completed_level": levelValue,
+			},
+			CreatedByUserID: &userID,
+		}); err != nil {
+			log.Printf("ERROR: Failed to log renewal pending contact history for lead %s: %v", leadID, err)
+		}
+
+		http.Redirect(w, r, whatsAppURL, http.StatusFound)
+		return
+
+	case "send_sleeping_lead_message":
+		h.cfg.Debugf("  → Action: send_sleeping_lead_message")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to send sleeping lead messages.", http.StatusForbidden)
+			return
+		}
+
+		item, err := models.GetSleepingLeadByID(leadID)
+		if err != nil {
+			log.Printf("ERROR: Failed to load sleeping lead %s: %v", leadID, err)
+			redirectWithError(w, r, "/pre-enrolment?sleeping=1", "Couldn't load this sleeping lead right now.")
+			return
+		}
+		if item == nil || item.SleepingLeadStep < 1 || item.SleepingLeadStep > 3 || !item.SleepingLeadDueNow {
+			h.renderDetailWithError(w, r, leadID, "رسالة Sleeping Leads الحالية مش مستحقة دلوقتي.")
+			return
+		}
+
+		requestedStep, err := strconv.Atoi(strings.TrimSpace(r.FormValue("sleeping_follow_up_step")))
+		if err != nil || requestedStep != item.SleepingLeadStep {
+			h.renderDetailWithError(w, r, leadID, "مسموح تبعت بس رسالة الـ Sleeping Leads المستحقة حالياً.")
+			return
+		}
+
+		messageText := strings.TrimSpace(r.FormValue("message_bank_text"))
+		if messageText == "" {
+			messageText = buildSleepingLeadMessage(item.Lead.FullName, item.SleepingLeadStep)
+		}
+
+		whatsAppURL := buildWhatsAppComposeLink(item.Lead.Phone, messageText)
+		if whatsAppURL == "" {
+			h.renderDetailWithError(w, r, leadID, "This lead does not have a valid WhatsApp number.")
+			return
+		}
+
+		userID, err := uuid.Parse(strings.TrimSpace(middleware.GetUserID(r)))
+		if err != nil {
+			h.renderDetailWithError(w, r, leadID, "Couldn't identify the current user for follow-up logging.")
+			return
+		}
+		if err := models.RecordSleepingLeadFollowUp(leadID, item.SleepingLeadStep, userID); err != nil {
+			log.Printf("ERROR: Failed to record sleeping follow-up for lead %s: %v", leadID, err)
+			h.renderDetailWithError(w, r, leadID, "Couldn't record this sleeping lead follow-up.")
+			return
+		}
+		if err := models.RecordPreEnrolmentContactHistory(models.ContactHistoryLogInput{
+			LeadID:          leadID,
+			Channel:         "whatsapp",
+			EventType:       "message_ready",
+			Source:          "sleeping_lead_sequence",
+			TemplateKey:     fmt.Sprintf("sleeping_message_%d", item.SleepingLeadStep),
+			MessageText:     messageText,
+			Metadata:        map[string]interface{}{"step": item.SleepingLeadStep},
+			CreatedByUserID: &userID,
+		}); err != nil {
+			log.Printf("ERROR: Failed to log sleeping lead contact history for lead %s: %v", leadID, err)
+		}
+
+		http.Redirect(w, r, whatsAppURL, http.StatusFound)
+		return
+
+	case "send_offer_sent_message":
+		h.cfg.Debugf("  → Action: send_offer_sent_message")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to send offer follow-up messages.", http.StatusForbidden)
+			return
+		}
+
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if detail == nil || detail.Lead == nil || detail.Lead.Status != "offer_sent" {
+			h.renderDetailWithError(w, r, leadID, "رسائل After Placement Test متاحة بس للحالات اللي في Offer Sent.")
+			return
+		}
+
+		var amountPaid, finalPrice sql.NullInt32
+		if detail.Payment != nil {
+			amountPaid = detail.Payment.AmountPaid
+		}
+		if detail.Offer != nil {
+			finalPrice = detail.Offer.FinalPrice
+		}
+		item := &models.LeadListItem{
+			Lead:       detail.Lead,
+			AmountPaid: amountPaid,
+			FinalPrice: finalPrice,
+		}
+		lastStep, lastSentAt, followUpErr := models.GetLatestOfferSentFollowUp(leadID)
+		if followUpErr != nil {
+			log.Printf("ERROR: Failed to load latest offer follow-up for lead %s: %v", leadID, followUpErr)
+			h.renderDetailWithError(w, r, leadID, "Couldn't load after placement test state.")
+			return
+		}
+		item.OfferFollowUpLastStep = lastStep
+		item.OfferFollowUpLastSent = lastSentAt
+		offerReminder, reminderErr := models.GetOfferSentReminder(leadID)
+		if reminderErr != nil {
+			log.Printf("ERROR: Failed to load offer reminder for lead %s: %v", leadID, reminderErr)
+			h.renderDetailWithError(w, r, leadID, "Couldn't load after placement test reminder state.")
+			return
+		}
+		if offerReminder != nil {
+			item.OfferReminderAt = sql.NullTime{Time: offerReminder.FollowUpAt, Valid: true}
+			item.OfferReminderNote = offerReminder.Note
+		}
+		models.ComputeLeadFlags(item)
+		if item.PaymentState != models.PaymentStateUnpaid || item.OfferFollowUpStep < 1 || item.OfferFollowUpStep > 3 || !item.OfferFollowUpDueNow {
+			h.renderDetailWithError(w, r, leadID, "رسالة After Placement Test الحالية مش مستحقة دلوقتي.")
+			return
+		}
+
+		requestedStep, err := strconv.Atoi(strings.TrimSpace(r.FormValue("offer_follow_up_step")))
+		if err != nil || requestedStep != item.OfferFollowUpStep {
+			h.renderDetailWithError(w, r, leadID, "مسموح تبعت بس رسالة After Placement Test المستحقة حالياً.")
+			return
+		}
+
+		messageText := strings.TrimSpace(r.FormValue("message_bank_text"))
+		if messageText == "" {
+			messageText = buildOfferSentFollowUpMessage(item.Lead.FullName, item.OfferFollowUpStep)
+		}
+
+		whatsAppURL := buildWhatsAppComposeLink(item.Lead.Phone, messageText)
+		if whatsAppURL == "" {
+			h.renderDetailWithError(w, r, leadID, "This lead does not have a valid WhatsApp number.")
+			return
+		}
+
+		userID, err := uuid.Parse(strings.TrimSpace(middleware.GetUserID(r)))
+		if err != nil {
+			h.renderDetailWithError(w, r, leadID, "Couldn't identify the current user for follow-up logging.")
+			return
+		}
+		if err := models.RecordOfferSentFollowUp(leadID, item.OfferFollowUpStep, userID); err != nil {
+			log.Printf("ERROR: Failed to record offer follow-up for lead %s: %v", leadID, err)
+			h.renderDetailWithError(w, r, leadID, "Couldn't record this after placement test follow-up.")
+			return
+		}
+		if err := models.RecordPreEnrolmentContactHistory(models.ContactHistoryLogInput{
+			LeadID:          leadID,
+			Channel:         "whatsapp",
+			EventType:       "message_ready",
+			Source:          "offer_sent_sequence",
+			TemplateKey:     fmt.Sprintf("offer_message_%d", item.OfferFollowUpStep),
+			MessageText:     messageText,
+			Metadata:        map[string]interface{}{"step": item.OfferFollowUpStep},
+			CreatedByUserID: &userID,
+		}); err != nil {
+			log.Printf("ERROR: Failed to log offer follow-up contact history for lead %s: %v", leadID, err)
 		}
 
 		http.Redirect(w, r, whatsAppURL, http.StatusFound)
@@ -3701,13 +4099,38 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if coursePaymentFieldsTouched && courseOfferFinalPrice == 0 {
-		h.cfg.Debugf("  💸 Zero-value offer: ignoring course payment fields, leadID=%s", leadID)
-		coursePaymentType = ""
-		coursePaymentAmountStr = ""
-		coursePaymentMethod = ""
-		coursePaymentDateStr = ""
-		coursePaymentNotes = ""
-		coursePaymentFieldsTouched = false
+		if detail.Offer == nil || !detail.Offer.FinalPrice.Valid {
+			h.renderDetailWithErrorAndPaymentContext(
+				w,
+				r,
+				leadID,
+				"Cannot save a course payment because this lead's offer final price is missing. Save the offer first, then record the payment.",
+				map[string]string{
+					"type":   coursePaymentType,
+					"amount": coursePaymentAmountStr,
+					"method": coursePaymentMethod,
+					"date":   coursePaymentDateStr,
+					"notes":  coursePaymentNotes,
+				},
+				nil,
+			)
+			return
+		}
+		h.renderDetailWithErrorAndPaymentContext(
+			w,
+			r,
+			leadID,
+			"This offer is zero-value, so no course payment can be recorded for it.",
+			map[string]string{
+				"type":   coursePaymentType,
+				"amount": coursePaymentAmountStr,
+				"method": coursePaymentMethod,
+				"date":   coursePaymentDateStr,
+				"notes":  coursePaymentNotes,
+			},
+			nil,
+		)
+		return
 	}
 	if coursePaymentFieldsTouched {
 		missingFields := make([]string, 0, 4)
