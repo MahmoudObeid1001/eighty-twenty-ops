@@ -2090,12 +2090,21 @@
         });
     }
 
+    function normalizeDetailRefusedRenewalTemplateMessage(templateBody) {
+        if (!templateBody) return '';
+        return String(templateBody)
+            .replace(/\\u000A/g, '\n')
+            .replace(/\\n/g, '\n')
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n');
+    }
+
     function useDetailRefusedRenewalTemplate(templateID, templateBody) {
         const templateInput = document.getElementById('detail-refused-follow-up-template-id');
         const messageInput = document.getElementById('detail-refused-follow-up-message');
         if (templateInput) templateInput.value = templateID || '';
         if (messageInput) {
-            messageInput.value = templateBody || '';
+            messageInput.value = normalizeDetailRefusedRenewalTemplateMessage(templateBody);
             messageInput.focus();
         }
     }
