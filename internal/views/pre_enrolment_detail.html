@@ -467,7 +467,7 @@
 
             <script>
                 function calculatePlacementTestFinal() {
-                    const fee = parseInt(document.getElementById('placement_test_fee').value) || 100;
+                    const fee = parseInt(document.getElementById('placement_test_fee').value) || 60;
                     const discountValue = parseInt(document.getElementById('placement_test_discount_value').value) || 0;
                     const discountType = document.getElementById('placement_test_discount_type').value;
 
@@ -777,7 +777,7 @@
                         .CoursePaymentDisabled}}disabled{{end}}>
                         <option value="">-- Select bundle --</option>
                         <option value="1" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
-                            .Detail.Offer.BundleLevels.Int32 1)}}selected{{end}}>Bundle 1 (Base: 1300 EGP)</option>
+                            .Detail.Offer.BundleLevels.Int32 1)}}selected{{end}}>Bundle 1 (Base: 1250 EGP)</option>
                         <option value="2" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
                             .Detail.Offer.BundleLevels.Int32 2)}}selected{{end}}>Bundle 2 (Base: 2400 EGP)</option>
                         <option value="3" {{if and .Detail.Offer .Detail.Offer.BundleLevels.Valid (eq
@@ -1297,8 +1297,8 @@
             </div>
             {{if gt .UnusedCreditsValue 0}}
             <small style="color: #666; display: block; margin-top: 8px; margin-bottom: 16px;">
-                Why {{.UnusedCreditsValue}} EGP? Consumed levels are charged at 1300 EGP each:
-                {{.ConsumedLevelsForRefund}} × 1300 = {{.ConsumedValueForRefund}} EGP.
+                Why {{.UnusedCreditsValue}} EGP? Consumed levels are charged at 1250 EGP each:
+                {{.ConsumedLevelsForRefund}} × 1250 = {{.ConsumedValueForRefund}} EGP.
                 Original paid value ({{.OriginalPaidForRefund}} EGP) - consumed value ({{.ConsumedValueForRefund}} EGP)
                 = {{.UnusedCreditsValue}} EGP refundable.
             </small>
@@ -1682,7 +1682,7 @@
 
     const bundlePricesByTrack = {
         group: {
-            1: 1300,
+            1: 1250,
             2: 2400,
             3: 3300,
             4: 4000

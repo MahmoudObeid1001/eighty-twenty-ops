@@ -444,7 +444,7 @@ func buildSleepingLeadMessage(studentFullName string, step int) string {
 }
 
 var groupBundlePrices = map[int32]int32{
-	1: 1300,
+	1: 1250,
 	2: 2400,
 	3: 3300,
 	4: 4000,
@@ -1229,7 +1229,7 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, leadID uuid.UUID, userRole string) (map[string]interface{}, error) {
 	var placementTestRemaining int32
 	if detail.PlacementTest != nil {
-		feeValue := int32(100)
+		feeValue := int32(60)
 		if detail.PlacementTest.PlacementTestFee.Valid {
 			feeValue = detail.PlacementTest.PlacementTestFee.Int32
 		}
@@ -1243,7 +1243,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			placementTestRemaining = 0
 		}
 	} else {
-		placementTestRemaining = 100
+		placementTestRemaining = 60
 	}
 	var amountPaid, finalPrice sql.NullInt32
 	if detail.Payment != nil {
@@ -2002,7 +2002,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Validate placement-test fee settlement against discounted final fee.
-		baseFee := int32(100)
+		baseFee := int32(60)
 		paidAmount := int32(0)
 		discountValue := sql.NullInt32{}
 		discountType := sql.NullString{}
@@ -3786,7 +3786,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Normalize placement test fee/paid: paid must be 0 or equal to discounted final fee.
-		feeValue := int32(100)
+		feeValue := int32(60)
 		if pt.PlacementTestFee.Valid {
 			feeValue = pt.PlacementTestFee.Int32
 		}

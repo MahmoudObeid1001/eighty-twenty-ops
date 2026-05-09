@@ -2418,16 +2418,16 @@ func BookPlacementTest(leadID uuid.UUID, testDate sql.NullTime, testTime sql.Nul
 
 	now := time.Now()
 
-	// Update or insert placement test with default fee of 100 if not exists
+	// Update or insert placement test with default fee of 60 if not exists
 	_, err = tx.Exec(`
 		INSERT INTO placement_tests (id, lead_id, test_date, test_time, test_type, test_notes, placement_test_fee, placement_test_fee_paid, updated_at)
-		VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, 100, 0, $6)
+		VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, 60, 0, $6)
 		ON CONFLICT (lead_id) DO UPDATE SET
 			test_date = EXCLUDED.test_date,
 			test_time = EXCLUDED.test_time,
 			test_type = EXCLUDED.test_type,
 			test_notes = EXCLUDED.test_notes,
-			placement_test_fee = COALESCE(placement_tests.placement_test_fee, 100),
+			placement_test_fee = COALESCE(placement_tests.placement_test_fee, 60),
 			updated_at = EXCLUDED.updated_at
 	`, leadID, testDate, testTime, testType, testNotes, now)
 	if err != nil {
@@ -3833,7 +3833,7 @@ func inferBundleLevelsFromPaidAmount(amount int32) int32 {
 	switch {
 	case amount <= 0:
 		return 0
-	case amount <= 1300:
+	case amount <= 1250:
 		return 1
 	case amount <= 2400:
 		return 2
@@ -3962,7 +3962,7 @@ func UpsertActivePaymentCycle(leadID uuid.UUID, bundleLevels int32, finalPrice i
 // It is cycle-scoped: for returning students, only the latest pre-cycle payment (before current cycle start)
 // is used for unused-credit valuation to avoid mixing with current-cycle cash flow.
 func GetUnusedCreditsRefundBreakdown(leadID uuid.UUID) (*UnusedCreditsRefundBreakdown, error) {
-	const singleLevelPriceEGP int32 = 1300
+	const singleLevelPriceEGP int32 = 1250
 
 	breakdown := &UnusedCreditsRefundBreakdown{}
 
@@ -4790,7 +4790,7 @@ func UpsertPlacementTestIncome(leadID uuid.UUID, amountPaid int32, paymentDate s
 }
 
 // CalculateLevelsPurchased calculates levels purchased and bundle type from total paid amount
-// Bundle prices: 1 level = 1300, 2 levels = 2400, 3 levels = 3300, 4 levels = 4000
+// Bundle prices: 1 level = 1250, 2 levels = 2400, 3 levels = 3300, 4 levels = 4000
 func CalculateLevelsPurchased(bundleLevels sql.NullInt32, totalPaid int32) (levelsPurchased sql.NullInt32, bundleType sql.NullString) {
 	if !bundleLevels.Valid || bundleLevels.Int32 <= 0 {
 		return sql.NullInt32{Valid: false}, sql.NullString{String: "none", Valid: true}

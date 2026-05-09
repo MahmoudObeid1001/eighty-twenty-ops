@@ -274,7 +274,7 @@ func loadFinancialMetrics(payload *BIReportPayload) error {
 					WHEN bundle_type = 'bundle4' THEN 1000
 					WHEN bundle_type = 'bundle3' THEN 1100
 					WHEN bundle_type = 'bundle2' THEN 1200
-					ELSE 1300
+					ELSE 1250
 				END AS per_credit_price
 			FROM leads
 			WHERE status <> 'cancelled'
