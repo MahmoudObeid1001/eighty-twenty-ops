@@ -351,7 +351,7 @@
                         <tbody>
                             {{range $group.Transactions}}
                             <tr>
-                                <td>{{.TransactionDate.Format "15:04"}}</td>
+                                <td>{{.CreatedAt.Format "15:04"}}</td>
                                 <td>
                                     <span class="badge" style="background-color: {{if eq .TransactionType "IN"}}#28a745{{else}}#dc3545{{end}}; color: white;">
                                         {{.TransactionType}}
