@@ -388,7 +388,7 @@
                     <div class="form-group">
                         <label for="placement_test_fee">Fee (EGP)</label>
                         <input type="number" id="placement_test_fee" name="placement_test_fee" min="0"
-                            value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFee.Valid}}{{.Detail.PlacementTest.PlacementTestFee.Int32}}{{else}}100{{end}}"
+                            value="{{if and .Detail.PlacementTest .Detail.PlacementTest.PlacementTestFee.Valid}}{{.Detail.PlacementTest.PlacementTestFee.Int32}}{{else}}60{{end}}"
                             form="pre-enrolment-form" onchange="calculatePlacementTestFinal()">
                     </div>
                     <div class="form-group">

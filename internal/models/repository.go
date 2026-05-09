@@ -2427,7 +2427,11 @@ func BookPlacementTest(leadID uuid.UUID, testDate sql.NullTime, testTime sql.Nul
 			test_time = EXCLUDED.test_time,
 			test_type = EXCLUDED.test_type,
 			test_notes = EXCLUDED.test_notes,
-			placement_test_fee = COALESCE(placement_tests.placement_test_fee, 60),
+			placement_test_fee = CASE
+				WHEN COALESCE(placement_tests.placement_test_fee_paid, 0) = 0
+				 AND COALESCE(placement_tests.placement_test_fee, 100) = 100 THEN 60
+				ELSE COALESCE(placement_tests.placement_test_fee, 60)
+			END,
 			updated_at = EXCLUDED.updated_at
 	`, leadID, testDate, testTime, testType, testNotes, now)
 	if err != nil {

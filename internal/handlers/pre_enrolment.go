@@ -1229,6 +1229,7 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, leadID uuid.UUID, userRole string) (map[string]interface{}, error) {
 	var placementTestRemaining int32
 	if detail.PlacementTest != nil {
+		normalizeLegacyPlacementTestFee(detail.PlacementTest)
 		feeValue := int32(60)
 		if detail.PlacementTest.PlacementTestFee.Valid {
 			feeValue = detail.PlacementTest.PlacementTestFee.Int32
@@ -1809,6 +1810,23 @@ func computePlacementTestFinalFee(baseFee int32, discountValue sql.NullInt32, di
 		return 0
 	}
 	return finalFee
+}
+
+func normalizeLegacyPlacementTestFee(pt *models.PlacementTest) {
+	if pt == nil {
+		return
+	}
+	if !pt.PlacementTestFee.Valid || pt.PlacementTestFee.Int32 <= 0 {
+		pt.PlacementTestFee = sql.NullInt32{Int32: 60, Valid: true}
+		return
+	}
+	paidAmount := int32(0)
+	if pt.PlacementTestFeePaid.Valid {
+		paidAmount = pt.PlacementTestFeePaid.Int32
+	}
+	if paidAmount == 0 && pt.PlacementTestFee.Int32 == 100 {
+		pt.PlacementTestFee = sql.NullInt32{Int32: 60, Valid: true}
+	}
 }
 
 func computedRemainingCredits(lead *models.Lead) int32 {
