@@ -1005,7 +1005,7 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /private-track -> preEnrolmentHandler.PrivateTrackList [admin+manager]")
 
-	// Classes routes - admin, manager, mentor_head (mentor_head read-only)
+	// Classes routes - admin, manager can manage; mentor_head and student_success are read-only
 	mux.HandleFunc("/classes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /classes handler for %s %s", r.Method, r.URL.Path)
 		if r.URL.Path != "/classes" {
@@ -1015,12 +1015,12 @@ func main() {
 		}
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling classesHandler.List")
-			middleware.RequireAnyRole([]string{"admin", "manager", "mentor_head"}, cfg.SessionSecret)(classesHandler.List)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "manager", "mentor_head", "student_success"}, cfg.SessionSecret)(classesHandler.List)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /classes -> classesHandler.List [GET: admin+manager+mentor_head; mentor_head read-only]")
+	cfg.Debugf("ROUTE REGISTERED: /classes -> classesHandler.List [GET: admin+manager+mentor_head+student_success; mentor_head/student_success read-only]")
 
 	mux.HandleFunc("/classes/move", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		cfg.Debugf("HANDLER: /classes/move handler for %s %s", r.Method, r.URL.Path)

@@ -136,6 +136,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
+            {role === 'student_success' && (
+              <li>
+                <a href="/classes" className={typeof window !== 'undefined' && window.location.pathname === '/classes' ? 'active' : ''}>
+                  Classes
+                </a>
+              </li>
+            )}
             {role === 'manager' && (
               <li>
                 <Link to="/manager-dashboard" className={isActive('/manager-dashboard') ? 'active' : ''}>

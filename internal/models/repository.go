@@ -6466,7 +6466,9 @@ func ensureClassMembershipsTx(tx *sql.Tx, classKey string) error {
 
 	statuses := []string{"in_classes"}
 	if roundStatus == "not_started" {
-		statuses = append(statuses, "ready_to_start")
+		// Keep pre-start mentor-head rosters aligned with the Ops classes board.
+		// Sent classes can legitimately contain waiting-list students before the round starts.
+		statuses = append(statuses, "ready_to_start", "waiting_for_round", "schedule_assigned")
 	}
 
 	_, err = tx.Exec(`
