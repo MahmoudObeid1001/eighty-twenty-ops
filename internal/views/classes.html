@@ -17,8 +17,10 @@
         <strong>Current Round: {{.CurrentRound}}</strong>
     </div>
     <div class="classes-topbar-actions" style="display: flex; gap: 12px; align-items: center;">
+        {{if ne .UserRole "student_success"}}
         <a href="/classes/archived" class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;">Archived
             Classes</a>
+        {{end}}
         {{if .IsClassesReadOnly}}
         <span style="color: #666; font-size: 14px;">Read-only</span>
         {{end}}

@@ -22,7 +22,8 @@ func NewClassesHandler(cfg *config.Config) *ClassesHandler {
 	return &ClassesHandler{cfg: cfg}
 }
 
-// List renders the classes board page. Admin and mentor_head can access (mentor_head read-only).
+// List renders the classes board page.
+// Admin and manager can manage classes; mentor_head and student_success can view read-only.
 // Moderator gets 403 access-restricted.
 func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -42,7 +43,7 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		renderTemplate(w, r, "access_restricted.html", data)
 		return
 	}
-	if userRole != "admin" && userRole != "mentor_head" && userRole != "manager" {
+	if userRole != "admin" && userRole != "mentor_head" && userRole != "manager" && userRole != "student_success" {
 		w.WriteHeader(http.StatusForbidden)
 		data := map[string]interface{}{
 			"Title":       "Access Restricted – Eighty Twenty",
@@ -91,16 +92,19 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Auto-assign students without group_index
-	// Get all eligible students and assign those without group_index
-	eligibleStudents, err := models.GetEligibleStudentsForClasses()
-	if err == nil {
-		for _, student := range eligibleStudents {
-			if !student.GroupIndex.Valid {
-				// Auto-assign to a group
-				_, err := models.AssignClassGroup(student.LeadID)
-				if err != nil {
-					h.cfg.Debugf("Failed to auto-assign student %s: %v", student.LeadID, err)
+	isReadOnly := userRole == "mentor_head" || userRole == "student_success"
+
+	// Auto-assign students without group_index only for write-capable roles.
+	if !isReadOnly {
+		eligibleStudents, err := models.GetEligibleStudentsForClasses()
+		if err == nil {
+			for _, student := range eligibleStudents {
+				if !student.GroupIndex.Valid {
+					// Auto-assign to a group
+					_, err := models.AssignClassGroup(student.LeadID)
+					if err != nil {
+						h.cfg.Debugf("Failed to auto-assign student %s: %v", student.LeadID, err)
+					}
 				}
 			}
 		}
@@ -169,7 +173,7 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		"IsModerator":       IsModerator(r),
 		"FlashMessage":      flashMessage,
 		"FlashMessageType":  flashMessageType,
-		"IsClassesReadOnly": userRole == "mentor_head",
+		"IsClassesReadOnly": isReadOnly,
 	}
 	renderTemplate(w, r, "classes.html", data)
 }
