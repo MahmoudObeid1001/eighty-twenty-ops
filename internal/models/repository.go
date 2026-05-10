@@ -10432,6 +10432,13 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 	if err != nil {
 		return fmt.Errorf("failed to load class days: %w", err)
 	}
+	if allowedWeekdays, ok := allowedRoundStartWeekdays(classDays); ok {
+		normalizedStart := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
+		for !containsWeekday(allowedWeekdays, normalizedStart.Weekday()) {
+			normalizedStart = normalizedStart.AddDate(0, 0, 1)
+		}
+		startDate = normalizedStart
+	}
 	sessionDates, err := BuildClassSessionDates(classDays, startDate, 8)
 	if err != nil {
 		return err
@@ -10478,7 +10485,7 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 		)
 		WHERE l.id = s.lead_id
 		  AND cg.class_key = $1
-		  AND l.status IN ('ready_to_start', 'schedule_assigned')
+		  AND l.status IN ('ready_to_start', 'schedule_assigned', 'waiting_for_round')
 	`, classKey)
 	if err != nil {
 		return fmt.Errorf("failed to update lead status: %w", err)
