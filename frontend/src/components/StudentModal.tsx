@@ -125,6 +125,18 @@ export default function StudentModal({ student, classKey, sessionsCount, attende
                 <h2 style={{ fontSize: '24px', marginBottom: '4px', color: '#333' }}>{profile?.name || student.full_name}</h2>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>{profile?.phone || student.phone}</p>
+                  {profile && (
+                    <span style={{
+                      padding: '2px 8px',
+                      background: profile.isReturning ? '#e8f5e9' : '#e3f2fd',
+                      color: profile.isReturning ? '#2e7d32' : '#1565c0',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 700
+                    }}>
+                      {profile.isReturning ? 'RETURNING' : 'NEW'}
+                    </span>
+                  )}
                   {sessionsCount > 0 && (
                     <span style={{
                       padding: '2px 8px',

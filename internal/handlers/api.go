@@ -1521,12 +1521,13 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 	var levelsPurchasedTotal, levelsConsumed sql.NullInt32
 	var highPriority bool
 	var highPriorityReason sql.NullString
+	var isReturning bool
 
 	err = db.DB.QueryRow(`
-		SELECT id, full_name, phone, levels_purchased_total, levels_consumed, high_priority, high_priority_reason
+		SELECT id, full_name, phone, levels_purchased_total, levels_consumed, high_priority, high_priority_reason, COALESCE(is_returning, false)
 		FROM leads WHERE id = $1
 	`, studentID).Scan(
-		&lead.ID, &lead.FullName, &lead.Phone, &levelsPurchasedTotal, &levelsConsumed, &highPriority, &highPriorityReason,
+		&lead.ID, &lead.FullName, &lead.Phone, &levelsPurchasedTotal, &levelsConsumed, &highPriority, &highPriorityReason, &isReturning,
 	)
 	lead.HighPriorityAbsence = highPriority
 	lead.HighPriorityReason = highPriorityReason
@@ -1592,6 +1593,7 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 		"levelsFinished":     levelsFinished,
 		"levelsLeft":         levelsLeft,
 		"lastLevelGrade":     lastLevelGrade,
+		"isReturning":        isReturning,
 		"highPriority":       lead.HighPriorityAbsence,
 		"highPriorityReason": lead.HighPriorityReason.String,
 		"notes":              filteredNotes,

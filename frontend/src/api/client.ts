@@ -225,6 +225,7 @@ export interface StudentProfile {
   levelsFinished: number
   levelsLeft: number
   lastLevelGrade: string | null
+  isReturning?: boolean
   highPriority?: boolean
   highPriorityReason?: string
 }
