@@ -332,23 +332,26 @@ type ClassRosterChangeResult struct {
 
 // Transaction represents a financial transaction (IN or OUT)
 type Transaction struct {
-	ID              uuid.UUID
-	TransactionDate time.Time
-	TransactionType string // "IN" or "OUT"
-	Category        string // placement_test, course_payment, teacher_salary, refund, ads, rent, software, moderator, content_creator, other
-	Amount          int32
-	PaymentMethod   sql.NullString // vodafone_cash, bank_transfer, paypal, other
-	LeadID          sql.NullString // Optional: link to lead for income/refunds (stored as UUID in DB, but we use string for null handling)
-	Notes           sql.NullString
-	SourceKey       sql.NullString // Deprecated: use RefKey instead
-	RefType         sql.NullString // "lead" or other reference type
-	RefID           sql.NullString // Reference ID (e.g., lead ID)
-	RefSubType      sql.NullString // "placement_test", "course_payment", etc.
-	RefKey          sql.NullString // Unique key for updates: "lead:<id>:placement_test" or "lead:<id>:course_payment:<payment_id>"
-	BundleLevels    sql.NullInt32  // For course payments: 1, 2, 3, or 4
-	LevelsPurchased sql.NullInt32  // For course payments: how many levels this payment represents
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID               uuid.UUID
+	TransactionDate  time.Time
+	TransactionType  string // "IN" or "OUT"
+	Category         string // placement_test, course_payment, teacher_salary, refund, ads, rent, software, moderator, content_creator, other
+	Amount           int32
+	PaymentMethod    sql.NullString // vodafone_cash, bank_transfer, paypal, other
+	LeadID           sql.NullString // Optional: link to lead for income/refunds (stored as UUID in DB, but we use string for null handling)
+	Notes            sql.NullString
+	SourceKey        sql.NullString // Deprecated: use RefKey instead
+	RefType          sql.NullString // "lead" or other reference type
+	RefID            sql.NullString // Reference ID (e.g., lead ID)
+	RefSubType       sql.NullString // "placement_test", "course_payment", etc.
+	RefKey           sql.NullString // Unique key for updates: "lead:<id>:placement_test" or "lead:<id>:course_payment:<payment_id>"
+	OriginalCategory sql.NullString
+	ReconciledAt     sql.NullTime
+	ReconciledByUser sql.NullString
+	BundleLevels     sql.NullInt32 // For course payments: 1, 2, 3, or 4
+	LevelsPurchased  sql.NullInt32 // For course payments: how many levels this payment represents
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // LeadPayment represents a course payment record (supports multiple payments per lead)

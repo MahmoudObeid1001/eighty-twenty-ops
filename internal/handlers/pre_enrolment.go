@@ -1330,6 +1330,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	today := time.Now().Format("2006-01-02")
 	leadPayments := []*models.LeadPayment{}
 	previousPayments := []*models.LeadPayment{}
+	unidentifiedTransfers := []*models.Transaction{}
 	var cycleStart *time.Time
 	var latestEnrollment *models.ClassEnrollment
 	if latest, err := models.GetLatestClassEnrollment(leadID); err == nil {
@@ -1375,6 +1376,13 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			log.Printf("ERROR: Failed to get lead payments: %v", err)
 		} else {
 			leadPayments = lp
+		}
+	}
+	if userRole == "admin" || userRole == "manager" {
+		if transfers, err := models.GetUnidentifiedTransfers(); err == nil {
+			unidentifiedTransfers = transfers
+		} else {
+			log.Printf("ERROR: Failed to load unidentified transfers: %v", err)
 		}
 	}
 
@@ -1589,6 +1597,8 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"Today":                      today,
 		"LeadPayments":               leadPayments,
 		"PreviousLeadPayments":       previousPayments,
+		"UnidentifiedTransfers":      unidentifiedTransfers,
+		"HasUnidentifiedTransfers":   len(unidentifiedTransfers) > 0,
 		"FinalPrice":                 finalPriceValue,
 		"FinalPriceSet":              detail.Offer != nil && detail.Offer.FinalPrice.Valid,
 		"TotalCoursePaid":            totalCoursePaid,
@@ -1724,11 +1734,13 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"SuccessMessage":            "",
 		"ShowCancelModal":           false,
 		"CoursePaymentInput": map[string]string{
-			"type":   "",
-			"amount": "",
-			"method": "",
-			"date":   "",
-			"notes":  "",
+			"source":                   "new_payment",
+			"type":                     "",
+			"amount":                   "",
+			"method":                   "",
+			"date":                     "",
+			"notes":                    "",
+			"unidentified_transfer_id": "",
 		},
 		"CoursePaymentFieldErrors": map[string]string{},
 	}
@@ -4097,6 +4109,12 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 
 	// Course payment (new LeadPayment model for multiple payments)
 	// Parse course payment fields if provided
+	coursePaymentSourceRaw := strings.TrimSpace(r.FormValue("course_payment_source"))
+	coursePaymentSource := coursePaymentSourceRaw
+	if coursePaymentSource == "" {
+		coursePaymentSource = "new_payment"
+	}
+	coursePaymentTransferIDStr := strings.TrimSpace(r.FormValue("course_payment_unidentified_transfer_id"))
 	coursePaymentType := firstNonEmpty(r.FormValue("course_payment_type"), r.FormValue("payment_type"))
 	coursePaymentAmountStr := firstNonEmpty(r.FormValue("payment_amount"), r.FormValue("course_payment_amount"))
 	coursePaymentMethod := strings.TrimSpace(r.FormValue("course_payment_method"))
@@ -4111,10 +4129,35 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	}
 	// Treat course payment as "intentional input" only when explicit payment selectors are touched.
 	// Amount/date may be auto-filled by UI pricing helpers and must not, by themselves, trigger validation.
-	coursePaymentFieldsTouched := coursePaymentType != "" || coursePaymentMethod != ""
+	coursePaymentFieldsTouched := coursePaymentType != "" || coursePaymentMethod != "" || coursePaymentSourceRaw == "unidentified_transfer" || coursePaymentTransferIDStr != ""
 	if coursePaymentFieldsTouched && !coursePaymentEnabled {
 		h.renderDetailWithError(w, r, leadID, coursePaymentLockReason)
 		return
+	}
+	if coursePaymentFieldsTouched {
+		allowedSources := map[string]bool{
+			"new_payment":           true,
+			"unidentified_transfer": true,
+		}
+		if !allowedSources[coursePaymentSource] {
+			h.renderDetailWithErrorAndPaymentContext(
+				w,
+				r,
+				leadID,
+				"Invalid payment source selected.",
+				map[string]string{
+					"source":                   coursePaymentSourceRaw,
+					"type":                     coursePaymentType,
+					"amount":                   coursePaymentAmountStr,
+					"method":                   coursePaymentMethod,
+					"date":                     coursePaymentDateStr,
+					"notes":                    coursePaymentNotes,
+					"unidentified_transfer_id": coursePaymentTransferIDStr,
+				},
+				map[string]string{"source": "Choose a valid payment source."},
+			)
+			return
+		}
 	}
 	if coursePaymentFieldsTouched && courseOfferFinalPrice == 0 {
 		if detail.Offer == nil || !detail.Offer.FinalPrice.Valid {
@@ -4124,11 +4167,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 				leadID,
 				"Cannot save a course payment because this lead's offer final price is missing. Save the offer first, then record the payment.",
 				map[string]string{
-					"type":   coursePaymentType,
-					"amount": coursePaymentAmountStr,
-					"method": coursePaymentMethod,
-					"date":   coursePaymentDateStr,
-					"notes":  coursePaymentNotes,
+					"source":                   coursePaymentSource,
+					"type":                     coursePaymentType,
+					"amount":                   coursePaymentAmountStr,
+					"method":                   coursePaymentMethod,
+					"date":                     coursePaymentDateStr,
+					"notes":                    coursePaymentNotes,
+					"unidentified_transfer_id": coursePaymentTransferIDStr,
 				},
 				nil,
 			)
@@ -4140,34 +4185,43 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			leadID,
 			"This offer is zero-value, so no course payment can be recorded for it.",
 			map[string]string{
-				"type":   coursePaymentType,
-				"amount": coursePaymentAmountStr,
-				"method": coursePaymentMethod,
-				"date":   coursePaymentDateStr,
-				"notes":  coursePaymentNotes,
+				"source":                   coursePaymentSource,
+				"type":                     coursePaymentType,
+				"amount":                   coursePaymentAmountStr,
+				"method":                   coursePaymentMethod,
+				"date":                     coursePaymentDateStr,
+				"notes":                    coursePaymentNotes,
+				"unidentified_transfer_id": coursePaymentTransferIDStr,
 			},
 			nil,
 		)
 		return
 	}
 	if coursePaymentFieldsTouched {
-		missingFields := make([]string, 0, 4)
+		missingFields := make([]string, 0, 5)
 		fieldErrors := make(map[string]string)
 		if coursePaymentType == "" {
 			missingFields = append(missingFields, "Payment Type")
 			fieldErrors["type"] = "Payment type is required."
 		}
-		if coursePaymentAmountStr == "" {
-			missingFields = append(missingFields, "Amount")
-			fieldErrors["amount"] = "Amount is required."
-		}
-		if coursePaymentMethod == "" {
-			missingFields = append(missingFields, "Payment Method")
-			fieldErrors["method"] = "Payment method is required."
-		}
-		if coursePaymentDateStr == "" {
-			missingFields = append(missingFields, "Payment Date")
-			fieldErrors["date"] = "Payment date is required."
+		if coursePaymentSource == "unidentified_transfer" {
+			if coursePaymentTransferIDStr == "" {
+				missingFields = append(missingFields, "Unidentified Transfer")
+				fieldErrors["unidentified_transfer_id"] = "Choose the transfer you want to attach to this lead."
+			}
+		} else {
+			if coursePaymentAmountStr == "" {
+				missingFields = append(missingFields, "Amount")
+				fieldErrors["amount"] = "Amount is required."
+			}
+			if coursePaymentMethod == "" {
+				missingFields = append(missingFields, "Payment Method")
+				fieldErrors["method"] = "Payment method is required."
+			}
+			if coursePaymentDateStr == "" {
+				missingFields = append(missingFields, "Payment Date")
+				fieldErrors["date"] = "Payment date is required."
+			}
 		}
 		if len(missingFields) > 0 {
 			h.renderDetailWithErrorAndPaymentContext(
@@ -4179,11 +4233,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 					strings.Join(missingFields, ", "),
 				),
 				map[string]string{
-					"type":   coursePaymentType,
-					"amount": coursePaymentAmountStr,
-					"method": coursePaymentMethod,
-					"date":   coursePaymentDateStr,
-					"notes":  coursePaymentNotes,
+					"source":                   coursePaymentSource,
+					"type":                     coursePaymentType,
+					"amount":                   coursePaymentAmountStr,
+					"method":                   coursePaymentMethod,
+					"date":                     coursePaymentDateStr,
+					"notes":                    coursePaymentNotes,
+					"unidentified_transfer_id": coursePaymentTransferIDStr,
 				},
 				fieldErrors,
 			)
@@ -4586,19 +4642,9 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		amount, err := strconv.Atoi(coursePaymentAmountStr)
-		if err != nil || amount <= 0 {
-			h.renderDetailWithError(w, r, leadID, "Invalid course payment amount.")
-			return
-		}
-
 		finalPriceValue := courseOfferFinalPrice
 		if finalPriceValue <= 0 {
 			h.renderDetailWithError(w, r, leadID, "Final offer amount must be set from bundle and discount before collecting payment.")
-			return
-		}
-		if coursePaymentType == "full_payment" && int32(amount) != finalPriceValue {
-			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("For Full payment, amount must equal final due (%d EGP).", finalPriceValue))
 			return
 		}
 
@@ -4645,6 +4691,87 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			h.renderDetailWithError(w, r, leadID, "Couldn't validate the course payment. Please try again.")
 			return
 		}
+
+		amount := 0
+		var paymentDate time.Time
+		paymentMethod := coursePaymentMethod
+		var transferID uuid.UUID
+		if coursePaymentSource == "unidentified_transfer" {
+			transferID, err = uuid.Parse(coursePaymentTransferIDStr)
+			if err != nil {
+				h.renderDetailWithErrorAndPaymentContext(
+					w,
+					r,
+					leadID,
+					"Choose a valid unidentified transfer before saving this payment.",
+					map[string]string{
+						"source":                   coursePaymentSource,
+						"type":                     coursePaymentType,
+						"amount":                   coursePaymentAmountStr,
+						"method":                   coursePaymentMethod,
+						"date":                     coursePaymentDateStr,
+						"notes":                    coursePaymentNotes,
+						"unidentified_transfer_id": coursePaymentTransferIDStr,
+					},
+					map[string]string{"unidentified_transfer_id": "Choose a valid transfer."},
+				)
+				return
+			}
+
+			availableTransfers, loadErr := models.GetUnidentifiedTransfers()
+			if loadErr != nil {
+				log.Printf("ERROR: Failed to load unidentified transfers for reconciliation: %v", loadErr)
+				h.renderDetailWithError(w, r, leadID, "Couldn't load the unidentified transfer. Please refresh and try again.")
+				return
+			}
+			var selectedTransfer *models.Transaction
+			for _, candidate := range availableTransfers {
+				if candidate.ID == transferID {
+					selectedTransfer = candidate
+					break
+				}
+			}
+			if selectedTransfer == nil {
+				h.renderDetailWithErrorAndPaymentContext(
+					w,
+					r,
+					leadID,
+					"That unidentified transfer is no longer available. Refresh the page and choose another one.",
+					map[string]string{
+						"source":                   coursePaymentSource,
+						"type":                     coursePaymentType,
+						"amount":                   coursePaymentAmountStr,
+						"method":                   coursePaymentMethod,
+						"date":                     coursePaymentDateStr,
+						"notes":                    coursePaymentNotes,
+						"unidentified_transfer_id": coursePaymentTransferIDStr,
+					},
+					map[string]string{"unidentified_transfer_id": "This transfer was already matched or removed."},
+				)
+				return
+			}
+			amount = int(selectedTransfer.Amount)
+			paymentDate = selectedTransfer.TransactionDate
+			if selectedTransfer.PaymentMethod.Valid {
+				paymentMethod = selectedTransfer.PaymentMethod.String
+			}
+		} else {
+			amount, err = strconv.Atoi(coursePaymentAmountStr)
+			if err != nil || amount <= 0 {
+				h.renderDetailWithError(w, r, leadID, "Invalid course payment amount.")
+				return
+			}
+			paymentDate, err = util.ParseDateLocal(coursePaymentDateStr)
+			if err != nil {
+				h.renderDetailWithError(w, r, leadID, "Invalid course payment date.")
+				return
+			}
+		}
+
+		if coursePaymentType == "full_payment" && int32(amount) != finalPriceValue {
+			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("For Full payment, amount must equal final due (%d EGP).", finalPriceValue))
+			return
+		}
 		remainingBalance := finalPriceValue - totalCoursePaid
 		if remainingBalance < 0 {
 			remainingBalance = 0
@@ -4662,19 +4789,25 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		paymentDate, err := util.ParseDateLocal(coursePaymentDateStr)
-		if err != nil {
-			h.renderDetailWithError(w, r, leadID, "Invalid course payment date.")
-			return
+		if coursePaymentSource == "unidentified_transfer" {
+			var reconciledBy *uuid.UUID
+			if userIDStr := strings.TrimSpace(middleware.GetUserID(r)); userIDStr != "" {
+				if parsed, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+					reconciledBy = &parsed
+				}
+			}
+			_, err = models.ReconcileUnidentifiedTransferToLead(transferID, leadID, coursePaymentType, coursePaymentNotes, reconciledBy)
+		} else {
+			_, err = models.CreateLeadPayment(leadID, coursePaymentType, int32(amount), paymentMethod, paymentDate, coursePaymentNotes)
 		}
-
-		_, err = models.CreateLeadPayment(leadID, coursePaymentType, int32(amount), coursePaymentMethod, paymentDate, coursePaymentNotes)
 		if err != nil {
 			log.Printf("ERROR: Failed to create course payment: %v", err)
 			// Check if it's a validation error (future date)
 			errorMsg := "Couldn't create the course payment. Please try again."
 			if err.Error() == "payment date cannot be in the future" {
 				errorMsg = "Payment date cannot be in the future"
+			} else if err.Error() == "this transfer is no longer available for reconciliation" || err.Error() == "unidentified transfer not found" {
+				errorMsg = "That unidentified transfer is no longer available. Refresh the page and try again."
 			}
 			h.renderDetailWithError(w, r, leadID, errorMsg)
 			return

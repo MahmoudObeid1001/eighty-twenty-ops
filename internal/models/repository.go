@@ -4279,6 +4279,50 @@ func GetLeadPaymentsBefore(leadID uuid.UUID, before time.Time) ([]*LeadPayment, 
 	return payments, rows.Err()
 }
 
+func validateLeadPaymentKind(kind string) error {
+	allowedKinds := map[string]bool{
+		"course":       true,
+		"deposit":      true,
+		"full_payment": true,
+		"top_up":       true,
+	}
+	if !allowedKinds[kind] {
+		return fmt.Errorf("invalid payment kind: %s", kind)
+	}
+	return nil
+}
+
+func validateFinancePaymentMethod(paymentMethod string) error {
+	allowedMethods := map[string]bool{
+		"vodafone_cash": true,
+		"bank_transfer": true,
+		"paypal":        true,
+		"other":         true,
+	}
+	if !allowedMethods[paymentMethod] {
+		return fmt.Errorf("invalid payment method: %s", paymentMethod)
+	}
+	return nil
+}
+
+func combinedReconciliationNotes(original, extra string) sql.NullString {
+	original = strings.TrimSpace(original)
+	extra = strings.TrimSpace(extra)
+
+	switch {
+	case original == "" && extra == "":
+		return sql.NullString{}
+	case original == "":
+		return sql.NullString{String: extra, Valid: true}
+	case extra == "":
+		return sql.NullString{String: original, Valid: true}
+	case strings.Contains(original, extra):
+		return sql.NullString{String: original, Valid: true}
+	default:
+		return sql.NullString{String: original + "\nReconciled note: " + extra, Valid: true}
+	}
+}
+
 // CreateLeadPayment creates a course payment record and corresponding finance transaction
 func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMethod string, paymentDate time.Time, notes string) (*LeadPayment, error) {
 	if amount <= 0 {
@@ -4290,26 +4334,12 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 		return nil, err
 	}
 
-	// Validate kind is one of allowed values
-	allowedKinds := map[string]bool{
-		"course":       true,
-		"deposit":      true,
-		"full_payment": true,
-		"top_up":       true,
-	}
-	if !allowedKinds[kind] {
-		return nil, fmt.Errorf("invalid payment kind: %s", kind)
+	if err := validateLeadPaymentKind(kind); err != nil {
+		return nil, err
 	}
 
-	// Validate payment method
-	allowedMethods := map[string]bool{
-		"vodafone_cash": true,
-		"bank_transfer": true,
-		"paypal":        true,
-		"other":         true,
-	}
-	if !allowedMethods[paymentMethod] {
-		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	if err := validateFinancePaymentMethod(paymentMethod); err != nil {
+		return nil, err
 	}
 
 	payment := &LeadPayment{
@@ -4359,6 +4389,210 @@ func CreateLeadPayment(leadID uuid.UUID, kind string, amount int32, paymentMetho
 	return payment, nil
 }
 
+func GetUnidentifiedTransfers() ([]*Transaction, error) {
+	rows, err := db.DB.Query(`
+		SELECT
+			id, transaction_date, transaction_type, category, amount, payment_method,
+			lead_id::text AS lead_id,
+			notes, ref_type, ref_id, ref_sub_type, ref_key,
+			original_category, reconciled_at, reconciled_by_user_id::text AS reconciled_by_user_id,
+			created_at, updated_at
+		FROM transactions
+		WHERE transaction_type = 'IN'
+		  AND category = 'unidentified_transfer'
+		  AND lead_id IS NULL
+		ORDER BY transaction_date DESC, created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unidentified transfers: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	transfers := make([]*Transaction, 0)
+	for rows.Next() {
+		tx := &Transaction{}
+		var paymentMethod, leadID, notes, refType, refID, refSubType, refKey sql.NullString
+		var originalCategory sql.NullString
+		var reconciledAt sql.NullTime
+		var reconciledByUser sql.NullString
+
+		err := rows.Scan(
+			&tx.ID,
+			&tx.TransactionDate,
+			&tx.TransactionType,
+			&tx.Category,
+			&tx.Amount,
+			&paymentMethod,
+			&leadID,
+			&notes,
+			&refType,
+			&refID,
+			&refSubType,
+			&refKey,
+			&originalCategory,
+			&reconciledAt,
+			&reconciledByUser,
+			&tx.CreatedAt,
+			&tx.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan unidentified transfer: %w", err)
+		}
+
+		tx.PaymentMethod = paymentMethod
+		tx.LeadID = leadID
+		tx.Notes = notes
+		tx.RefType = refType
+		tx.RefID = refID
+		tx.RefSubType = refSubType
+		tx.RefKey = refKey
+		tx.OriginalCategory = originalCategory
+		tx.ReconciledAt = reconciledAt
+		tx.ReconciledByUser = reconciledByUser
+
+		transfers = append(transfers, tx)
+	}
+
+	return transfers, rows.Err()
+}
+
+func ReconcileUnidentifiedTransferToLead(transferID, leadID uuid.UUID, kind string, notes string, reconciledByUserID *uuid.UUID) (*LeadPayment, error) {
+	if err := validateLeadPaymentKind(kind); err != nil {
+		return nil, err
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin unidentified transfer reconciliation: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	transfer := &Transaction{}
+	var paymentMethod sql.NullString
+	var existingLeadID sql.NullString
+	var existingNotes sql.NullString
+	var refType, refID, refSubType, refKey sql.NullString
+	var originalCategory sql.NullString
+	var reconciledAt sql.NullTime
+	var reconciledByUser sql.NullString
+
+	err = tx.QueryRow(`
+		SELECT
+			id, transaction_date, transaction_type, category, amount, payment_method,
+			lead_id::text AS lead_id,
+			notes, ref_type, ref_id, ref_sub_type, ref_key,
+			original_category, reconciled_at, reconciled_by_user_id::text AS reconciled_by_user_id,
+			created_at, updated_at
+		FROM transactions
+		WHERE id = $1
+		FOR UPDATE
+	`, transferID).Scan(
+		&transfer.ID,
+		&transfer.TransactionDate,
+		&transfer.TransactionType,
+		&transfer.Category,
+		&transfer.Amount,
+		&paymentMethod,
+		&existingLeadID,
+		&existingNotes,
+		&refType,
+		&refID,
+		&refSubType,
+		&refKey,
+		&originalCategory,
+		&reconciledAt,
+		&reconciledByUser,
+		&transfer.CreatedAt,
+		&transfer.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("unidentified transfer not found")
+		}
+		return nil, fmt.Errorf("failed to load unidentified transfer: %w", err)
+	}
+	transfer.PaymentMethod = paymentMethod
+	transfer.LeadID = existingLeadID
+	transfer.Notes = existingNotes
+
+	if transfer.TransactionType != "IN" || transfer.Category != "unidentified_transfer" || existingLeadID.Valid {
+		return nil, fmt.Errorf("this transfer is no longer available for reconciliation")
+	}
+	if !paymentMethod.Valid || strings.TrimSpace(paymentMethod.String) == "" {
+		return nil, fmt.Errorf("unidentified transfer is missing payment method")
+	}
+	if err := validateFinancePaymentMethod(paymentMethod.String); err != nil {
+		return nil, err
+	}
+	if err := util.ValidateNotFutureDate(transfer.TransactionDate); err != nil {
+		return nil, err
+	}
+
+	paymentNotes := combinedReconciliationNotes(existingNotes.String, notes)
+	now := time.Now()
+	createdAt := transfer.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+
+	payment := &LeadPayment{
+		ID:            uuid.New(),
+		LeadID:        leadID,
+		Kind:          kind,
+		Amount:        transfer.Amount,
+		PaymentMethod: paymentMethod.String,
+		PaymentDate:   transfer.TransactionDate,
+		Notes:         paymentNotes,
+		CreatedAt:     createdAt,
+		UpdatedAt:     now,
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO lead_payments (id, lead_id, kind, amount, payment_method, payment_date, notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, payment.ID, payment.LeadID, payment.Kind, payment.Amount, payment.PaymentMethod, payment.PaymentDate, payment.Notes, payment.CreatedAt, payment.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create reconciled lead payment: %w", err)
+	}
+
+	refKeyValue := fmt.Sprintf("lead:%s:course_payment:%s", leadID.String(), payment.ID.String())
+	var reconciledBy interface{}
+	if reconciledByUserID != nil {
+		reconciledBy = *reconciledByUserID
+	}
+
+	_, err = tx.Exec(`
+		UPDATE transactions
+		SET category = 'course_payment',
+		    lead_id = $2::uuid,
+		    ref_type = 'lead',
+		    ref_id = $3,
+		    ref_sub_type = 'course_payment',
+		    ref_key = $4,
+		    notes = $5,
+		    original_category = COALESCE(original_category, category),
+		    reconciled_at = $6,
+		    reconciled_by_user_id = $7,
+		    updated_at = $6
+		WHERE id = $1
+	`, transferID, leadID, leadID.String(), refKeyValue, paymentNotes, now, reconciledBy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reconcile unidentified transfer: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit unidentified transfer reconciliation: %w", err)
+	}
+
+	if err := UpdateLeadStatusFromPayment(leadID); err != nil {
+		log.Printf("WARNING: failed to auto-update lead status after reconciled payment: %v", err)
+	}
+
+	return payment, nil
+}
+
 func AddWaitingListBundleCredit(leadID uuid.UUID, addedLevels int32, amount int32, paymentMethod string, paymentDate time.Time, notes string) (*LeadPayment, error) {
 	if addedLevels <= 0 || addedLevels > 4 {
 		return nil, fmt.Errorf("added levels must be between 1 and 4")
@@ -4370,14 +4604,8 @@ func AddWaitingListBundleCredit(leadID uuid.UUID, addedLevels int32, amount int3
 		return nil, err
 	}
 
-	allowedMethods := map[string]bool{
-		"vodafone_cash": true,
-		"bank_transfer": true,
-		"paypal":        true,
-		"other":         true,
-	}
-	if !allowedMethods[paymentMethod] {
-		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	if err := validateFinancePaymentMethod(paymentMethod); err != nil {
+		return nil, err
 	}
 
 	tx, err := db.DB.Begin()
@@ -4476,14 +4704,8 @@ func CreateRefund(leadID uuid.UUID, amount int32, paymentMethod string, transact
 	}
 
 	// Validate payment method
-	allowedMethods := map[string]bool{
-		"vodafone_cash": true,
-		"bank_transfer": true,
-		"paypal":        true,
-		"other":         true,
-	}
-	if !allowedMethods[paymentMethod] {
-		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	if err := validateFinancePaymentMethod(paymentMethod); err != nil {
+		return nil, err
 	}
 
 	// Validate refund doesn't exceed refundable amount (session-based rule)
@@ -4670,14 +4892,8 @@ func CreateExpense(category string, amount int32, paymentMethod string, transact
 	}
 
 	// Validate payment method
-	allowedMethods := map[string]bool{
-		"vodafone_cash": true,
-		"bank_transfer": true,
-		"paypal":        true,
-		"other":         true,
-	}
-	if !allowedMethods[paymentMethod] {
-		return nil, fmt.Errorf("invalid payment method: %s", paymentMethod)
+	if err := validateFinancePaymentMethod(paymentMethod); err != nil {
+		return nil, err
 	}
 
 	tx := &Transaction{

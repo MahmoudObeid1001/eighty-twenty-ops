@@ -827,6 +827,46 @@
 
             <div class="form-row">
                 <div class="form-group">
+                    <label for="course_payment_source">مصدر الدفع *</label>
+                    <select id="course_payment_source" name="course_payment_source" form="pre-enrolment-form" {{if
+                        .CoursePaymentDisabled}}disabled{{end}}>
+                        <option value="new_payment" {{if or (eq (index .CoursePaymentInput "source") "") (eq (index
+                            .CoursePaymentInput "source") "new_payment")}}selected{{end}}>دفعة جديدة دلوقتي</option>
+                        <option value="unidentified_transfer" {{if eq (index .CoursePaymentInput "source")
+                            "unidentified_transfer"}}selected{{end}}>تحويل موجود غير محدد</option>
+                    </select>
+                    {{if index .CoursePaymentFieldErrors "source"}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{index .CoursePaymentFieldErrors
+                        "source"}}</small>
+                    {{end}}
+                </div>
+                <div class="form-group" id="course_payment_unidentified_transfer_group"
+                    style="{{if ne (index .CoursePaymentInput `source`) `unidentified_transfer`}}display: none;{{end}}">
+                    <label for="course_payment_unidentified_transfer_id">اختار التحويل *</label>
+                    <select id="course_payment_unidentified_transfer_id" name="course_payment_unidentified_transfer_id"
+                        form="pre-enrolment-form" {{if .CoursePaymentDisabled}}disabled{{end}}>
+                        <option value="">اختار تحويل</option>
+                        {{range .UnidentifiedTransfers}}
+                        <option value="{{.ID}}" data-amount="{{.Amount}}" data-payment-method="{{if .PaymentMethod.Valid}}{{.PaymentMethod.String}}{{end}}"
+                            data-date="{{.TransactionDate.Format `2006-01-02`}}" {{if eq (index $.CoursePaymentInput
+                            "unidentified_transfer_id") (.ID.String)}}selected{{end}}>
+                            {{.TransactionDate.Format "2006-01-02"}} • {{.Amount}} EGP{{if .PaymentMethod.Valid}} •
+                            {{.PaymentMethod.String}}{{end}}{{if .Notes.Valid}} • {{.Notes.String}}{{end}}
+                        </option>
+                        {{end}}
+                    </select>
+                    {{if index .CoursePaymentFieldErrors "unidentified_transfer_id"}}
+                    <small style="color: #dc3545; display: block; margin-top: 5px;">{{index .CoursePaymentFieldErrors
+                        "unidentified_transfer_id"}}</small>
+                    {{else if not .HasUnidentifiedTransfers}}
+                    <small style="color: #666; display: block; margin-top: 5px;">مفيش تحويلات غير محددة متاحة
+                        دلوقتي.</small>
+                    {{end}}
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
                     <label for="course_payment_type">Payment Type *</label>
                     <select id="course_payment_type" name="course_payment_type" form="pre-enrolment-form" {{if
                         .CoursePaymentDisabled}}disabled{{end}}>
@@ -846,7 +886,7 @@
                 <div class="form-group">
                     <label for="course_payment_amount">Amount (EGP) *</label>
                     <input type="number" id="course_payment_amount" name="payment_amount" min="1" step="1"
-                        form="pre-enrolment-form" value="{{index .CoursePaymentInput "amount"}}" {{if
+                        form="pre-enrolment-form" value="{{index .CoursePaymentInput "amount"}}" data-base-disabled="{{if .CoursePaymentDisabled}}1{{else}}0{{end}}" {{if
                         .CoursePaymentDisabled}}disabled{{end}}>
                     {{if index .CoursePaymentFieldErrors "amount"}}
                     <small style="color: #dc3545; display: block; margin-top: 5px;">{{index .CoursePaymentFieldErrors
@@ -862,7 +902,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="course_payment_method">Payment Method *</label>
-                    <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" {{if
+                    <select id="course_payment_method" name="course_payment_method" form="pre-enrolment-form" data-base-disabled="{{if .CoursePaymentDisabled}}1{{else}}0{{end}}" {{if
                         .CoursePaymentDisabled}}disabled{{end}}>
                         <option value="">Select method</option>
                         <option value="vodafone_cash" {{if eq (index .CoursePaymentInput "method")
@@ -883,7 +923,7 @@
                     <label for="course_payment_date">Payment Date *</label>
                     <input type="date" id="course_payment_date" name="course_payment_date" value="{{if index
                         .CoursePaymentInput "date"}}{{index .CoursePaymentInput "date"}}{{else}}{{.Today}}{{end}}"
-                        max="{{.Today}}" form="pre-enrolment-form" {{if .CoursePaymentDisabled}}disabled{{end}}>
+                        max="{{.Today}}" form="pre-enrolment-form" data-base-disabled="{{if .CoursePaymentDisabled}}1{{else}}0{{end}}" {{if .CoursePaymentDisabled}}disabled{{end}}>
                     {{if index .CoursePaymentFieldErrors "date"}}
                     <small style="color: #dc3545; display: block; margin-top: 5px;">{{index .CoursePaymentFieldErrors
                         "date"}}</small>
@@ -901,8 +941,8 @@
             </div>
 
             <p style="font-size: 12px; color: #666; margin-top: 8px;">Note: Leave fields empty if not adding a new
-                payment.
-                Multiple payments are supported (deposit now, rest later).</p>
+                payment. Multiple payments are supported (deposit now, rest later). When you choose an existing
+                unidentified transfer, amount, method, and date are locked to the original receipt.</p>
 
             {{if .LeadPayments}}
             <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
@@ -1785,6 +1825,7 @@
         const basePriceEl = document.getElementById('payment_bundle_base_price');
         const discountValueEl = document.getElementById('payment_discount_value');
         const discountTypeEl = document.getElementById('payment_discount_type');
+        const paymentSourceEl = document.getElementById('course_payment_source');
         const paymentTypeEl = document.getElementById('course_payment_type');
         const amountEl = document.getElementById('course_payment_amount');
         const finalDisplayEl = document.getElementById('payment_final_price_display');
@@ -1814,12 +1855,16 @@
 
         const hasBundle = Boolean(bundleId && prices[bundleId]);
         const finalDue = hasBundle ? Math.max(0, basePrice - discountAmount) : 0;
+        const usingUnidentifiedTransfer = paymentSourceEl && paymentSourceEl.value === 'unidentified_transfer';
         basePriceEl.value = basePrice > 0 ? `${basePrice} EGP` : '';
         finalValueEl.value = hasBundle ? String(finalDue) : '';
         finalDisplayEl.textContent = hasBundle ? `${basePrice} - ${discountAmount} = ${finalDue} EGP` : 'Select a bundle to calculate final due';
 
         const paymentType = paymentTypeEl ? paymentTypeEl.value : "";
         const isDeposit = paymentType === "deposit";
+        if (usingUnidentifiedTransfer) {
+            return;
+        }
         if (!hasBundle || finalDue === 0) {
             if (paymentTypeEl) {
                 paymentTypeEl.value = "";
@@ -1828,6 +1873,52 @@
         } else if (!isDeposit || !depositAmountManuallyEdited) {
             amountEl.value = String(finalDue);
         }
+    }
+
+    function syncCoursePaymentSourceFields() {
+        const sourceEl = document.getElementById('course_payment_source');
+        const transferGroupEl = document.getElementById('course_payment_unidentified_transfer_group');
+        const transferEl = document.getElementById('course_payment_unidentified_transfer_id');
+        const amountEl = document.getElementById('course_payment_amount');
+        const methodEl = document.getElementById('course_payment_method');
+        const dateEl = document.getElementById('course_payment_date');
+
+        if (!sourceEl || !transferGroupEl || !transferEl || !amountEl || !methodEl || !dateEl) {
+            return;
+        }
+
+        const usingExisting = sourceEl.value === 'unidentified_transfer';
+        const amountBaseDisabled = amountEl.dataset.baseDisabled === '1';
+        const methodBaseDisabled = methodEl.dataset.baseDisabled === '1';
+        const dateBaseDisabled = dateEl.dataset.baseDisabled === '1';
+
+        transferGroupEl.style.display = usingExisting ? '' : 'none';
+        transferEl.disabled = sourceEl.disabled;
+
+        if (!usingExisting) {
+            amountEl.readOnly = false;
+            amountEl.disabled = amountBaseDisabled;
+            methodEl.disabled = methodBaseDisabled;
+            dateEl.readOnly = false;
+            dateEl.disabled = dateBaseDisabled;
+            calculateCoursePaymentFinal();
+            return;
+        }
+
+        const selected = transferEl.options[transferEl.selectedIndex];
+        const transferAmount = selected ? selected.dataset.amount || '' : '';
+        const transferMethod = selected ? selected.dataset.paymentMethod || '' : '';
+        const transferDate = selected ? selected.dataset.date || '' : '';
+
+        amountEl.value = transferAmount;
+        methodEl.value = transferMethod;
+        dateEl.value = transferDate;
+
+        amountEl.readOnly = true;
+        amountEl.disabled = amountBaseDisabled;
+        methodEl.disabled = true;
+        dateEl.readOnly = true;
+        dateEl.disabled = dateBaseDisabled;
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -1852,6 +1943,8 @@
         const paymentBundleEl = document.getElementById('payment_bundle');
         const paymentDiscountValueEl = document.getElementById('payment_discount_value');
         const paymentDiscountTypeEl = document.getElementById('payment_discount_type');
+        const coursePaymentSourceEl = document.getElementById('course_payment_source');
+        const coursePaymentTransferEl = document.getElementById('course_payment_unidentified_transfer_id');
         const coursePaymentTypeEl = document.getElementById('course_payment_type');
         const coursePaymentAmountEl = document.getElementById('course_payment_amount');
 
@@ -1859,6 +1952,7 @@
         if (paymentBundleEl || paymentDiscountValueEl || paymentDiscountTypeEl) {
             calculateCoursePaymentFinal();
         }
+        syncCoursePaymentSourceFields();
         if (pricingTrackEl) {
             pricingTrackEl.addEventListener('change', function () {
                 depositAmountManuallyEdited = false;
@@ -1877,6 +1971,15 @@
         }
         if (paymentDiscountTypeEl) {
             paymentDiscountTypeEl.addEventListener('change', calculateCoursePaymentFinal);
+        }
+        if (coursePaymentSourceEl) {
+            coursePaymentSourceEl.addEventListener('change', function () {
+                depositAmountManuallyEdited = false;
+                syncCoursePaymentSourceFields();
+            });
+        }
+        if (coursePaymentTransferEl) {
+            coursePaymentTransferEl.addEventListener('change', syncCoursePaymentSourceFields);
         }
         if (coursePaymentTypeEl) {
             coursePaymentTypeEl.addEventListener('change', function () {
