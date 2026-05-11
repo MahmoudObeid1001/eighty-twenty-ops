@@ -122,21 +122,24 @@ export default function StudentModal({ student, classKey, sessionsCount, attende
           <div style={{ padding: '24px', borderBottom: '1px solid #ddd', background: '#f8f9fa' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <div>
-                <h2 style={{ fontSize: '24px', marginBottom: '4px', color: '#333' }}>{profile?.name || student.full_name}</h2>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>{profile?.phone || student.phone}</p>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '4px' }}>
+                  <h2 style={{ fontSize: '24px', margin: 0, color: '#333' }}>{profile?.name || student.full_name}</h2>
                   {profile && (
                     <span style={{
-                      padding: '2px 8px',
+                      padding: '3px 10px',
                       background: profile.isReturning ? '#e8f5e9' : '#e3f2fd',
                       color: profile.isReturning ? '#2e7d32' : '#1565c0',
-                      borderRadius: '12px',
-                      fontSize: '11px',
-                      fontWeight: 700
+                      borderRadius: '999px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      textTransform: 'capitalize'
                     }}>
-                      {profile.isReturning ? 'RETURNING' : 'NEW'}
+                      {profile.isReturning ? 'returning student' : 'new student'}
                     </span>
                   )}
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>{profile?.phone || student.phone}</p>
                   {sessionsCount > 0 && (
                     <span style={{
                       padding: '2px 8px',
