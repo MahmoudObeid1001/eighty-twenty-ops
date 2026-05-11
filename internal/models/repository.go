@@ -1403,7 +1403,7 @@ func GetLatestClassEnrollment(leadID uuid.UUID) (*ClassEnrollment, error) {
 	var classTime sql.NullString
 	err := db.DB.QueryRow(`
 		SELECT id, lead_id, class_key, level, class_days,
-               TO_CHAR(class_time, 'HH24:MI') as class_time,
+               class_time,
                mentor_name, final_grade, outcome,
                COALESCE(next_level_consumed_on_close, false),
                COALESCE(continuation_hold_active, false),
