@@ -1557,8 +1557,12 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get last level grade (from current class if available)
+	if latestEnrollment, err := models.GetLatestClassEnrollment(studentID); err == nil && latestEnrollment != nil && latestEnrollment.FinalGrade.Valid {
+		lastLevelGrade = latestEnrollment.FinalGrade.String
+	}
+
 	classKey := r.URL.Query().Get("class_key")
-	if classKey != "" {
+	if classKey != "" && lastLevelGrade == "" {
 		grade, err := models.GetGrade(studentID, classKey)
 		if err == nil && grade != nil {
 			lastLevelGrade = grade.Grade
