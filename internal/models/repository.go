@@ -37,6 +37,24 @@ const (
 var ErrAttendanceDeadlinePassed = errors.New("attendance deadline passed")
 var ErrAttendanceIncomplete = errors.New("attendance incomplete")
 
+func ValidateSuggestedStartDateNotPast(d time.Time) error {
+	if util.CairoStartOfDay(d).Before(util.CairoStartOfDay(util.CairoNow())) {
+		return fmt.Errorf("suggested start date cannot be in the past")
+	}
+	return nil
+}
+
+func ValidateSuggestedStartDateForClassDays(classDays string, d time.Time) error {
+	allowedWeekdays, ok := allowedRoundStartWeekdays(classDays)
+	if !ok {
+		return nil
+	}
+	if !containsWeekday(allowedWeekdays, util.CairoStartOfDay(d).Weekday()) {
+		return fmt.Errorf("suggested start date must be %s for %s classes", weekdayListLabel(allowedWeekdays), classDays)
+	}
+	return nil
+}
+
 // Payment state constants
 const (
 	PaymentStateUnpaid   = "UNPAID"
@@ -2739,6 +2757,7 @@ func GetClassGroups() ([]*ClassGroup, error) {
 					}
 					group.SentToMentor = wf.SentToMentor
 					group.SentAt = wf.SentAt
+					group.SuggestedStartDate = wf.SuggestedStartDate
 					group.ReturnedAt = wf.ReturnedAt
 					visible = append(visible, group)
 				} else {
@@ -3419,17 +3438,17 @@ func GenerateClassKey(level int32, classDays, classTime string, groupIndex int32
 // GetClassGroupWorkflow gets workflow state for a class group by class_key
 func GetClassGroupWorkflow(classKey string) (*ClassGroupWorkflow, error) {
 	wf := &ClassGroupWorkflow{}
-	var sentAt, returnedAt, hiddenAt, roundStartedAt, roundClosedAt sql.NullTime
+	var sentAt, suggestedStartDate, returnedAt, hiddenAt, roundStartedAt, roundClosedAt sql.NullTime
 	var hiddenBy, roundStartedBy, roundClosedBy sql.NullString
 	var roundStatus sql.NullString
 	err := db.DB.QueryRow(`
-		SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at,
+		SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, suggested_start_date, returned_at, updated_at,
 		       hidden_in_ops, hidden_at, hidden_by::text,
 		       COALESCE(round_status, 'not_started'), round_started_at, round_started_by::text, round_closed_at, round_closed_by::text
 		FROM class_groups WHERE class_key = $1
 	`, classKey).Scan(
 		&wf.ClassKey, &wf.Level, &wf.ClassDays, &wf.ClassTime, &wf.ClassNumber,
-		&wf.SentToMentor, &sentAt, &returnedAt, &wf.UpdatedAt,
+		&wf.SentToMentor, &sentAt, &suggestedStartDate, &returnedAt, &wf.UpdatedAt,
 		&wf.HiddenInOps, &hiddenAt, &hiddenBy,
 		&roundStatus, &roundStartedAt, &roundStartedBy, &roundClosedAt, &roundClosedBy,
 	)
@@ -3439,7 +3458,7 @@ func GetClassGroupWorkflow(classKey string) (*ClassGroupWorkflow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get class group workflow: %w", err)
 	}
-	wf.SentAt, wf.ReturnedAt = sentAt, returnedAt
+	wf.SentAt, wf.SuggestedStartDate, wf.ReturnedAt = sentAt, suggestedStartDate, returnedAt
 	wf.HiddenAt, wf.HiddenBy = hiddenAt, hiddenBy
 	wf.RoundStartedAt, wf.RoundClosedAt = roundStartedAt, roundClosedAt
 	wf.RoundStartedBy, wf.RoundClosedBy = roundStartedBy, roundClosedBy
@@ -3451,21 +3470,25 @@ func GetClassGroupWorkflow(classKey string) (*ClassGroupWorkflow, error) {
 	return wf, nil
 }
 
-// SendClassGroupToMentor marks a class group as sent to mentor head
-func SendClassGroupToMentor(classKey string, level int32, classDays, classTime string, classNumber int32) error {
+// SendClassGroupToMentor marks a class group as sent to mentor head.
+func SendClassGroupToMentor(classKey string, level int32, classDays, classTime string, classNumber int32, suggestedStartDate time.Time) error {
+	if err := ValidateSuggestedStartDateNotPast(suggestedStartDate); err != nil {
+		return err
+	}
 	now := time.Now()
 	_, err := db.DB.Exec(`
-		INSERT INTO class_groups (class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, true, $6, $6)
+		INSERT INTO class_groups (class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, suggested_start_date, updated_at)
+		VALUES ($1, $2, $3, $4, $5, true, $6, $7::date, $6)
 		ON CONFLICT (class_key) DO UPDATE SET
 			sent_to_mentor = true,
 			sent_at = $6,
+			suggested_start_date = $7::date,
 			returned_at = NULL,
 			hidden_in_ops = false,
 			hidden_at = NULL,
 			hidden_by = NULL,
 			updated_at = $6
-	`, classKey, level, classDays, classTime, classNumber, now)
+	`, classKey, level, classDays, classTime, classNumber, now, util.FormatDateCairo(suggestedStartDate))
 	return err
 }
 
@@ -3681,7 +3704,7 @@ func GetClassGroupWorkflowsBatch(classKeys []string) (map[string]*ClassGroupWork
 		return make(map[string]*ClassGroupWorkflow), nil
 	}
 
-	query := `SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, returned_at, updated_at,
+	query := `SELECT class_key, level, class_days, class_time, class_number, sent_to_mentor, sent_at, suggested_start_date, returned_at, updated_at,
 		hidden_in_ops, hidden_at, hidden_by::text,
 		COALESCE(round_status, 'not_started'), round_started_at, round_started_by::text, round_closed_at, round_closed_by::text
 		FROM class_groups WHERE class_key = ANY($1)`
@@ -3694,18 +3717,18 @@ func GetClassGroupWorkflowsBatch(classKeys []string) (map[string]*ClassGroupWork
 	result := make(map[string]*ClassGroupWorkflow)
 	for rows.Next() {
 		wf := &ClassGroupWorkflow{}
-		var sentAt, returnedAt, hiddenAt, roundStartedAt, roundClosedAt sql.NullTime
+		var sentAt, suggestedStartDate, returnedAt, hiddenAt, roundStartedAt, roundClosedAt sql.NullTime
 		var hiddenBy, roundStartedBy, roundClosedBy, roundStatus sql.NullString
 		err := rows.Scan(
 			&wf.ClassKey, &wf.Level, &wf.ClassDays, &wf.ClassTime, &wf.ClassNumber,
-			&wf.SentToMentor, &sentAt, &returnedAt, &wf.UpdatedAt,
+			&wf.SentToMentor, &sentAt, &suggestedStartDate, &returnedAt, &wf.UpdatedAt,
 			&wf.HiddenInOps, &hiddenAt, &hiddenBy,
 			&roundStatus, &roundStartedAt, &roundStartedBy, &roundClosedAt, &roundClosedBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan class group workflow: %w", err)
 		}
-		wf.SentAt, wf.ReturnedAt = sentAt, returnedAt
+		wf.SentAt, wf.SuggestedStartDate, wf.ReturnedAt = sentAt, suggestedStartDate, returnedAt
 		wf.HiddenAt, wf.HiddenBy = hiddenAt, hiddenBy
 		wf.RoundStartedAt, wf.RoundClosedAt = roundStartedAt, roundClosedAt
 		wf.RoundStartedBy, wf.RoundClosedBy = roundStartedBy, roundClosedBy
@@ -9099,7 +9122,7 @@ func GetSessionByID(sessionID uuid.UUID) (*ClassSession, error) {
 func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 	rows, err := db.DB.Query(`
 		SELECT class_key, level, class_days, class_time, class_number,
-		       sent_to_mentor, sent_at, returned_at, updated_at,
+		       sent_to_mentor, sent_at, suggested_start_date, returned_at, updated_at,
 		       hidden_in_ops, hidden_at, hidden_by::text
 		FROM class_groups
 		WHERE sent_to_mentor = true AND COALESCE(round_status, '') != 'closed'
@@ -9113,12 +9136,12 @@ func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 	var groups []*ClassGroupWorkflow
 	for rows.Next() {
 		g := &ClassGroupWorkflow{}
-		var sentAt, returnedAt, hiddenAt sql.NullTime
+		var sentAt, suggestedStartDate, returnedAt, hiddenAt sql.NullTime
 		var hiddenBy sql.NullString
 
 		err := rows.Scan(
 			&g.ClassKey, &g.Level, &g.ClassDays, &g.ClassTime, &g.ClassNumber,
-			&g.SentToMentor, &sentAt, &returnedAt, &g.UpdatedAt,
+			&g.SentToMentor, &sentAt, &suggestedStartDate, &returnedAt, &g.UpdatedAt,
 			&g.HiddenInOps, &hiddenAt, &hiddenBy,
 		)
 		if err != nil {
@@ -9126,6 +9149,7 @@ func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 		}
 
 		g.SentAt = sentAt
+		g.SuggestedStartDate = suggestedStartDate
 		g.ReturnedAt = returnedAt
 		g.HiddenAt = hiddenAt
 		g.HiddenBy = hiddenBy

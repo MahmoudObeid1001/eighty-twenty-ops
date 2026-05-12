@@ -68,6 +68,12 @@
                     {{if .SentToMentor}}
                     <span style="color: #666; font-size: 11px; font-style: italic;">(Sent)</span>
                     {{end}}
+                    {{if .SuggestedStartDate.Valid}}
+                    <span
+                        style="background: #E8F5E9; color: #2E7D32; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;">
+                        بداية مقترحة: {{.SuggestedStartDate.Time.Format "2006-01-02"}}
+                    </span>
+                    {{end}}
                 </div>
                 <div style="text-align: right;">
                     <div
@@ -109,12 +115,28 @@
             </div>
             {{else if and (not $.IsClassesReadOnly) (or (eq .Readiness `READY` ) (eq .Readiness `LOCKED` ))}}
             <div style="margin-bottom: 8px;">
-                <form method="POST" action="/classes/send" style="display: block;">
+                <form method="POST" action="/classes/send" style="display: block;"
+                    onsubmit="return openSendToMentorModal(this);">
                     <input type="hidden" name="class_key" value="{{.ClassKey}}">
                     <input type="hidden" name="level" value="{{.Level}}">
                     <input type="hidden" name="class_days" value="{{.ClassDays}}">
                     <input type="hidden" name="class_time" value="{{.ClassTime}}">
                     <input type="hidden" name="class_number" value="{{.GroupIndex}}">
+                    <div style="margin-bottom: 8px;">
+                        <label for="suggested_start_date_{{.ClassKey}}"
+                            style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: #333;">تاريخ
+                            البداية المقترح</label>
+                        <input type="date" id="suggested_start_date_{{.ClassKey}}" name="suggested_start_date"
+                            min="{{$.TodayCairo}}" value="{{$.TodayCairo}}" required lang="ar-EG" dir="rtl"
+                            data-class-days="{{.ClassDays}}"
+                            style="width: 100%; padding: 8px; border: 1px solid #CCC; border-radius: 4px; font-size: 13px;">
+                        <div style="margin-top: 4px; font-size: 11px; color: #666;">
+                            لازم التاريخ يكون على نفس أيام الكلاس: {{.ClassDays}}
+                        </div>
+                        <div data-role="suggested-start-error"
+                            style="display:none; margin-top:4px; font-size:11px; color:#c62828; font-weight:600;">
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-primary"
                         style="width: 100%; padding: 8px; background-color: #007bff; border-color: #007bff; color: white;">Send
                         to Mentor Head</button>
@@ -236,4 +258,204 @@
         opacity: 0.6;
     }
 </style>
+
+<script>
+    let pendingSendToMentorForm = null;
+
+    function formatArabicDate(dateValue) {
+        if (!dateValue) {
+            return '-';
+        }
+        try {
+            return new Intl.DateTimeFormat('ar-EG', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            }).format(new Date(`${dateValue}T00:00:00`));
+        } catch (e) {
+            return dateValue;
+        }
+    }
+
+    function allowedWeekdaysForClassDays(classDays) {
+        switch ((classDays || '').trim()) {
+            case 'Sat/Tues':
+                return [6, 2];
+            case 'Sun/Wed':
+                return [0, 3];
+            case 'Mon/Thu':
+                return [1, 4];
+            default:
+                return null;
+        }
+    }
+
+    function nextValidSuggestedDate(dateValue, classDays) {
+        if (!dateValue) {
+            return '';
+        }
+        const allowedDays = allowedWeekdaysForClassDays(classDays);
+        if (!allowedDays || !allowedDays.length) {
+            return dateValue;
+        }
+        const current = new Date(`${dateValue}T00:00:00`);
+        if (Number.isNaN(current.getTime())) {
+            return dateValue;
+        }
+        for (let i = 0; i < 7; i++) {
+            if (allowedDays.includes(current.getDay())) {
+                const year = current.getFullYear();
+                const month = String(current.getMonth() + 1).padStart(2, '0');
+                const day = String(current.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }
+            current.setDate(current.getDate() + 1);
+        }
+        return dateValue;
+    }
+
+    function isSuggestedDateValidForClassDays(dateValue, classDays) {
+        const allowedDays = allowedWeekdaysForClassDays(classDays);
+        if (!allowedDays || !allowedDays.length || !dateValue) {
+            return true;
+        }
+        const current = new Date(`${dateValue}T00:00:00`);
+        if (Number.isNaN(current.getTime())) {
+            return false;
+        }
+        return allowedDays.includes(current.getDay());
+    }
+
+    function setSuggestedStartError(input, message) {
+        if (!input) {
+            return;
+        }
+        const container = input.parentElement;
+        const errorNode = container ? container.querySelector('[data-role="suggested-start-error"]') : null;
+        if (errorNode) {
+            errorNode.textContent = message || '';
+            errorNode.style.display = message ? 'block' : 'none';
+        }
+        input.style.borderColor = message ? '#c62828' : '#CCC';
+    }
+
+    function normalizeSuggestedStartInputs() {
+        document.querySelectorAll('input[name="suggested_start_date"][data-class-days]').forEach(function (input) {
+            const classDays = input.getAttribute('data-class-days') || '';
+            if (input.value) {
+                input.value = nextValidSuggestedDate(input.value, classDays);
+                setSuggestedStartError(input, '');
+            }
+            input.addEventListener('change', function () {
+                if (!input.value) {
+                    setSuggestedStartError(input, 'من فضلك اختار تاريخ البداية المقترح.');
+                    return;
+                }
+                if (!isSuggestedDateValidForClassDays(input.value, classDays)) {
+                    input.value = nextValidSuggestedDate(input.value, classDays);
+                    setSuggestedStartError(input, `لازم التاريخ يقع على نفس أيام الكلاس: ${classDays}.`);
+                    return;
+                }
+                setSuggestedStartError(input, '');
+            });
+        });
+    }
+
+    function openSendToMentorModal(form) {
+        const dateInput = form.querySelector('input[name="suggested_start_date"]');
+        if (!dateInput || !dateInput.value) {
+            setSuggestedStartError(dateInput, 'من فضلك اختار تاريخ البداية المقترح الأول.');
+            if (dateInput) {
+                dateInput.focus();
+            }
+            return false;
+        }
+        const classDaysInput = form.querySelector('input[name="class_days"]');
+        const classDays = classDaysInput ? classDaysInput.value : '';
+        if (!isSuggestedDateValidForClassDays(dateInput.value, classDays)) {
+            setSuggestedStartError(dateInput, `لازم التاريخ يقع على نفس أيام الكلاس: ${classDays}.`);
+            dateInput.focus();
+            return false;
+        }
+        setSuggestedStartError(dateInput, '');
+        pendingSendToMentorForm = form;
+        const modal = document.getElementById('sendToMentorConfirmModal');
+        const dateText = document.getElementById('sendToMentorConfirmDate');
+        if (dateText) {
+            dateText.textContent = formatArabicDate(dateInput.value);
+        }
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+        return false;
+    }
+
+    function closeSendToMentorModal() {
+        const modal = document.getElementById('sendToMentorConfirmModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        pendingSendToMentorForm = null;
+    }
+
+    function confirmSendToMentor() {
+        if (!pendingSendToMentorForm) {
+            closeSendToMentorModal();
+            return;
+        }
+        const form = pendingSendToMentorForm;
+        pendingSendToMentorForm = null;
+        const modal = document.getElementById('sendToMentorConfirmModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        form.submit();
+    }
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            closeSendToMentorModal();
+        }
+    });
+
+    document.addEventListener('click', function (event) {
+        const modal = document.getElementById('sendToMentorConfirmModal');
+        if (modal && event.target === modal) {
+            closeSendToMentorModal();
+        }
+    });
+    normalizeSuggestedStartInputs();
+    function noop() {
+        return;
+    }
+</script>
+
+<div id="sendToMentorConfirmModal"
+    style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:2000; align-items:center; justify-content:center; padding:20px;">
+    <div
+        dir="rtl"
+        style="width:100%; max-width:460px; background:#fff; border-radius:14px; box-shadow:0 18px 45px rgba(0,0,0,0.2); overflow:hidden; text-align:right;">
+        <div style="padding:20px 22px 14px; border-bottom:1px solid #eee; text-align:right;">
+            <div style="font-size:20px; font-weight:700; color:#222;">تأكيد إرسال الكلاس</div>
+        </div>
+        <div style="padding:20px 22px; color:#444; line-height:1.7; text-align:right;">
+            <div style="margin-bottom:10px;">
+                هل أنت متأكد إنك عايز تبعت الكلاس ده إلى <span dir="ltr" style="display:inline-block;">Mentor Head</span>؟
+            </div>
+            <div style="margin-bottom:10px; font-weight:600; color:#0d6efd;">
+                تاريخ البداية المقترح: <span id="sendToMentorConfirmDate">-</span>
+            </div>
+            <div style="font-size:14px; color:#666;">
+                بعد الإرسال، الكلاس هيبقى ثابت بالنسبة للـ <span dir="ltr" style="display:inline-block;">Operations</span> لحد ما <span dir="ltr" style="display:inline-block;">Mentor Head</span> يرجّعه.
+            </div>
+        </div>
+        <div style="padding:16px 22px 22px; display:flex; justify-content:flex-start; gap:10px;">
+            <button type="button" onclick="closeSendToMentorModal()"
+                style="padding:10px 16px; border-radius:8px; border:1px solid #D0D7DE; background:#fff; color:#333; cursor:pointer; font-weight:600;">إلغاء</button>
+            <button type="button" onclick="confirmSendToMentor()"
+                style="padding:10px 16px; border-radius:8px; border:none; background:#0d6efd; color:#fff; cursor:pointer; font-weight:700;">إرسال
+                الكلاس</button>
+        </div>
+    </div>
+</div>
 {{end}}

@@ -224,18 +224,19 @@ type PlacementTestQueueItem struct {
 
 // ClassGroup represents a group of students with same level+days+time
 type ClassGroup struct {
-	Level        int32
-	ClassDays    string
-	ClassTime    string
-	GroupIndex   int32 // 1, 2, 3...
-	StudentCount int
-	Readiness    string // "LOCKED", "READY", "NOT READY"
-	Students     []*ClassStudent
-	ClassKey     string // Stable identifier: "L{level}|{days}|{time}|{index}"
-	SentToMentor bool   // Whether this class has been sent to mentor head
-	SentAt       sql.NullTime
-	ReturnedAt   sql.NullTime
-	RoundStatus  string // not_started | active | closed
+	Level              int32
+	ClassDays          string
+	ClassTime          string
+	GroupIndex         int32 // 1, 2, 3...
+	StudentCount       int
+	Readiness          string // "LOCKED", "READY", "NOT READY"
+	Students           []*ClassStudent
+	ClassKey           string // Stable identifier: "L{level}|{days}|{time}|{index}"
+	SentToMentor       bool   // Whether this class has been sent to mentor head
+	SentAt             sql.NullTime
+	SuggestedStartDate sql.NullTime
+	ReturnedAt         sql.NullTime
+	RoundStatus        string // not_started | active | closed
 	// Current session for active rounds (computed from completed sessions + 1)
 	CurrentSession sql.NullInt32
 }
@@ -250,6 +251,7 @@ type ClassGroupWorkflow struct {
 	CompletedSessions  int32
 	SentToMentor       bool
 	SentAt             sql.NullTime
+	SuggestedStartDate sql.NullTime
 	ReturnedAt         sql.NullTime
 	UpdatedAt          time.Time
 	HiddenInOps        bool

@@ -10,6 +10,7 @@ import (
 	"eighty-twenty-ops/internal/config"
 	"eighty-twenty-ops/internal/middleware"
 	"eighty-twenty-ops/internal/models"
+	"eighty-twenty-ops/internal/util"
 
 	"github.com/google/uuid"
 )
@@ -169,6 +170,7 @@ func (h *ClassesHandler) List(w http.ResponseWriter, r *http.Request) {
 		"Title":             "Classes Board - Eighty Twenty",
 		"Groups":            groups,
 		"CurrentRound":      currentRound,
+		"TodayCairo":        util.FormatDateCairo(util.CairoNow()),
 		"UserRole":          userRole,
 		"IsModerator":       IsModerator(r),
 		"FlashMessage":      flashMessage,
@@ -265,6 +267,25 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 	classDays := r.FormValue("class_days")
 	classTime := r.FormValue("class_time")
 	classNumberStr := r.FormValue("class_number")
+	suggestedStartDateStr := strings.TrimSpace(r.FormValue("suggested_start_date"))
+
+	if suggestedStartDateStr == "" {
+		redirectWithError(w, r, "/classes", "Please choose a suggested start date before sending the class.")
+		return
+	}
+	suggestedStartDate, err := util.ParseDateCairo(suggestedStartDateStr)
+	if err != nil {
+		redirectWithError(w, r, "/classes", "Please choose a valid suggested start date.")
+		return
+	}
+	if err := models.ValidateSuggestedStartDateNotPast(suggestedStartDate); err != nil {
+		redirectWithError(w, r, "/classes", "Suggested start date cannot be in the past.")
+		return
+	}
+	if err := models.ValidateSuggestedStartDateForClassDays(classDays, suggestedStartDate); err != nil {
+		redirectWithError(w, r, "/classes", "Suggested start date must match the class days.")
+		return
+	}
 
 	// If class_key is provided, use it; otherwise construct from form fields
 	if classKey == "" {
@@ -286,7 +307,7 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 		// Use the parsed values
 		levelInt, _ := strconv.Atoi(levelStr)
 		classNumberInt, _ := strconv.Atoi(classNumberStr)
-		err = models.SendClassGroupToMentor(classKey, int32(levelInt), classDays, classTime, int32(classNumberInt))
+		err = models.SendClassGroupToMentor(classKey, int32(levelInt), classDays, classTime, int32(classNumberInt), suggestedStartDate)
 		if err != nil {
 			log.Printf("ERROR: Failed to send class to mentor: %v", err)
 			redirectWithError(w, r, "/classes", "We couldn't send this class to Mentor Head. Please try again.")
@@ -310,7 +331,13 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 			redirectWithError(w, r, "/classes", "We couldn't read that class number. Please refresh and try again.")
 			return
 		}
-		err = models.SendClassGroupToMentor(classKey, int32(level), parts[1], parts[2], int32(classNumber))
+		classDays = parts[1]
+		err = models.ValidateSuggestedStartDateForClassDays(classDays, suggestedStartDate)
+		if err != nil {
+			redirectWithError(w, r, "/classes", "Suggested start date must match the class days.")
+			return
+		}
+		err = models.SendClassGroupToMentor(classKey, int32(level), classDays, parts[2], int32(classNumber), suggestedStartDate)
 		if err != nil {
 			log.Printf("ERROR: Failed to send class to mentor: %v", err)
 			redirectWithError(w, r, "/classes", "We couldn't send this class to Mentor Head. Please try again.")

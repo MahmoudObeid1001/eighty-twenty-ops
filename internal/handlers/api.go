@@ -349,12 +349,13 @@ func (h *APIHandler) GetMentorClasses(w http.ResponseWriter, r *http.Request) {
 
 	// Get student count for each class
 	type ClassResponse struct {
-		ClassKey     string `json:"class_key"`
-		Level        int32  `json:"level"`
-		Days         string `json:"days"`
-		Time         string `json:"time"`
-		ClassNumber  int32  `json:"class_number"`
-		StudentCount int    `json:"student_count"`
+		ClassKey           string `json:"class_key"`
+		Level              int32  `json:"level"`
+		Days               string `json:"days"`
+		Time               string `json:"time"`
+		ClassNumber        int32  `json:"class_number"`
+		StudentCount       int    `json:"student_count"`
+		SuggestedStartDate string `json:"suggested_start_date,omitempty"`
 	}
 
 	response := make([]ClassResponse, 0, len(classes))
@@ -618,12 +619,13 @@ func (h *APIHandler) GetMentorHeadClasses(w http.ResponseWriter, r *http.Request
 	}
 
 	type ClassResponse struct {
-		ClassKey     string `json:"class_key"`
-		Level        int32  `json:"level"`
-		Days         string `json:"days"`
-		Time         string `json:"time"`
-		ClassNumber  int32  `json:"class_number"`
-		StudentCount int    `json:"student_count"`
+		ClassKey           string `json:"class_key"`
+		Level              int32  `json:"level"`
+		Days               string `json:"days"`
+		Time               string `json:"time"`
+		ClassNumber        int32  `json:"class_number"`
+		StudentCount       int    `json:"student_count"`
+		SuggestedStartDate string `json:"suggested_start_date,omitempty"`
 	}
 
 	type MentorGroupResponse struct {
@@ -649,6 +651,12 @@ func (h *APIHandler) GetMentorHeadClasses(w http.ResponseWriter, r *http.Request
 				Time:         c.ClassTime,
 				ClassNumber:  c.ClassNumber,
 				StudentCount: len(students),
+				SuggestedStartDate: func() string {
+					if c.SuggestedStartDate.Valid {
+						return util.FormatDateCairo(c.SuggestedStartDate.Time)
+					}
+					return ""
+				}(),
 			})
 			continue
 		}
@@ -675,6 +683,12 @@ func (h *APIHandler) GetMentorHeadClasses(w http.ResponseWriter, r *http.Request
 			Time:         c.ClassTime,
 			ClassNumber:  c.ClassNumber,
 			StudentCount: len(students),
+			SuggestedStartDate: func() string {
+				if c.SuggestedStartDate.Valid {
+					return util.FormatDateCairo(c.SuggestedStartDate.Time)
+				}
+				return ""
+			}(),
 		})
 	}
 
@@ -1784,17 +1798,18 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 
 	// Get mentor assignments and users for each class (same logic as SSR Dashboard)
 	type ClassResponse struct {
-		ClassKey     string  `json:"class_key"`
-		Level        int32   `json:"level"`
-		Days         string  `json:"days"`
-		Time         string  `json:"time"`
-		ClassNumber  int32   `json:"class_number"`
-		StudentCount int     `json:"student_count"`
-		Readiness    string  `json:"readiness"`
-		AllGraded    bool    `json:"all_graded"`
-		MentorUserID *string `json:"mentor_user_id,omitempty"`
-		MentorEmail  string  `json:"mentor_email,omitempty"`
-		SentToMentor bool    `json:"sent_to_mentor"`
+		ClassKey           string  `json:"class_key"`
+		Level              int32   `json:"level"`
+		Days               string  `json:"days"`
+		Time               string  `json:"time"`
+		ClassNumber        int32   `json:"class_number"`
+		StudentCount       int     `json:"student_count"`
+		Readiness          string  `json:"readiness"`
+		AllGraded          bool    `json:"all_graded"`
+		MentorUserID       *string `json:"mentor_user_id,omitempty"`
+		MentorEmail        string  `json:"mentor_email,omitempty"`
+		SentToMentor       bool    `json:"sent_to_mentor"`
+		SuggestedStartDate string  `json:"suggested_start_date,omitempty"`
 	}
 
 	classesResponse := make([]ClassResponse, 0, len(classes))
@@ -1806,6 +1821,12 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 			Time:         c.ClassTime,
 			ClassNumber:  c.ClassNumber,
 			SentToMentor: c.SentToMentor,
+			SuggestedStartDate: func() string {
+				if c.SuggestedStartDate.Valid {
+					return util.FormatDateCairo(c.SuggestedStartDate.Time)
+				}
+				return ""
+			}(),
 		}
 
 		// Get mentor assignment

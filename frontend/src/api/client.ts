@@ -130,6 +130,7 @@ export interface MentorHeadClass {
   time: string
   class_number: number
   student_count: number
+  suggested_start_date?: string
   readiness: string
   all_graded?: boolean
   mentor_user_id?: string
