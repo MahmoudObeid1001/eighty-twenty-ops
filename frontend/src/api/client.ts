@@ -99,6 +99,7 @@ export interface Class {
   time: string
   class_number: number
   student_count: number
+  suggested_start_date?: string
 }
 
 export interface MentorReminder {
