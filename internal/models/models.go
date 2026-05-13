@@ -953,6 +953,7 @@ type ManagerOpsSessionRow struct {
 type OpsNotificationSummary struct {
 	DailyReport *DailyReportNotification `json:"daily_report,omitempty"`
 	Complaint   *ComplaintNotification   `json:"complaint,omitempty"`
+	ClassSent   *ClassSentNotification   `json:"class_sent,omitempty"`
 }
 
 type DailyReportNotification struct {
@@ -972,6 +973,17 @@ type ComplaintNotification struct {
 	StudentPhone string    `json:"student_phone"`
 	Urgency      string    `json:"urgency"`
 	CreatedAt    time.Time `json:"created_at"`
+	UnreadCount  int       `json:"unread_count"`
+}
+
+type ClassSentNotification struct {
+	ClassKey     string    `json:"class_key"`
+	Level        int32     `json:"level"`
+	ClassNumber  int32     `json:"class_number"`
+	Days         string    `json:"days"`
+	Time         string    `json:"time"`
+	StudentCount int       `json:"student_count"`
+	SentAt       time.Time `json:"sent_at"`
 	UnreadCount  int       `json:"unread_count"`
 }
 

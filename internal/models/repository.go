@@ -13015,8 +13015,8 @@ func MarkComplaintRead(userID uuid.UUID, complaintID uuid.UUID) error {
 	return nil
 }
 
-// GetOpsNotificationSummary returns unread daily-report and complaint banners for MH/Manager.
-func GetOpsNotificationSummary(userID uuid.UUID, now time.Time) (*OpsNotificationSummary, error) {
+// GetOpsNotificationSummary returns unread operational banners for MH/Manager.
+func GetOpsNotificationSummary(userID uuid.UUID, role string, now time.Time) (*OpsNotificationSummary, error) {
 	summary := &OpsNotificationSummary{}
 	reportDate, readyAt := LatestReadyDailyReportWindow(now)
 
@@ -13053,6 +13053,14 @@ func GetOpsNotificationSummary(userID uuid.UUID, now time.Time) (*OpsNotificatio
 		return nil, err
 	}
 	summary.Complaint = complaint
+
+	if role == "mentor_head" {
+		classSent, err := GetUnreadClassSentNotification(userID)
+		if err != nil {
+			return nil, err
+		}
+		summary.ClassSent = classSent
+	}
 	return summary, nil
 }
 
@@ -13091,6 +13099,68 @@ func GetUnreadComplaintNotification(userID uuid.UUID) (*ComplaintNotification, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to query unread complaint notification: %w", err)
 	}
+	return n, nil
+}
+
+// MarkClassSentNotificationRead marks a new-class banner as dismissed for a user.
+func MarkClassSentNotificationRead(userID uuid.UUID, classKey string) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO class_sent_notification_reads (user_id, class_key, read_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (user_id, class_key) DO UPDATE SET read_at = EXCLUDED.read_at
+	`, userID, classKey)
+	if err != nil {
+		return fmt.Errorf("failed to mark class-sent notification read: %w", err)
+	}
+	return nil
+}
+
+// GetUnreadClassSentNotification returns the newest unread sent-to-MH class for the user.
+func GetUnreadClassSentNotification(userID uuid.UUID) (*ClassSentNotification, error) {
+	var unreadCount int
+	if err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM class_groups cg
+		LEFT JOIN class_sent_notification_reads csr
+			ON csr.class_key = cg.class_key AND csr.user_id = $1
+		WHERE cg.sent_to_mentor = true
+		  AND COALESCE(cg.round_status, '') != 'closed'
+		  AND csr.id IS NULL
+	`).Scan(&unreadCount); err != nil {
+		return nil, fmt.Errorf("failed to count unread class-sent notifications: %w", err)
+	}
+	if unreadCount == 0 {
+		return nil, nil
+	}
+
+	n := &ClassSentNotification{UnreadCount: unreadCount}
+	var sentAt sql.NullTime
+	err := db.DB.QueryRow(`
+		SELECT cg.class_key, cg.level, COALESCE(cg.class_number, 1), cg.class_days, cg.class_time, cg.sent_at
+		FROM class_groups cg
+		LEFT JOIN class_sent_notification_reads csr
+			ON csr.class_key = cg.class_key AND csr.user_id = $1
+		WHERE cg.sent_to_mentor = true
+		  AND COALESCE(cg.round_status, '') != 'closed'
+		  AND csr.id IS NULL
+		ORDER BY cg.sent_at DESC NULLS LAST, cg.updated_at DESC
+		LIMIT 1
+	`, userID).Scan(&n.ClassKey, &n.Level, &n.ClassNumber, &n.Days, &n.Time, &sentAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unread class-sent notification: %w", err)
+	}
+	if sentAt.Valid {
+		n.SentAt = sentAt.Time
+	}
+
+	students, err := GetStudentsForMentorHeadClass(n.ClassKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load class-sent notification students: %w", err)
+	}
+	n.StudentCount = len(students)
 	return n, nil
 }
 

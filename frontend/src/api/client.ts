@@ -725,9 +725,21 @@ export interface ComplaintNotification {
   unread_count: number
 }
 
+export interface ClassSentNotification {
+  class_key: string
+  level: number
+  class_number: number
+  days: string
+  time: string
+  student_count: number
+  sent_at: string
+  unread_count: number
+}
+
 export interface OpsNotificationSummary {
   daily_report?: DailyReportNotification
   complaint?: ComplaintNotification
+  class_sent?: ClassSentNotification
 }
 
 export const api = {
@@ -1155,6 +1167,12 @@ export const api = {
 
   getOpsNotifications: (): Promise<OpsNotificationSummary> =>
     fetchAPI('/notifications/ops'),
+
+  dismissClassSentNotification: (classKey: string): Promise<{ ok: boolean }> =>
+    fetchAPI('/notifications/ops', {
+      method: 'POST',
+      body: JSON.stringify({ class_key: classKey }),
+    }),
 
   markComplaintRead: (complaintId: string): Promise<{ ok: boolean }> =>
     fetchAPI(`/notifications/complaints/${encodeURIComponent(complaintId)}/read`, {

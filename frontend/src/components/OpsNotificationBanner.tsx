@@ -5,6 +5,7 @@ import { api, type OpsNotificationSummary } from '../api/client'
 export default function OpsNotificationBanner({ userRole }: { userRole: string }) {
   const [summary, setSummary] = useState<OpsNotificationSummary | null>(null)
   const [loading, setLoading] = useState(false)
+  const [dismissingClass, setDismissingClass] = useState(false)
   const navigate = useNavigate()
 
   const enabled = userRole === 'mentor_head' || userRole === 'manager'
@@ -36,7 +37,7 @@ export default function OpsNotificationBanner({ userRole }: { userRole: string }
     }
   }, [enabled])
 
-  if (!enabled || loading || !summary || (!summary.daily_report && !summary.complaint)) {
+  if (!enabled || loading || !summary || (!summary.daily_report && !summary.complaint && !summary.class_sent)) {
     return null
   }
 
@@ -64,8 +65,63 @@ export default function OpsNotificationBanner({ userRole }: { userRole: string }
     navigate(`/mentor-head?tab=complaints&complaint_id=${encodeURIComponent(complaint.id)}`)
   }
 
+  async function dismissClassSent() {
+    const item = summary?.class_sent
+    if (!item || dismissingClass) return
+    try {
+      setDismissingClass(true)
+      await api.dismissClassSentNotification(item.class_key)
+      setSummary((current) => (current ? { ...current, class_sent: undefined } : current))
+    } catch (err) {
+      console.warn('Failed to dismiss class-sent notification:', err)
+    } finally {
+      setDismissingClass(false)
+    }
+  }
+
+  function openClassSent() {
+    const item = summary?.class_sent
+    if (!item) return
+    navigate('/mentor-head')
+  }
+
   return (
     <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
+      {summary.class_sent && (
+        <div
+          style={{
+            ...bannerStyle,
+            borderColor: '#198754',
+            background: '#eaf8ef',
+            color: '#0f5132',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <button
+            type="button"
+            onClick={openClassSent}
+            style={{ ...bannerButtonStyle, color: '#0f5132' }}
+          >
+            <strong>New class sent to Mentor Head.</strong>{' '}
+            {summary.class_sent.unread_count > 1 ? `${summary.class_sent.unread_count} unread classes · ` : ''}
+            L{summary.class_sent.level} · Class {summary.class_sent.class_number} · {summary.class_sent.student_count} students
+          </button>
+          <button
+            type="button"
+            onClick={() => void dismissClassSent()}
+            disabled={dismissingClass}
+            aria-label="Dismiss class notification"
+            title="Dismiss"
+            style={dismissButtonStyle}
+          >
+            {dismissingClass ? '…' : '×'}
+          </button>
+        </div>
+      )}
+
       {summary.daily_report && (
         <button
           type="button"
@@ -114,4 +170,29 @@ const bannerStyle = {
   fontSize: '15px',
   lineHeight: 1.45,
   boxShadow: '0 4px 14px rgba(0,0,0,0.06)',
+}
+
+const bannerButtonStyle = {
+  appearance: 'none' as const,
+  background: 'transparent',
+  border: 0,
+  padding: 0,
+  margin: 0,
+  textAlign: 'left' as const,
+  cursor: 'pointer',
+  font: 'inherit',
+  flex: 1,
+}
+
+const dismissButtonStyle = {
+  backgroundColor: 'transparent',
+  color: '#466652',
+  border: '1px solid #b7d6c0',
+  width: '32px',
+  height: '32px',
+  borderRadius: '50%',
+  cursor: 'pointer',
+  fontSize: '18px',
+  lineHeight: 1,
+  flexShrink: 0,
 }

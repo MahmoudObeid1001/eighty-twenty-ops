@@ -4450,9 +4450,9 @@ func (h *APIHandler) ResolveComplaintHandler(w http.ResponseWriter, r *http.Requ
 	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// GetOpsNotifications returns Manager/Mentor Head operational notification banners.
+// GetOpsNotifications returns or dismisses Manager/Mentor Head operational notification banners.
 func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
@@ -4469,7 +4469,29 @@ func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	summary, err := models.GetOpsNotificationSummary(userID, util.CairoNow())
+	if r.Method == http.MethodPost {
+		var req struct {
+			ClassKey string `json:"class_key"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		req.ClassKey = strings.TrimSpace(req.ClassKey)
+		if req.ClassKey == "" {
+			jsonError(w, http.StatusBadRequest, "Class key is required")
+			return
+		}
+		if err := models.MarkClassSentNotificationRead(userID, req.ClassKey); err != nil {
+			log.Printf("ERROR: Failed to mark class-sent notification read: %v", err)
+			jsonError(w, http.StatusInternalServerError, "Failed to dismiss notification")
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+
+	summary, err := models.GetOpsNotificationSummary(userID, role, util.CairoNow())
 	if err != nil {
 		log.Printf("ERROR: Failed to load ops notifications: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load notifications")
