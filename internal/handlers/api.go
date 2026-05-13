@@ -372,6 +372,12 @@ func (h *APIHandler) GetMentorClasses(w http.ResponseWriter, r *http.Request) {
 			Time:         c.ClassTime,
 			ClassNumber:  c.ClassNumber,
 			StudentCount: len(students),
+			SuggestedStartDate: func() string {
+				if c.SuggestedStartDate.Valid && c.RoundStatus != "active" {
+					return util.FormatDateCairo(c.SuggestedStartDate.Time)
+				}
+				return ""
+			}(),
 		})
 	}
 
@@ -652,7 +658,7 @@ func (h *APIHandler) GetMentorHeadClasses(w http.ResponseWriter, r *http.Request
 				ClassNumber:  c.ClassNumber,
 				StudentCount: len(students),
 				SuggestedStartDate: func() string {
-					if c.SuggestedStartDate.Valid {
+					if c.SuggestedStartDate.Valid && c.RoundStatus != "active" {
 						return util.FormatDateCairo(c.SuggestedStartDate.Time)
 					}
 					return ""
@@ -684,7 +690,7 @@ func (h *APIHandler) GetMentorHeadClasses(w http.ResponseWriter, r *http.Request
 			ClassNumber:  c.ClassNumber,
 			StudentCount: len(students),
 			SuggestedStartDate: func() string {
-				if c.SuggestedStartDate.Valid {
+				if c.SuggestedStartDate.Valid && c.RoundStatus != "active" {
 					return util.FormatDateCairo(c.SuggestedStartDate.Time)
 				}
 				return ""
@@ -1822,7 +1828,7 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 			ClassNumber:  c.ClassNumber,
 			SentToMentor: c.SentToMentor,
 			SuggestedStartDate: func() string {
-				if c.SuggestedStartDate.Valid {
+				if c.SuggestedStartDate.Valid && c.RoundStatus != "active" {
 					return util.FormatDateCairo(c.SuggestedStartDate.Time)
 				}
 				return ""

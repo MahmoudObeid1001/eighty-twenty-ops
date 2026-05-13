@@ -81,6 +81,7 @@ export default function MentorDashboard() {
                 </h3>
                 <p style={{ color: '#666', fontSize: '14px', marginBottom: '4px' }}>
                   {cls.days} · {cls.time}
+                  {cls.suggested_start_date && ` · Start date: ${cls.suggested_start_date}`}
                 </p>
                 <p style={{ color: '#666', fontSize: '14px' }}>
                   {cls.student_count} student{cls.student_count !== 1 ? 's' : ''}

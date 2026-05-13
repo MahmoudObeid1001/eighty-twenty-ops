@@ -473,22 +473,8 @@ export default function MentorHeadDashboard() {
                         </h3>
                         <p style={{ color: '#666', fontSize: '13px', marginBottom: '4px' }}>
                           {cls.days} · {cls.time}
+                          {cls.suggested_start_date && ` · Start date: ${cls.suggested_start_date}`}
                         </p>
-                        {cls.suggested_start_date && (
-                          <p style={{ marginBottom: '6px' }}>
-                            <span style={{
-                              display: 'inline-block',
-                              padding: '4px 10px',
-                              background: '#e3f2fd',
-                              color: '#1565c0',
-                              borderRadius: '999px',
-                              fontSize: '12px',
-                              fontWeight: 700
-                            }}>
-                              بداية مقترحة: {cls.suggested_start_date}
-                            </span>
-                          </p>
-                        )}
                         <p style={{ color: '#666', fontSize: '13px', marginBottom: '4px' }}>
                           {cls.student_count} student{cls.student_count !== 1 ? 's' : ''}
                           {!(cls.sent_to_mentor && cls.readiness === 'NOT READY') && ` · ${cls.readiness}`}
