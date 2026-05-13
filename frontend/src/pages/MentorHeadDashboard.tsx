@@ -490,7 +490,8 @@ export default function MentorHeadDashboard() {
                           </p>
                         )}
                         <p style={{ color: '#666', fontSize: '13px', marginBottom: '4px' }}>
-                          {cls.student_count} student{cls.student_count !== 1 ? 's' : ''} · {cls.readiness}
+                          {cls.student_count} student{cls.student_count !== 1 ? 's' : ''}
+                          {!(cls.sent_to_mentor && cls.readiness === 'NOT READY') && ` · ${cls.readiness}`}
                         </p>
                       </div>
 
