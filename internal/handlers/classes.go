@@ -304,15 +304,6 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		classKey = models.GenerateClassKey(int32(level), classDays, classTime, int32(classNumber))
-		// Use the parsed values
-		levelInt, _ := strconv.Atoi(levelStr)
-		classNumberInt, _ := strconv.Atoi(classNumberStr)
-		err = models.SendClassGroupToMentor(classKey, int32(levelInt), classDays, classTime, int32(classNumberInt), suggestedStartDate)
-		if err != nil {
-			log.Printf("ERROR: Failed to send class to mentor: %v", err)
-			redirectWithError(w, r, "/classes", "We couldn't send this class to Mentor Head. Please try again.")
-			return
-		}
 	} else {
 		// Parse class key to get components
 		// Format: "L{level}|{days}|{time}|{index}"
@@ -337,12 +328,37 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 			redirectWithError(w, r, "/classes", "Suggested start date must match the class days.")
 			return
 		}
-		err = models.SendClassGroupToMentor(classKey, int32(level), classDays, parts[2], int32(classNumber), suggestedStartDate)
-		if err != nil {
-			log.Printf("ERROR: Failed to send class to mentor: %v", err)
-			redirectWithError(w, r, "/classes", "We couldn't send this class to Mentor Head. Please try again.")
-			return
-		}
+		levelStr = strconv.Itoa(level)
+		classNumberStr = strconv.Itoa(classNumber)
+		classTime = parts[2]
+	}
+
+	students, err := models.GetStudentsInClassGroup(classKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to load class roster before send: %v", err)
+		redirectWithError(w, r, "/classes", "We couldn't verify this class roster. Please refresh and try again.")
+		return
+	}
+	if userRole != "manager" && len(students) < 4 {
+		redirectWithError(w, r, "/classes", "Admin can only send classes with 4 students or more to Mentor Head.")
+		return
+	}
+
+	levelInt, err := strconv.Atoi(levelStr)
+	if err != nil {
+		redirectWithError(w, r, "/classes", "Please choose a valid level.")
+		return
+	}
+	classNumberInt, err := strconv.Atoi(classNumberStr)
+	if err != nil {
+		redirectWithError(w, r, "/classes", "Please choose a valid class number.")
+		return
+	}
+	err = models.SendClassGroupToMentor(classKey, int32(levelInt), classDays, classTime, int32(classNumberInt), suggestedStartDate)
+	if err != nil {
+		log.Printf("ERROR: Failed to send class to mentor: %v", err)
+		redirectWithError(w, r, "/classes", "We couldn't send this class to Mentor Head. Please try again.")
+		return
 	}
 
 	http.Redirect(w, r, "/classes?sent=1", http.StatusFound)
