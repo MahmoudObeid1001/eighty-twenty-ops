@@ -333,13 +333,25 @@ func (h *ClassesHandler) SendToMentor(w http.ResponseWriter, r *http.Request) {
 		classTime = parts[2]
 	}
 
-	students, err := models.GetStudentsInClassGroup(classKey)
+	groups, err := models.GetClassGroups()
 	if err != nil {
-		log.Printf("ERROR: Failed to load class roster before send: %v", err)
+		log.Printf("ERROR: Failed to load class groups before send: %v", err)
 		redirectWithError(w, r, "/classes", "We couldn't verify this class roster. Please refresh and try again.")
 		return
 	}
-	if userRole != "manager" && len(students) < 4 {
+
+	studentCount := -1
+	for _, group := range groups {
+		if group.ClassKey == classKey {
+			studentCount = group.StudentCount
+			break
+		}
+	}
+	if studentCount == -1 {
+		redirectWithError(w, r, "/classes", "We couldn't find that class. Please refresh and try again.")
+		return
+	}
+	if userRole != "manager" && studentCount < 4 {
 		redirectWithError(w, r, "/classes", "Admin can only send classes with 4 students or more to Mentor Head.")
 		return
 	}
