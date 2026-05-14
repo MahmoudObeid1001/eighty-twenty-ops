@@ -2423,9 +2423,13 @@ func UpsertBookingAndShipping(booking *Booking, shipping *Shipping) error {
 	return nil
 }
 
-// BookPlacementTest updates placement test fields and sets status to "test_booked"
-// This is a lightweight update that doesn't require offer/pricing fields
-func BookPlacementTest(leadID uuid.UUID, testDate sql.NullTime, testTime sql.NullString, testType sql.NullString, testNotes sql.NullString) error {
+// BookPlacementTest updates placement test fields and sets status to "test_booked".
+// This is a lightweight update that doesn't require offer/pricing fields.
+func BookPlacementTest(leadID uuid.UUID, placementTest *PlacementTest) error {
+	if placementTest == nil {
+		return fmt.Errorf("placement test details are required")
+	}
+
 	tx, err := db.DB.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -2435,23 +2439,37 @@ func BookPlacementTest(leadID uuid.UUID, testDate sql.NullTime, testTime sql.Nul
 	}()
 
 	now := time.Now()
+	placementTestFee := sql.NullInt32{Int32: 60, Valid: true}
+	if placementTest.PlacementTestFee.Valid {
+		placementTestFee = placementTest.PlacementTestFee
+	}
+	placementTestFeePaid := sql.NullInt32{Int32: 0, Valid: true}
+	if placementTest.PlacementTestFeePaid.Valid {
+		placementTestFeePaid = placementTest.PlacementTestFeePaid
+	}
 
-	// Update or insert placement test with default fee of 60 if not exists
+	// Update or insert placement test with default fee of 60 if not exists.
 	_, err = tx.Exec(`
-		INSERT INTO placement_tests (id, lead_id, test_date, test_time, test_type, test_notes, placement_test_fee, placement_test_fee_paid, updated_at)
-		VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, 60, 0, $6)
+		INSERT INTO placement_tests (
+			id, lead_id, test_date, test_time, test_type, test_notes,
+			placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
+		)
+		VALUES (
+			COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()),
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+		)
 		ON CONFLICT (lead_id) DO UPDATE SET
 			test_date = EXCLUDED.test_date,
 			test_time = EXCLUDED.test_time,
 			test_type = EXCLUDED.test_type,
 			test_notes = EXCLUDED.test_notes,
-			placement_test_fee = CASE
-				WHEN COALESCE(placement_tests.placement_test_fee_paid, 0) = 0
-				 AND COALESCE(placement_tests.placement_test_fee, 100) = 100 THEN 60
-				ELSE COALESCE(placement_tests.placement_test_fee, 60)
-			END,
+			placement_test_fee = COALESCE(EXCLUDED.placement_test_fee, placement_tests.placement_test_fee, 60),
+			placement_test_fee_paid = COALESCE(EXCLUDED.placement_test_fee_paid, placement_tests.placement_test_fee_paid, 0),
+			placement_test_payment_date = EXCLUDED.placement_test_payment_date,
+			placement_test_payment_method = EXCLUDED.placement_test_payment_method,
 			updated_at = EXCLUDED.updated_at
-	`, leadID, testDate, testTime, testType, testNotes, now)
+	`, leadID, placementTest.TestDate, placementTest.TestTime, placementTest.TestType, placementTest.TestNotes,
+		placementTestFee, placementTestFeePaid, placementTest.PlacementTestPaymentDate, placementTest.PlacementTestPaymentMethod, now)
 	if err != nil {
 		return fmt.Errorf("failed to upsert placement test: %w", err)
 	}
@@ -4990,8 +5008,13 @@ func CreateRevenue(category string, amount int32, paymentMethod string, transact
 
 // UpsertPlacementTestIncome creates or updates a finance transaction for placement test payment
 func UpsertPlacementTestIncome(leadID uuid.UUID, amountPaid int32, paymentDate sql.NullTime, paymentMethod sql.NullString) error {
+	refKey := fmt.Sprintf("lead:%s:placement_test", leadID.String())
+
 	if amountPaid <= 0 {
-		// No payment, nothing to sync
+		_, err := db.DB.Exec(`DELETE FROM transactions WHERE ref_key = $1`, refKey)
+		if err != nil {
+			return fmt.Errorf("failed to delete placement test income: %w", err)
+		}
 		return nil
 	}
 
@@ -5008,8 +5031,6 @@ func UpsertPlacementTestIncome(leadID uuid.UUID, amountPaid int32, paymentDate s
 		return fmt.Errorf("payment method is required")
 	}
 
-	// Create unique ref_key for idempotency
-	refKey := fmt.Sprintf("lead:%s:placement_test", leadID.String())
 	refIDStr := leadID.String()
 	paymentDateValue := paymentDate.Time.Format("2006-01-02")
 	now := time.Now()

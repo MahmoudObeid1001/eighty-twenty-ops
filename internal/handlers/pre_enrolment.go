@@ -1841,6 +1841,113 @@ func normalizeLegacyPlacementTestFee(pt *models.PlacementTest) {
 	}
 }
 
+func buildBookedPlacementTestFromRequest(leadID uuid.UUID, existing *models.PlacementTest, r *http.Request) (*models.PlacementTest, error) {
+	testDate := strings.TrimSpace(r.FormValue("test_date"))
+	testTime := strings.TrimSpace(r.FormValue("test_time"))
+	testType := strings.TrimSpace(r.FormValue("test_type"))
+	if testDate == "" || testTime == "" || testType == "" {
+		return nil, fmt.Errorf("Please choose the test date, time, and type.")
+	}
+
+	baseFee := int32(60)
+	paidAmount := int32(0)
+	discountValue := sql.NullInt32{}
+	discountType := sql.NullString{}
+	if existing != nil {
+		if existing.PlacementTestFee.Valid {
+			baseFee = existing.PlacementTestFee.Int32
+		}
+		if existing.PlacementTestFeePaid.Valid {
+			paidAmount = existing.PlacementTestFeePaid.Int32
+		}
+		discountValue = existing.DiscountValue
+		discountType = existing.DiscountType
+	}
+	if feeStr := strings.TrimSpace(r.FormValue("placement_test_fee")); feeStr != "" {
+		if fee, err := strconv.Atoi(feeStr); err == nil {
+			baseFee = int32(fee)
+		}
+	}
+	if paidStr := strings.TrimSpace(r.FormValue("placement_test_fee_paid")); paidStr != "" {
+		if paid, err := strconv.Atoi(paidStr); err == nil {
+			paidAmount = int32(paid)
+		}
+	}
+	if discountValueStr := strings.TrimSpace(r.FormValue("placement_test_discount_value")); discountValueStr != "" {
+		if dv, err := strconv.Atoi(discountValueStr); err == nil {
+			discountValue = sql.NullInt32{Int32: int32(dv), Valid: true}
+		}
+	}
+	if discountTypeStr := strings.TrimSpace(r.FormValue("placement_test_discount_type")); discountTypeStr == "amount" || discountTypeStr == "percent" {
+		discountType = sql.NullString{String: discountTypeStr, Valid: true}
+	}
+
+	requiredFee := computePlacementTestFinalFee(baseFee, discountValue, discountType)
+	if paidAmount < requiredFee {
+		return nil, fmt.Errorf("Placement test fee must be paid in full (%d EGP) before booking the test.", requiredFee)
+	}
+
+	pt := &models.PlacementTest{
+		LeadID:               leadID,
+		PlacementTestFee:     sql.NullInt32{Int32: baseFee, Valid: true},
+		PlacementTestFeePaid: sql.NullInt32{Int32: paidAmount, Valid: true},
+	}
+	if t, err := time.Parse("2006-01-02", testDate); err == nil {
+		pt.TestDate = sql.NullTime{Time: t, Valid: true}
+	}
+	if testTime != "" {
+		pt.TestTime = sql.NullString{String: testTime, Valid: true}
+	}
+	if testType != "" {
+		pt.TestType = sql.NullString{String: testType, Valid: true}
+	}
+	if notes := strings.TrimSpace(r.FormValue("test_notes")); notes != "" {
+		pt.TestNotes = sql.NullString{String: notes, Valid: true}
+	}
+
+	if paidAmount > 0 {
+		paymentDateStr := strings.TrimSpace(r.FormValue("placement_test_payment_date"))
+		switch {
+		case paymentDateStr != "":
+			t, err := util.ParseDateLocal(paymentDateStr)
+			if err != nil {
+				return nil, fmt.Errorf("Invalid payment date for placement test.")
+			}
+			if err := util.ValidateNotFutureDate(t); err != nil {
+				return nil, fmt.Errorf("Payment date cannot be in the future")
+			}
+			pt.PlacementTestPaymentDate = sql.NullTime{Time: t, Valid: true}
+		case existing != nil && existing.PlacementTestPaymentDate.Valid:
+			pt.PlacementTestPaymentDate = existing.PlacementTestPaymentDate
+		default:
+			return nil, fmt.Errorf("Payment date is required when placement test fee is paid.")
+		}
+
+		paymentMethod := strings.TrimSpace(r.FormValue("placement_test_payment_method"))
+		switch {
+		case paymentMethod != "":
+			pt.PlacementTestPaymentMethod = sql.NullString{String: paymentMethod, Valid: true}
+		case existing != nil && existing.PlacementTestPaymentMethod.Valid:
+			pt.PlacementTestPaymentMethod = existing.PlacementTestPaymentMethod
+		default:
+			return nil, fmt.Errorf("Payment method is required when placement test fee is paid.")
+		}
+	}
+
+	return pt, nil
+}
+
+func syncPlacementTestFinanceForBooking(leadID uuid.UUID, placementTest *models.PlacementTest) error {
+	if placementTest == nil {
+		return nil
+	}
+	amountPaid := int32(0)
+	if placementTest.PlacementTestFeePaid.Valid {
+		amountPaid = placementTest.PlacementTestFeePaid.Int32
+	}
+	return models.UpsertPlacementTestIncome(leadID, amountPaid, placementTest.PlacementTestPaymentDate, placementTest.PlacementTestPaymentMethod)
+}
+
 func computedRemainingCredits(lead *models.Lead) int32 {
 	if lead == nil {
 		return 0
@@ -2020,80 +2127,21 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			h.renderDetailWithError(w, r, leadID, "Placement test booking is locked for returning students. Keep the promoted level and continue with renewal payment flow.")
 			return
 		}
-
-		// Validate placement test fields
-		testDate := r.FormValue("test_date")
-		testTime := r.FormValue("test_time")
-		testType := r.FormValue("test_type")
-		if testDate == "" || testTime == "" || testType == "" {
-			log.Printf("ERROR: Validation failed for mark_test_booked: test_date=%q, test_time=%q, test_type=%q", testDate, testTime, testType)
-			http.Error(w, "Please choose the test date, time, and type.", http.StatusBadRequest)
+		placementTest, err := buildBookedPlacementTestFromRequest(leadID, existingDetail.PlacementTest, r)
+		if err != nil {
+			h.renderDetailWithError(w, r, leadID, err.Error())
 			return
 		}
 
-		// Validate placement-test fee settlement against discounted final fee.
-		baseFee := int32(60)
-		paidAmount := int32(0)
-		discountValue := sql.NullInt32{}
-		discountType := sql.NullString{}
-		if existingDetail.PlacementTest != nil {
-			if existingDetail.PlacementTest.PlacementTestFee.Valid {
-				baseFee = existingDetail.PlacementTest.PlacementTestFee.Int32
-			}
-			if existingDetail.PlacementTest.PlacementTestFeePaid.Valid {
-				paidAmount = existingDetail.PlacementTest.PlacementTestFeePaid.Int32
-			}
-			discountValue = existingDetail.PlacementTest.DiscountValue
-			discountType = existingDetail.PlacementTest.DiscountType
-		}
-		if feeStr := strings.TrimSpace(r.FormValue("placement_test_fee")); feeStr != "" {
-			if fee, parseErr := strconv.Atoi(feeStr); parseErr == nil {
-				baseFee = int32(fee)
-			}
-		}
-		if paidStr := strings.TrimSpace(r.FormValue("placement_test_fee_paid")); paidStr != "" {
-			if paid, parseErr := strconv.Atoi(paidStr); parseErr == nil {
-				paidAmount = int32(paid)
-			}
-		}
-		if discountValueStr := strings.TrimSpace(r.FormValue("placement_test_discount_value")); discountValueStr != "" {
-			if dv, parseErr := strconv.Atoi(discountValueStr); parseErr == nil {
-				discountValue = sql.NullInt32{Int32: int32(dv), Valid: true}
-			}
-		}
-		if discountTypeStr := strings.TrimSpace(r.FormValue("placement_test_discount_type")); discountTypeStr != "" {
-			if discountTypeStr == "amount" || discountTypeStr == "percent" {
-				discountType = sql.NullString{String: discountTypeStr, Valid: true}
-			}
-		}
-		requiredFee := computePlacementTestFinalFee(baseFee, discountValue, discountType)
-		if paidAmount < requiredFee {
-			h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Placement test fee must be paid in full (%d EGP) before booking the test.", requiredFee))
-			return
-		}
-
-		// Parse and book test
-		var testDateVal sql.NullTime
-		if t, err := time.Parse("2006-01-02", testDate); err == nil {
-			testDateVal = sql.NullTime{Time: t, Valid: true}
-		}
-		var testTimeVal sql.NullString
-		if testTime != "" {
-			testTimeVal = sql.NullString{String: testTime, Valid: true}
-		}
-		var testTypeVal sql.NullString
-		if testType != "" {
-			testTypeVal = sql.NullString{String: testType, Valid: true}
-		}
-		var testNotes sql.NullString
-		if notes := r.FormValue("test_notes"); notes != "" {
-			testNotes = sql.NullString{String: notes, Valid: true}
-		}
-
-		err = models.BookPlacementTest(leadID, testDateVal, testTimeVal, testTypeVal, testNotes)
+		err = models.BookPlacementTest(leadID, placementTest)
 		if err != nil {
 			log.Printf("ERROR: Failed to book placement test: %v", err)
 			http.Error(w, "Couldn't book the placement test. Please try again.", http.StatusInternalServerError)
+			return
+		}
+		if err := syncPlacementTestFinanceForBooking(leadID, placementTest); err != nil {
+			log.Printf("ERROR: Failed to sync placement test finance transaction: %v", err)
+			h.renderDetailWithError(w, r, leadID, "Couldn't sync the placement test payment. Please try again.")
 			return
 		}
 
@@ -5162,36 +5210,24 @@ func (h *PreEnrolmentHandler) BookTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse placement test fields
-	var testDate sql.NullTime
-	if dateStr := r.FormValue("test_date"); dateStr != "" {
-		if t, err := time.Parse("2006-01-02", dateStr); err == nil {
-			testDate = sql.NullTime{Time: t, Valid: true}
-		}
+	placementTest, err := buildBookedPlacementTestFromRequest(leadID, detail.PlacementTest, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
-	var testTime sql.NullString
-	if timeStr := r.FormValue("test_time"); timeStr != "" {
-		testTime = sql.NullString{String: timeStr, Valid: true}
-	}
+	h.cfg.Debugf("📅 BookTest: leadID=%s, testDate=%v, testTime=%v, testType=%v", leadID, placementTest.TestDate, placementTest.TestTime, placementTest.TestType)
 
-	var testType sql.NullString
-	if typeStr := r.FormValue("test_type"); typeStr != "" {
-		testType = sql.NullString{String: typeStr, Valid: true}
-	}
-
-	var testNotes sql.NullString
-	if notesStr := r.FormValue("test_notes"); notesStr != "" {
-		testNotes = sql.NullString{String: notesStr, Valid: true}
-	}
-
-	h.cfg.Debugf("📅 BookTest: leadID=%s, testDate=%v, testTime=%v, testType=%v", leadID, testDate, testTime, testType)
-
-	// Book the placement test (updates test fields and sets status to test_booked)
-	err = models.BookPlacementTest(leadID, testDate, testTime, testType, testNotes)
+	// Book the placement test (updates test fields and sets status to test_booked).
+	err = models.BookPlacementTest(leadID, placementTest)
 	if err != nil {
 		log.Printf("ERROR: Failed to book placement test: %v", err)
 		http.Error(w, "Couldn't book the placement test. Please try again.", http.StatusInternalServerError)
+		return
+	}
+	if err := syncPlacementTestFinanceForBooking(leadID, placementTest); err != nil {
+		log.Printf("ERROR: Failed to sync placement test finance transaction: %v", err)
+		http.Error(w, "Couldn't sync the placement test payment. Please try again.", http.StatusInternalServerError)
 		return
 	}
 
