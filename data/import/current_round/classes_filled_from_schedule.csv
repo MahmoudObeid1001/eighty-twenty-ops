@@ -1,0 +1,12 @@
+class_key,level,class_days,class_time,class_number,mentor_email,current_session_number
+L1|Mon/Thu|07:30|1,Level 1,Monday/Thursday ,7;30 P.M,1,amanyaboelmaaty2014@gmail.com,Session 1
+L2|Sat/Tues|10:00|1,Level 2,Saturday/Tuesday,10:00 P.M,1,sarasalahmohamed1998@gmail.com,Session 1
+L2|Sun/Wed|07:30|2,Level 2,Sunday/Wednesday,7:30 P.M,2,asmaa.yehia.mohamad@gmail.com,Session 1
+L2|Sun/Wed|10:00|3,Level 2,Sunday/Wednesday,10:00 P.M,3,amanyaboelmaaty2014@gmail.com,Session 1
+L3|Sun/Wed|10:00|1,Level 3,Sunday/Wednesday,10:00 P.M,1,sarasalahmohamed1998@gmail.com,Session 1
+L4|Sat/Tues|10:00|1,Level 4,Saturday/Tuesday,10:00 P.M,1,nadaadel722@gmail.com,Session 1
+L4|Mon/Thu|07:30|2,Level 4,Monday/Thursday ,7:30 P.M,2,nadaadel722@gmail.com,Session 1
+L5|Sun/Wed|07:30|1,Level 5,Sunday/Wednesday,7:30 P.M,1,mahmoudnabilma@gmail.com,Session 1
+L6|Sat/Tues|07:30|1,Level 6,Saturday/Tuesday,7:30 P.M,1,mahmoudnabilma@gmail.com,Session 1
+L6|Sun/Wed|10:00|2,Level 6,Sunday/Wednesday,10:00 P.M,2,Mohammed Abdel Gawad,Session 1
+L7|Sat/Tues|07:30|1,Level 7,Saturday/Tuesday,7:30 P.M,1,Mohammed Abdel Gawad,Session 1

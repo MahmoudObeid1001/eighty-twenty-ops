@@ -1,0 +1,103 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Length 1922 >>
+stream
+BT
+/F1 18 Tf
+50 800 Td
+/F2 18 Tf
+(Lead to Returning Student Journey) Tj
+0 -16 Td
+/F1 11 Tf
+(A simple summary of what happens from first lead stage to returning student stage.) Tj
+0 -20 Td
+/F2 13 Tf
+() Tj
+0 -20 Td
+(1. Lead Journey) Tj
+0 -16 Td
+/F1 11 Tf
+(A person enters the system as a new lead.) Tj
+0 -16 Td
+(Ops books the placement test.) Tj
+0 -16 Td
+(Student Success records the result and assigned level.) Tj
+0 -16 Td
+(Ops sends the offer and records payment.) Tj
+0 -16 Td
+(After payment, the student moves to Waiting for Round, then Ready to Start, then In Classes.) Tj
+0 -20 Td
+/F2 13 Tf
+(2. Student Journey) Tj
+0 -16 Td
+/F1 11 Tf
+(The student attends the class, sessions are completed, and grades and attendance are recorded.) Tj
+0 -16 Td
+(At the end of the level, Mentor Head closes the round.) Tj
+0 -20 Td
+/F2 13 Tf
+(3. What Happens After the Level Ends?) Tj
+0 -16 Td
+/F1 11 Tf
+(Case A: If the student already has prepaid credit for the next level,) Tj
+0 -16 Td
+(the system moves the student to Waiting for Round.) Tj
+0 -16 Td
+(This means the student is already paid in full for the next step.) Tj
+0 -16 Td
+(Case B: If the student has no remaining prepaid credit,) Tj
+0 -16 Td
+(the system moves the student to Renewal Pending.) Tj
+0 -16 Td
+(Ops must then send a new offer and collect the next payment.) Tj
+0 -20 Td
+/F2 13 Tf
+(4. Returning Student Journey) Tj
+0 -16 Td
+/F1 11 Tf
+(If status is Waiting for Round, the next action is scheduling and class placement.) Tj
+0 -16 Td
+(If status is Renewal Pending, the next action is offer, payment, then scheduling.) Tj
+0 -16 Td
+(After that, the student returns to Ready to Start and then In Classes again.) Tj
+0 -20 Td
+/F2 13 Tf
+(5. Simple Flow) Tj
+0 -16 Td
+/F1 11 Tf
+(New Lead -> Test Booked -> Tested -> Offer Sent -> Payment -> Waiting for Round) Tj
+0 -16 Td
+(-> Ready to Start -> In Classes -> Level Ends -> Renewal Pending or Paid in Full / Waiting for Round) Tj
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000257 00000 n 
+0000000327 00000 n 
+0000000402 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+2376
+%%EOF

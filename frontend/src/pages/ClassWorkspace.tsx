@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, ClassDetail, ClassTransferOption, GradePreview, Student, StudentReportCardData } from '../api/client'
+import { AbsenceFeedItem, api, ClassDetail, ClassTransferOption, FollowUpCaseNote, GradePreview, Student, StudentReportCardData } from '../api/client'
 import StudentModal from '../components/StudentModal'
 import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import ComplianceModal from '../components/ComplianceModal'
@@ -49,19 +49,19 @@ export default function ClassWorkspace() {
   const [confirmSessionId, setConfirmSessionId] = useState<string | null>(null)
   const [confirmSessionNumber, setConfirmSessionNumber] = useState<number | null>(null)
 
-  const [activeTab, setActiveTabState] = useState<'sessions' | 'grades' | 'feedback_collected'>(() => {
+  const [activeTab, setActiveTabState] = useState<'sessions' | 'grades' | 'feedback_collected' | 'absence_followup'>(() => {
     const tabParam = new URLSearchParams(window.location.search).get('tab')
-    if (tabParam === 'grades' || tabParam === 'feedback_collected' || tabParam === 'sessions') {
+    if (tabParam === 'grades' || tabParam === 'feedback_collected' || tabParam === 'sessions' || tabParam === 'absence_followup') {
       return tabParam as any
     }
     const savedTab = localStorage.getItem(`class_workspace_tab:${classKey}`)
-    if (savedTab === 'grades' || savedTab === 'feedback_collected' || savedTab === 'sessions') {
+    if (savedTab === 'grades' || savedTab === 'feedback_collected' || savedTab === 'sessions' || savedTab === 'absence_followup') {
       return savedTab as any
     }
     return 'sessions'
   })
 
-  const setActiveTab = (tab: 'sessions' | 'grades' | 'feedback_collected') => {
+  const setActiveTab = (tab: 'sessions' | 'grades' | 'feedback_collected' | 'absence_followup') => {
     setActiveTabState(tab)
     if (classKey) {
       localStorage.setItem(`class_workspace_tab:${classKey}`, tab)
@@ -553,6 +553,7 @@ export default function ClassWorkspace() {
 
   const canEditGrades = userRole === 'mentor' || userRole === 'mentor_head'
   const canViewFeedbackCollected = userRole === 'mentor_head' || userRole === 'admin'
+  const canViewAbsenceFollowUp = userRole === 'mentor_head' || userRole === 'manager'
   const canOpenCompliance = userRole === 'student_success'
 
   if (loading && !classData) {
@@ -772,6 +773,26 @@ export default function ClassWorkspace() {
             }}
           >
             Feedback Collected
+          </button>
+        )}
+        {canViewAbsenceFollowUp && (
+          <button
+            onClick={() => setActiveTab('absence_followup')}
+            style={{
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+              padding: '12px 0',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'absence_followup' ? '3px solid #007bff' : '3px solid transparent',
+              color: activeTab === 'absence_followup' ? '#007bff' : '#666',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontSize: '16px',
+              marginBottom: '-1px',
+            }}
+          >
+            Absence Follow-up
           </button>
         )}
         {canOpenCompliance && (
@@ -1129,6 +1150,10 @@ export default function ClassWorkspace() {
           <div style={{ marginBottom: '12px', color: '#666', fontSize: '13px' }}>Feedback Collected is read-only for Mentor Head.</div>
           <FeedbackCollectedTab classKey={classKey} students={classData.students} canEdit={false} />
         </div>
+      )}
+
+      {activeTab === 'absence_followup' && (
+        <MentorHeadAbsenceFollowUpTab classKey={classKey} setActionError={setActionError} />
       )}
 
       {activeTab === 'grades' && (
@@ -1891,4 +1916,226 @@ export default function ClassWorkspace() {
       )}
     </div>
   )
+}
+
+function MentorHeadAbsenceFollowUpTab({ classKey, setActionError }: { classKey: string; setActionError: (error: string | null) => void }) {
+  const [items, setItems] = useState<AbsenceFeedItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'unresolved' | 'resolved' | 'all'>('unresolved')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    void loadItems()
+  }, [classKey, filter])
+
+  async function loadItems() {
+    try {
+      setLoading(true)
+      setActionError(null)
+      const data = await api.getAbsenceFeed(classKey, filter)
+      setItems(data || [])
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to load absence follow-up')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const summary = useMemo(() => {
+    const unresolved = items.filter((item) => item.followUp && !item.followUp.resolved).length
+    const resolved = items.filter((item) => item.followUp?.resolved).length
+    const missing = items.filter((item) => !item.followUp).length
+    return { unresolved, resolved, missing }
+  }, [items])
+
+  const toggleExpanded = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  if (loading) {
+    return <p style={{ padding: '20px' }}>Loading absence follow-up...</p>
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: '16px' }}>
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #dee2e6', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '20px', marginBottom: '6px' }}>Student Success Follow-up</h2>
+            <p style={{ color: '#6c757d', fontSize: '14px', margin: 0 }}>
+              Read-only visibility into what Student Success did for absent students in this class.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <SummaryPill label="Unresolved" value={summary.unresolved} tone="warning" />
+            <SummaryPill label="Resolved" value={summary.resolved} tone="success" />
+            <SummaryPill label="No SS follow-up yet" value={summary.missing} tone="neutral" />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        {(['unresolved', 'resolved', 'all'] as const).map((value) => (
+          <button
+            key={value}
+            onClick={() => setFilter(value)}
+            style={{
+              padding: '8px 14px',
+              borderRadius: '999px',
+              border: '1px solid #dee2e6',
+              background: filter === value ? '#007bff' : '#fff',
+              color: filter === value ? '#fff' : '#495057',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              textTransform: 'capitalize',
+            }}
+          >
+            {value}
+          </button>
+        ))}
+      </div>
+
+      {items.length === 0 ? (
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #dee2e6', padding: '32px', color: '#6c757d', textAlign: 'center' }}>
+          No absence follow-up cases found for this filter.
+        </div>
+      ) : (
+        items.map((item) => {
+          const rowKey = `${item.studentId}:${item.sessionNumber}`
+          const isExpanded = expanded.has(rowKey)
+          const followUp = item.followUp
+          const statusLabel = followUp?.resolved ? 'RESOLVED' : (followUp?.status || 'NO_FOLLOW_UP')
+          const latestNote = followUp?.lastNote || 'Student Success has not added a follow-up note yet.'
+
+          return (
+            <div key={rowKey} style={{ background: 'white', borderRadius: '12px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => toggleExpanded(rowKey)}
+                style={{ width: '100%', background: 'transparent', border: 'none', padding: '18px 20px', textAlign: 'left', cursor: 'pointer' }}
+              >
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1.2fr) minmax(160px, 0.7fr) minmax(260px, 1fr) auto', gap: '16px', alignItems: 'start' }}>
+                  <div>
+                    <div style={{ fontSize: '17px', fontWeight: 700, color: '#212529', marginBottom: '4px' }}>{item.studentName}</div>
+                    <div style={{ color: '#6c757d', fontSize: '14px' }}>{item.studentPhone}</div>
+                    <div style={{ color: '#6c757d', fontSize: '13px', marginTop: '8px' }}>
+                      Session {item.sessionNumber} · {item.sessionDate} · {item.startTime}
+                    </div>
+                  </div>
+                  <div>
+                    <StatusBadge status={statusLabel} />
+                    <div style={{ color: '#6c757d', fontSize: '12px', marginTop: '8px' }}>
+                      Attendance: {item.status}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#495057', marginBottom: '6px' }}>Latest SS update</div>
+                    <div style={{ color: '#212529', fontSize: '14px', lineHeight: 1.45 }}>{latestNote}</div>
+                    {followUp?.updatedAt && (
+                      <div style={{ color: '#6c757d', fontSize: '12px', marginTop: '8px' }}>
+                        Updated {formatAuditDateTimeLabel(followUp.updatedAt)}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ color: '#6c757d', fontSize: '13px', fontWeight: 700 }}>
+                    {isExpanded ? 'Hide history' : 'View history'}
+                  </div>
+                </div>
+              </button>
+
+              {isExpanded && (
+                <div style={{ borderTop: '1px solid #eef2f4', background: '#f8fafc', padding: '18px 20px' }}>
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    <div style={{ color: '#495057', fontSize: '13px' }}>
+                      <strong>Marked absent by mentor:</strong> {item.markedBy} on {formatAuditDateTimeLabel(item.markedAt)}
+                    </div>
+                    {item.mentorNote && (
+                      <div style={{ color: '#495057', fontSize: '13px' }}>
+                        <strong>Mentor note:</strong> {item.mentorNote}
+                      </div>
+                    )}
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      {(followUp?.notes && followUp.notes.length > 0 ? followUp.notes : []).map((note) => (
+                        <HistoryCard key={note.id} note={note} />
+                      ))}
+                      {(!followUp?.notes || followUp.notes.length === 0) && (
+                        <div style={{ padding: '14px', borderRadius: '10px', background: 'white', border: '1px dashed #ced4da', color: '#6c757d', fontSize: '13px' }}>
+                          No Student Success history yet for this absence.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
+function SummaryPill({ label, value, tone }: { label: string; value: number; tone: 'warning' | 'success' | 'neutral' }) {
+  const palette = tone === 'warning'
+    ? { bg: '#fff3cd', color: '#856404', border: '#ffe69c' }
+    : tone === 'success'
+      ? { bg: '#d1e7dd', color: '#0f5132', border: '#badbcc' }
+      : { bg: '#e9ecef', color: '#495057', border: '#dee2e6' }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '999px', background: palette.bg, color: palette.color, border: `1px solid ${palette.border}`, fontSize: '13px', fontWeight: 700 }}>
+      <span>{label}</span>
+      <span>{value}</span>
+    </span>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const normalized = status.toUpperCase()
+  let palette = { bg: '#e9ecef', color: '#495057' }
+  if (normalized === 'RESOLVED') palette = { bg: '#d1e7dd', color: '#0f5132' }
+  else if (normalized === 'CONTACTED') palette = { bg: '#cff4fc', color: '#055160' }
+  else if (normalized === 'NOT_REPLIED' || normalized === 'NO_RESPONSE') palette = { bg: '#f8d7da', color: '#842029' }
+  else if (normalized === 'NOT_CONTACTED') palette = { bg: '#fff3cd', color: '#856404' }
+
+  return (
+    <span style={{ display: 'inline-block', padding: '6px 10px', borderRadius: '999px', background: palette.bg, color: palette.color, fontSize: '12px', fontWeight: 800 }}>
+      {normalized.split('_').join(' ')}
+    </span>
+  )
+}
+
+function HistoryCard({ note }: { note: FollowUpCaseNote }) {
+  return (
+    <div style={{ padding: '14px', borderRadius: '10px', background: 'white', border: '1px solid #e9ecef' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '12px', fontWeight: 800, color: '#495057', textTransform: 'uppercase' }}>
+          {note.note_type.split('_').join(' ')}
+        </span>
+        <span style={{ fontSize: '12px', color: '#6c757d' }}>{formatAuditDateTimeLabel(note.created_at)}</span>
+      </div>
+      <div style={{ fontSize: '14px', color: '#212529', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{note.note_text}</div>
+      {note.created_by_email && (
+        <div style={{ fontSize: '12px', color: '#6c757d', marginTop: '8px' }}>{note.created_by_email}</div>
+      )}
+    </div>
+  )
+}
+
+function formatAuditDateTimeLabel(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
 }

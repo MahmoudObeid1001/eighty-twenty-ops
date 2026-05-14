@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lead to Returning Student Journey</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #5a657a;
+      --line: #d9e1ec;
+      --accent: #0f766e;
+      --soft: #eef8f6;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background: white;
+    }
+
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      padding: 14mm 15mm 12mm;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 6mm;
+      font-size: 24px;
+      line-height: 1.1;
+    }
+
+    .intro {
+      margin: 0 0 7mm;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6mm;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 5mm;
+      background: #fff;
+    }
+
+    .card h2 {
+      margin: 0 0 3mm;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .card p {
+      margin: 0 0 3mm;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .flow {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .flow li {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink);
+      background: var(--soft);
+      border: 1px solid #c8ebe5;
+      border-radius: 999px;
+      padding: 7px 10px;
+    }
+
+    .section {
+      margin-top: 6mm;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 5mm;
+    }
+
+    .section h2 {
+      margin: 0 0 3mm;
+      font-size: 16px;
+    }
+
+    .columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 4mm;
+    }
+
+    .mini {
+      background: #fafcfe;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 4mm;
+    }
+
+    .mini h3 {
+      margin: 0 0 2mm;
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    .mini p {
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .footer {
+      margin-top: 6mm;
+      font-size: 11px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      padding-top: 4mm;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Lead to Returning Student Journey</h1>
+    <p class="intro">
+      This page explains, in simple English, what happens from the first lead stage until the student finishes a level and becomes either
+      <strong>Renewal Pending</strong> or <strong>Paid in Full / Waiting for Round</strong>.
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>1. Lead Journey</h2>
+        <p>The person enters the system as a lead. The team books the placement test, records the result, prepares the offer, and records payment.</p>
+        <ul class="flow">
+          <li>New Lead</li>
+          <li>Test Booked</li>
+          <li>Tested</li>
+          <li>Offer Sent</li>
+          <li>Payment Recorded</li>
+          <li>Waiting for Round</li>
+          <li>Ready to Start</li>
+          <li>In Classes</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>2. Student Journey</h2>
+        <p>After the student joins a class, they attend the level, receive grades and attendance tracking, and then the round is closed.</p>
+        <ul class="flow">
+          <li>In Classes</li>
+          <li>Attend Sessions</li>
+          <li>Grade + Attendance</li>
+          <li>Round Closed</li>
+          <li>Promoted or Repeated</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>3. What Happens After the Level Ends?</h2>
+      <div class="columns">
+        <div class="mini">
+          <h3>Case A: Paid in Full</h3>
+          <p>If the student already has prepaid credit for the next level, the system moves them to <strong>Waiting for Round</strong>. They do not need a new payment first.</p>
+        </div>
+        <div class="mini">
+          <h3>Case B: Renewal Pending</h3>
+          <p>If the student finished the level but has no remaining prepaid credit, the system moves them to <strong>Renewal Pending</strong>. Ops must send a new offer and collect the next payment.</p>
+        </div>
+        <div class="mini">
+          <h3>Case C: Refused Renewal</h3>
+          <p>If the returning student does not want to continue, they can be moved to <strong>Cold Lead</strong> and followed up later with the refused-renewal workflow.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>4. Returning Student Journey</h2>
+      <p><strong>If Waiting for Round:</strong> the student already has credit, so Ops only needs scheduling and class placement.</p>
+      <p><strong>If Renewal Pending:</strong> Ops sends the new package, records payment, then the student moves back into the normal path: <strong>Waiting for Round -> Ready to Start -> In Classes</strong>.</p>
+    </div>
+
+    <div class="section">
+      <h2>5. Simple Summary</h2>
+      <ul class="flow">
+        <li>Lead enters</li>
+        <li>Placement test</li>
+        <li>Offer</li>
+        <li>Payment</li>
+        <li>Student joins class</li>
+        <li>Student finishes level</li>
+        <li>Either Renewal Pending</li>
+        <li>Or Paid in Full / Waiting for Round</li>
+        <li>Then next class cycle starts</li>
+      </ul>
+    </div>
+
+    <div class="footer">
+      Prepared from the current system workflow in Eighty Twenty Ops. This is a business summary, not a technical specification.
+    </div>
+  </div>
+</body>
+</html>
