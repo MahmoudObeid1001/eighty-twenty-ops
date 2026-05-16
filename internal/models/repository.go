@@ -2798,26 +2798,38 @@ func GetClassGroups() ([]*ClassGroup, error) {
 		if len(activeKeys) > 0 {
 			rows, err := db.DB.Query(`
 				SELECT cg.class_key,
-				       (SELECT COUNT(*) FROM class_sessions WHERE class_key = cg.class_key AND status = 'completed') + 1 AS current_session
+				       (SELECT COUNT(*) FROM class_sessions WHERE class_key = cg.class_key AND status = 'completed') + 1 AS current_session,
+				       MIN(cs.scheduled_date) FILTER (WHERE cs.session_number = 1) AS started_on
 				FROM class_groups cg
+				LEFT JOIN class_sessions cs ON cs.class_key = cg.class_key
 				WHERE cg.class_key = ANY($1)
 				  AND COALESCE(cg.round_status, '') = 'active'
+				GROUP BY cg.class_key
 			`, pq.Array(activeKeys))
 			if err == nil {
-				sessionMap := make(map[string]int32)
+				type activeClassState struct {
+					currentSession int32
+					startedOn      sql.NullTime
+				}
+				sessionMap := make(map[string]activeClassState)
 				for rows.Next() {
 					var classKey string
 					var currentSession int32
-					if err := rows.Scan(&classKey, &currentSession); err != nil {
+					var startedOn sql.NullTime
+					if err := rows.Scan(&classKey, &currentSession, &startedOn); err != nil {
 						continue
 					}
-					sessionMap[classKey] = currentSession
+					sessionMap[classKey] = activeClassState{
+						currentSession: currentSession,
+						startedOn:      startedOn,
+					}
 				}
 				_ = rows.Close()
 
 				for _, group := range groups {
-					if currentSession, ok := sessionMap[group.ClassKey]; ok {
-						group.CurrentSession = sql.NullInt32{Int32: currentSession, Valid: true}
+					if state, ok := sessionMap[group.ClassKey]; ok {
+						group.CurrentSession = sql.NullInt32{Int32: state.currentSession, Valid: true}
+						group.StartedOn = state.startedOn
 					}
 				}
 			}
@@ -13039,41 +13051,43 @@ func MarkComplaintRead(userID uuid.UUID, complaintID uuid.UUID) error {
 // GetOpsNotificationSummary returns unread operational banners for MH/Manager.
 func GetOpsNotificationSummary(userID uuid.UUID, role string, now time.Time) (*OpsNotificationSummary, error) {
 	summary := &OpsNotificationSummary{}
-	reportDate, readyAt := LatestReadyDailyReportWindow(now)
+	if role == "mentor_head" || role == "manager" {
+		reportDate, readyAt := LatestReadyDailyReportWindow(now)
 
-	var reportRead bool
-	if err := db.DB.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1 FROM daily_report_reads
-			WHERE user_id = $1 AND report_date = $2
-		)
-	`, userID, reportDate.Format("2006-01-02")).Scan(&reportRead); err != nil {
-		return nil, fmt.Errorf("failed to check daily report read state: %w", err)
-	}
+		var reportRead bool
+		if err := db.DB.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1 FROM daily_report_reads
+				WHERE user_id = $1 AND report_date = $2
+			)
+		`, userID, reportDate.Format("2006-01-02")).Scan(&reportRead); err != nil {
+			return nil, fmt.Errorf("failed to check daily report read state: %w", err)
+		}
 
-	if !reportRead {
-		report, err := GetDailyReportPayload(reportDate, nil, nil)
+		if !reportRead {
+			report, err := GetDailyReportPayload(reportDate, nil, nil)
+			if err != nil {
+				return nil, err
+			}
+			if report.ClassesScheduled > 0 {
+				summary.DailyReport = &DailyReportNotification{
+					ReportDate:           report.ReportDate,
+					ReadyAt:              readyAt.Format(time.RFC3339),
+					ClassesScheduled:     report.ClassesScheduled,
+					ClassesTaught:        report.ClassesTaught,
+					ClassesMissingReport: report.ClassesMissingReport,
+					AbsentStudents:       report.AbsentStudents,
+					ExpectedStudents:     report.ExpectedStudents,
+				}
+			}
+		}
+
+		complaint, err := GetUnreadComplaintNotification(userID)
 		if err != nil {
 			return nil, err
 		}
-		if report.ClassesScheduled > 0 {
-			summary.DailyReport = &DailyReportNotification{
-				ReportDate:           report.ReportDate,
-				ReadyAt:              readyAt.Format(time.RFC3339),
-				ClassesScheduled:     report.ClassesScheduled,
-				ClassesTaught:        report.ClassesTaught,
-				ClassesMissingReport: report.ClassesMissingReport,
-				AbsentStudents:       report.AbsentStudents,
-				ExpectedStudents:     report.ExpectedStudents,
-			}
-		}
+		summary.Complaint = complaint
 	}
-
-	complaint, err := GetUnreadComplaintNotification(userID)
-	if err != nil {
-		return nil, err
-	}
-	summary.Complaint = complaint
 
 	if role == "mentor_head" {
 		classSent, err := GetUnreadClassSentNotification(userID)
@@ -13081,6 +13095,13 @@ func GetOpsNotificationSummary(userID uuid.UUID, role string, now time.Time) (*O
 			return nil, err
 		}
 		summary.ClassSent = classSent
+	}
+	if role == "student_success" {
+		sessionReschedule, err := GetUnreadSessionRescheduleNotification(userID)
+		if err != nil {
+			return nil, err
+		}
+		summary.SessionReschedule = sessionReschedule
 	}
 	return summary, nil
 }
@@ -13182,6 +13203,85 @@ func GetUnreadClassSentNotification(userID uuid.UUID) (*ClassSentNotification, e
 		return nil, fmt.Errorf("failed to load class-sent notification students: %w", err)
 	}
 	n.StudentCount = len(students)
+	return n, nil
+}
+
+// MarkSessionRescheduleNotificationRead marks one SS reschedule banner as dismissed for a user.
+func MarkSessionRescheduleNotificationRead(userID, rescheduleID uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO session_reschedule_notification_reads (user_id, reschedule_id, read_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (user_id, reschedule_id) DO UPDATE SET read_at = EXCLUDED.read_at
+	`, userID, rescheduleID)
+	if err != nil {
+		return fmt.Errorf("failed to mark session reschedule notification read: %w", err)
+	}
+	return nil
+}
+
+// GetUnreadSessionRescheduleNotification returns the newest unread MH-driven session reschedule for Student Success.
+func GetUnreadSessionRescheduleNotification(userID uuid.UUID) (*SessionRescheduleNotification, error) {
+	var unreadCount int
+	if err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM class_session_reschedules csr
+		INNER JOIN users changed_by ON changed_by.id = csr.changed_by_user_id
+		LEFT JOIN session_reschedule_notification_reads srr
+			ON srr.reschedule_id = csr.id AND srr.user_id = $1
+		WHERE changed_by.role = 'mentor_head'
+		  AND srr.id IS NULL
+	`, userID).Scan(&unreadCount); err != nil {
+		return nil, fmt.Errorf("failed to count unread session reschedule notifications: %w", err)
+	}
+	if unreadCount == 0 {
+		return nil, nil
+	}
+
+	n := &SessionRescheduleNotification{UnreadCount: unreadCount}
+	err := db.DB.QueryRow(`
+		SELECT csr.id,
+		       csr.class_key,
+		       cg.level,
+		       COALESCE(cg.class_number, 1),
+		       cg.class_days,
+		       cg.class_time,
+		       csr.session_number,
+		       csr.old_scheduled_date::text,
+		       COALESCE(csr.old_scheduled_time::text, ''),
+		       csr.new_scheduled_date::text,
+		       COALESCE(csr.new_scheduled_time::text, ''),
+		       COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, 'Unknown'),
+		       csr.created_at
+		FROM class_session_reschedules csr
+		INNER JOIN users u ON u.id = csr.changed_by_user_id
+		LEFT JOIN class_groups cg ON cg.class_key = csr.class_key
+		LEFT JOIN session_reschedule_notification_reads srr
+			ON srr.reschedule_id = csr.id AND srr.user_id = $1
+		WHERE u.role = 'mentor_head'
+		  AND srr.id IS NULL
+		ORDER BY csr.created_at DESC, csr.id DESC
+		LIMIT 1
+	`, userID).Scan(
+		&n.ID,
+		&n.ClassKey,
+		&n.Level,
+		&n.ClassNumber,
+		&n.Days,
+		&n.Time,
+		&n.SessionNumber,
+		&n.OldDate,
+		&n.OldTime,
+		&n.NewDate,
+		&n.NewTime,
+		&n.ChangedBy,
+		&n.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unread session reschedule notification: %w", err)
+	}
 	return n, nil
 }
 

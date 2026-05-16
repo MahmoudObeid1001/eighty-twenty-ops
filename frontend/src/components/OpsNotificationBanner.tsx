@@ -6,9 +6,10 @@ export default function OpsNotificationBanner({ userRole }: { userRole: string }
   const [summary, setSummary] = useState<OpsNotificationSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [dismissingClass, setDismissingClass] = useState(false)
+  const [dismissingReschedule, setDismissingReschedule] = useState(false)
   const navigate = useNavigate()
 
-  const enabled = userRole === 'mentor_head' || userRole === 'manager'
+  const enabled = userRole === 'mentor_head' || userRole === 'manager' || userRole === 'student_success'
 
   useEffect(() => {
     if (!enabled) {
@@ -37,7 +38,7 @@ export default function OpsNotificationBanner({ userRole }: { userRole: string }
     }
   }, [enabled])
 
-  if (!enabled || loading || !summary || (!summary.daily_report && !summary.complaint && !summary.class_sent)) {
+  if (!enabled || loading || !summary || (!summary.daily_report && !summary.complaint && !summary.class_sent && !summary.session_reschedule)) {
     return null
   }
 
@@ -85,8 +86,64 @@ export default function OpsNotificationBanner({ userRole }: { userRole: string }
     navigate('/mentor-head')
   }
 
+  async function dismissSessionReschedule() {
+    const item = summary?.session_reschedule
+    if (!item || dismissingReschedule) return
+    try {
+      setDismissingReschedule(true)
+      await api.dismissSessionRescheduleNotification(item.id)
+      setSummary((current) => (current ? { ...current, session_reschedule: undefined } : current))
+    } catch (err) {
+      console.warn('Failed to dismiss session-reschedule notification:', err)
+    } finally {
+      setDismissingReschedule(false)
+    }
+  }
+
+  function openSessionReschedule() {
+    const item = summary?.session_reschedule
+    if (!item) return
+    navigate(`/student-success/class?class_key=${encodeURIComponent(item.class_key)}`)
+  }
+
   return (
     <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
+      {summary.session_reschedule && (
+        <div
+          style={{
+            ...bannerStyle,
+            borderColor: '#f59e0b',
+            background: '#fff7e6',
+            color: '#8a4b00',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <button
+            type="button"
+            onClick={openSessionReschedule}
+            style={{ ...bannerButtonStyle, color: '#8a4b00' }}
+          >
+            <strong>Session rescheduled by Mentor Head.</strong>{' '}
+            {summary.session_reschedule.unread_count > 1 ? `${summary.session_reschedule.unread_count} unread changes · ` : ''}
+            L{summary.session_reschedule.level} · Class {summary.session_reschedule.class_number} · S{summary.session_reschedule.session_number} ·{' '}
+            {summary.session_reschedule.old_date} {summary.session_reschedule.old_time.slice(0, 5)} → {summary.session_reschedule.new_date} {summary.session_reschedule.new_time.slice(0, 5)}
+          </button>
+          <button
+            type="button"
+            onClick={() => void dismissSessionReschedule()}
+            disabled={dismissingReschedule}
+            aria-label="Dismiss reschedule notification"
+            title="Dismiss"
+            style={dismissButtonStyle}
+          >
+            {dismissingReschedule ? '…' : '×'}
+          </button>
+        </div>
+      )}
+
       {summary.class_sent && (
         <div
           style={{

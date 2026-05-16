@@ -239,6 +239,7 @@ type ClassGroup struct {
 	RoundStatus        string // not_started | active | closed
 	// Current session for active rounds (computed from completed sessions + 1)
 	CurrentSession sql.NullInt32
+	StartedOn      sql.NullTime
 }
 
 // ClassGroupWorkflow tracks workflow state for a class group
@@ -951,9 +952,10 @@ type ManagerOpsSessionRow struct {
 
 // OpsNotificationSummary contains the Mentor Head/Manager banners that still need user attention.
 type OpsNotificationSummary struct {
-	DailyReport *DailyReportNotification `json:"daily_report,omitempty"`
-	Complaint   *ComplaintNotification   `json:"complaint,omitempty"`
-	ClassSent   *ClassSentNotification   `json:"class_sent,omitempty"`
+	DailyReport       *DailyReportNotification       `json:"daily_report,omitempty"`
+	Complaint         *ComplaintNotification         `json:"complaint,omitempty"`
+	ClassSent         *ClassSentNotification         `json:"class_sent,omitempty"`
+	SessionReschedule *SessionRescheduleNotification `json:"session_reschedule,omitempty"`
 }
 
 type DailyReportNotification struct {
@@ -985,6 +987,23 @@ type ClassSentNotification struct {
 	StudentCount int       `json:"student_count"`
 	SentAt       time.Time `json:"sent_at"`
 	UnreadCount  int       `json:"unread_count"`
+}
+
+type SessionRescheduleNotification struct {
+	ID            uuid.UUID `json:"id"`
+	ClassKey      string    `json:"class_key"`
+	Level         int32     `json:"level"`
+	ClassNumber   int32     `json:"class_number"`
+	Days          string    `json:"days"`
+	Time          string    `json:"time"`
+	SessionNumber int32     `json:"session_number"`
+	OldDate       string    `json:"old_date"`
+	OldTime       string    `json:"old_time"`
+	NewDate       string    `json:"new_date"`
+	NewTime       string    `json:"new_time"`
+	ChangedBy     string    `json:"changed_by"`
+	CreatedAt     time.Time `json:"created_at"`
+	UnreadCount   int       `json:"unread_count"`
 }
 
 // LateJoiner represents an audit record for a student who joined a class after session 1

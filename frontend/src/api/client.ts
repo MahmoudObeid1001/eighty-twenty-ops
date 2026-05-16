@@ -737,10 +737,28 @@ export interface ClassSentNotification {
   unread_count: number
 }
 
+export interface SessionRescheduleNotification {
+  id: string
+  class_key: string
+  level: number
+  class_number: number
+  days: string
+  time: string
+  session_number: number
+  old_date: string
+  old_time: string
+  new_date: string
+  new_time: string
+  changed_by: string
+  created_at: string
+  unread_count: number
+}
+
 export interface OpsNotificationSummary {
   daily_report?: DailyReportNotification
   complaint?: ComplaintNotification
   class_sent?: ClassSentNotification
+  session_reschedule?: SessionRescheduleNotification
 }
 
 export const api = {
@@ -1173,6 +1191,12 @@ export const api = {
     fetchAPI('/notifications/ops', {
       method: 'POST',
       body: JSON.stringify({ class_key: classKey }),
+    }),
+
+  dismissSessionRescheduleNotification: (rescheduleId: string): Promise<{ ok: boolean }> =>
+    fetchAPI('/notifications/ops', {
+      method: 'POST',
+      body: JSON.stringify({ reschedule_id: rescheduleId }),
     }),
 
   markComplaintRead: (complaintId: string): Promise<{ ok: boolean }> =>

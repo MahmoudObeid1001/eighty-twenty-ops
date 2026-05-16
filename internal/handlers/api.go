@@ -4456,7 +4456,7 @@ func (h *APIHandler) ResolveComplaintHandler(w http.ResponseWriter, r *http.Requ
 	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// GetOpsNotifications returns or dismisses Manager/Mentor Head operational notification banners.
+// GetOpsNotifications returns or dismisses operational notification banners.
 func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -4464,7 +4464,7 @@ func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request)
 	}
 
 	role := middleware.GetUserRole(r)
-	if role != "mentor_head" && role != "manager" {
+	if role != "mentor_head" && role != "manager" && role != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden")
 		return
 	}
@@ -4477,21 +4477,35 @@ func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request)
 
 	if r.Method == http.MethodPost {
 		var req struct {
-			ClassKey string `json:"class_key"`
+			ClassKey     string `json:"class_key"`
+			RescheduleID string `json:"reschedule_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid request body")
 			return
 		}
-		req.ClassKey = strings.TrimSpace(req.ClassKey)
-		if req.ClassKey == "" {
-			jsonError(w, http.StatusBadRequest, "Class key is required")
-			return
-		}
-		if err := models.MarkClassSentNotificationRead(userID, req.ClassKey); err != nil {
-			log.Printf("ERROR: Failed to mark class-sent notification read: %v", err)
-			jsonError(w, http.StatusInternalServerError, "Failed to dismiss notification")
-			return
+		if role == "student_success" {
+			rescheduleID, err := uuid.Parse(strings.TrimSpace(req.RescheduleID))
+			if err != nil {
+				jsonError(w, http.StatusBadRequest, "Reschedule ID is required")
+				return
+			}
+			if err := models.MarkSessionRescheduleNotificationRead(userID, rescheduleID); err != nil {
+				log.Printf("ERROR: Failed to mark session-reschedule notification read: %v", err)
+				jsonError(w, http.StatusInternalServerError, "Failed to dismiss notification")
+				return
+			}
+		} else {
+			req.ClassKey = strings.TrimSpace(req.ClassKey)
+			if req.ClassKey == "" {
+				jsonError(w, http.StatusBadRequest, "Class key is required")
+				return
+			}
+			if err := models.MarkClassSentNotificationRead(userID, req.ClassKey); err != nil {
+				log.Printf("ERROR: Failed to mark class-sent notification read: %v", err)
+				jsonError(w, http.StatusInternalServerError, "Failed to dismiss notification")
+				return
+			}
 		}
 		jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
 		return
