@@ -485,10 +485,71 @@
                     document.getElementById('placement_test_final_display').textContent =
                         `${fee} - ${discount} = ${final} EGP`;
                     document.getElementById('placement_test_remaining').value = remaining;
+                    syncPlacementTestPaymentRequirements(final);
+                    return final;
+                }
+
+                function syncPlacementTestPaymentRequirements(finalFee) {
+                    const paidInput = document.getElementById('placement_test_fee_paid');
+                    const paymentDateInput = document.getElementById('placement_test_payment_date');
+                    const paymentMethodInput = document.getElementById('placement_test_payment_method');
+                    const testDateInput = document.getElementById('test_date');
+                    const testTimeInput = document.getElementById('test_time');
+                    if (!paidInput || !paymentDateInput || !paymentMethodInput) return true;
+
+                    const final = Number.isFinite(finalFee) ? finalFee : calculatePlacementTestFinal();
+                    const paid = parseInt(paidInput.value, 10) || 0;
+                    const bookingSubmitted = Boolean(testDateInput && testDateInput.value && testTimeInput && testTimeInput.value);
+                    const paymentRequired = paid > 0 || (bookingSubmitted && final > 0);
+                    paymentDateInput.required = paymentRequired;
+                    paymentMethodInput.required = paymentRequired;
+                    paidInput.required = bookingSubmitted && final > 0;
+                    paidInput.min = bookingSubmitted && final > 0 ? '1' : '0';
+
+                    let paidError = '';
+                    if (bookingSubmitted && final > 0) {
+                        if (paid <= 0) {
+                            paidError = 'Enter the amount paid before saving this placement test as booked.';
+                        } else if (paid !== final) {
+                            paidError = `Paid amount must equal the final placement test fee (${final} EGP).`;
+                        }
+                    }
+                    paidInput.setCustomValidity(paidError);
+                    return !paidError;
+                }
+
+                function validatePlacementTestBookingSubmit() {
+                    const isValid = syncPlacementTestPaymentRequirements(calculatePlacementTestFinal());
+                    if (!isValid) {
+                        document.getElementById('placement_test_fee_paid').reportValidity();
+                    }
+                    return isValid;
                 }
 
                 // Call on page load
-                document.addEventListener('DOMContentLoaded', calculatePlacementTestFinal);
+                document.addEventListener('DOMContentLoaded', function () {
+                    calculatePlacementTestFinal();
+                    const paidInput = document.getElementById('placement_test_fee_paid');
+                    const paymentDateInput = document.getElementById('placement_test_payment_date');
+                    const paymentMethodInput = document.getElementById('placement_test_payment_method');
+                    const testDateInput = document.getElementById('test_date');
+                    const testTimeInput = document.getElementById('test_time');
+                    if (paidInput) {
+                        paidInput.addEventListener('input', function () {
+                            calculatePlacementTestFinal();
+                        });
+                    }
+                    [paymentDateInput, paymentMethodInput, testDateInput, testTimeInput].forEach(function (input) {
+                        if (input) {
+                            input.addEventListener('input', function () {
+                                calculatePlacementTestFinal();
+                            });
+                            input.addEventListener('change', function () {
+                                calculatePlacementTestFinal();
+                            });
+                        }
+                    });
+                });
             </script>
 
             <!-- Full placement test form (for main form) -->
@@ -558,7 +619,8 @@
 
             {{if eq .UserRole "admin"}}
             <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-                <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-secondary">
+                <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-secondary"
+                    onclick="return validatePlacementTestBookingSubmit()">
                     Save Placement Test
                 </button>
             </div>
@@ -1711,11 +1773,17 @@
         const feeInput = document.getElementById('placement_test_fee');
         const paidInput = document.getElementById('placement_test_fee_paid');
         const remainingInput = document.getElementById('placement_test_remaining');
+        const discountValueInput = document.getElementById('placement_test_discount_value');
+        const discountTypeInput = document.getElementById('placement_test_discount_type');
 
         if (feeInput && paidInput && remainingInput) {
             const fee = parseInt(feeInput.value) || 0;
+            const discountValue = parseInt(discountValueInput ? discountValueInput.value : '0') || 0;
+            const discountType = discountTypeInput ? discountTypeInput.value : 'amount';
+            const discount = discountType === 'percent' ? Math.round(fee * discountValue / 100) : discountValue;
+            const finalFee = Math.max(0, fee - discount);
             const paid = parseInt(paidInput.value) || 0;
-            const remaining = Math.max(0, fee - paid);
+            const remaining = Math.max(0, finalFee - paid);
             remainingInput.value = remaining;
         }
     }

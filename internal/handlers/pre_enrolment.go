@@ -1771,6 +1771,7 @@ func (h *PreEnrolmentHandler) renderDetailWithErrorAndPaymentContext(
 		http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
 		return
 	}
+	applyPlacementTestFormValuesForRender(detail, r)
 	userRole := middleware.GetUserRole(r)
 	data, _ := h.buildDetailViewModel(detail, leadID, userRole)
 	data["Error"] = errMsg
@@ -1841,6 +1842,57 @@ func normalizeLegacyPlacementTestFee(pt *models.PlacementTest) {
 	}
 }
 
+func applyPlacementTestFormValuesForRender(detail *models.LeadDetail, r *http.Request) {
+	if detail == nil || detail.Lead == nil || r == nil {
+		return
+	}
+	if r.Method != http.MethodPost {
+		return
+	}
+	if detail.PlacementTest == nil {
+		detail.PlacementTest = &models.PlacementTest{LeadID: detail.Lead.ID}
+	}
+	pt := detail.PlacementTest
+
+	if feeStr := strings.TrimSpace(r.FormValue("placement_test_fee")); feeStr != "" {
+		if fee, err := strconv.Atoi(feeStr); err == nil {
+			pt.PlacementTestFee = sql.NullInt32{Int32: int32(fee), Valid: true}
+		}
+	}
+	if paidStr := strings.TrimSpace(r.FormValue("placement_test_fee_paid")); paidStr != "" {
+		if paid, err := strconv.Atoi(paidStr); err == nil {
+			pt.PlacementTestFeePaid = sql.NullInt32{Int32: int32(paid), Valid: true}
+		}
+	}
+	if paymentDateStr := strings.TrimSpace(r.FormValue("placement_test_payment_date")); paymentDateStr != "" {
+		if t, err := time.Parse("2006-01-02", paymentDateStr); err == nil {
+			pt.PlacementTestPaymentDate = sql.NullTime{Time: t, Valid: true}
+		}
+	}
+	if paymentMethod := strings.TrimSpace(r.FormValue("placement_test_payment_method")); paymentMethod != "" {
+		pt.PlacementTestPaymentMethod = sql.NullString{String: paymentMethod, Valid: true}
+	}
+	if discountValueStr := strings.TrimSpace(r.FormValue("placement_test_discount_value")); discountValueStr != "" {
+		if dv, err := strconv.Atoi(discountValueStr); err == nil {
+			pt.DiscountValue = sql.NullInt32{Int32: int32(dv), Valid: true}
+		}
+	}
+	if discountType := strings.TrimSpace(r.FormValue("placement_test_discount_type")); discountType == "amount" || discountType == "percent" {
+		pt.DiscountType = sql.NullString{String: discountType, Valid: true}
+	}
+	if testDate := strings.TrimSpace(r.FormValue("test_date")); testDate != "" {
+		if t, err := time.Parse("2006-01-02", testDate); err == nil {
+			pt.TestDate = sql.NullTime{Time: t, Valid: true}
+		}
+	}
+	if testTime := strings.TrimSpace(r.FormValue("test_time")); testTime != "" {
+		pt.TestTime = sql.NullString{String: testTime, Valid: true}
+	}
+	if testType := strings.TrimSpace(r.FormValue("test_type")); testType != "" {
+		pt.TestType = sql.NullString{String: testType, Valid: true}
+	}
+}
+
 func buildBookedPlacementTestFromRequest(leadID uuid.UUID, existing *models.PlacementTest, r *http.Request) (*models.PlacementTest, error) {
 	testDate := strings.TrimSpace(r.FormValue("test_date"))
 	testTime := strings.TrimSpace(r.FormValue("test_time"))
@@ -1883,8 +1935,13 @@ func buildBookedPlacementTestFromRequest(leadID uuid.UUID, existing *models.Plac
 	}
 
 	requiredFee := computePlacementTestFinalFee(baseFee, discountValue, discountType)
-	if paidAmount < requiredFee {
-		return nil, fmt.Errorf("Placement test fee must be paid in full (%d EGP) before booking the test.", requiredFee)
+	if requiredFee > 0 {
+		if paidAmount <= 0 {
+			return nil, fmt.Errorf("Paid amount is required before booking the placement test.")
+		}
+		if paidAmount != requiredFee {
+			return nil, fmt.Errorf("Paid amount must equal the final placement test fee (%d EGP) before booking the test.", requiredFee)
+		}
 	}
 
 	pt := &models.PlacementTest{
@@ -3770,7 +3827,14 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	// This will be used after all sections are parsed
 
 	// Placement test
-	if r.FormValue("test_date") != "" || r.FormValue("assigned_level") != "" || r.FormValue("placement_test_fee") != "" {
+	if r.FormValue("test_date") != "" ||
+		r.FormValue("assigned_level") != "" ||
+		r.FormValue("placement_test_fee") != "" ||
+		r.FormValue("placement_test_fee_paid") != "" ||
+		r.FormValue("placement_test_payment_date") != "" ||
+		r.FormValue("placement_test_payment_method") != "" ||
+		r.FormValue("placement_test_discount_value") != "" ||
+		r.FormValue("placement_test_discount_type") != "" {
 		pt := &models.PlacementTest{LeadID: leadID}
 
 		testDate := r.FormValue("test_date")
@@ -3869,12 +3933,19 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			feeValue = pt.PlacementTestFee.Int32
 		}
 		finalPlacementFee := computePlacementTestFinalFee(feeValue, pt.DiscountValue, pt.DiscountType)
+		if pt.TestDate.Valid && pt.TestTime.Valid && finalPlacementFee > 0 {
+			if !pt.PlacementTestFeePaid.Valid || pt.PlacementTestFeePaid.Int32 <= 0 {
+				h.renderDetailWithError(w, r, leadID, "Paid amount is required before saving the placement test as booked.")
+				return
+			}
+			if pt.PlacementTestFeePaid.Int32 != finalPlacementFee {
+				h.renderDetailWithError(w, r, leadID, fmt.Sprintf("Paid amount must equal the final placement test fee (%d EGP) before booking the test.", finalPlacementFee))
+				return
+			}
+		}
 		if pt.PlacementTestFeePaid.Valid && pt.PlacementTestFeePaid.Int32 > 0 {
 			if !pt.PlacementTestFee.Valid {
 				pt.PlacementTestFee = sql.NullInt32{Int32: feeValue, Valid: true}
-			}
-			if pt.PlacementTestFeePaid.Int32 != finalPlacementFee {
-				pt.PlacementTestFeePaid = sql.NullInt32{Int32: finalPlacementFee, Valid: true}
 			}
 		}
 
