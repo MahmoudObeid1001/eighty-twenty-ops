@@ -7700,9 +7700,9 @@ func GetClassAbsencePromotionOverrides(classKey string) ([]AbsencePromotionOverr
 			fg.grade,
 			apo.status,
 			apo.reason,
-			COALESCE(requested_by.name, requested_by.email),
+			COALESCE(NULLIF(TRIM(requested_by.full_name), ''), requested_by.email),
 			apo.requested_at,
-			COALESCE(reviewed_by.name, reviewed_by.email),
+			COALESCE(NULLIF(TRIM(reviewed_by.full_name), ''), reviewed_by.email),
 			apo.reviewed_at,
 			apo.review_note,
 			(COALESCE(ac.absences, 0) > 2 AND fg.grade IS NOT NULL AND fg.grade <> 'F') AS override_available
@@ -9448,7 +9448,7 @@ func GetStudentsForMentorHeadClass(classKey string) ([]*ClassStudent, error) {
 }
 
 // GetEligibleClassesForLateJoin returns classes a student is eligible to join as a late joiner.
-// Rule: Class must be same level, session <= 2, and current enrollment 4-5.
+// Rule: Class must be same level, session <= 2, and current enrollment below 6.
 // Eligibility includes:
 // - active classes, and
 // - sent_to_mentor + not_started classes (pre-start exception).
@@ -9542,8 +9542,8 @@ func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 			return nil, fmt.Errorf("failed to count eligible class students: %w", err)
 		}
 
-		// Filter by capacity (4-5 students)
-		if ec.CurrentEnrollment >= 4 && ec.CurrentEnrollment <= 5 {
+		// Filter by capacity (any roster below 6 students)
+		if ec.CurrentEnrollment < 6 {
 			eligible = append(eligible, ec)
 		}
 	}
@@ -9603,7 +9603,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		return fmt.Errorf("cannot join class: class must be active or sent to mentor head (not started)")
 	}
 
-	// 2. Validate capacity (4-5 students currently)
+	// 2. Validate capacity (any roster below 6 students)
 	// For not-started sent classes, ready_to_start students are part of current roster.
 	var studentCount int
 	err = tx.QueryRow(`
@@ -9629,8 +9629,8 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 	if err != nil {
 		return fmt.Errorf("failed to count students: %w", err)
 	}
-	if studentCount < 4 || studentCount > 5 {
-		return fmt.Errorf("cannot join class: invalid capacity (current students: %d, required: 4-5)", studentCount)
+	if studentCount >= 6 {
+		return fmt.Errorf("cannot join class: invalid capacity (current students: %d, required: fewer than 6)", studentCount)
 	}
 
 	// 3. Validate lead status eligibility.
@@ -13168,7 +13168,7 @@ func GetUnreadClassSentNotification(userID uuid.UUID) (*ClassSentNotification, e
 		WHERE cg.sent_to_mentor = true
 		  AND COALESCE(cg.round_status, '') != 'closed'
 		  AND csr.id IS NULL
-	`).Scan(&unreadCount); err != nil {
+	`, userID).Scan(&unreadCount); err != nil {
 		return nil, fmt.Errorf("failed to count unread class-sent notifications: %w", err)
 	}
 	if unreadCount == 0 {

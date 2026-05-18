@@ -1251,16 +1251,16 @@
     {{end}}
     {{end}}
 
-    <!-- Late Joiner Button - Only show if ready_to_start and not already sent -->
-    {{if and .IsAdmin (not .Detail.Lead.SentToClasses) .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid
+    <!-- Late Joiner Button - Only show for admin/manager if ready_to_start and not already sent -->
+    {{if and (or .IsAdmin (eq .UserRole "manager")) (not .Detail.Lead.SentToClasses) .Detail.PlacementTest .Detail.PlacementTest.AssignedLevel.Valid
     (eq .Detail.Lead.Status "ready_to_start") (not .LateJoiner)}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <button type="button" class="btn" style="background-color: #6c5ce7; border-color: #6c5ce7; color: white;"
             onclick="openLateJoinModal()">Add as Late Joiner</button>
         <p style="margin-top: 8px; font-size: 12px; color: #666;">Add student to an active class (Session 1 or 2).
-            Requires capacity (4-5 students).</p>
+            Requires capacity below 6 students.</p>
     </div>
-    {{else if and .IsAdmin (not .Detail.Lead.SentToClasses) .Detail.PlacementTest
+    {{else if and (or .IsAdmin (eq .UserRole "manager")) (not .Detail.Lead.SentToClasses) .Detail.PlacementTest
     .Detail.PlacementTest.AssignedLevel.Valid
     (not .LateJoiner) (ne .Detail.Lead.Status "ready_to_start")}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
@@ -1271,8 +1271,8 @@
     </div>
     {{end}}
 
-    <!-- Undo Late Join Button - Only show if student is a late joiner AND current session <= 2 AND user is admin -->
-    {{if and .IsAdmin .LateJoiner (le .ClassCurrentSession 2)}}
+    <!-- Undo Late Join Button - Only show for admin/manager if student is a late joiner and current session <= 2 -->
+    {{if and (or .IsAdmin (eq .UserRole "manager")) .LateJoiner (le .ClassCurrentSession 2)}}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
         <button type="button" class="btn" style="background-color: #e84393; border-color: #e84393; color: white;"
             onclick="undoLateJoin()">Undo Late Join</button>
@@ -2103,7 +2103,7 @@
                     return;
                 }
                 if (!data.classes || data.classes.length === 0) {
-                    container.innerHTML = '<p style="color: #CC6600;">No eligible classes found (requires session 1-2, capacity 4-5, and class state: active OR sent-to-MH not-started).</p>';
+                    container.innerHTML = '<p style="color: #CC6600;">No eligible classes found (requires session 1-2, capacity below 6, and class state: active OR sent-to-MH not-started).</p>';
                     return;
                 }
 

@@ -888,8 +888,6 @@ func (h *APIHandler) GetClassWorkspace(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		studentList = append(studentList, swa)
-		// Log calculated missed count for debugging
-		log.Printf("GetClassWorkspace: Student %s (LeadID=%s) MissedCount=%d", swa.FullName, swa.LeadID, swa.MissedCount)
 	}
 
 	jsonResponse(w, http.StatusOK, ClassWorkspaceResponse{
@@ -4605,7 +4603,7 @@ func (h *APIHandler) GetEligibleClassesForLateJoin(w http.ResponseWriter, r *htt
 func (h *APIHandler) AddLateJoiner(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" && userRole != "manager" {
-		jsonError(w, http.StatusForbidden, "Forbidden: Admin access required")
+		jsonError(w, http.StatusForbidden, "Forbidden: Admin or Manager access required")
 		return
 	}
 
@@ -4664,7 +4662,7 @@ func (h *APIHandler) AddLateJoiner(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) UndoLateJoiner(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
 	if userRole != "admin" && userRole != "manager" {
-		jsonError(w, http.StatusForbidden, "Forbidden: Admin access required")
+		jsonError(w, http.StatusForbidden, "Forbidden: Admin or Manager access required")
 		return
 	}
 
