@@ -384,13 +384,13 @@ func main() {
 
 	// Notification Routes
 	mux.HandleFunc("/api/notifications/ops", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetOpsNotifications)(w, r)
+		if r.Method == http.MethodGet || r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "manager", "student_success"}, cfg.SessionSecret)(apiHandler.GetOpsNotifications)(w, r)
 			return
 		}
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/notifications/ops -> apiHandler.GetOpsNotifications [mentor_head+manager]")
+	cfg.Debugf("ROUTE REGISTERED: /api/notifications/ops -> apiHandler.GetOpsNotifications [mentor_head+manager+student_success] (GET+POST)")
 
 	mux.HandleFunc("/api/notifications/complaints/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/read") && r.Method == http.MethodPost {
