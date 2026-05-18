@@ -4475,8 +4475,9 @@ func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request)
 
 	if r.Method == http.MethodPost {
 		var req struct {
-			ClassKey     string `json:"class_key"`
-			RescheduleID string `json:"reschedule_id"`
+			ClassKey            string `json:"class_key"`
+			RescheduleID        string `json:"reschedule_id"`
+			DismissAllClassSent bool   `json:"dismiss_all_class_sent"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, http.StatusBadRequest, "Invalid request body")
@@ -4494,6 +4495,15 @@ func (h *APIHandler) GetOpsNotifications(w http.ResponseWriter, r *http.Request)
 				return
 			}
 		} else {
+			if req.DismissAllClassSent {
+				if err := models.MarkAllClassSentNotificationsRead(userID); err != nil {
+					log.Printf("ERROR: Failed to mark all class-sent notifications read: %v", err)
+					jsonError(w, http.StatusInternalServerError, "Failed to dismiss notification")
+					return
+				}
+				jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+				return
+			}
 			req.ClassKey = strings.TrimSpace(req.ClassKey)
 			if req.ClassKey == "" {
 				jsonError(w, http.StatusBadRequest, "Class key is required")

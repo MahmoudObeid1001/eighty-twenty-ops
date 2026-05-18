@@ -13157,6 +13157,26 @@ func MarkClassSentNotificationRead(userID uuid.UUID, classKey string) error {
 	return nil
 }
 
+// MarkAllClassSentNotificationsRead dismisses the entire unread new-class banner batch for a user.
+func MarkAllClassSentNotificationsRead(userID uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		INSERT INTO class_sent_notification_reads (user_id, class_key, read_at)
+		SELECT $1, cg.class_key, NOW()
+		FROM class_groups cg
+		LEFT JOIN class_sent_notification_reads csr
+			ON csr.class_key = cg.class_key AND csr.user_id = $1
+		WHERE cg.sent_to_mentor = true
+		  AND COALESCE(cg.round_status, '') != 'closed'
+		  AND csr.id IS NULL
+		ON CONFLICT (user_id, class_key) DO UPDATE
+		SET read_at = EXCLUDED.read_at
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to mark all class-sent notifications read: %w", err)
+	}
+	return nil
+}
+
 // GetUnreadClassSentNotification returns the newest unread sent-to-MH class for the user.
 func GetUnreadClassSentNotification(userID uuid.UUID) (*ClassSentNotification, error) {
 	var unreadCount int

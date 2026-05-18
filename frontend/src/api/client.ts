@@ -1187,10 +1187,10 @@ export const api = {
   getOpsNotifications: (): Promise<OpsNotificationSummary> =>
     fetchAPI('/notifications/ops'),
 
-  dismissClassSentNotification: (classKey: string): Promise<{ ok: boolean }> =>
+  dismissClassSentNotification: (classKey?: string): Promise<{ ok: boolean }> =>
     fetchAPI('/notifications/ops', {
       method: 'POST',
-      body: JSON.stringify({ class_key: classKey }),
+      body: JSON.stringify(classKey ? { class_key: classKey } : { dismiss_all_class_sent: true }),
     }),
 
   dismissSessionRescheduleNotification: (rescheduleId: string): Promise<{ ok: boolean }> =>

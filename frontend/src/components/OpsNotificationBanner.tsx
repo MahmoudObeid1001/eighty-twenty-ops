@@ -87,7 +87,7 @@ export default function OpsNotificationBanner({ userRole }: { userRole: string }
     if (!item || dismissingClass) return
     try {
       setDismissingClass(true)
-      await api.dismissClassSentNotification(item.class_key)
+      await api.dismissClassSentNotification()
       setSummary((current) => (current ? { ...current, class_sent: undefined } : current))
     } catch (err) {
       console.warn('Failed to dismiss class-sent notification:', err)
