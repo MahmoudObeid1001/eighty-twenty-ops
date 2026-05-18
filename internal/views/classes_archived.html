@@ -14,6 +14,9 @@
     <div>
         <a href="/classes" class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;">Back to Classes</a>
     </div>
+    {{if .IsClassesReadOnly}}
+    <div style="color: #666; font-size: 14px;">Read-only</div>
+    {{end}}
 </div>
 
 <form method="GET" action="/classes/archived" class="classes-archived-filter-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px;">
@@ -60,10 +63,14 @@
             <td style="padding: 8px;">{{if .RoundStarted.Valid}}{{.RoundStarted.Time.Format "2006-01-02"}}{{else}}-{{end}}</td>
             <td style="padding: 8px;">{{if .HiddenAt.Valid}}{{.HiddenAt.Time.Format "2006-01-02"}}{{else}}-{{end}}</td>
             <td style="padding: 8px;">
+                {{if $.IsClassesReadOnly}}
+                <span style="color: #888; font-size: 12px;">View only</span>
+                {{else}}
                 <form method="POST" action="/classes/unarchive" style="display: inline-block;">
                     <input type="hidden" name="class_key" value="{{.ClassKey}}" />
                     <button type="submit" class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;">Unarchive</button>
                 </form>
+                {{end}}
             </td>
         </tr>
         {{end}}

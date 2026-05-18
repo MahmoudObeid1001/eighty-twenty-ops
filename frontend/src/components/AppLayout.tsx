@@ -136,7 +136,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
-            {role === 'student_success' && (
+            {(role === 'student_success' || role === 'mentor_head') && (
               <li>
                 <a href="/classes" className={typeof window !== 'undefined' && window.location.pathname === '/classes' ? 'active' : ''}>
                   Classes

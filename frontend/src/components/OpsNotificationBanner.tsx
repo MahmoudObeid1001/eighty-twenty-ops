@@ -17,9 +17,11 @@ export default function OpsNotificationBanner({ userRole }: { userRole: string }
       return
     }
     let cancelled = false
-    async function load() {
+    async function load(showLoading: boolean) {
       try {
-        setLoading(true)
+        if (showLoading) {
+          setLoading(true)
+        }
         const data = await api.getOpsNotifications()
         if (!cancelled) {
           setSummary(data)
@@ -27,14 +29,28 @@ export default function OpsNotificationBanner({ userRole }: { userRole: string }
       } catch (err) {
         console.warn('Failed to load ops notifications:', err)
       } finally {
-        if (!cancelled) {
+        if (!cancelled && showLoading) {
           setLoading(false)
         }
       }
     }
-    void load()
+
+    function refreshIfVisible() {
+      if (document.visibilityState === 'visible') {
+        void load(false)
+      }
+    }
+
+    void load(true)
+    const intervalId = window.setInterval(refreshIfVisible, 30000)
+    window.addEventListener('focus', refreshIfVisible)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+
     return () => {
       cancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshIfVisible)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
     }
   }, [enabled])
 

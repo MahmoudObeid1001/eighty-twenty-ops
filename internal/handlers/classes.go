@@ -514,16 +514,17 @@ func (h *ClassesHandler) Archived(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]interface{}{
-		"Title":            "Archived Classes – Eighty Twenty",
-		"ContentTemplate":  "classes_archived_content",
-		"Archived":         archived,
-		"FlashMessage":     flashMessage,
-		"FlashMessageType": flashMessageType,
-		"UserRole":         userRole,
-		"IsModerator":      IsModerator(r),
-		"ClassKey":         classKeyFilter,
-		"From":             r.URL.Query().Get("from"),
-		"To":               r.URL.Query().Get("to"),
+		"Title":             "Archived Classes – Eighty Twenty",
+		"ContentTemplate":   "classes_archived_content",
+		"Archived":          archived,
+		"FlashMessage":      flashMessage,
+		"FlashMessageType":  flashMessageType,
+		"UserRole":          userRole,
+		"IsModerator":       IsModerator(r),
+		"ClassKey":          classKeyFilter,
+		"From":              r.URL.Query().Get("from"),
+		"To":                r.URL.Query().Get("to"),
+		"IsClassesReadOnly": userRole == "mentor_head",
 	}
 	renderTemplate(w, r, "classes_archived.html", data)
 }
