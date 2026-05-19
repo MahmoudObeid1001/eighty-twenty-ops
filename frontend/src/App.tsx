@@ -11,6 +11,8 @@ import ReportsPage from './pages/ReportsPage'
 import MentorsPage from './pages/MentorsPage'
 import StaffManagementPage from './pages/StaffManagementPage'
 import SetupPasswordPage from './pages/SetupPasswordPage'
+import MentorAvailabilityPage from './pages/MentorAvailabilityPage'
+import MentorHeadCalendarPage from './pages/MentorHeadCalendarPage'
 
 function App() {
   const location = useLocation()
@@ -24,8 +26,10 @@ function App() {
     <AppLayout>
       <Routes>
         <Route path="/mentor" element={<MentorDashboard />} />
+        <Route path="/mentor/availability" element={<MentorAvailabilityPage />} />
         <Route path="/mentor-head" element={<MentorHeadDashboard />} />
         <Route path="/mentor-head/evaluations" element={<MentorEvaluations />} />
+        <Route path="/mentor-head/calendar" element={<MentorHeadCalendarPage />} />
         <Route path="/mentor/class" element={<ClassWorkspace />} />
         <Route path="/mentor-head/class" element={<ClassWorkspace />} />
         <Route path="/student-success" element={<StudentSuccessDashboard />} />

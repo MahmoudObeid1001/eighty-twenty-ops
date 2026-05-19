@@ -113,6 +113,59 @@ export interface MentorReminder {
   message: string
 }
 
+export interface MentorAvailabilityWindow {
+  id?: string
+  mentor_user_id?: string
+  available_date: string
+  start_time: string
+  end_time: string
+  note?: string
+}
+
+export interface MentorAvailabilityWarning {
+  code: 'missing_availability' | 'outside_availability' | string
+  message: string
+  session_number: number
+  scheduled_date: string
+  start_time: string
+  end_time: string
+}
+
+export interface MentorAvailabilityResponse {
+  mentor_user_id?: string
+  month: string
+  windows: MentorAvailabilityWindow[]
+  locked_dates?: string[]
+}
+
+export interface MentorHeadCalendarMentor {
+  mentor_user_id: string
+  name: string
+  windows: MentorAvailabilityWindow[]
+}
+
+export interface MentorHeadCalendarResponse {
+  month: string
+  mentors: MentorHeadCalendarMentor[]
+}
+
+export interface MentorAvailabilityCheckResponse {
+  ok: boolean
+  class_key?: string
+  mentor_user_id?: string
+  availability_warnings: MentorAvailabilityWarning[]
+}
+
+export interface AvailabilityReminderNotification {
+  banner_key: string
+  month: string
+  title: string
+  message: string
+  action_path: string
+  action_label: string
+  missing_count?: number
+}
+
 export interface Mentor {
   id: string
   email: string
@@ -768,6 +821,24 @@ export const api = {
 
   getMentorReminders: (): Promise<{ reminders: MentorReminder[] }> => fetchAPI('/mentor/reminders'),
 
+  getMyAvailability: (month: string): Promise<MentorAvailabilityResponse> =>
+    fetchAPI(`/mentor/availability?month=${encodeURIComponent(month)}`),
+
+  updateMyAvailability: (month: string, windows: MentorAvailabilityWindow[]): Promise<MentorAvailabilityResponse> =>
+    fetchAPI(`/mentor/availability?month=${encodeURIComponent(month)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ windows }),
+    }),
+
+  getAvailabilityReminder: (): Promise<{ reminder?: AvailabilityReminderNotification }> =>
+    fetchAPI('/availability-reminder'),
+
+  dismissAvailabilityReminder: (month: string): Promise<{ ok: boolean }> =>
+    fetchAPI('/availability-reminder', {
+      method: 'POST',
+      body: JSON.stringify({ month }),
+    }),
+
   getMentorHeadMentors: (): Promise<Mentor[]> => fetchAPI('/mentor-head/mentors'),
 
   getMentorHeadClasses: (): Promise<MentorGroup[]> => fetchAPI('/mentor-head/classes'),
@@ -872,10 +943,16 @@ export const api = {
   getMentorHeadDashboard: (): Promise<MentorHeadDashboard> =>
     fetchAPI('/mentor-head/dashboard'),
 
-  assignMentor: (classKey: string, mentorEmail: string): Promise<{ ok: boolean }> =>
+  assignMentor: (classKey: string, mentorUserId: string): Promise<MentorAvailabilityCheckResponse> =>
     fetchAPI('/mentor-head/assign-mentor', {
       method: 'POST',
-      body: JSON.stringify({ class_key: classKey, mentor_email: mentorEmail }),
+      body: JSON.stringify({ class_key: classKey, mentor_user_id: mentorUserId }),
+    }),
+
+  checkMentorAvailability: (classKey: string, mentorUserId: string): Promise<MentorAvailabilityCheckResponse> =>
+    fetchAPI('/mentor-head/availability-check', {
+      method: 'POST',
+      body: JSON.stringify({ class_key: classKey, mentor_user_id: mentorUserId }),
     }),
 
   unassignMentor: (classKey: string) =>
@@ -890,13 +967,13 @@ export const api = {
       body: JSON.stringify({ class_key: classKey }),
     }),
 
-  startRound: (classKey: string): Promise<{ ok: boolean }> =>
+  startRound: (classKey: string): Promise<{ ok: boolean; availability_warnings?: MentorAvailabilityWarning[] }> =>
     fetchAPI('/mentor-head/start-round', {
       method: 'POST',
       body: JSON.stringify({ class_key: classKey }),
     }),
 
-  shiftRoundStartDate: (classKey: string, newStartDate: string): Promise<{ ok: boolean; class_key: string; new_start_date: string }> =>
+  shiftRoundStartDate: (classKey: string, newStartDate: string): Promise<{ ok: boolean; class_key: string; new_start_date: string; availability_warnings?: MentorAvailabilityWarning[] }> =>
     fetchAPI('/mentor-head/shift-start-date', {
       method: 'POST',
       body: JSON.stringify({ class_key: classKey, new_start_date: newStartDate }),
@@ -907,7 +984,7 @@ export const api = {
     sessionId: string,
     newDate: string,
     newTime: string,
-  ): Promise<{ ok: boolean; class_key: string; session_id: string; new_date: string; new_time: string }> =>
+  ): Promise<{ ok: boolean; class_key: string; session_id: string; new_date: string; new_time: string; availability_warnings?: MentorAvailabilityWarning[] }> =>
     fetchAPI('/mentor-head/reschedule-session', {
       method: 'POST',
       body: JSON.stringify({ class_key: classKey, session_id: sessionId, new_date: newDate, new_time: newTime }),
@@ -1211,6 +1288,12 @@ export const api = {
   getMentorProfile: (mentorId: string): Promise<MentorProfileResponse> =>
     fetchAPI(`/mentors/${encodeURIComponent(mentorId)}/profile`),
 
+  getMentorAvailability: (mentorId: string, month: string): Promise<MentorAvailabilityResponse> =>
+    fetchAPI(`/mentors/${encodeURIComponent(mentorId)}/availability?month=${encodeURIComponent(month)}`),
+
+  getMentorHeadCalendar: (month: string): Promise<MentorHeadCalendarResponse> =>
+    fetchAPI(`/mentor-head/availability-calendar?month=${encodeURIComponent(month)}`),
+
   searchStudents: (query: string): Promise<StudentSearchResult[]> =>
     fetchAPI(`/students/search?q=${encodeURIComponent(query)}`),
 
@@ -1338,6 +1421,7 @@ export const api = {
 
   createStaffUser: (payload: {
     full_name: string
+    phone?: string
     email: string
     role: string
     temporary_password: string

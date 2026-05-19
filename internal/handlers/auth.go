@@ -81,7 +81,9 @@ func roleCanAccessPath(role, path string) bool {
 			path == "/classes" || strings.HasPrefix(path, "/classes") ||
 			path == "/learning"
 	case "hr":
-		return path == "/hr/mentors" || strings.HasPrefix(path, "/hr/mentors") || path == "/learning"
+		return path == "/hr/mentors" || strings.HasPrefix(path, "/hr/mentors") ||
+			path == "/mentors" || strings.HasPrefix(path, "/mentors/") ||
+			path == "/learning"
 	default:
 		return false
 	}

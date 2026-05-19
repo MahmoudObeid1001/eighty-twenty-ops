@@ -176,10 +176,6 @@ func RequireRole(allowedRoles []string, secret string) func(http.HandlerFunc) ht
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 			userRole := GetUserRole(r)
-			if userRole == "manager" {
-				next(w, r)
-				return
-			}
 			allowed := false
 			for _, role := range allowedRoles {
 				if userRole == role {

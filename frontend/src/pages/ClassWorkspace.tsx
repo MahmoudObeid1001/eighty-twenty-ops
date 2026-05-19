@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { AbsenceFeedItem, api, ClassDetail, ClassTransferOption, FollowUpCaseNote, GradePreview, Student, StudentReportCardData } from '../api/client'
+import { AbsenceFeedItem, api, ClassDetail, ClassTransferOption, FollowUpCaseNote, GradePreview, MentorAvailabilityWarning, Student, StudentReportCardData } from '../api/client'
 import StudentModal from '../components/StudentModal'
 import FeedbackCollectedTab from '../components/FeedbackCollectedTab'
 import ComplianceModal from '../components/ComplianceModal'
@@ -34,6 +34,12 @@ function formatSessionTimeLabel(value: string) {
 function formatSourceExitLabel(sessionNumber: number) {
   if (sessionNumber <= 0) return 'before session 1'
   return `after session ${sessionNumber}`
+}
+
+function formatAvailabilityWarningSuffix(warnings?: MentorAvailabilityWarning[]) {
+  if (!warnings || warnings.length === 0) return ''
+  const sessions = warnings.map((warning) => `S${warning.session_number}`).join(', ')
+  return ` Availability warning: ${sessions}.`
 }
 
 export default function ClassWorkspace() {
@@ -238,10 +244,10 @@ export default function ClassWorkspace() {
       setShiftStartSaving(true)
       setActionError(null)
       setActionSuccess(null)
-      await api.shiftRoundStartDate(classKey, shiftStartDate)
+      const res = await api.shiftRoundStartDate(classKey, shiftStartDate)
       await loadClass(true)
       setShiftStartModalOpen(false)
-      setActionSuccess(`Class start date moved to ${shiftStartDate}. All scheduled sessions were shifted.`)
+      setActionSuccess(`Class start date moved to ${shiftStartDate}. All scheduled sessions were shifted.${formatAvailabilityWarningSuffix(res.availability_warnings)}`)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to change class start date')
     } finally {
@@ -266,10 +272,10 @@ export default function ClassWorkspace() {
       setRescheduleSaving(true)
       setActionError(null)
       setActionSuccess(null)
-      await api.rescheduleSession(classKey, selectedSession.id, rescheduleDate, rescheduleTime)
+      const res = await api.rescheduleSession(classKey, selectedSession.id, rescheduleDate, rescheduleTime)
       await loadClass(true)
       setRescheduleModalOpen(false)
-      setActionSuccess(`Session ${selectedSession.session_number} moved to ${rescheduleDate} at ${formatSessionTimeLabel(rescheduleTime)}.`)
+      setActionSuccess(`Session ${selectedSession.session_number} moved to ${rescheduleDate} at ${formatSessionTimeLabel(rescheduleTime)}.${formatAvailabilityWarningSuffix(res.availability_warnings)}`)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to reschedule session')
     } finally {

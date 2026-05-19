@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api, type AbsencePromotionOverrideItem, type MentorHeadDashboard as MentorHeadDashboardData, MentorHeadClass } from '../api/client'
+import { api, type AbsencePromotionOverrideItem, type MentorAvailabilityWarning, type MentorHeadDashboard as MentorHeadDashboardData, MentorHeadClass } from '../api/client'
 import MentorHeadComplaints from '../components/MentorHeadComplaints'
+
+function availabilityWarningSummary(warnings?: MentorAvailabilityWarning[]) {
+  if (!warnings || warnings.length === 0) return ''
+  const sessions = warnings.map((w) => `S${w.session_number}`).join(', ')
+  return `Availability warning for ${sessions}.`
+}
 
 export default function MentorHeadDashboard() {
   const [dashboard, setDashboard] = useState<MentorHeadDashboardData | null>(null)
@@ -17,6 +23,9 @@ export default function MentorHeadDashboard() {
   const [assigning, setAssigning] = useState<string | null>(null)
   const [actioning, setActioning] = useState<string | null>(null)
   const [cardError, setCardError] = useState<Record<string, string>>({}) // per-class_key error (e.g. 409)
+  const [selectedMentorIds, setSelectedMentorIds] = useState<Record<string, string>>({})
+  const [checkingAvailability, setCheckingAvailability] = useState<string | null>(null)
+  const [availabilityWarnings, setAvailabilityWarnings] = useState<Record<string, MentorAvailabilityWarning[]>>({})
   const [closeConfirm, setCloseConfirm] = useState<{ open: boolean; classKey: string | null }>({
     open: false,
     classKey: null,
@@ -79,13 +88,32 @@ export default function MentorHeadDashboard() {
     })
   }
 
-  async function handleAssignMentor(classKey: string, mentorEmail: string) {
+  async function handleMentorSelection(classKey: string, mentorUserId: string) {
+    setSelectedMentorIds((prev) => ({ ...prev, [classKey]: mentorUserId }))
+    setAvailabilityWarnings((prev) => ({ ...prev, [classKey]: [] }))
+    clearCardError(classKey)
+    if (!mentorUserId) return
+    try {
+      setCheckingAvailability(classKey)
+      const res = await api.checkMentorAvailability(classKey, mentorUserId)
+      setAvailabilityWarnings((prev) => ({ ...prev, [classKey]: res.availability_warnings || [] }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to check mentor availability'
+      setCardError((prev) => ({ ...prev, [classKey]: msg }))
+    } finally {
+      setCheckingAvailability(null)
+    }
+  }
+
+  async function handleAssignMentor(classKey: string, mentorUserId: string) {
     try {
       setAssigning(classKey)
       setMessage(null)
       clearCardError(classKey)
-      await api.assignMentor(classKey, mentorEmail)
-      setMessage({ type: 'success', text: 'Mentor assigned successfully' })
+      const res = await api.assignMentor(classKey, mentorUserId)
+      const warningSummary = availabilityWarningSummary(res.availability_warnings)
+      setAvailabilityWarnings((prev) => ({ ...prev, [classKey]: res.availability_warnings || [] }))
+      setMessage({ type: 'success', text: warningSummary ? `Mentor assigned. ${warningSummary} Assignment is still allowed.` : 'Mentor assigned successfully' })
       await loadData()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to assign mentor'
@@ -114,8 +142,9 @@ export default function MentorHeadDashboard() {
     try {
       setActioning(`${classKey}:start`)
       setMessage(null)
-      await api.startRound(classKey)
-      setMessage({ type: 'success', text: 'Round started successfully' })
+      const res = await api.startRound(classKey)
+      const warningSummary = availabilityWarningSummary(res.availability_warnings)
+      setMessage({ type: 'success', text: warningSummary ? `Round started. ${warningSummary}` : 'Round started successfully' })
       await loadData()
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to start round' })
@@ -502,6 +531,8 @@ export default function MentorHeadDashboard() {
                         <div style={{ marginBottom: '12px' }}>
                           <select
                             id={`mentor-select-${cls.class_key}`}
+                            value={selectedMentorIds[cls.class_key] || ''}
+                            onChange={(e) => void handleMentorSelection(cls.class_key, e.target.value)}
                             style={{
                               width: '100%',
                               padding: '6px',
@@ -513,28 +544,52 @@ export default function MentorHeadDashboard() {
                           >
                             <option value="">Select mentor...</option>
                             {dashboard?.mentors.map((m) => (
-                              <option key={m.id} value={m.email}>
+                              <option key={m.id} value={m.id}>
                                 {m.email}
                               </option>
                             ))}
                           </select>
+                          {checkingAvailability === cls.class_key && (
+                            <div style={{ marginBottom: '6px', color: '#666', fontSize: '12px' }}>Checking availability...</div>
+                          )}
+                          {availabilityWarnings[cls.class_key]?.length > 0 && (
+                            <div
+                              style={{
+                                marginBottom: '8px',
+                                padding: '8px',
+                                background: '#fff3bf',
+                                color: '#5f3dc4',
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                              }}
+                            >
+                              <div style={{ fontWeight: 700, marginBottom: '4px' }}>Availability warning</div>
+                              {availabilityWarnings[cls.class_key].slice(0, 3).map((warning) => (
+                                <div key={`${warning.session_number}:${warning.scheduled_date}:${warning.code}`}>
+                                  S{warning.session_number} · {warning.scheduled_date} · {warning.start_time}-{warning.end_time}
+                                </div>
+                              ))}
+                              {availabilityWarnings[cls.class_key].length > 3 && (
+                                <div>+{availabilityWarnings[cls.class_key].length - 3} more sessions</div>
+                              )}
+                            </div>
+                          )}
                           <button
                             onClick={() => {
-                              const select = document.getElementById(`mentor-select-${cls.class_key}`) as HTMLSelectElement
-                              const mentorEmail = select.value
-                              if (mentorEmail) {
-                                handleAssignMentor(cls.class_key, mentorEmail)
+                              const mentorUserId = selectedMentorIds[cls.class_key]
+                              if (mentorUserId) {
+                                handleAssignMentor(cls.class_key, mentorUserId)
                               }
                             }}
-                            disabled={assigning === cls.class_key}
+                            disabled={assigning === cls.class_key || !selectedMentorIds[cls.class_key]}
                             style={{
                               width: '100%',
                               padding: '6px',
-                              background: assigning === cls.class_key ? '#ccc' : '#007bff',
+                              background: assigning === cls.class_key || !selectedMentorIds[cls.class_key] ? '#ccc' : '#007bff',
                               color: 'white',
                               border: 'none',
                               borderRadius: '4px',
-                              cursor: assigning === cls.class_key ? 'not-allowed' : 'pointer',
+                              cursor: assigning === cls.class_key || !selectedMentorIds[cls.class_key] ? 'not-allowed' : 'pointer',
                               fontSize: '13px',
                             }}
                           >

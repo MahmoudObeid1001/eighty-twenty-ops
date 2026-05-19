@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api, User } from '../api/client'
+import AvailabilityReminderBanner from './AvailabilityReminderBanner'
 import LateJoinerBanner from './LateJoinerBanner'
 import OpsNotificationBanner from './OpsNotificationBanner'
 
@@ -123,16 +124,24 @@ export default function AppLayout({ children }: AppLayoutProps) {
                   to={getLearningLink()}
                   className={
                     (isActive('/mentor') ||
-                      (isActive('/mentor-head') && !isActive('/mentor-head/evaluations')) ||
+                      (isActive('/mentor-head') && !isActive('/mentor-head/evaluations') && !isActive('/mentor-head/calendar')) ||
                       isActive('/hr') ||
                       isActive('/student-success') ||
                       isClassPage)
+                      && !isActive('/mentor/availability')
                       && !isActive('/mentors')
                       ? 'active'
                       : ''
                   }
                 >
                   Learning
+                </Link>
+              </li>
+            )}
+            {role === 'mentor' && (
+              <li>
+                <Link to="/mentor/availability" className={isActive('/mentor/availability') ? 'active' : ''}>
+                  Availability
                 </Link>
               </li>
             )}
@@ -157,6 +166,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
+            {(role === 'mentor_head' || role === 'manager') && (
+              <li>
+                <Link to="/mentor-head/calendar" className={isActive('/mentor-head/calendar') ? 'active' : ''}>
+                  Calendar
+                </Link>
+              </li>
+            )}
             {(role === 'mentor_head' || role === 'mentor' || role === 'hr' || role === 'student_success' || role === 'admin' || role === 'moderator' || role === 'manager') && (
               <li>
                 <Link to="/students" className={isActive('/students') ? 'active' : ''}>
@@ -176,7 +192,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               </li>
             )}
-            {(role === 'mentor_head' || role === 'admin' || role === 'manager') && (
+            {(role === 'mentor_head' || role === 'admin' || role === 'manager' || role === 'hr') && (
               <li>
                 <Link to="/mentors" className={isActive('/mentors') ? 'active' : ''}>
                   Mentors
@@ -229,6 +245,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
       </aside>
       <main className="main-content">
+        <AvailabilityReminderBanner userRole={role} />
         <LateJoinerBanner userRole={role} />
         <OpsNotificationBanner userRole={role} />
         {children}

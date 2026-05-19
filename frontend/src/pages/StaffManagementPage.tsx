@@ -23,10 +23,12 @@ export default function StaffManagementPage() {
   const [pendingDeactivateUser, setPendingDeactivateUser] = useState<StaffUser | null>(null)
 
   const [fullName, setFullName] = useState('')
+  const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('admin')
   const [temporaryPassword, setTemporaryPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const mentorRoleSelected = role === 'mentor'
 
   useEffect(() => {
     void loadUsers()
@@ -64,17 +66,23 @@ export default function StaffManagementPage() {
       setError('Name, email, and temporary password are required.')
       return
     }
+    if (mentorRoleSelected && !phone.trim()) {
+      setError('Phone is required when creating a mentor.')
+      return
+    }
 
     try {
       setSubmitting(true)
       await api.createStaffUser({
         full_name: fullName.trim(),
+        phone: mentorRoleSelected ? phone.trim() : '',
         email: email.trim(),
         role,
         temporary_password: temporaryPassword,
       })
       setShowModal(false)
       setFullName('')
+      setPhone('')
       setEmail('')
       setTemporaryPassword('')
       setRole('admin')
@@ -217,6 +225,19 @@ export default function StaffManagementPage() {
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
+
+              {mentorRoleSelected && (
+                <>
+                  <label style={labelStyle}>Phone</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    required={mentorRoleSelected}
+                    style={inputStyle}
+                  />
+                </>
+              )}
 
               <label style={labelStyle}>Temporary Password</label>
               <input type="password" value={temporaryPassword} onChange={(e) => setTemporaryPassword(e.target.value)} required style={inputStyle} />

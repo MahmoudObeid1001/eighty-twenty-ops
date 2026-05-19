@@ -102,6 +102,66 @@ func averageSessionQualityForResponse(raw []int) int {
 	return int(math.Round(float64(total) / float64(count)))
 }
 
+func availabilityWindowResponse(item models.MentorAvailabilityWindow) map[string]interface{} {
+	note := ""
+	if item.Note.Valid {
+		note = item.Note.String
+	}
+	return map[string]interface{}{
+		"id":             item.ID.String(),
+		"mentor_user_id": item.MentorUserID.String(),
+		"available_date": item.AvailableDate.Format("2006-01-02"),
+		"start_time":     item.StartTime,
+		"end_time":       item.EndTime,
+		"note":           note,
+	}
+}
+
+func availabilityWarningResponse(item models.MentorAvailabilityWarning) map[string]interface{} {
+	return map[string]interface{}{
+		"code":           item.Code,
+		"message":        item.Message,
+		"session_number": item.SessionNumber,
+		"scheduled_date": item.ScheduledDate,
+		"start_time":     item.StartTime,
+		"end_time":       item.EndTime,
+	}
+}
+
+func availabilityWarningsResponse(warnings []models.MentorAvailabilityWarning) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(warnings))
+	for _, warning := range warnings {
+		out = append(out, availabilityWarningResponse(warning))
+	}
+	return out
+}
+
+func availabilityWindowsResponse(windows []models.MentorAvailabilityWindow) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(windows))
+	for _, window := range windows {
+		out = append(out, availabilityWindowResponse(window))
+	}
+	return out
+}
+
+func formatOptionalDate(date *time.Time) interface{} {
+	if date == nil || date.IsZero() {
+		return nil
+	}
+	return date.Format("2006-01-02")
+}
+
+func checkAvailabilityForAssignedMentor(classKey string) ([]models.MentorAvailabilityWarning, error) {
+	assignment, err := models.GetMentorAssignment(classKey)
+	if err != nil {
+		return nil, err
+	}
+	if assignment == nil {
+		return nil, nil
+	}
+	return models.CheckMentorAvailabilityForClass(classKey, assignment.MentorUserID)
+}
+
 // GET /api/me - returns current user info
 func (h *APIHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
@@ -182,6 +242,7 @@ func (h *APIHandler) CreateManagerUser(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		FullName          string `json:"full_name"`
+		Phone             string `json:"phone"`
 		Email             string `json:"email"`
 		Role              string `json:"role"`
 		TemporaryPassword string `json:"temporary_password"`
@@ -192,6 +253,7 @@ func (h *APIHandler) CreateManagerUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.FullName = strings.TrimSpace(req.FullName)
+	req.Phone = strings.TrimSpace(req.Phone)
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	req.Role = strings.TrimSpace(req.Role)
 	req.TemporaryPassword = strings.TrimSpace(req.TemporaryPassword)
@@ -207,6 +269,10 @@ func (h *APIHandler) CreateManagerUser(w http.ResponseWriter, r *http.Request) {
 
 	if req.FullName == "" || req.Email == "" || req.Role == "" || req.TemporaryPassword == "" {
 		jsonError(w, http.StatusBadRequest, "full_name, email, role, and temporary_password are required")
+		return
+	}
+	if req.Role == "mentor" && req.Phone == "" {
+		jsonError(w, http.StatusBadRequest, "phone is required when creating a mentor")
 		return
 	}
 	if !allowedRoles[req.Role] {
@@ -225,7 +291,7 @@ func (h *APIHandler) CreateManagerUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := models.CreateUserWithMustChange(req.Email, string(hash), req.Role, req.FullName, "", true)
+	user, err := models.CreateUserWithMustChange(req.Email, string(hash), req.Role, req.FullName, req.Phone, true)
 	if err != nil {
 		log.Printf("ERROR: failed to create manager user: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to create user")
@@ -384,11 +450,204 @@ func (h *APIHandler) GetMentorClasses(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, response)
 }
 
+// GET/PUT /api/mentor/availability?month=YYYY-MM - mentor-owned availability calendar
+func (h *APIHandler) MentorAvailability(w http.ResponseWriter, r *http.Request) {
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor" {
+		jsonError(w, http.StatusForbidden, "Only mentors can edit their own availability")
+		return
+	}
+
+	mentorUserID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid mentor session")
+		return
+	}
+
+	monthStart, _, err := models.ParseAvailabilityMonth(r.URL.Query().Get("month"))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		windows, err := models.GetMentorAvailabilityWindows(mentorUserID, monthStart)
+		if err != nil {
+			log.Printf("ERROR: Failed to load mentor availability: %v", err)
+			jsonError(w, http.StatusInternalServerError, "Failed to load availability")
+			return
+		}
+		lockedDates, err := models.GetMentorLockedDates(mentorUserID)
+		if err != nil {
+			log.Printf("ERROR: Failed to load mentor locked dates: %v", err)
+			jsonError(w, http.StatusInternalServerError, "Failed to load availability lock state")
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"month":        monthStart.Format("2006-01"),
+			"windows":      availabilityWindowsResponse(windows),
+			"locked_dates": lockedDates,
+		})
+	case http.MethodPut:
+		var req struct {
+			Windows []struct {
+				AvailableDate string `json:"available_date"`
+				StartTime     string `json:"start_time"`
+				EndTime       string `json:"end_time"`
+				Note          string `json:"note"`
+			} `json:"windows"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		windows := make([]models.MentorAvailabilityWindow, 0, len(req.Windows))
+		for _, item := range req.Windows {
+			availableDate, err := time.Parse("2006-01-02", strings.TrimSpace(item.AvailableDate))
+			if err != nil {
+				jsonError(w, http.StatusBadRequest, "available_date must be in YYYY-MM-DD format")
+				return
+			}
+			note := strings.TrimSpace(item.Note)
+			windows = append(windows, models.MentorAvailabilityWindow{
+				MentorUserID:  mentorUserID,
+				AvailableDate: availableDate,
+				StartTime:     strings.TrimSpace(item.StartTime),
+				EndTime:       strings.TrimSpace(item.EndTime),
+				Note:          sql.NullString{String: note, Valid: note != ""},
+			})
+		}
+		updated, err := models.ReplaceMentorAvailabilityWindows(mentorUserID, monthStart, windows)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		lockedDates, err := models.GetMentorLockedDates(mentorUserID)
+		if err != nil {
+			log.Printf("ERROR: Failed to load mentor locked dates: %v", err)
+			jsonError(w, http.StatusInternalServerError, "Availability saved, but failed to load lock state")
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"month":        monthStart.Format("2006-01"),
+			"windows":      availabilityWindowsResponse(updated),
+			"locked_dates": lockedDates,
+		})
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+// GET /api/mentors/:id/availability?month=YYYY-MM - read-only mentor availability for MH/Manager/HR
+func (h *APIHandler) GetMentorAvailability(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" && userRole != "hr" {
+		jsonError(w, http.StatusForbidden, "Forbidden: mentor availability view requires MH, Manager, or HR access")
+		return
+	}
+
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "mentors" || parts[3] != "availability" {
+		http.NotFound(w, r)
+		return
+	}
+
+	mentorUserID, err := uuid.Parse(parts[2])
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid mentor ID")
+		return
+	}
+	user, err := models.GetUserByID(mentorUserID.String())
+	if err != nil || user == nil || user.Role != "mentor" {
+		jsonError(w, http.StatusNotFound, "Mentor not found")
+		return
+	}
+
+	monthStart, _, err := models.ParseAvailabilityMonth(r.URL.Query().Get("month"))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	windows, err := models.GetMentorAvailabilityWindows(mentorUserID, monthStart)
+	if err != nil {
+		log.Printf("ERROR: Failed to load mentor availability: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load availability")
+		return
+	}
+
+	lockedDates, err := models.GetMentorLockedDates(mentorUserID)
+	if err != nil {
+		log.Printf("ERROR: Failed to load mentor locked dates: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load availability lock state")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"mentor_user_id": mentorUserID.String(),
+		"month":          monthStart.Format("2006-01"),
+		"windows":        availabilityWindowsResponse(windows),
+		"locked_dates":   lockedDates,
+	})
+}
+
+// GET /api/mentor-head/availability-calendar?month=YYYY-MM - read-only bulk calendar for MH
+func (h *APIHandler) GetMentorHeadAvailabilityCalendar(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" && userRole != "hr" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	monthStart, _, err := models.ParseAvailabilityMonth(r.URL.Query().Get("month"))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, err := models.GetAllMentorsAvailabilityForMonth(monthStart)
+	if err != nil {
+		log.Printf("ERROR: Failed to load all mentor availability: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load availability calendar")
+		return
+	}
+
+	// Convert windows to JSON-friendly maps
+	type mentorEntry struct {
+		MentorUserID string                   `json:"mentor_user_id"`
+		Name         string                   `json:"name"`
+		Windows      []map[string]interface{} `json:"windows"`
+	}
+	entries := make([]mentorEntry, 0, len(result))
+	for _, m := range result {
+		entries = append(entries, mentorEntry{
+			MentorUserID: m.MentorUserID,
+			Name:         m.Name,
+			Windows:      availabilityWindowsResponse(m.Windows),
+		})
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"month":   monthStart.Format("2006-01"),
+		"mentors": entries,
+	})
+}
+
 // GET /api/mentor-head/mentors - returns all mentors
 func (h *APIHandler) GetMentors(w http.ResponseWriter, r *http.Request) {
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
-		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" && userRole != "hr" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head, Manager, or HR access required")
 		return
 	}
 
@@ -423,8 +682,8 @@ func (h *APIHandler) GetMentorDirectory(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
-		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" && userRole != "hr" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head, Manager, or HR access required")
 		return
 	}
 
@@ -469,8 +728,8 @@ func (h *APIHandler) GetMentorProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userRole := middleware.GetUserRole(r)
-	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
-		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Admin access required")
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" && userRole != "hr" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head, Manager, or HR access required")
 		return
 	}
 
@@ -1533,6 +1792,22 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "Invalid student_id")
 		return
 	}
+	if userRole == "mentor" {
+		mentorUserID, parseErr := uuid.Parse(middleware.GetUserID(r))
+		if parseErr != nil {
+			jsonError(w, http.StatusUnauthorized, "Invalid mentor session")
+			return
+		}
+		allowed, accessErr := models.MentorHasStudentAccess(mentorUserID, studentID)
+		if accessErr != nil {
+			jsonError(w, http.StatusInternalServerError, "Failed to verify access")
+			return
+		}
+		if !allowed {
+			jsonError(w, http.StatusForbidden, "Forbidden")
+			return
+		}
+	}
 
 	// Get lead/student info directly (we only need basic fields + levels)
 	lead := &models.Lead{}
@@ -2030,6 +2305,108 @@ func (h *APIHandler) GetMentorHeadArchive(w http.ResponseWriter, r *http.Request
 	jsonResponse(w, http.StatusOK, response)
 }
 
+// POST /api/mentor-head/availability-check - previews availability warnings for a class assignment
+func (h *APIHandler) CheckMentorAvailability(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head or Manager access required")
+		return
+	}
+
+	var req struct {
+		ClassKey     string `json:"class_key"`
+		MentorUserID string `json:"mentor_user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ClassKey = strings.TrimSpace(req.ClassKey)
+	req.MentorUserID = strings.TrimSpace(req.MentorUserID)
+	if req.ClassKey == "" || req.MentorUserID == "" {
+		jsonError(w, http.StatusBadRequest, "class_key and mentor_user_id are required")
+		return
+	}
+
+	mentorUserID, err := uuid.Parse(req.MentorUserID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid mentor_user_id")
+		return
+	}
+	user, err := models.GetUserByID(mentorUserID.String())
+	if err != nil || user == nil || user.Role != "mentor" {
+		jsonError(w, http.StatusBadRequest, "Invalid mentor user")
+		return
+	}
+
+	warnings, err := models.CheckMentorAvailabilityForClass(req.ClassKey, mentorUserID)
+	if err != nil {
+		log.Printf("ERROR: Failed to check mentor availability: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to check mentor availability")
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ok":                    true,
+		"class_key":             req.ClassKey,
+		"mentor_user_id":        mentorUserID.String(),
+		"availability_warnings": availabilityWarningsResponse(warnings),
+	})
+}
+
+// GET/POST /api/availability-reminder - current monthly availability reminder banner
+func (h *APIHandler) AvailabilityReminder(w http.ResponseWriter, r *http.Request) {
+	role := middleware.GetUserRole(r)
+	if role != "mentor" && role != "mentor_head" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		notification, err := models.GetAvailabilityReminder(userID, role, util.CairoNow())
+		if err != nil {
+			log.Printf("ERROR: Failed to load availability reminder: %v", err)
+			jsonError(w, http.StatusInternalServerError, "Failed to load reminder")
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"reminder": notification,
+		})
+	case http.MethodPost:
+		var req struct {
+			Month string `json:"month"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		monthStart, _, err := models.ParseAvailabilityMonth(req.Month)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := models.DismissAvailabilityReminder(userID, monthStart); err != nil {
+			log.Printf("ERROR: Failed to dismiss availability reminder: %v", err)
+			jsonError(w, http.StatusInternalServerError, "Failed to dismiss reminder")
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
 // POST /api/mentor-head/assign-mentor - assigns a mentor to a class
 func (h *APIHandler) AssignMentor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -2141,6 +2518,13 @@ func (h *APIHandler) AssignMentor(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	availabilityWarnings, err := models.CheckMentorAvailabilityForClass(req.ClassKey, mentorUserID)
+	if err != nil {
+		log.Printf("ERROR: Failed to check mentor availability: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to check mentor availability")
+		return
+	}
+
 	// Assign mentor
 	createdByUserID, _ := uuid.Parse(middleware.GetUserID(r))
 	if err := models.AssignMentorToClass(req.ClassKey, mentorUserID, createdByUserID); err != nil {
@@ -2149,7 +2533,10 @@ func (h *APIHandler) AssignMentor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ok":                    true,
+		"availability_warnings": availabilityWarningsResponse(availabilityWarnings),
+	})
 }
 
 // POST /api/mentor-head/return-to-ops - returns a class to Operations
@@ -2320,8 +2707,11 @@ func (h *APIHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use today as start date and class time from class_groups
+	// Use the Operations-suggested start date when available, with today's existing behavior as fallback.
 	startDate := time.Now()
+	if classGroup.SuggestedStartDate.Valid {
+		startDate = classGroup.SuggestedStartDate.Time
+	}
 	startTime := classGroup.ClassTime
 
 	// Start round (set status='active' + create 8 sessions)
@@ -2336,6 +2726,12 @@ func (h *APIHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	availabilityWarnings, err := checkAvailabilityForAssignedMentor(req.ClassKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to check mentor availability after start round: %v", err)
+		availabilityWarnings = nil
+	}
+
 	// Return updated class summary
 	updated, _ := models.GetClassGroupByKey(req.ClassKey)
 	students, _ := models.GetStudentsInClassGroup(req.ClassKey)
@@ -2346,15 +2742,16 @@ func (h *APIHandler) StartRound(w http.ResponseWriter, r *http.Request) {
 		readiness = "READY"
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"ok":            true,
-		"class_key":     updated.ClassKey,
-		"level":         updated.Level,
-		"days":          updated.ClassDays,
-		"time":          updated.ClassTime,
-		"class_number":  updated.ClassNumber,
-		"round_status":  updated.RoundStatus,
-		"student_count": len(students),
-		"readiness":     readiness,
+		"ok":                    true,
+		"class_key":             updated.ClassKey,
+		"level":                 updated.Level,
+		"days":                  updated.ClassDays,
+		"time":                  updated.ClassTime,
+		"class_number":          updated.ClassNumber,
+		"round_status":          updated.RoundStatus,
+		"student_count":         len(students),
+		"readiness":             readiness,
+		"availability_warnings": availabilityWarningsResponse(availabilityWarnings),
 	})
 }
 
@@ -2421,10 +2818,17 @@ func (h *APIHandler) ShiftRoundStartDate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	availabilityWarnings, err := checkAvailabilityForAssignedMentor(req.ClassKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to check mentor availability after shifting class %s: %v", req.ClassKey, err)
+		availabilityWarnings = nil
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"ok":             true,
-		"class_key":      req.ClassKey,
-		"new_start_date": newStartDate.Format("2006-01-02"),
+		"ok":                    true,
+		"class_key":             req.ClassKey,
+		"new_start_date":        newStartDate.Format("2006-01-02"),
+		"availability_warnings": availabilityWarningsResponse(availabilityWarnings),
 	})
 }
 
@@ -2512,12 +2916,19 @@ func (h *APIHandler) RescheduleClassSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	availabilityWarnings, err := checkAvailabilityForAssignedMentor(req.ClassKey)
+	if err != nil {
+		log.Printf("ERROR: Failed to check mentor availability after rescheduling session %s: %v", req.SessionID, err)
+		availabilityWarnings = nil
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"ok":         true,
-		"class_key":  req.ClassKey,
-		"session_id": req.SessionID,
-		"new_date":   req.NewDate,
-		"new_time":   req.NewTime,
+		"ok":                    true,
+		"class_key":             req.ClassKey,
+		"session_id":            req.SessionID,
+		"new_date":              req.NewDate,
+		"new_time":              req.NewTime,
+		"availability_warnings": availabilityWarningsResponse(availabilityWarnings),
 	})
 }
 
@@ -3773,6 +4184,19 @@ func (h *APIHandler) ListClassSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	classKey := strings.TrimPrefix(path, "/api/classes/")
 	classKey = strings.TrimSuffix(classKey, "/sessions")
+
+	if middleware.GetUserRole(r) == "mentor" {
+		mentorUserID, err := uuid.Parse(middleware.GetUserID(r))
+		if err != nil {
+			jsonError(w, http.StatusUnauthorized, "Invalid mentor session")
+			return
+		}
+		assignment, err := models.GetMentorAssignment(classKey)
+		if err != nil || assignment == nil || assignment.MentorUserID != mentorUserID {
+			jsonError(w, http.StatusForbidden, "Forbidden: You are not assigned to this class")
+			return
+		}
+	}
 
 	sessions, err := models.GetClassSessions(classKey)
 	if err != nil {

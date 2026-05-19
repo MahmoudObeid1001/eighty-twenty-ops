@@ -124,19 +124,37 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor/reminders -> apiHandler.GetMentorReminders [mentor+admin]")
 
-	mux.HandleFunc("/api/mentor-head/mentors", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentors)(w, r)
+	mux.HandleFunc("/api/mentor/availability", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodPut {
+			middleware.RequireAnyRole([]string{"mentor"}, cfg.SessionSecret)(apiHandler.MentorAvailability)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/mentors -> apiHandler.GetMentors [mentor_head+admin]")
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor/availability -> apiHandler.MentorAvailability [mentor]")
+
+	mux.HandleFunc("/api/availability-reminder", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor", "mentor_head"}, cfg.SessionSecret)(apiHandler.AvailabilityReminder)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/availability-reminder -> apiHandler.AvailabilityReminder [mentor+mentor_head]")
+
+	mux.HandleFunc("/api/mentor-head/mentors", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetMentors)(w, r)
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/mentors -> apiHandler.GetMentors [mentor_head+admin+manager]")
 
 	mux.HandleFunc("/api/mentor-head/mentors/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/testimonials") {
-			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.CreateMentorTestimonial)(w, r)
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.CreateMentorTestimonial)(w, r)
 			return
 		}
 		http.NotFound(w, r)
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/mentors/:id/testimonials -> apiHandler.CreateMentorTestimonial [mentor_head+admin]")
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/mentors/:id/testimonials -> apiHandler.CreateMentorTestimonial [mentor_head+admin+manager]")
 
 	mux.HandleFunc("/api/mentors", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/mentors" {
@@ -144,21 +162,25 @@ func main() {
 			return
 		}
 		if r.Method == http.MethodGet {
-			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorDirectory)(w, r)
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager", "hr"}, cfg.SessionSecret)(apiHandler.GetMentorDirectory)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/mentors -> apiHandler.GetMentorDirectory [mentor_head+admin]")
+	cfg.Debugf("ROUTE REGISTERED: /api/mentors -> apiHandler.GetMentorDirectory [mentor_head+admin+manager+hr]")
 
 	mux.HandleFunc("/api/mentors/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			middleware.RequireAnyRole([]string{"mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetMentorProfile)(w, r)
+			if strings.HasSuffix(r.URL.Path, "/availability") {
+				middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager", "hr"}, cfg.SessionSecret)(apiHandler.GetMentorAvailability)(w, r)
+				return
+			}
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager", "hr"}, cfg.SessionSecret)(apiHandler.GetMentorProfile)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/mentors/:id/profile -> apiHandler.GetMentorProfile [mentor_head+admin]")
+	cfg.Debugf("ROUTE REGISTERED: /api/mentors/:id/profile|availability -> apiHandler [mentor_head+admin+manager+hr]")
 
 	mux.HandleFunc("/api/mentor-head/classes", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetMentorHeadClasses)(w, r)
@@ -191,6 +213,24 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/assign-mentor -> apiHandler.AssignMentor [mentor_head+admin+manager]")
+
+	mux.HandleFunc("/api/mentor-head/availability-check", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.CheckMentorAvailability)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/availability-check -> apiHandler.CheckMentorAvailability [mentor_head+admin+manager]")
+
+	mux.HandleFunc("/api/mentor-head/availability-calendar", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager", "hr"}, cfg.SessionSecret)(apiHandler.GetMentorHeadAvailabilityCalendar)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/availability-calendar -> apiHandler.GetMentorHeadAvailabilityCalendar [mentor_head+admin+manager+hr]")
 
 	mux.HandleFunc("/api/mentor-head/return-to-ops", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {

@@ -48,6 +48,60 @@ func SearchStudents(query string) ([]*StudentSearchResult, error) {
 	return results, nil
 }
 
+func SearchStudentsForMentor(query string, mentorUserID uuid.UUID) ([]*StudentSearchResult, error) {
+	rows, err := db.DB.Query(`
+		SELECT DISTINCT
+			l.id,
+			l.full_name,
+			l.phone,
+			COALESCE(pt.assigned_level, 0) as current_level,
+			l.status
+		FROM leads l
+		INNER JOIN class_memberships cm ON cm.lead_id = l.id
+		INNER JOIN mentor_assignments ma ON ma.class_key = cm.class_key
+		LEFT JOIN placement_tests pt ON l.id = pt.lead_id
+		WHERE ma.mentor_user_id = $1
+		  AND cm.removed_at IS NULL
+		  AND (LOWER(l.full_name) LIKE LOWER($2) OR l.phone = $3)
+		ORDER BY l.full_name
+		LIMIT 20
+	`, mentorUserID, "%"+query+"%", query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search mentor students: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	results := []*StudentSearchResult{}
+	for rows.Next() {
+		r := &StudentSearchResult{}
+		err := rows.Scan(&r.LeadID, &r.FullName, &r.Phone, &r.CurrentLevel, &r.Status)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan mentor search result: %w", err)
+		}
+		results = append(results, r)
+	}
+
+	return results, nil
+}
+
+func MentorHasStudentAccess(mentorUserID, leadID uuid.UUID) (bool, error) {
+	var exists bool
+	err := db.DB.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM class_memberships cm
+			INNER JOIN mentor_assignments ma ON ma.class_key = cm.class_key
+			WHERE ma.mentor_user_id = $1
+			  AND cm.lead_id = $2
+			  AND cm.removed_at IS NULL
+		)
+	`, mentorUserID, leadID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to verify mentor student access: %w", err)
+	}
+	return exists, nil
+}
+
 // UpdateStudentBasicInfo updates the editable identity fields for a student lead.
 func UpdateStudentBasicInfo(leadID uuid.UUID, fullName, phone string) error {
 	now := time.Now()

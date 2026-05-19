@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react'
-import { api, MentorDirectoryItem, MentorProfileResponse } from '../api/client'
+import { api, MentorAvailabilityWindow, MentorDirectoryItem, MentorProfileResponse } from '../api/client'
 
 function formatDate(value: string | null): string {
   if (!value) return '-'
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return '-'
   return d.toLocaleDateString()
+}
+
+function currentMonth() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
 export default function MentorsPage() {
@@ -16,7 +21,11 @@ export default function MentorsPage() {
   const [profile, setProfile] = useState<MentorProfileResponse | null>(null)
   const [loadingProfile, setLoadingProfile] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'history' | 'testimonials'>('history')
+  const [activeTab, setActiveTab] = useState<'history' | 'availability' | 'testimonials'>('history')
+  const [availabilityMonth, setAvailabilityMonth] = useState(currentMonth())
+  const [availabilityWindows, setAvailabilityWindows] = useState<MentorAvailabilityWindow[]>([])
+  const [availabilityLoading, setAvailabilityLoading] = useState(false)
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
 
   useEffect(() => {
     void loadMentors()
@@ -39,13 +48,37 @@ export default function MentorsPage() {
     try {
       setLoadingProfile(true)
       setProfileError(null)
+      setAvailabilityError(null)
+      setAvailabilityWindows([])
       setActiveTab('history')
       const data = await api.getMentorProfile(mentorId)
       setProfile(data)
+      void loadAvailability(mentorId, availabilityMonth)
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : 'Failed to load mentor profile')
     } finally {
       setLoadingProfile(false)
+    }
+  }
+
+  async function loadAvailability(mentorId: string, month: string) {
+    try {
+      setAvailabilityLoading(true)
+      setAvailabilityError(null)
+      const data = await api.getMentorAvailability(mentorId, month)
+      setAvailabilityWindows(data.windows || [])
+    } catch (err) {
+      setAvailabilityError(err instanceof Error ? err.message : 'Failed to load mentor availability')
+    } finally {
+      setAvailabilityLoading(false)
+    }
+  }
+
+  function changeAvailabilityMonth(month: string) {
+    const nextMonth = month || currentMonth()
+    setAvailabilityMonth(nextMonth)
+    if (profile?.mentor_details.id) {
+      void loadAvailability(profile.mentor_details.id, nextMonth)
     }
   }
 
@@ -199,6 +232,12 @@ export default function MentorsPage() {
                 Class History
               </button>
               <button
+                onClick={() => setActiveTab('availability')}
+                style={{ ...tabBtn, ...(activeTab === 'availability' ? activeTabBtn : {}) }}
+              >
+                Availability
+              </button>
+              <button
                 onClick={() => setActiveTab('testimonials')}
                 style={{ ...tabBtn, ...(activeTab === 'testimonials' ? activeTabBtn : {}) }}
               >
@@ -235,6 +274,46 @@ export default function MentorsPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            ) : activeTab === 'availability' ? (
+              <div style={{ marginTop: '8px', border: '1px solid #dee2e6', borderRadius: '6px', background: '#fff', overflow: 'hidden' }}>
+                <div style={{ padding: '12px 14px', borderBottom: '1px solid #dee2e6', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <strong>Submitted Availability</strong>
+                  <input
+                    type="month"
+                    value={availabilityMonth}
+                    onChange={(e) => changeAvailabilityMonth(e.target.value)}
+                    style={{ padding: '7px 10px', border: '1px solid #ced4da', borderRadius: '6px' }}
+                  />
+                </div>
+                {availabilityLoading ? (
+                  <div style={{ padding: '14px', color: '#666' }}>Loading availability...</div>
+                ) : availabilityError ? (
+                  <div style={{ padding: '14px', color: '#721c24', background: '#f8d7da' }}>{availabilityError}</div>
+                ) : availabilityWindows.length === 0 ? (
+                  <div style={{ padding: '14px', color: '#666' }}>No availability submitted for {availabilityMonth}.</div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}>
+                        <th style={thStyle}>Date</th>
+                        <th style={thStyle}>Time</th>
+                        <th style={thStyle}>Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {availabilityWindows.map((window) => (
+                        <tr key={window.id || `${window.available_date}:${window.start_time}:${window.end_time}`} style={{ borderBottom: '1px solid #f1f3f5' }}>
+                          <td style={tdStyle}>{window.available_date}</td>
+                          <td style={tdStyle}>
+                            {window.start_time} - {window.end_time}
+                          </td>
+                          <td style={tdStyle}>{window.note || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             ) : (
               <div style={{ marginTop: '8px', border: '1px solid #dee2e6', borderRadius: '6px', background: '#fff' }}>

@@ -586,6 +586,36 @@ type MentorAssignment struct {
 	CreatedByUserID sql.NullString
 }
 
+type MentorAvailabilityWindow struct {
+	ID            uuid.UUID
+	MentorUserID  uuid.UUID
+	AvailableDate time.Time
+	StartTime     string
+	EndTime       string
+	Note          sql.NullString
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type MentorAvailabilityWarning struct {
+	Code          string
+	Message       string
+	SessionNumber int32
+	ScheduledDate string
+	StartTime     string
+	EndTime       string
+}
+
+type AvailabilityReminderNotification struct {
+	BannerKey    string `json:"banner_key"`
+	Month        string `json:"month"`
+	Title        string `json:"title"`
+	Message      string `json:"message"`
+	ActionPath   string `json:"action_path"`
+	ActionLabel  string `json:"action_label"`
+	MissingCount int    `json:"missing_count,omitempty"`
+}
+
 // MentorEvaluation represents KPI and attendance evaluation for a mentor
 type MentorEvaluation struct {
 	ID                   uuid.UUID
