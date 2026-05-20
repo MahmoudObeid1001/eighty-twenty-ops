@@ -21,6 +21,21 @@ function currentMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
+function normalizeMonthString(str: string): string {
+  const trimmed = str.trim()
+  if (!trimmed) return currentMonth()
+  const parts = trimmed.split('-')
+  if (parts.length === 2) {
+    const y = parts[0]
+    let m = parts[1]
+    if (m.length === 1) {
+      m = '0' + m
+    }
+    return `${y}-${m}`
+  }
+  return str
+}
+
 function nextMonth(month: string) {
   const [y, m] = month.split('-').map(Number)
   const d = new Date(Date.UTC(y, m, 1))
@@ -100,6 +115,11 @@ export default function MentorHeadCalendarPage() {
   }, [month])
 
   async function loadCalendar() {
+    const norm = normalizeMonthString(month)
+    if (norm !== month) {
+      setMonth(norm)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -211,6 +231,7 @@ export default function MentorHeadCalendarPage() {
               type="month"
               value={month}
               onChange={(e) => setMonth(e.target.value || currentMonth())}
+              onBlur={(e) => setMonth(normalizeMonthString(e.target.value))}
               style={{ border: 'none', padding: '8px 12px', fontSize: '14px', fontWeight: 600, outline: 'none', color: '#1e293b' }}
             />
             <button

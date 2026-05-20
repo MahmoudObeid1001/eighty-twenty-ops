@@ -28,6 +28,13 @@ func ParseAvailabilityMonth(month string) (time.Time, time.Time, error) {
 		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 		return start, start.AddDate(0, 1, 0), nil
 	}
+	// Automatically normalize YYYY-M to YYYY-MM (e.g. 2026-6 -> 2026-06)
+	parts := strings.Split(trimmed, "-")
+	if len(parts) == 2 {
+		if len(parts[1]) == 1 {
+			trimmed = parts[0] + "-0" + parts[1]
+		}
+	}
 	start, err := time.Parse("2006-01", trimmed)
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("month must be in YYYY-MM format")

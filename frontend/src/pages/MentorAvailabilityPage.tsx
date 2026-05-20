@@ -55,6 +55,21 @@ function currentMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
+function normalizeMonthString(str: string): string {
+  const trimmed = str.trim()
+  if (!trimmed) return currentMonth()
+  const parts = trimmed.split('-')
+  if (parts.length === 2) {
+    const y = parts[0]
+    let m = parts[1]
+    if (m.length === 1) {
+      m = '0' + m
+    }
+    return `${y}-${m}`
+  }
+  return str
+}
+
 function nextMonth(month: string) {
   const [y, m] = month.split('-').map(Number)
   const d = new Date(Date.UTC(y, m, 1))
@@ -262,6 +277,11 @@ export default function MentorAvailabilityPage() {
   }, [days, nextDays])
 
   async function loadAvailability() {
+    const norm = normalizeMonthString(month)
+    if (norm !== month) {
+      setMonth(norm)
+      return
+    }
     setLoading(true)
     setError(null)
     setMessage(null)
@@ -479,6 +499,7 @@ export default function MentorAvailabilityPage() {
               value={month}
               min={currentMonth()}
               onChange={(e) => setMonth(e.target.value || currentMonth())}
+              onBlur={(e) => setMonth(normalizeMonthString(e.target.value))}
               style={{ padding: '8px 10px', border: '1px solid #ced4da', borderRadius: '6px', fontSize: '14px' }}
             />
           </label>
