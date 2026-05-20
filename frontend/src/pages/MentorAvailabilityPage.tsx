@@ -357,8 +357,8 @@ export default function MentorAvailabilityPage() {
 
   /**
    * Toggle a slot on a day.
-   * - Auto cells cannot be toggled directly.
-   * - Toggling a source cell propagates to 8 consecutive sessions (4 weeks).
+   * - Clicking any active slot (source or auto-paired) will untoggle the entire 8-session block.
+   * - Toggling an inactive slot ON propagates to 8 consecutive sessions (4 weeks).
    */
   function toggleSlot(dateStr: string, slot: SlotKey) {
     if (isLocked(dateStr, lockedDates)) return
@@ -367,23 +367,22 @@ export default function MentorAvailabilityPage() {
       const state = prev[dateStr] || emptyDay()
       const ak = autoKey(slot)
 
-      // Block if this cell is currently auto-filled
-      if (state[ak]) return prev
-
       const newValue = !state[slot]
-      const next: GridState = { ...prev }
+      // Block toggling ON if this cell is currently auto-filled in the current UI session
+      if (newValue && state[ak]) return prev
 
+      const next: GridState = { ...prev }
       const sessions = get8Sessions(dateStr)
 
       for (const d of sessions) {
         if (!allDates.has(d)) continue
         if (isLocked(d, lockedDates)) continue
 
-        const isClickedDay = (d === dateStr)
         const dState = next[d] || emptyDay()
 
         if (newValue) {
           // Turning ON
+          const isClickedDay = (d === dateStr)
           if (isClickedDay) {
             next[d] = { ...dState, [slot]: true, [ak]: false }
           } else {
@@ -393,15 +392,8 @@ export default function MentorAvailabilityPage() {
             }
           }
         } else {
-          // Turning OFF
-          if (isClickedDay) {
-            next[d] = { ...dState, [slot]: false, [ak]: false }
-          } else {
-            // Turning off auto for the other sessions
-            if (dState[ak]) {
-              next[d] = { ...dState, [slot]: false, [ak]: false }
-            }
-          }
+          // Turning OFF: Turn off ALL 8 sessions in this cohort block
+          next[d] = { ...dState, [slot]: false, [ak]: false }
         }
       }
 
@@ -410,6 +402,8 @@ export default function MentorAvailabilityPage() {
   }
 
   function clearAll() {
+    const ok = window.confirm("Are you sure you want to clear all your availability slots for the selected months? (You will need to click 'Save Availability' at the bottom to save your changes to the database.)")
+    if (!ok) return
     setGrid((prev) => {
       const next: GridState = { ...prev }
       for (const k of Object.keys(next)) {
@@ -419,6 +413,7 @@ export default function MentorAvailabilityPage() {
       }
       return next
     })
+    setMessage('Availability slots cleared in the grid. Please click "Save Availability" at the bottom to save your changes!')
   }
 
 
@@ -606,15 +601,15 @@ export default function MentorAvailabilityPage() {
                           const isOn = state[slot.key]
                           const isAuto = state[autoKey(slot.key)]
                           const isSource = isOn && !isAuto
-                          const canToggle = !locked && !isAuto
+                          const canToggle = !locked
 
                           return (
                             <button
                               key={slot.key}
                               type="button"
-                              disabled={locked || isAuto}
+                              disabled={locked}
                               onClick={() => canToggle ? toggleSlot(cell.key!, slot.key) : undefined}
-                              title={isAuto ? 'Auto-paired — untoggle the source day to remove both' : undefined}
+                              title={isAuto ? 'Auto-paired — click to remove the entire cohort block' : undefined}
                               style={{
                                 border: isAuto ? '1.5px dashed #2e7d32' : 'none',
                                 borderRadius: '5px',
