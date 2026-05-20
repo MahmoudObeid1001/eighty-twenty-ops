@@ -506,7 +506,16 @@ export default function MentorAvailabilityPage() {
         </div>
       </div>
 
-      {/* ── Slot counter removed ── */}
+      {/* ── Instructions Banner ── */}
+      <div style={infoBanner}>
+        <strong>💡 How to Undo/Remove Availability:</strong>
+        <ul style={{ margin: '6px 0 0 20px', padding: 0 }}>
+          <li style={{ marginBottom: '4px' }}>Click any selected <strong>green (Slot A)</strong> or <strong>blue (Slot B)</strong> chip to deselect it.</li>
+          <li style={{ marginBottom: '4px' }}>For auto-paired days (marked with 🔗), click the chip on <em>either</em> the source day or the paired day to remove the entire paired block.</li>
+          <li style={{ marginBottom: '4px' }}>You can also click the <strong>🗑️ Clear all</strong> button at the top to reset the entire month.</li>
+          <li><strong style={{ color: '#095c6b' }}>Important:</strong> Make sure to click the <strong>Save Availability</strong> button at the bottom of the page to apply and save your changes!</li>
+        </ul>
+      </div>
 
       {/* ── Legend ── */}
       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '16px', fontSize: '12px', alignItems: 'center' }}>
@@ -791,6 +800,17 @@ const successBanner: React.CSSProperties = {
   color: '#155724',
   marginBottom: '12px',
   fontSize: '14px',
+}
+
+const infoBanner: React.CSSProperties = {
+  padding: '12px 16px',
+  borderRadius: '8px',
+  background: '#e2f4f7',
+  border: '1px solid #bce5ec',
+  color: '#0b7285',
+  marginBottom: '20px',
+  fontSize: '13.5px',
+  lineHeight: '1.6',
 }
 
 
