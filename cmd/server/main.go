@@ -500,12 +500,12 @@ func main() {
 			return
 		}
 		if r.Method == http.MethodGet {
-			middleware.RequireAnyRole([]string{"mentor_head"}, cfg.SessionSecret)(apiHandler.GetMentorEvaluations)(w, r)
+			middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.GetMentorEvaluations)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/evaluations -> apiHandler.GetMentorEvaluations [mentor_head only]")
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/evaluations -> apiHandler.GetMentorEvaluations [mentor_head+manager]")
 
 	// Register PUT /api/mentor-head/evaluations/{mentorId} - must come after exact match
 	// Go's ServeMux will match any path starting with this prefix
@@ -516,12 +516,12 @@ func main() {
 			return
 		}
 		if r.Method == http.MethodPut {
-			middleware.RequireAnyRole([]string{"mentor_head"}, cfg.SessionSecret)(apiHandler.UpdateMentorEvaluation)(w, r)
+			middleware.RequireAnyRole([]string{"mentor_head", "manager"}, cfg.SessionSecret)(apiHandler.UpdateMentorEvaluation)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/evaluations/:mentorId -> apiHandler.UpdateMentorEvaluation [mentor_head only]")
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/evaluations/:mentorId -> apiHandler.UpdateMentorEvaluation [mentor_head+manager]")
 
 	// Grades API routes
 	mux.HandleFunc("/api/mentor/grades", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
