@@ -1171,7 +1171,7 @@ func main() {
 		}
 		if r.Method == http.MethodGet {
 			cfg.Debugf("  → Calling financeHandler.Dashboard")
-			middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(financeHandler.Dashboard)(w, r)
+			middleware.RequireAnyRole([]string{"admin", "manager"}, cfg.SessionSecret)(financeHandler.Dashboard)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
