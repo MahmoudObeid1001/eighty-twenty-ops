@@ -277,13 +277,14 @@ export default function MentorHeadCalendarPage() {
       {error && <div style={errorBanner}>{error}</div>}
 
       {/* Calendar Grid */}
-      {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px', gap: '12px' }}>
-          <div className="spinner" style={spinnerStyle} />
-          <span style={{ color: '#64748b', fontSize: '15px', fontWeight: 500 }}>Loading availability calendar…</span>
-        </div>
-      ) : (
-        <div style={panelCard}>
+      <div style={{ ...panelCard, position: 'relative', opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+        {loading && (
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', background: 'rgba(255,255,255,0.95)', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+            <div className="spinner" style={spinnerStyle} />
+            <span style={{ color: '#64748b', fontSize: '15px', fontWeight: 600 }}>Loading availability calendar…</span>
+          </div>
+        )}
+        <div>
           {/* Day Headers */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', marginBottom: '12px' }}>
             {WEEK_DAYS.map((wd) => (
@@ -447,7 +448,7 @@ export default function MentorHeadCalendarPage() {
             </div>
           ))}
         </div>
-      )}
+      </div>
 
       {/* Detail Dialog/Popover when a slot is clicked */}
       {selectedSlot && (

@@ -542,10 +542,13 @@ export default function MentorAvailabilityPage() {
       {/* ── Weekly Pattern Removed ── */}
 
       {/* ── Calendar Grid ── */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading availability…</div>
-      ) : (
-        <div style={panelCard}>
+      <div style={{ ...panelCard, position: 'relative', opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+        {loading && (
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 10, background: 'rgba(255,255,255,0.95)', padding: '10px 20px', borderRadius: '20px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '14px', fontWeight: 600, color: '#0b7285' }}>
+            Loading availability…
+          </div>
+        )}
+        <div>
           {/* Day headers */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', marginBottom: '8px' }}>
             {WEEK_DAYS.map((wd) => (
@@ -718,7 +721,7 @@ export default function MentorAvailabilityPage() {
             </div>
           ))}
         </div>
-      )}
+      </div>
 
       {/* ── Save ── */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
