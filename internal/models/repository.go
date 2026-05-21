@@ -9448,11 +9448,20 @@ func GetStudentsForMentorHeadClass(classKey string) ([]*ClassStudent, error) {
 }
 
 // GetEligibleClassesForLateJoin returns classes a student is eligible to join as a late joiner.
-// Rule: Class must be same level, session <= 2, and current enrollment below 6.
+// Standard rule: class must be same level, session <= 2, and current enrollment below 6.
+// Manager override: allow classes beyond session 2 while keeping the same level/state/capacity checks.
 // Eligibility includes:
 // - active classes, and
 // - sent_to_mentor + not_started classes (pre-start exception).
 func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
+	return getEligibleClassesForLateJoin(leadID, false)
+}
+
+func GetEligibleClassesForLateJoinWithManagerOverride(leadID uuid.UUID) ([]*EligibleClass, error) {
+	return getEligibleClassesForLateJoin(leadID, true)
+}
+
+func getEligibleClassesForLateJoin(leadID uuid.UUID, allowBeyondSessionTwo bool) ([]*EligibleClass, error) {
 	// Lead must be ready to start before late-join assignment.
 	var leadStatus string
 	err := db.DB.QueryRow(`SELECT status FROM leads WHERE id = $1`, leadID).Scan(&leadStatus)
@@ -9510,8 +9519,8 @@ func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 			return nil, err
 		}
 
-		// Skip if session > 2
-		if ec.CurrentSession > 2 {
+		// Standard late join stops at session 2. Manager can override this cap.
+		if !allowBeyondSessionTwo && ec.CurrentSession > 2 {
 			continue
 		}
 
@@ -9554,6 +9563,14 @@ func GetEligibleClassesForLateJoin(leadID uuid.UUID) ([]*EligibleClass, error) {
 // AddLateJoiner adds a student to an active class group after the round has started.
 // It updates scheduling, lead status, creates an audit record, and backfills N/A attendance.
 func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid.UUID) error {
+	return addLateJoiner(leadID, classKey, reason, userID, false)
+}
+
+func AddLateJoinerWithManagerOverride(leadID uuid.UUID, classKey string, reason string, userID uuid.UUID) error {
+	return addLateJoiner(leadID, classKey, reason, userID, true)
+}
+
+func addLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid.UUID, allowBeyondSessionTwo bool) error {
 	tx, err := db.DB.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -9562,7 +9579,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		_ = tx.Rollback()
 	}()
 
-	// 1. Validate current session <= 2
+	// 1. Standard late join stops at session 2. Manager can override this cap.
 	var currentSession int32
 	err = tx.QueryRow(`
 		SELECT COUNT(*) + 1 
@@ -9572,7 +9589,7 @@ func AddLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 	if err != nil {
 		return fmt.Errorf("failed to get current session: %w", err)
 	}
-	if currentSession > 2 {
+	if !allowBeyondSessionTwo && currentSession > 2 {
 		return fmt.Errorf("cannot join class: too late (current session: %d)", currentSession)
 	}
 

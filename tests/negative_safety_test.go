@@ -35,9 +35,11 @@ func TestNegativeSafetyRails(t *testing.T) {
 	nowSuffix := time.Now().UnixNano()
 
 	admin := mustCreateUser(t, "admin", fmt.Sprintf("neg_admin_%d@eightytwenty.test", nowSuffix))
+	manager := mustCreateUser(t, "manager", fmt.Sprintf("neg_manager_%d@eightytwenty.test", nowSuffix))
 	mentorHead := mustCreateUser(t, "mentor_head", fmt.Sprintf("neg_mh_%d@eightytwenty.test", nowSuffix))
 	t.Cleanup(func() {
 		mustExec(t, `DELETE FROM users WHERE id = $1`, admin.ID)
+		mustExec(t, `DELETE FROM users WHERE id = $1`, manager.ID)
 		mustExec(t, `DELETE FROM users WHERE id = $1`, mentorHead.ID)
 	})
 
@@ -68,6 +70,114 @@ func TestNegativeSafetyRails(t *testing.T) {
 		h.AddLateJoiner(res, req)
 
 		requireErrorResponse(t, res, http.StatusBadRequest, "Reason must be at least 10 characters long")
+	})
+
+	t.Run("manager can late join beyond session 2 while admin stays blocked", func(t *testing.T) {
+		leadID := createLeadWithStatus(t, "Late Join Override", uniquePhone(nowSuffix, 40), "ready_to_start", admin.ID)
+		t.Cleanup(func() { cleanupLead(t, leadID) })
+
+		classKey := createClassGroup(t, nowSuffix, 6, "Mon/Thu", "18:00:00", 95001, true, "active")
+		t.Cleanup(func() { cleanupClass(t, classKey) })
+
+		mustExec(t, `
+			INSERT INTO placement_tests (lead_id, assigned_level, updated_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (lead_id) DO UPDATE
+			SET assigned_level = EXCLUDED.assigned_level, updated_at = NOW()
+		`, leadID, 6)
+		mustExec(t, `
+			INSERT INTO scheduling (lead_id, class_days, class_time, class_group_index, updated_at)
+			VALUES ($1, $2, $3::time, $4, NOW())
+			ON CONFLICT (lead_id) DO UPDATE
+			SET class_days = EXCLUDED.class_days,
+			    class_time = EXCLUDED.class_time,
+			    class_group_index = EXCLUDED.class_group_index,
+			    updated_at = NOW()
+		`, leadID, "Mon/Thu", "18:00:00", 95001+int32(nowSuffix%1000))
+
+		for i := 1; i <= 3; i++ {
+			mustExec(t, `
+				INSERT INTO class_sessions (id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time, actual_date, actual_time, actual_end_time, status, completed_at, created_at, updated_at)
+				VALUES (
+					gen_random_uuid(), $1, $2, DATE '2026-06-01' + ($2 - 1), '18:00'::time, '20:00'::time,
+					DATE '2026-06-01' + ($2 - 1), '18:00'::time, '20:00'::time, 'completed', NOW(), NOW(), NOW()
+				)
+			`, classKey, i)
+		}
+
+		adminEligibleReq := httptest.NewRequest(http.MethodGet, "/api/pre-enrolment/"+leadID.String()+"/late-join-eligible-classes", nil)
+		adminEligibleReq = withUserContext(adminEligibleReq, admin.ID, admin.Email, "admin")
+		adminEligibleRes := httptest.NewRecorder()
+		h.GetEligibleClassesForLateJoin(adminEligibleRes, adminEligibleReq)
+		if adminEligibleRes.Code != http.StatusOK {
+			t.Fatalf("expected admin eligible classes call to succeed, got %d body=%s", adminEligibleRes.Code, adminEligibleRes.Body.String())
+		}
+		var adminEligiblePayload struct {
+			Classes []models.EligibleClass `json:"classes"`
+		}
+		if err := json.Unmarshal(adminEligibleRes.Body.Bytes(), &adminEligiblePayload); err != nil {
+			t.Fatalf("failed to decode admin eligible classes: %v", err)
+		}
+		for _, cls := range adminEligiblePayload.Classes {
+			if cls.ClassKey == classKey {
+				t.Fatalf("expected admin not to see late-join class %s beyond session 2, got %+v", classKey, adminEligiblePayload.Classes)
+			}
+		}
+
+		managerEligibleReq := httptest.NewRequest(http.MethodGet, "/api/pre-enrolment/"+leadID.String()+"/late-join-eligible-classes", nil)
+		managerEligibleReq = withUserContext(managerEligibleReq, manager.ID, manager.Email, "manager")
+		managerEligibleRes := httptest.NewRecorder()
+		h.GetEligibleClassesForLateJoin(managerEligibleRes, managerEligibleReq)
+		if managerEligibleRes.Code != http.StatusOK {
+			t.Fatalf("expected manager eligible classes call to succeed, got %d body=%s", managerEligibleRes.Code, managerEligibleRes.Body.String())
+		}
+		var managerEligiblePayload struct {
+			Classes []models.EligibleClass `json:"classes"`
+		}
+		if err := json.Unmarshal(managerEligibleRes.Body.Bytes(), &managerEligiblePayload); err != nil {
+			t.Fatalf("failed to decode manager eligible classes: %v", err)
+		}
+		foundManagerClass := false
+		for _, cls := range managerEligiblePayload.Classes {
+			if cls.ClassKey == classKey {
+				foundManagerClass = true
+				break
+			}
+		}
+		if !foundManagerClass {
+			t.Fatalf("expected manager to see class %s, got %+v", classKey, managerEligiblePayload.Classes)
+		}
+
+		payload := map[string]string{
+			"class_key": classKey,
+			"reason":    "Manager approved late join after current session two.",
+		}
+		body, _ := json.Marshal(payload)
+		adminAddReq := httptest.NewRequest(http.MethodPost, "/api/pre-enrolment/"+leadID.String()+"/late-join?id="+leadID.String(), bytes.NewReader(body))
+		adminAddReq = withUserContext(adminAddReq, admin.ID, admin.Email, "admin")
+		adminAddRes := httptest.NewRecorder()
+		h.AddLateJoiner(adminAddRes, adminAddReq)
+		requireErrorResponse(t, adminAddRes, http.StatusBadRequest, "cannot join class: too late")
+
+		managerAddReq := httptest.NewRequest(http.MethodPost, "/api/pre-enrolment/"+leadID.String()+"/late-join?id="+leadID.String(), bytes.NewReader(body))
+		managerAddReq = withUserContext(managerAddReq, manager.ID, manager.Email, "manager")
+		managerAddRes := httptest.NewRecorder()
+		h.AddLateJoiner(managerAddRes, managerAddReq)
+		if managerAddRes.Code != http.StatusOK {
+			t.Fatalf("expected manager late join to succeed, got %d body=%s", managerAddRes.Code, managerAddRes.Body.String())
+		}
+
+		var joinedAt int32
+		if err := mustQueryRow(t, `
+			SELECT joined_at_session_number
+			FROM class_memberships
+			WHERE lead_id = $1 AND class_key = $2 AND join_reason = 'late_join'
+		`, leadID, classKey).Scan(&joinedAt); err != nil {
+			t.Fatalf("failed to load late join membership: %v", err)
+		}
+		if joinedAt != 4 {
+			t.Fatalf("expected manager late join at session 4, got %d", joinedAt)
+		}
 	})
 
 	t.Run("reject start round when mentor is not assigned", func(t *testing.T) {

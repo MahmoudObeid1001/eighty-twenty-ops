@@ -473,17 +473,17 @@ func main() {
 		// Routing logic for sub-paths
 		if len(parts) == 4 && parts[3] == "late-join-eligible-classes" {
 			if r.Method == http.MethodGet {
-				middleware.RequireAnyRole([]string{"admin", "moderator"}, cfg.SessionSecret)(apiHandler.GetEligibleClassesForLateJoin)(w, r)
+				middleware.RequireAnyRole([]string{"admin", "moderator", "manager"}, cfg.SessionSecret)(apiHandler.GetEligibleClassesForLateJoin)(w, r)
 				return
 			}
 		} else if len(parts) == 5 && parts[3] == "late-join" && parts[4] == "add" {
 			if r.Method == http.MethodPost {
-				middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(apiHandler.AddLateJoiner)(w, r)
+				middleware.RequireAnyRole([]string{"admin", "manager"}, cfg.SessionSecret)(apiHandler.AddLateJoiner)(w, r)
 				return
 			}
 		} else if len(parts) == 5 && parts[3] == "late-join" && parts[4] == "undo" {
 			if r.Method == http.MethodPost {
-				middleware.RequireAnyRole([]string{"admin"}, cfg.SessionSecret)(apiHandler.UndoLateJoiner)(w, r)
+				middleware.RequireAnyRole([]string{"admin", "manager"}, cfg.SessionSecret)(apiHandler.UndoLateJoiner)(w, r)
 				return
 			}
 		}

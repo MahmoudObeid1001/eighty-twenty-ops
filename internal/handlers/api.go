@@ -4995,6 +4995,7 @@ func (h *APIHandler) MarkComplaintNotificationRead(w http.ResponseWriter, r *htt
 
 // GetEligibleClassesForLateJoin returns classes a student is eligible to join.
 func (h *APIHandler) GetEligibleClassesForLateJoin(w http.ResponseWriter, r *http.Request) {
+	userRole := middleware.GetUserRole(r)
 	// Canonical path: /api/pre-enrolment/:leadId/late-join-eligible-classes
 	parts := strings.Split(r.URL.Path, "/")
 	var leadIDStr string
@@ -5015,7 +5016,12 @@ func (h *APIHandler) GetEligibleClassesForLateJoin(w http.ResponseWriter, r *htt
 		return
 	}
 
-	eligible, err := models.GetEligibleClassesForLateJoin(leadID)
+	var eligible []*models.EligibleClass
+	if userRole == "manager" {
+		eligible, err = models.GetEligibleClassesForLateJoinWithManagerOverride(leadID)
+	} else {
+		eligible, err = models.GetEligibleClassesForLateJoin(leadID)
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "late join is only available for ready-to-start students") ||
 			strings.Contains(err.Error(), "lead not found") ||
@@ -5083,9 +5089,15 @@ func (h *APIHandler) AddLateJoiner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := models.AddLateJoiner(leadID, req.ClassKey, req.Reason, userID); err != nil {
-		log.Printf("ERROR: Failed to add late joiner: %v", err)
-		jsonError(w, http.StatusBadRequest, err.Error())
+	var addErr error
+	if userRole == "manager" {
+		addErr = models.AddLateJoinerWithManagerOverride(leadID, req.ClassKey, req.Reason, userID)
+	} else {
+		addErr = models.AddLateJoiner(leadID, req.ClassKey, req.Reason, userID)
+	}
+	if addErr != nil {
+		log.Printf("ERROR: Failed to add late joiner: %v", addErr)
+		jsonError(w, http.StatusBadRequest, addErr.Error())
 		return
 	}
 

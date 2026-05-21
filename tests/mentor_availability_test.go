@@ -253,12 +253,12 @@ func TestMentorAvailabilityLocking(t *testing.T) {
 			(gen_random_uuid(), $1, 2, DATE '2026-06-12', '18:00'::time, '20:00'::time, 'scheduled', NOW(), NOW())
 	`, classKey)
 
-	blockedUntil, err := models.GetMentorAvailabilityLockDate(mentor.ID)
+	lockedDates, err := models.GetMentorLockedDates(mentor.ID)
 	if err != nil {
 		t.Fatalf("failed to get lock date: %v", err)
 	}
-	if blockedUntil == nil || blockedUntil.Format("2006-01-02") != "2026-06-12" {
-		t.Fatalf("expected lock date 2026-06-12, got %v", blockedUntil)
+	if len(lockedDates) != 2 || lockedDates[1] != "2026-06-12" {
+		t.Fatalf("expected locked dates ending at 2026-06-12, got %v", lockedDates)
 	}
 
 	if _, err := models.ReplaceMentorAvailabilityWindows(mentor.ID, time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC), []models.MentorAvailabilityWindow{{
