@@ -834,15 +834,18 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/classes/* -> sessions list and completion")
 
-	// Student Profile API Routes (Milestone 4) - accessible by all roles
+	// Student Profile API Routes (Milestone 4) - accessible by student-facing roles
+	studentViewerRoles := []string{"admin", "moderator", "mentor_head", "mentor", "student_success", "manager", "hr"}
+	studentEditorRoles := []string{"admin", "mentor_head", "manager"}
+
 	mux.HandleFunc("/api/students/search", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			middleware.RequireAnyRole([]string{"admin", "moderator", "mentor_head", "mentor", "student_success"}, cfg.SessionSecret)(handlers.SearchStudents)(w, r)
+			middleware.RequireAnyRole(studentViewerRoles, cfg.SessionSecret)(handlers.SearchStudents)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/students/search -> handlers.SearchStudents [all roles]")
+	cfg.Debugf("ROUTE REGISTERED: /api/students/search -> handlers.SearchStudents [student viewer roles]")
 
 	mux.HandleFunc("/api/students/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Parse student ID from path
@@ -856,7 +859,7 @@ func main() {
 		if len(parts) == 3 && parts[2] != "" {
 			// /api/students/:id/profile
 			if r.Method == http.MethodGet {
-				middleware.RequireAnyRole([]string{"admin", "moderator", "mentor_head", "mentor", "student_success"}, cfg.SessionSecret)(handlers.GetStudentProfile)(w, r)
+				middleware.RequireAnyRole(studentViewerRoles, cfg.SessionSecret)(handlers.GetStudentProfile)(w, r)
 			} else {
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -864,31 +867,31 @@ func main() {
 			switch parts[3] {
 			case "profile":
 				if r.Method == http.MethodGet {
-					middleware.RequireAnyRole([]string{"admin", "moderator", "mentor_head", "mentor", "student_success"}, cfg.SessionSecret)(handlers.GetStudentProfile)(w, r)
+					middleware.RequireAnyRole(studentViewerRoles, cfg.SessionSecret)(handlers.GetStudentProfile)(w, r)
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
 			case "basic-info":
 				if r.Method == http.MethodPut {
-					middleware.RequireAnyRole([]string{"admin", "mentor_head"}, cfg.SessionSecret)(handlers.UpdateStudentBasicInfo)(w, r)
+					middleware.RequireAnyRole(studentEditorRoles, cfg.SessionSecret)(handlers.UpdateStudentBasicInfo)(w, r)
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
 			case "history":
 				if r.Method == http.MethodGet {
-					middleware.RequireAnyRole([]string{"admin", "moderator", "mentor_head", "mentor", "student_success"}, cfg.SessionSecret)(handlers.GetStudentHistory)(w, r)
+					middleware.RequireAnyRole(studentViewerRoles, cfg.SessionSecret)(handlers.GetStudentHistory)(w, r)
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
 			case "current-status":
 				if r.Method == http.MethodGet {
-					middleware.RequireAnyRole([]string{"admin", "moderator", "mentor_head", "mentor", "student_success"}, cfg.SessionSecret)(handlers.GetCurrentStatus)(w, r)
+					middleware.RequireAnyRole(studentViewerRoles, cfg.SessionSecret)(handlers.GetCurrentStatus)(w, r)
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
 			case "notes":
 				if r.Method == http.MethodGet {
-					middleware.RequireAnyRole([]string{"admin", "moderator", "mentor_head", "mentor", "student_success"}, cfg.SessionSecret)(handlers.GetStudentNotes)(w, r)
+					middleware.RequireAnyRole(studentViewerRoles, cfg.SessionSecret)(handlers.GetStudentNotes)(w, r)
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
@@ -899,7 +902,7 @@ func main() {
 			http.NotFound(w, r)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/students/:id/* -> Student Profile Endpoints [all roles]")
+	cfg.Debugf("ROUTE REGISTERED: /api/students/:id/* -> Student Profile Endpoints [student viewer/editor roles]")
 
 	// Auth routes (public) - register BEFORE protected routes to ensure exact match
 	mux.HandleFunc("/login", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {

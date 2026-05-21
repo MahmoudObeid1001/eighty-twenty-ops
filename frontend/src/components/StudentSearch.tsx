@@ -24,6 +24,7 @@ export default function StudentSearch() {
     const [results, setResults] = useState<StudentSearchResult[]>([])
     const [loading, setLoading] = useState(false)
     const [hasSearched, setHasSearched] = useState(false)
+    const [searchError, setSearchError] = useState<string | null>(null)
     const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
     const normalizedQuery = query.trim()
 
@@ -31,18 +32,21 @@ export default function StudentSearch() {
         if (normalizedQuery.length < 2) {
             setResults([])
             setLoading(false)
+            setSearchError(null)
             return
         }
 
         const timer = setTimeout(async () => {
             setLoading(true)
             setHasSearched(true)
+            setSearchError(null)
             try {
                 const data = await api.searchStudents(normalizedQuery)
                 setResults(data || [])
             } catch (err) {
                 console.error('Search failed:', err)
                 setResults([])
+                setSearchError(err instanceof Error ? err.message : 'Failed to search students')
             } finally {
                 setLoading(false)
             }
@@ -97,7 +101,8 @@ export default function StudentSearch() {
                     <div style={{ fontSize: '14px', color: '#64748b' }}>
                         {normalizedQuery.length < 2 && 'Enter at least 2 characters to search.'}
                         {normalizedQuery.length >= 2 && loading && `Searching for "${normalizedQuery}"...`}
-                        {normalizedQuery.length >= 2 && !loading && `${results.length} student${results.length === 1 ? '' : 's'} found`}
+                        {normalizedQuery.length >= 2 && !loading && !searchError && `${results.length} student${results.length === 1 ? '' : 's'} found`}
+                        {normalizedQuery.length >= 2 && !loading && searchError && 'Search unavailable'}
                     </div>
                     {normalizedQuery.length >= 2 && (
                         <button
@@ -106,6 +111,7 @@ export default function StudentSearch() {
                                 setQuery('')
                                 setResults([])
                                 setHasSearched(false)
+                                setSearchError(null)
                             }}
                             style={{
                                 border: '1px solid #d1d5db',
@@ -123,6 +129,22 @@ export default function StudentSearch() {
                     )}
                 </div>
 
+                {searchError && (
+                    <div
+                        style={{
+                            padding: '14px 16px',
+                            borderRadius: '12px',
+                            border: '1px solid #fecaca',
+                            background: '#fef2f2',
+                            color: '#991b1b',
+                            fontSize: '14px',
+                            fontWeight: 600,
+                        }}
+                    >
+                        Student search failed: {searchError}
+                    </div>
+                )}
+
                 <div style={{ border: '1px solid #e5e7eb', borderRadius: '16px', overflow: 'hidden', background: '#fff' }}>
                     {normalizedQuery.length < 2 && (
                         <EmptyState
@@ -131,7 +153,7 @@ export default function StudentSearch() {
                         />
                     )}
 
-                    {normalizedQuery.length >= 2 && !loading && results.length === 0 && hasSearched && (
+                    {normalizedQuery.length >= 2 && !loading && !searchError && results.length === 0 && hasSearched && (
                         <EmptyState
                             title="No matching students"
                             description="Try a wider name fragment, a different phone format, or check whether the student record exists under another spelling."
