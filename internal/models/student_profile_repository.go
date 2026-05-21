@@ -423,12 +423,17 @@ func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 			false as is_private,
 			COALESCE(u.email, '') as created_by,
 			fcn.created_at
-		FROM followup_case_notes fcn
-		INNER JOIN followups f ON f.id = fcn.case_id
-		LEFT JOIN users u ON fcn.created_by_user_id = u.id
-		WHERE f.lead_id = $1
+			FROM followup_case_notes fcn
+			INNER JOIN followups f ON f.id = fcn.case_id
+			LEFT JOIN users u ON fcn.created_by_user_id = u.id
+			WHERE f.lead_id = $1
+			  AND fcn.note_type <> 'status_change'
+			  AND NOT (
+				fcn.note_type = 'resolution'
+				AND COALESCE(TRIM(fcn.note_text), '') = 'Case resolved'
+			  )
 
-		UNION ALL
+			UNION ALL
 
 		SELECT 
 			f.id, 
