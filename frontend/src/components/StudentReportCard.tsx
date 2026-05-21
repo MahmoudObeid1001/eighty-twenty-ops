@@ -20,10 +20,20 @@ function escapeHtml(value: string | number): string {
     .replace(/'/g, '&#39;')
 }
 
+function formatCompletionDate(value: string): string {
+  return new Date(value).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
 export default function StudentReportCard({ data, onClose }: StudentReportCardProps) {
   const finalScore = Math.round(data.calculation.total_score)
   const finalGrade = (data.final_grade || data.calculation.calculated_grade || '').toUpperCase()
   const showCertificate = finalGrade !== 'F'
+  const showLevelOneCertificate = showCertificate && data.class_level === 1
+  const completionDate = formatCompletionDate(data.generated_at)
   const printDate = new Date(data.generated_at).toLocaleDateString()
 
   function handlePrint() {
@@ -39,6 +49,9 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
 <head>
   <meta charset="utf-8" />
   <title>Performance Report - ${escapeHtml(data.student_name)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
     @page { size: A4; margin: 10mm; }
     html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; color: #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -64,6 +77,60 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
     .cert-title { font-size: 40px; font-weight: 800; margin: 10px 0 14px; color: #1e293b; }
     .cert-text { font-size: 20px; color: #334155; line-height: 1.5; }
     .cert-name { font-size: 42px; font-weight: 800; margin: 12px 0; }
+    .level-one-certificate { page-break-before: always; min-height: 270mm; box-sizing: border-box; font-family: Outfit, Arial, sans-serif; color: #2b3947; background: #fff; position: relative; overflow: hidden; padding: 18px; }
+    .l1-frame { position: absolute; inset: 18px; border: 3px solid #c9a227; border-radius: 4px; pointer-events: none; box-shadow: inset 0 0 0 1px rgba(201,162,39,.25); }
+    .l1-frame::after { content: ""; position: absolute; inset: 6px; border: 1px solid rgba(201,162,39,.35); border-radius: 3px; }
+    .l1-inner { position: relative; padding: 38px 46px 34px; }
+    .l1-brand { text-align: center; margin-bottom: 6px; }
+    .l1-logo { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 34px; line-height: .82; letter-spacing: -1px; color: #3bb4e5; display: inline-block; }
+    .l1-logo span { display: block; }
+    .l1-logo span:last-child { color: #1a8fc4; }
+    .l1-logo-word { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 13px; letter-spacing: 3px; color: #1a8fc4; margin-top: 4px; }
+    .l1-logo-tag { font-size: 7.5px; letter-spacing: 3px; color: #6b7886; text-transform: uppercase; margin-top: 2px; }
+    .l1-cert-head { text-align: center; margin-top: 22px; }
+    .l1-cert-title { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 48px; letter-spacing: -1.5px; color: #1f2d3d; line-height: 1; }
+    .l1-presented { font-size: 15px; letter-spacing: 2px; text-transform: uppercase; color: #6b7886; margin-top: 18px; }
+    .l1-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 42px; color: #1f2d3d; margin-top: 10px; letter-spacing: -.5px; }
+    .l1-name-rule { width: 200px; height: 2px; margin: 12px auto 0; background: linear-gradient(90deg, transparent, #c9a227, transparent); }
+    .l1-reason { font-size: 16px; color: #3c4a5b; margin-top: 18px; }
+    .l1-reason strong { color: #1f2d3d; font-weight: 600; }
+    .l1-grade-chip { display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; padding: 10px 24px; border-radius: 999px; background: linear-gradient(180deg,#fbf8ec,#f3ecd2); border: 1px solid #e3c766; font-weight: 700; color: #1f2d3d; font-size: 16px; letter-spacing: .5px; }
+    .l1-grade-chip .star { color: #c9a227; }
+    .l1-journey { margin-top: 34px; padding-top: 28px; border-top: 1px dashed #e7edf2; }
+    .l1-bi { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+    .l1-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; }
+    .l1-bi .l1-ar { font-size: 26px; font-weight: 800; color: #1f2d3d; line-height: 1.3; }
+    .l1-en-sub { font-size: 12px; text-transform: uppercase; letter-spacing: 3px; color: #6b7886; }
+    .l1-milestone { display: flex; align-items: center; justify-content: center; gap: 30px; margin: 22px auto 24px; padding: 16px 26px; max-width: 580px; background: linear-gradient(120deg,#0f2231,#1f3a4f); border-radius: 14px; color: #fff; box-shadow: 0 16px 30px -16px rgba(15,34,49,.7); }
+    .l1-ms-block { text-align: center; }
+    .l1-ms-num { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 36px; line-height: 1; color: #e3c766; }
+    .l1-ms-label-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; font-size: 14px; font-weight: 700; color: #fff; margin-top: 5px; }
+    .l1-ms-label-en { font-size: 9px; letter-spacing: 1px; color: #7fa8c0; margin-top: 2px; text-transform: uppercase; }
+    .l1-ms-divider { width: 1px; height: 52px; background: rgba(255,255,255,.18); }
+    .l1-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .l1-card { border-radius: 16px; padding: 20px 22px 22px; border: 1px solid #e7edf2; }
+    .l1-card.now { background: linear-gradient(180deg,#f1faf5,#ffffff); border-color: #cdeada; }
+    .l1-card.next { background: linear-gradient(180deg,#eef7fc,#ffffff); border-color: #cfe9f6; }
+    .l1-card-tag { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; font-weight: 600; padding: 6px 12px; border-radius: 999px; margin-bottom: 8px; }
+    .l1-card.now .l1-card-tag { background: #d8f1e3; color: #157a4f; }
+    .l1-card.next .l1-card-tag { background: #d6edf9; color: #1a8fc4; }
+    .l1-card-head { margin-bottom: 14px; }
+    .l1-card-head .l1-ar { font-size: 20px; font-weight: 800; color: #1f2d3d; line-height: 1.3; display: block; }
+    .l1-card-head .l1-small { font-size: 12px; color: #6b7886; letter-spacing: 1px; display: block; margin-top: 3px; }
+    .l1-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
+    .l1-list li { display: flex; gap: 10px; align-items: flex-start; text-align: left; }
+    .l1-ic { flex: 0 0 20px; width: 20px; height: 20px; margin-top: 2px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
+    .l1-card.now .l1-ic { background: #22a06b; }
+    .l1-card.next .l1-ic { background: #3bb4e5; }
+    .l1-li-text { display: flex; flex-direction: column; gap: 1px; }
+    .l1-li-en { font-size: 13px; font-weight: 600; color: #1f2d3d; line-height: 1.25; }
+    .l1-li-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; font-size: 12px; font-weight: 500; color: #6b7886; line-height: 1.3; text-align: right; }
+    .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
+    .l1-sig { text-align: center; min-width: 180px; }
+    .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 12px; letter-spacing: 1px; color: #6b7886; text-transform: uppercase; }
+    .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 15px; color: #1f2d3d; margin-bottom: 4px; }
+    .l1-seal { width: 78px; height: 78px; border-radius: 50%; background: radial-gradient(circle at 35% 30%,#fbf3d6,#e3c766 60%,#c9a227); display: grid; place-items: center; text-align: center; box-shadow: 0 8px 18px -8px rgba(201,162,39,.7); border: 2px solid #fff; }
+    .l1-seal span { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 11px; color: #7a5e10; line-height: 1.1; letter-spacing: .5px; }
   </style>
 </head>
 <body>
@@ -102,7 +169,87 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
     </table>
     <div class="comment"><strong>Mentor Comment:</strong><div style="margin-top: 6px">${mentorComment}</div></div>
   </section>
-  ${showCertificate ? `<section class="certificate">
+  ${showLevelOneCertificate ? `<section class="level-one-certificate">
+    <div class="l1-frame"></div>
+    <div class="l1-inner">
+      <div class="l1-brand">
+        <div class="l1-logo"><span>8O</span><span>2O</span></div>
+        <div class="l1-logo-word">Eighty Twenty</div>
+        <div class="l1-logo-tag">Mentors Deliver English</div>
+      </div>
+      <div class="l1-cert-head">
+        <div class="l1-cert-title">Certificate of Completion</div>
+        <div class="l1-presented">Presented to</div>
+        <div class="l1-name">${escapeHtml(data.student_name)}</div>
+        <div class="l1-name-rule"></div>
+        <div class="l1-reason">for successfully completing <strong>Level 1</strong> at Eighty Twenty.</div>
+        <div class="l1-grade-chip"><span class="star">★</span> Final Grade: ${finalScore} - ${escapeHtml(finalGrade)}</div>
+      </div>
+      <div class="l1-journey">
+        <div class="l1-bi">
+          <span class="l1-ar">رحلتك في تعلم الإنجليزية — انظر كم قطعت من الطريق</span>
+          <span class="l1-en-sub">Your English Journey — Look how far you've come</span>
+        </div>
+        <div class="l1-milestone">
+          <div class="l1-ms-block">
+            <div class="l1-ms-num">123</div>
+            <div class="l1-ms-label-ar">كلمة تعلّمتها في المستوى الأول</div>
+            <div class="l1-ms-label-en">Words mastered · Level 1</div>
+          </div>
+          <div class="l1-ms-divider"></div>
+          <div class="l1-ms-block">
+            <div class="l1-ms-num">Level 2</div>
+            <div class="l1-ms-label-ar">الفصل القادم ينتظرك</div>
+            <div class="l1-ms-label-en">Your next chapter awaits</div>
+          </div>
+        </div>
+        <div class="l1-cols">
+          <div class="l1-card now">
+            <span class="l1-card-tag">✓ Achieved</span>
+            <div class="l1-card-head">
+              <span class="l1-ar">أصبحت الآن قادراً على…</span>
+              <span class="l1-small">You can now…</span>
+            </div>
+            <ul class="l1-list">
+              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Introduce yourself and other people</span><span class="l1-li-ar">تعريف نفسك والآخرين</span></span></li>
+              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Talk about your family</span><span class="l1-li-ar">التحدث عن عائلتك</span></span></li>
+              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Talk about your daily routine</span><span class="l1-li-ar">وصف روتينك اليومي</span></span></li>
+              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Talk about your favorite activities</span><span class="l1-li-ar">التحدث عن أنشطتك المفضلة</span></span></li>
+              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Hold a small conversation</span><span class="l1-li-ar">إجراء محادثة بسيطة</span></span></li>
+              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Say why you're learning English</span><span class="l1-li-ar">التعبير عن سبب تعلّمك للإنجليزية</span></span></li>
+            </ul>
+          </div>
+          <div class="l1-card next">
+            <span class="l1-card-tag">→ Coming in Level 2</span>
+            <div class="l1-card-head">
+              <span class="l1-ar">ستكتشف في المستوى القادم…</span>
+              <span class="l1-small">Next, you'll unlock…</span>
+            </div>
+            <ul class="l1-list">
+              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Talking about your hobbies</span><span class="l1-li-ar">التحدث عن هواياتك</span></span></li>
+              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Talking about your free time</span><span class="l1-li-ar">التحدث عن وقت فراغك</span></span></li>
+              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Describing people</span><span class="l1-li-ar">وصف الأشخاص</span></span></li>
+              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Describing common pain &amp; symptoms</span><span class="l1-li-ar">وصف الألم والأعراض الشائعة</span></span></li>
+              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Talking about your friendships</span><span class="l1-li-ar">التحدث عن علاقاتك وصداقاتك</span></span></li>
+              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Inviting someone to your home</span><span class="l1-li-ar">دعوة شخص ما إلى منزلك</span></span></li>
+              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Describing the weather</span><span class="l1-li-ar">وصف حالة الطقس</span></span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="l1-foot">
+        <div class="l1-sig">
+          <div class="l1-sig-name">Eighty Twenty</div>
+          <div class="l1-sig-line">Mentor &amp; Academy</div>
+        </div>
+        <div class="l1-seal"><span>LEVEL&nbsp;1<br>PASSED</span></div>
+        <div class="l1-sig">
+          <div class="l1-sig-name">${escapeHtml(completionDate)}</div>
+          <div class="l1-sig-line">Date of Completion</div>
+        </div>
+      </div>
+    </div>
+  </section>` : showCertificate ? `<section class="certificate">
     <div>
       <img class="cert-logo" src="${logoSrc}" alt="Eighty Twenty" />
       <div class="cert-title">Certificate of Completion</div>
@@ -149,6 +296,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   return (
     <div className="report-root">
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
         .report-root { background: #f3f5f7; min-height: 100vh; padding: 16px; }
         .report-shell { max-width: 920px; margin: 0 auto; }
         .report-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
@@ -175,6 +323,70 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
         .certificate-title { font-size: 42px; font-weight: 800; letter-spacing: 1px; margin-bottom: 18px; color: #1e293b; }
         .certificate-name { font-size: 36px; font-weight: 700; margin: 16px 0; color: #0f172a; }
         .certificate-text { font-size: 18px; color: #334155; max-width: 650px; margin: 0 auto; line-height: 1.7; }
+        .level-one-certificate {
+          min-height: 1000px;
+          box-sizing: border-box;
+          font-family: Outfit, Arial, sans-serif;
+          color: #2b3947;
+          background: #fff;
+          position: relative;
+          overflow: hidden;
+          padding: 18px;
+          border: none;
+        }
+        .l1-frame { position: absolute; inset: 18px; border: 3px solid #c9a227; border-radius: 4px; pointer-events: none; box-shadow: inset 0 0 0 1px rgba(201,162,39,.25); }
+        .l1-frame::after { content: ""; position: absolute; inset: 6px; border: 1px solid rgba(201,162,39,.35); border-radius: 3px; }
+        .l1-inner { position: relative; padding: 38px 46px 34px; }
+        .l1-brand { text-align: center; margin-bottom: 6px; }
+        .l1-logo { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 34px; line-height: .82; letter-spacing: -1px; color: #3bb4e5; display: inline-block; }
+        .l1-logo span { display: block; }
+        .l1-logo span:last-child { color: #1a8fc4; }
+        .l1-logo-word { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 13px; letter-spacing: 3px; color: #1a8fc4; margin-top: 4px; }
+        .l1-logo-tag { font-size: 7.5px; letter-spacing: 3px; color: #6b7886; text-transform: uppercase; margin-top: 2px; }
+        .l1-cert-head { text-align: center; margin-top: 22px; }
+        .l1-cert-title { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 48px; letter-spacing: -1.5px; color: #1f2d3d; line-height: 1; }
+        .l1-presented { font-size: 15px; letter-spacing: 2px; text-transform: uppercase; color: #6b7886; margin-top: 18px; }
+        .l1-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 42px; color: #1f2d3d; margin-top: 10px; letter-spacing: -.5px; }
+        .l1-name-rule { width: 200px; height: 2px; margin: 12px auto 0; background: linear-gradient(90deg, transparent, #c9a227, transparent); }
+        .l1-reason { font-size: 16px; color: #3c4a5b; margin-top: 18px; text-align: center; }
+        .l1-reason strong { color: #1f2d3d; font-weight: 600; }
+        .l1-grade-chip { display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; padding: 10px 24px; border-radius: 999px; background: linear-gradient(180deg,#fbf8ec,#f3ecd2); border: 1px solid #e3c766; font-weight: 700; color: #1f2d3d; font-size: 16px; letter-spacing: .5px; }
+        .l1-grade-chip .star { color: #c9a227; }
+        .l1-journey { margin-top: 34px; padding-top: 28px; border-top: 1px dashed #e7edf2; }
+        .l1-bi { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+        .l1-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; }
+        .l1-bi .l1-ar { font-size: 26px; font-weight: 800; color: #1f2d3d; line-height: 1.3; }
+        .l1-en-sub { font-size: 12px; text-transform: uppercase; letter-spacing: 3px; color: #6b7886; }
+        .l1-milestone { display: flex; align-items: center; justify-content: center; gap: 30px; margin: 22px auto 24px; padding: 16px 26px; max-width: 580px; background: linear-gradient(120deg,#0f2231,#1f3a4f); border-radius: 14px; color: #fff; box-shadow: 0 16px 30px -16px rgba(15,34,49,.7); }
+        .l1-ms-block { text-align: center; }
+        .l1-ms-num { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 36px; line-height: 1; color: #e3c766; }
+        .l1-ms-label-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; font-size: 14px; font-weight: 700; color: #fff; margin-top: 5px; }
+        .l1-ms-label-en { font-size: 9px; letter-spacing: 1px; color: #7fa8c0; margin-top: 2px; text-transform: uppercase; }
+        .l1-ms-divider { width: 1px; height: 52px; background: rgba(255,255,255,.18); }
+        .l1-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+        .l1-card { border-radius: 16px; padding: 20px 22px 22px; border: 1px solid #e7edf2; }
+        .l1-card.now { background: linear-gradient(180deg,#f1faf5,#ffffff); border-color: #cdeada; }
+        .l1-card.next { background: linear-gradient(180deg,#eef7fc,#ffffff); border-color: #cfe9f6; }
+        .l1-card-tag { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; font-weight: 600; padding: 6px 12px; border-radius: 999px; margin-bottom: 8px; }
+        .l1-card.now .l1-card-tag { background: #d8f1e3; color: #157a4f; }
+        .l1-card.next .l1-card-tag { background: #d6edf9; color: #1a8fc4; }
+        .l1-card-head { margin-bottom: 14px; }
+        .l1-card-head .l1-ar { font-size: 20px; font-weight: 800; color: #1f2d3d; line-height: 1.3; display: block; }
+        .l1-card-head .l1-small { font-size: 12px; color: #6b7886; letter-spacing: 1px; display: block; margin-top: 3px; }
+        .l1-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
+        .l1-list li { display: flex; gap: 10px; align-items: flex-start; text-align: left; }
+        .l1-ic { flex: 0 0 20px; width: 20px; height: 20px; margin-top: 2px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
+        .l1-card.now .l1-ic { background: #22a06b; }
+        .l1-card.next .l1-ic { background: #3bb4e5; }
+        .l1-li-text { display: flex; flex-direction: column; gap: 1px; }
+        .l1-li-en { font-size: 13px; font-weight: 600; color: #1f2d3d; line-height: 1.25; }
+        .l1-li-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; font-size: 12px; font-weight: 500; color: #6b7886; line-height: 1.3; text-align: right; }
+        .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
+        .l1-sig { text-align: center; min-width: 180px; }
+        .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 12px; letter-spacing: 1px; color: #6b7886; text-transform: uppercase; }
+        .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 15px; color: #1f2d3d; margin-bottom: 4px; }
+        .l1-seal { width: 78px; height: 78px; border-radius: 50%; background: radial-gradient(circle at 35% 30%,#fbf3d6,#e3c766 60%,#c9a227); display: grid; place-items: center; text-align: center; box-shadow: 0 8px 18px -8px rgba(201,162,39,.7); border: 2px solid #fff; }
+        .l1-seal span { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 11px; color: #7a5e10; line-height: 1.1; letter-spacing: .5px; }
         @media print {
           @page { size: A4 portrait; margin: 10mm; }
           html, body {
@@ -251,7 +463,13 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
           .certificate-page > div > div[style] {
             margin-top: 16px !important;
           }
-          .metric-fill, .metric-bar, .score-box, .certificate-page {
+          .level-one-certificate {
+            page-break-before: always !important;
+            break-before: page !important;
+            min-height: calc(297mm - 16mm) !important;
+            padding: 18px !important;
+          }
+          .metric-fill, .metric-bar, .score-box, .certificate-page, .level-one-certificate {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
@@ -336,7 +554,95 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
           </div>
         </div>
 
-        {showCertificate && (
+        {showLevelOneCertificate ? (
+          <div className="report-page level-one-certificate">
+            <div className="l1-frame"></div>
+            <div className="l1-inner">
+              <div className="l1-brand">
+                <div className="l1-logo"><span>8O</span><span>2O</span></div>
+                <div className="l1-logo-word">Eighty Twenty</div>
+                <div className="l1-logo-tag">Mentors Deliver English</div>
+              </div>
+
+              <div className="l1-cert-head">
+                <div className="l1-cert-title">Certificate of Completion</div>
+                <div className="l1-presented">Presented to</div>
+                <div className="l1-name">{data.student_name}</div>
+                <div className="l1-name-rule"></div>
+                <div className="l1-reason">for successfully completing <strong>Level 1</strong> at Eighty Twenty.</div>
+                <div className="l1-grade-chip"><span className="star">★</span> Final Grade: {finalScore} - {finalGrade}</div>
+              </div>
+
+              <div className="l1-journey">
+                <div className="l1-bi">
+                  <span className="l1-ar">رحلتك في تعلم الإنجليزية — انظر كم قطعت من الطريق</span>
+                  <span className="l1-en-sub">Your English Journey — Look how far you've come</span>
+                </div>
+
+                <div className="l1-milestone">
+                  <div className="l1-ms-block">
+                    <div className="l1-ms-num">123</div>
+                    <div className="l1-ms-label-ar">كلمة تعلّمتها في المستوى الأول</div>
+                    <div className="l1-ms-label-en">Words mastered · Level 1</div>
+                  </div>
+                  <div className="l1-ms-divider"></div>
+                  <div className="l1-ms-block">
+                    <div className="l1-ms-num">Level 2</div>
+                    <div className="l1-ms-label-ar">الفصل القادم ينتظرك</div>
+                    <div className="l1-ms-label-en">Your next chapter awaits</div>
+                  </div>
+                </div>
+
+                <div className="l1-cols">
+                  <div className="l1-card now">
+                    <span className="l1-card-tag">✓ Achieved</span>
+                    <div className="l1-card-head">
+                      <span className="l1-ar">أصبحت الآن قادراً على…</span>
+                      <span className="l1-small">You can now…</span>
+                    </div>
+                    <ul className="l1-list">
+                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Introduce yourself and other people</span><span className="l1-li-ar">تعريف نفسك والآخرين</span></span></li>
+                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Talk about your family</span><span className="l1-li-ar">التحدث عن عائلتك</span></span></li>
+                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Talk about your daily routine</span><span className="l1-li-ar">وصف روتينك اليومي</span></span></li>
+                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Talk about your favorite activities</span><span className="l1-li-ar">التحدث عن أنشطتك المفضلة</span></span></li>
+                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Hold a small conversation</span><span className="l1-li-ar">إجراء محادثة بسيطة</span></span></li>
+                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Say why you're learning English</span><span className="l1-li-ar">التعبير عن سبب تعلّمك للإنجليزية</span></span></li>
+                    </ul>
+                  </div>
+
+                  <div className="l1-card next">
+                    <span className="l1-card-tag">→ Coming in Level 2</span>
+                    <div className="l1-card-head">
+                      <span className="l1-ar">ستكتشف في المستوى القادم…</span>
+                      <span className="l1-small">Next, you'll unlock…</span>
+                    </div>
+                    <ul className="l1-list">
+                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Talking about your hobbies</span><span className="l1-li-ar">التحدث عن هواياتك</span></span></li>
+                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Talking about your free time</span><span className="l1-li-ar">التحدث عن وقت فراغك</span></span></li>
+                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Describing people</span><span className="l1-li-ar">وصف الأشخاص</span></span></li>
+                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Describing common pain &amp; symptoms</span><span className="l1-li-ar">وصف الألم والأعراض الشائعة</span></span></li>
+                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Talking about your friendships</span><span className="l1-li-ar">التحدث عن علاقاتك وصداقاتك</span></span></li>
+                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Inviting someone to your home</span><span className="l1-li-ar">دعوة شخص ما إلى منزلك</span></span></li>
+                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Describing the weather</span><span className="l1-li-ar">وصف حالة الطقس</span></span></li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="l1-foot">
+                <div className="l1-sig">
+                  <div className="l1-sig-name">Eighty Twenty</div>
+                  <div className="l1-sig-line">Mentor &amp; Academy</div>
+                </div>
+                <div className="l1-seal"><span>LEVEL&nbsp;1<br />PASSED</span></div>
+                <div className="l1-sig">
+                  <div className="l1-sig-name">{completionDate}</div>
+                  <div className="l1-sig-line">Date of Completion</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : showCertificate && (
           <div className="report-page certificate-page">
             <div>
               <img className="certificate-logo" src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" />
