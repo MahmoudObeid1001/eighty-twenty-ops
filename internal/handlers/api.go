@@ -1914,6 +1914,7 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 
 		finalGrade := ""
 		mentorComment := ""
+		mentorName := ""
 		if grade, err := models.GetGrade(studentID, classKey); err == nil && grade != nil {
 			finalGrade = grade.Grade
 			if grade.Notes.Valid {
@@ -1922,6 +1923,25 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 		}
 		if finalGrade == "" && hasPreview {
 			finalGrade = preview.CalculatedGrade
+		}
+		if assignment, err := models.GetMentorAssignment(classKey); err == nil && assignment != nil {
+			if mentorUser, err := models.GetUserByID(assignment.MentorUserID.String()); err == nil && mentorUser != nil {
+				if mentorUser.FullName.Valid {
+					mentorName = strings.TrimSpace(mentorUser.FullName.String)
+				}
+				if mentorName == "" {
+					mentorName = strings.TrimSpace(mentorUser.Email)
+				}
+			}
+		} else if classGroup != nil && classGroup.ClosedMentorUserID.Valid {
+			if mentorUser, err := models.GetUserByID(classGroup.ClosedMentorUserID.String); err == nil && mentorUser != nil {
+				if mentorUser.FullName.Valid {
+					mentorName = strings.TrimSpace(mentorUser.FullName.String)
+				}
+				if mentorName == "" {
+					mentorName = strings.TrimSpace(mentorUser.Email)
+				}
+			}
 		}
 
 		evidence := make([]SessionEvidence, 0, len(sessions))
@@ -1992,6 +2012,7 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 			}(),
 			"student_name":     lead.FullName,
 			"student_phone":    lead.Phone,
+			"mentor_name":      mentorName,
 			"generated_at":     time.Now().Format(time.RFC3339),
 			"completion_at":    completionAt.Format(time.RFC3339),
 			"final_grade":      finalGrade,

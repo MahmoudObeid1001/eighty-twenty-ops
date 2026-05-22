@@ -290,6 +290,7 @@ export interface StudentReportCardData {
   class_level: number
   student_name: string
   student_phone: string
+  mentor_name: string
   generated_at: string
   completion_at: string
   final_grade: string

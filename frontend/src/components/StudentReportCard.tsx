@@ -35,6 +35,8 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   const showLevelOneCertificate = showCertificate && data.class_level === 1
   const completionDate = formatCompletionDate(data.completion_at || data.generated_at)
   const printDate = new Date(data.generated_at).toLocaleDateString()
+  const mentorSignatureName = (data.mentor_name || '').trim() || 'Class Mentor'
+  const mentorHeadSignatureName = 'Mohamed Abdel Gawad'
 
   function handlePrint() {
     const logoSrc = `${window.location.origin}/static/logo/eighty-twenty-logo.png`
@@ -51,7 +53,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   <title>Performance Report - ${escapeHtml(data.student_name)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Birthstone+Bounce:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
     @page { size: A4; margin: 10mm; }
     html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; color: #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -125,12 +127,20 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
     .l1-li-text { display: flex; flex-direction: column; gap: 1px; }
     .l1-li-en { font-size: 13px; font-weight: 600; color: #1f2d3d; line-height: 1.25; }
     .l1-li-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; font-size: 12px; font-weight: 500; color: #6b7886; line-height: 1.3; text-align: right; }
-    .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
-    .l1-sig { text-align: center; min-width: 180px; }
-    .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 12px; letter-spacing: 1px; color: #6b7886; text-transform: uppercase; }
-    .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 15px; color: #1f2d3d; margin-bottom: 4px; }
+    .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; flex-direction: column; gap: 18px; }
+    .l1-foot-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 24px; }
+    .l1-sig { text-align: center; min-width: 0; }
+    .l1-sig-script { position: relative; font-family: 'Birthstone Bounce', cursive; font-size: 48px; font-weight: 500; line-height: .9; color: #182636; margin-bottom: 6px; letter-spacing: .4px; text-shadow: 0.6px 0 rgba(24,38,54,.35), -0.6px 0 rgba(24,38,54,.18), 0 1.6px 10px rgba(24,38,54,.08); white-space: nowrap; }
+    .l1-sig-script.mentor { transform: rotate(-4deg) translateX(-4px); }
+    .l1-sig-script.head { transform: rotate(2deg) translateX(4px); }
+    .l1-sig-script::after { content: ""; position: absolute; left: 6%; right: 2%; bottom: 4px; height: 1px; background: linear-gradient(90deg, transparent, rgba(24,38,54,.18), transparent); filter: blur(.2px); }
+    .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 14px; color: #1f2d3d; margin-bottom: 6px; }
+    .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 11px; letter-spacing: 1.4px; color: #6b7886; text-transform: uppercase; }
     .l1-seal { width: 78px; height: 78px; border-radius: 50%; background: radial-gradient(circle at 35% 30%,#fbf3d6,#e3c766 60%,#c9a227); display: grid; place-items: center; text-align: center; box-shadow: 0 8px 18px -8px rgba(201,162,39,.7); border: 2px solid #fff; }
     .l1-seal span { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 11px; color: #7a5e10; line-height: 1.1; letter-spacing: .5px; }
+    .l1-date-row { text-align: center; }
+    .l1-date-value { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 16px; color: #1f2d3d; margin-bottom: 4px; }
+    .l1-date-label { font-size: 11px; letter-spacing: 2px; color: #6b7886; text-transform: uppercase; }
   </style>
 </head>
 <body>
@@ -238,14 +248,22 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
         </div>
       </div>
       <div class="l1-foot">
-        <div class="l1-sig">
-          <div class="l1-sig-name">Eighty Twenty</div>
-          <div class="l1-sig-line">Mentor &amp; Academy</div>
+        <div class="l1-foot-top">
+          <div class="l1-sig">
+            <div class="l1-sig-script mentor">${escapeHtml(mentorSignatureName)}</div>
+            <div class="l1-sig-name">${escapeHtml(mentorSignatureName)}</div>
+            <div class="l1-sig-line">Class Mentor</div>
+          </div>
+          <div class="l1-seal"><span>LEVEL&nbsp;1<br>PASSED</span></div>
+          <div class="l1-sig">
+            <div class="l1-sig-script head">${escapeHtml(mentorHeadSignatureName)}</div>
+            <div class="l1-sig-name">${escapeHtml(mentorHeadSignatureName)}</div>
+            <div class="l1-sig-line">Mentor Head</div>
+          </div>
         </div>
-        <div class="l1-seal"><span>LEVEL&nbsp;1<br>PASSED</span></div>
-        <div class="l1-sig">
-          <div class="l1-sig-name">${escapeHtml(completionDate)}</div>
-          <div class="l1-sig-line">Date of Completion</div>
+        <div class="l1-date-row">
+          <div class="l1-date-value">${escapeHtml(completionDate)}</div>
+          <div class="l1-date-label">Date of Completion</div>
         </div>
       </div>
     </div>
@@ -296,7 +314,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   return (
     <div className="report-root">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Birthstone+Bounce:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
         .report-root { background: #f3f5f7; min-height: 100vh; padding: 16px; }
         .report-shell { max-width: 920px; margin: 0 auto; }
         .report-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
@@ -381,12 +399,20 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
         .l1-li-text { display: flex; flex-direction: column; gap: 1px; }
         .l1-li-en { font-size: 13px; font-weight: 600; color: #1f2d3d; line-height: 1.25; }
         .l1-li-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; font-size: 12px; font-weight: 500; color: #6b7886; line-height: 1.3; text-align: right; }
-        .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
-        .l1-sig { text-align: center; min-width: 180px; }
-        .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 12px; letter-spacing: 1px; color: #6b7886; text-transform: uppercase; }
-        .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 15px; color: #1f2d3d; margin-bottom: 4px; }
+        .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; flex-direction: column; gap: 18px; }
+        .l1-foot-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 24px; }
+        .l1-sig { text-align: center; min-width: 0; }
+        .l1-sig-script { position: relative; font-family: 'Birthstone Bounce', cursive; font-size: 48px; font-weight: 500; line-height: .9; color: #182636; margin-bottom: 6px; letter-spacing: .4px; text-shadow: 0.6px 0 rgba(24,38,54,.35), -0.6px 0 rgba(24,38,54,.18), 0 1.6px 10px rgba(24,38,54,.08); white-space: nowrap; }
+        .l1-sig-script.mentor { transform: rotate(-4deg) translateX(-4px); }
+        .l1-sig-script.head { transform: rotate(2deg) translateX(4px); }
+        .l1-sig-script::after { content: ""; position: absolute; left: 6%; right: 2%; bottom: 4px; height: 1px; background: linear-gradient(90deg, transparent, rgba(24,38,54,.18), transparent); filter: blur(.2px); }
+        .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 14px; color: #1f2d3d; margin-bottom: 6px; }
+        .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 11px; letter-spacing: 1.4px; color: #6b7886; text-transform: uppercase; }
         .l1-seal { width: 78px; height: 78px; border-radius: 50%; background: radial-gradient(circle at 35% 30%,#fbf3d6,#e3c766 60%,#c9a227); display: grid; place-items: center; text-align: center; box-shadow: 0 8px 18px -8px rgba(201,162,39,.7); border: 2px solid #fff; }
         .l1-seal span { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 11px; color: #7a5e10; line-height: 1.1; letter-spacing: .5px; }
+        .l1-date-row { text-align: center; }
+        .l1-date-value { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 16px; color: #1f2d3d; margin-bottom: 4px; }
+        .l1-date-label { font-size: 11px; letter-spacing: 2px; color: #6b7886; text-transform: uppercase; }
         @media print {
           @page { size: A4 portrait; margin: 10mm; }
           html, body {
@@ -630,14 +656,22 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
               </div>
 
               <div className="l1-foot">
-                <div className="l1-sig">
-                  <div className="l1-sig-name">Eighty Twenty</div>
-                  <div className="l1-sig-line">Mentor &amp; Academy</div>
+                <div className="l1-foot-top">
+                  <div className="l1-sig">
+                    <div className="l1-sig-script mentor">{mentorSignatureName}</div>
+                    <div className="l1-sig-name">{mentorSignatureName}</div>
+                    <div className="l1-sig-line">Class Mentor</div>
+                  </div>
+                  <div className="l1-seal"><span>LEVEL&nbsp;1<br />PASSED</span></div>
+                  <div className="l1-sig">
+                    <div className="l1-sig-script head">{mentorHeadSignatureName}</div>
+                    <div className="l1-sig-name">{mentorHeadSignatureName}</div>
+                    <div className="l1-sig-line">Mentor Head</div>
+                  </div>
                 </div>
-                <div className="l1-seal"><span>LEVEL&nbsp;1<br />PASSED</span></div>
-                <div className="l1-sig">
-                  <div className="l1-sig-name">{completionDate}</div>
-                  <div className="l1-sig-line">Date of Completion</div>
+                <div className="l1-date-row">
+                  <div className="l1-date-value">{completionDate}</div>
+                  <div className="l1-date-label">Date of Completion</div>
                 </div>
               </div>
             </div>
