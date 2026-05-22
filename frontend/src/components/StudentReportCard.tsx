@@ -33,7 +33,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   const finalGrade = (data.final_grade || data.calculation.calculated_grade || '').toUpperCase()
   const showCertificate = finalGrade !== 'F'
   const showLevelOneCertificate = showCertificate && data.class_level === 1
-  const completionDate = formatCompletionDate(data.generated_at)
+  const completionDate = formatCompletionDate(data.completion_at || data.generated_at)
   const printDate = new Date(data.generated_at).toLocaleDateString()
 
   function handlePrint() {

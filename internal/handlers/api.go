@@ -1977,6 +1977,11 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 			evidence = append(evidence, row)
 		}
 
+		completionAt := time.Now()
+		if classGroup != nil && classGroup.RoundClosedAt.Valid {
+			completionAt = classGroup.RoundClosedAt.Time
+		}
+
 		response["report_card"] = map[string]interface{}{
 			"class_key": classKey,
 			"class_level": func() int32 {
@@ -1988,6 +1993,7 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 			"student_name":     lead.FullName,
 			"student_phone":    lead.Phone,
 			"generated_at":     time.Now().Format(time.RFC3339),
+			"completion_at":    completionAt.Format(time.RFC3339),
 			"final_grade":      finalGrade,
 			"mentor_comment":   mentorComment,
 			"session_evidence": evidence,

@@ -291,6 +291,7 @@ export interface StudentReportCardData {
   student_name: string
   student_phone: string
   generated_at: string
+  completion_at: string
   final_grade: string
   mentor_comment: string
   session_evidence: Array<{
