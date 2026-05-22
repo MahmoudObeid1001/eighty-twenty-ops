@@ -7110,6 +7110,26 @@ func GetMentorAssignment(classKey string) (*MentorAssignment, error) {
 	return ma, nil
 }
 
+// GetCertificateMentorName returns the best display name for the class mentor,
+// preferring the active assignment and falling back to the closed-round mentor.
+func GetCertificateMentorName(classKey string) (string, error) {
+	var mentorName string
+	err := db.DB.QueryRow(`
+		SELECT COALESCE(NULLIF(TRIM(u.full_name), ''), NULLIF(TRIM(u.email), ''), '')
+		FROM class_groups cg
+		LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+		LEFT JOIN users u ON u.id = COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id)
+		WHERE cg.class_key = $1
+	`, classKey).Scan(&mentorName)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get certificate mentor name: %w", err)
+	}
+	return strings.TrimSpace(mentorName), nil
+}
+
 // GetMentorClasses returns all classes assigned to a mentor
 func GetMentorClasses(mentorUserID uuid.UUID) ([]*ClassGroupWorkflow, error) {
 	rows, err := db.DB.Query(`

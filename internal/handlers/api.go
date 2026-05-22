@@ -1924,24 +1924,8 @@ func (h *APIHandler) GetStudent(w http.ResponseWriter, r *http.Request) {
 		if finalGrade == "" && hasPreview {
 			finalGrade = preview.CalculatedGrade
 		}
-		if assignment, err := models.GetMentorAssignment(classKey); err == nil && assignment != nil {
-			if mentorUser, err := models.GetUserByID(assignment.MentorUserID.String()); err == nil && mentorUser != nil {
-				if mentorUser.FullName.Valid {
-					mentorName = strings.TrimSpace(mentorUser.FullName.String)
-				}
-				if mentorName == "" {
-					mentorName = strings.TrimSpace(mentorUser.Email)
-				}
-			}
-		} else if classGroup != nil && classGroup.ClosedMentorUserID.Valid {
-			if mentorUser, err := models.GetUserByID(classGroup.ClosedMentorUserID.String); err == nil && mentorUser != nil {
-				if mentorUser.FullName.Valid {
-					mentorName = strings.TrimSpace(mentorUser.FullName.String)
-				}
-				if mentorName == "" {
-					mentorName = strings.TrimSpace(mentorUser.Email)
-				}
-			}
+		if resolvedMentorName, err := models.GetCertificateMentorName(classKey); err == nil {
+			mentorName = resolvedMentorName
 		}
 
 		evidence := make([]SessionEvidence, 0, len(sessions))

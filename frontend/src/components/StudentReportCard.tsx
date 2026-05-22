@@ -53,7 +53,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   <title>Performance Report - ${escapeHtml(data.student_name)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Birthstone+Bounce:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Birthstone+Bounce:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Great+Vibes&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
     @page { size: A4; margin: 10mm; }
     html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; color: #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -130,9 +130,9 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
     .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; flex-direction: column; gap: 18px; }
     .l1-foot-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 24px; }
     .l1-sig { text-align: center; min-width: 0; }
-    .l1-sig-script { position: relative; font-family: 'Birthstone Bounce', cursive; font-size: 48px; font-weight: 500; line-height: .9; color: #182636; margin-bottom: 6px; letter-spacing: .4px; text-shadow: 0.6px 0 rgba(24,38,54,.35), -0.6px 0 rgba(24,38,54,.18), 0 1.6px 10px rgba(24,38,54,.08); white-space: nowrap; }
-    .l1-sig-script.mentor { transform: rotate(-4deg) translateX(-4px); }
-    .l1-sig-script.head { transform: rotate(2deg) translateX(4px); }
+    .l1-sig-script { position: relative; line-height: .9; color: #182636; margin-bottom: 6px; letter-spacing: .4px; text-shadow: 0.6px 0 rgba(24,38,54,.35), -0.6px 0 rgba(24,38,54,.18), 0 1.6px 10px rgba(24,38,54,.08); white-space: nowrap; max-width: 100%; overflow: hidden; }
+    .l1-sig-script.mentor { font-family: 'Birthstone Bounce', cursive; font-size: 48px; font-weight: 500; transform: rotate(-4deg) translateX(-4px); }
+    .l1-sig-script.head { font-family: 'Great Vibes', cursive; font-size: 36px; transform: rotate(1deg); max-width: 92%; margin-left: auto; margin-right: auto; }
     .l1-sig-script::after { content: ""; position: absolute; left: 6%; right: 2%; bottom: 4px; height: 1px; background: linear-gradient(90deg, transparent, rgba(24,38,54,.18), transparent); filter: blur(.2px); }
     .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 14px; color: #1f2d3d; margin-bottom: 6px; }
     .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 11px; letter-spacing: 1.4px; color: #6b7886; text-transform: uppercase; }
@@ -314,7 +314,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   return (
     <div className="report-root">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Birthstone+Bounce:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Birthstone+Bounce:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Great+Vibes&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
         .report-root { background: #f3f5f7; min-height: 100vh; padding: 16px; }
         .report-shell { max-width: 920px; margin: 0 auto; }
         .report-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
@@ -402,9 +402,9 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
         .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; flex-direction: column; gap: 18px; }
         .l1-foot-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 24px; }
         .l1-sig { text-align: center; min-width: 0; }
-        .l1-sig-script { position: relative; font-family: 'Birthstone Bounce', cursive; font-size: 48px; font-weight: 500; line-height: .9; color: #182636; margin-bottom: 6px; letter-spacing: .4px; text-shadow: 0.6px 0 rgba(24,38,54,.35), -0.6px 0 rgba(24,38,54,.18), 0 1.6px 10px rgba(24,38,54,.08); white-space: nowrap; }
-        .l1-sig-script.mentor { transform: rotate(-4deg) translateX(-4px); }
-        .l1-sig-script.head { transform: rotate(2deg) translateX(4px); }
+        .l1-sig-script { position: relative; line-height: .9; color: #182636; margin-bottom: 6px; letter-spacing: .4px; text-shadow: 0.6px 0 rgba(24,38,54,.35), -0.6px 0 rgba(24,38,54,.18), 0 1.6px 10px rgba(24,38,54,.08); white-space: nowrap; max-width: 100%; overflow: hidden; }
+        .l1-sig-script.mentor { font-family: 'Birthstone Bounce', cursive; font-size: 48px; font-weight: 500; transform: rotate(-4deg) translateX(-4px); }
+        .l1-sig-script.head { font-family: 'Great Vibes', cursive; font-size: 36px; transform: rotate(1deg); max-width: 92%; margin-left: auto; margin-right: auto; }
         .l1-sig-script::after { content: ""; position: absolute; left: 6%; right: 2%; bottom: 4px; height: 1px; background: linear-gradient(90deg, transparent, rgba(24,38,54,.18), transparent); filter: blur(.2px); }
         .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 14px; color: #1f2d3d; margin-bottom: 6px; }
         .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 11px; letter-spacing: 1.4px; color: #6b7886; text-transform: uppercase; }
