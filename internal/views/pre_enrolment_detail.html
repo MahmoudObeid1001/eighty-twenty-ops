@@ -1290,7 +1290,8 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="refund_amount">Amount (EGP) *</label>
-                    <input type="number" id="refund_amount" name="amount" min="1" step="1" required>
+                    <input type="text" id="refund_amount" name="amount" inputmode="numeric" pattern="[0-9]*"
+                        autocomplete="off" required>
                 </div>
                 <div class="form-group">
                     <label for="refund_payment_method">Payment Method *</label>
@@ -1413,8 +1414,8 @@
 
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label for="refund_amount">Refund Amount (EGP) *</label>
-                    <input type="number" id="refund_amount" name="refund_amount" min="1"
-                        max="{{.TotalRefundableAmount}}" value="{{.TotalRefundableAmount}}" step="1" required>
+                    <input type="text" id="refund_amount" name="refund_amount" inputmode="numeric" pattern="[0-9]*"
+                        autocomplete="off" value="{{.TotalRefundableAmount}}" required>
                     <small style="color: #666; display: block; margin-top: 5px;">Maximum: {{.TotalRefundableAmount}} EGP
                         {{if gt .UnusedCreditsValue 0}}(based on unused credits valuation){{end}}</small>
                     {{if or (eq .ErrorCode "refund_required") (eq .ErrorCode "invalid_amount") (eq .ErrorCode
