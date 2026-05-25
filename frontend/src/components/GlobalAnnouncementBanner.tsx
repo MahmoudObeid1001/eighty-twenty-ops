@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 
-const BANNER_KEY = 'eid-al-adha-break-2026-05-26-to-2026-06-01'
+const BANNER_KEY = 'eid-al-adha-break-2026-05-26-to-2026-05-31-v2'
 const START_AT = new Date('2026-05-25T00:00:00+03:00').getTime()
-const END_AT = new Date('2026-06-02T00:00:00+03:00').getTime()
+const END_AT = new Date('2026-06-01T00:00:00+03:00').getTime()
 
 export default function GlobalAnnouncementBanner() {
   const [visible, setVisible] = useState(false)
@@ -32,8 +32,8 @@ export default function GlobalAnnouncementBanner() {
       <div style={messageWrapStyle}>
         <div style={titleStyle}>Eid El Adha Break</div>
         <div style={messageStyle}>
-          We will be on Eid El Adha break from Tuesday, May 26, 2026 through Monday, June 1, 2026.
-          Happy Eid, and wishing you all the best.
+          We will be on Eid El Adha break from Tuesday, May 26, 2026 through Sunday, May 31, 2026.
+          Monday, June 1, 2026 will be the first day back. Happy Eid, and wishing you all the best.
         </div>
       </div>
       <button type="button" onClick={dismiss} aria-label="Dismiss announcement" style={dismissButtonStyle}>
