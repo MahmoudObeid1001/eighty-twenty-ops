@@ -53,75 +53,75 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Birthstone+Bounce:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Great+Vibes&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
-    @page { size: A4; margin: 10mm; }
+    @page { size: A4; margin: 6mm; }
     html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; color: #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .certificate { border: 8px solid #d4af37; height: 270mm; box-sizing: border-box; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12mm; }
     .cert-logo { width: 96px; margin-bottom: 12px; }
     .cert-title { font-size: 40px; font-weight: 800; margin: 10px 0 14px; color: #1e293b; }
     .cert-text { font-size: 20px; color: #334155; line-height: 1.5; }
     .cert-name { font-size: 42px; font-weight: 800; margin: 12px 0; }
-    .level-one-certificate { min-height: 270mm; box-sizing: border-box; font-family: Outfit, Arial, sans-serif; color: #2b3947; background: #fff; position: relative; overflow: hidden; padding: 18px; }
-    .l1-frame { position: absolute; inset: 18px; border: 3px solid #c9a227; border-radius: 4px; pointer-events: none; box-shadow: inset 0 0 0 1px rgba(201,162,39,.25); }
+    .level-one-certificate { height: calc(297mm - 12mm); min-height: calc(297mm - 12mm); box-sizing: border-box; font-family: Outfit, Arial, sans-serif; color: #2b3947; background: #fff; position: relative; overflow: hidden; padding: 12px; }
+    .l1-frame { position: absolute; inset: 12px; border: 3px solid #c9a227; border-radius: 4px; pointer-events: none; box-shadow: inset 0 0 0 1px rgba(201,162,39,.25); }
     .l1-frame::after { content: ""; position: absolute; inset: 6px; border: 1px solid rgba(201,162,39,.35); border-radius: 3px; }
-    .l1-inner { position: relative; padding: 38px 46px 34px; }
+    .l1-inner { position: relative; padding: 24px 28px 20px; transform: scale(.93); transform-origin: top center; }
     .l1-brand { text-align: center; margin-bottom: 6px; }
-    .l1-logo { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 34px; line-height: .82; letter-spacing: -1px; color: #3bb4e5; display: inline-block; }
+    .l1-logo { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 30px; line-height: .82; letter-spacing: -1px; color: #3bb4e5; display: inline-block; }
     .l1-logo span { display: block; }
     .l1-logo span:last-child { color: #1a8fc4; }
     .l1-logo-word { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 13px; letter-spacing: 3px; color: #1a8fc4; margin-top: 4px; }
     .l1-logo-tag { font-size: 7.5px; letter-spacing: 3px; color: #6b7886; text-transform: uppercase; margin-top: 2px; }
-    .l1-cert-head { text-align: center; margin-top: 22px; }
-    .l1-cert-title { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 48px; letter-spacing: -1.5px; color: #1f2d3d; line-height: 1; }
-    .l1-presented { font-size: 15px; letter-spacing: 2px; text-transform: uppercase; color: #6b7886; margin-top: 18px; }
-    .l1-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 42px; color: #1f2d3d; margin-top: 10px; letter-spacing: -.5px; }
-    .l1-name-rule { width: 200px; height: 2px; margin: 12px auto 0; background: linear-gradient(90deg, transparent, #c9a227, transparent); }
-    .l1-reason { font-size: 16px; color: #3c4a5b; margin-top: 18px; }
+    .l1-cert-head { text-align: center; margin-top: 14px; }
+    .l1-cert-title { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 42px; letter-spacing: -1.5px; color: #1f2d3d; line-height: 1; }
+    .l1-presented { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #6b7886; margin-top: 14px; }
+    .l1-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 36px; color: #1f2d3d; margin-top: 8px; letter-spacing: -.5px; }
+    .l1-name-rule { width: 180px; height: 2px; margin: 10px auto 0; background: linear-gradient(90deg, transparent, #c9a227, transparent); }
+    .l1-reason { font-size: 14px; color: #3c4a5b; margin-top: 12px; }
     .l1-reason strong { color: #1f2d3d; font-weight: 600; }
-    .l1-grade-chip { display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; padding: 10px 24px; border-radius: 999px; background: linear-gradient(180deg,#fbf8ec,#f3ecd2); border: 1px solid #e3c766; font-weight: 700; color: #1f2d3d; font-size: 16px; letter-spacing: .5px; }
+    .l1-grade-chip { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 18px; border-radius: 999px; background: linear-gradient(180deg,#fbf8ec,#f3ecd2); border: 1px solid #e3c766; font-weight: 700; color: #1f2d3d; font-size: 14px; letter-spacing: .5px; }
     .l1-grade-chip .star { color: #c9a227; }
-    .l1-journey { margin-top: 34px; padding-top: 28px; border-top: 1px dashed #e7edf2; }
-    .l1-bi { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+    .l1-journey { margin-top: 20px; padding-top: 18px; border-top: 1px dashed #e7edf2; }
+    .l1-bi { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
     .l1-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; }
-    .l1-bi .l1-ar { font-size: 26px; font-weight: 800; color: #1f2d3d; line-height: 1.3; }
-    .l1-en-sub { font-size: 12px; text-transform: uppercase; letter-spacing: 3px; color: #6b7886; }
-    .l1-milestone { display: flex; align-items: center; justify-content: center; gap: 30px; margin: 22px auto 24px; padding: 16px 26px; max-width: 580px; background: linear-gradient(120deg,#0f2231,#1f3a4f); border-radius: 14px; color: #fff; box-shadow: 0 16px 30px -16px rgba(15,34,49,.7); }
+    .l1-bi .l1-ar { font-size: 22px; font-weight: 800; color: #1f2d3d; line-height: 1.2; }
+    .l1-en-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 2.5px; color: #6b7886; }
+    .l1-milestone { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 16px auto 18px; padding: 12px 20px; max-width: 540px; background: linear-gradient(120deg,#0f2231,#1f3a4f); border-radius: 14px; color: #fff; box-shadow: 0 16px 30px -16px rgba(15,34,49,.7); }
     .l1-ms-block { text-align: center; }
-    .l1-ms-num { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 36px; line-height: 1; color: #e3c766; }
-    .l1-ms-label-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; font-size: 14px; font-weight: 700; color: #fff; margin-top: 5px; }
+    .l1-ms-num { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 30px; line-height: 1; color: #e3c766; }
+    .l1-ms-label-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; font-size: 12px; font-weight: 700; color: #fff; margin-top: 4px; }
     .l1-ms-label-en { font-size: 9px; letter-spacing: 1px; color: #7fa8c0; margin-top: 2px; text-transform: uppercase; }
-    .l1-ms-divider { width: 1px; height: 52px; background: rgba(255,255,255,.18); }
-    .l1-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-    .l1-card { border-radius: 16px; padding: 20px 22px 22px; border: 1px solid #e7edf2; }
+    .l1-ms-divider { width: 1px; height: 42px; background: rgba(255,255,255,.18); }
+    .l1-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .l1-card { border-radius: 16px; padding: 14px 16px 16px; border: 1px solid #e7edf2; }
     .l1-card.now { background: linear-gradient(180deg,#f1faf5,#ffffff); border-color: #cdeada; }
     .l1-card.next { background: linear-gradient(180deg,#eef7fc,#ffffff); border-color: #cfe9f6; }
     .l1-card-tag { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; font-weight: 600; padding: 6px 12px; border-radius: 999px; margin-bottom: 8px; }
     .l1-card.now .l1-card-tag { background: #d8f1e3; color: #157a4f; }
     .l1-card.next .l1-card-tag { background: #d6edf9; color: #1a8fc4; }
-    .l1-card-head { margin-bottom: 14px; }
-    .l1-card-head .l1-ar { font-size: 20px; font-weight: 800; color: #1f2d3d; line-height: 1.3; display: block; }
-    .l1-card-head .l1-small { font-size: 12px; color: #6b7886; letter-spacing: 1px; display: block; margin-top: 3px; }
-    .l1-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
-    .l1-list li { display: flex; gap: 10px; align-items: flex-start; text-align: left; }
-    .l1-ic { flex: 0 0 20px; width: 20px; height: 20px; margin-top: 2px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
+    .l1-card-head { margin-bottom: 10px; }
+    .l1-card-head .l1-ar { font-size: 18px; font-weight: 800; color: #1f2d3d; line-height: 1.2; display: block; }
+    .l1-card-head .l1-small { font-size: 11px; color: #6b7886; letter-spacing: 1px; display: block; margin-top: 2px; }
+    .l1-list { list-style: none; display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; }
+    .l1-list li { display: flex; gap: 8px; align-items: flex-start; text-align: left; }
+    .l1-ic { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 1px; border-radius: 6px; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; }
     .l1-card.now .l1-ic { background: #22a06b; }
     .l1-card.next .l1-ic { background: #3bb4e5; }
     .l1-li-text { display: flex; flex-direction: column; gap: 1px; }
-    .l1-li-en { font-size: 13px; font-weight: 600; color: #1f2d3d; line-height: 1.25; }
-    .l1-li-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; font-size: 12px; font-weight: 500; color: #6b7886; line-height: 1.3; text-align: right; }
-    .l1-foot { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e7edf2; display: flex; flex-direction: column; gap: 18px; }
-    .l1-foot-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 24px; }
+    .l1-li-en { font-size: 12px; font-weight: 600; color: #1f2d3d; line-height: 1.2; }
+    .l1-li-ar { font-family: Tajawal, Tahoma, Arial, sans-serif; direction: rtl; unicode-bidi: embed; font-size: 11px; font-weight: 500; color: #6b7886; line-height: 1.2; text-align: right; }
+    .l1-foot { margin-top: 18px; padding-top: 12px; border-top: 1px solid #e7edf2; display: flex; flex-direction: column; gap: 12px; }
+    .l1-foot-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 18px; }
     .l1-sig { text-align: center; min-width: 0; }
     .l1-sig-script { position: relative; line-height: .9; color: #182636; margin-bottom: 6px; letter-spacing: .4px; text-shadow: 0.6px 0 rgba(24,38,54,.35), -0.6px 0 rgba(24,38,54,.18), 0 1.6px 10px rgba(24,38,54,.08); white-space: nowrap; max-width: 100%; overflow: hidden; }
-    .l1-sig-script.mentor { font-family: 'Birthstone Bounce', cursive; font-size: 48px; font-weight: 500; transform: rotate(-4deg) translateX(-4px); }
-    .l1-sig-script.head { font-family: 'Great Vibes', cursive; font-size: 36px; transform: rotate(1deg); max-width: 92%; margin-left: auto; margin-right: auto; }
+    .l1-sig-script.mentor { font-family: 'Birthstone Bounce', cursive; font-size: 42px; font-weight: 500; transform: rotate(-4deg) translateX(-4px); }
+    .l1-sig-script.head { font-family: 'Great Vibes', cursive; font-size: 32px; transform: rotate(1deg); max-width: 92%; margin-left: auto; margin-right: auto; }
     .l1-sig-script::after { content: ""; position: absolute; left: 6%; right: 2%; bottom: 4px; height: 1px; background: linear-gradient(90deg, transparent, rgba(24,38,54,.18), transparent); filter: blur(.2px); }
-    .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 14px; color: #1f2d3d; margin-bottom: 6px; }
-    .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 8px; font-size: 11px; letter-spacing: 1.4px; color: #6b7886; text-transform: uppercase; }
-    .l1-seal { width: 78px; height: 78px; border-radius: 50%; background: radial-gradient(circle at 35% 30%,#fbf3d6,#e3c766 60%,#c9a227); display: grid; place-items: center; text-align: center; box-shadow: 0 8px 18px -8px rgba(201,162,39,.7); border: 2px solid #fff; }
+    .l1-sig-name { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 13px; color: #1f2d3d; margin-bottom: 4px; }
+    .l1-sig-line { border-top: 1.5px solid #1f2d3d; padding-top: 6px; font-size: 10px; letter-spacing: 1.4px; color: #6b7886; text-transform: uppercase; }
+    .l1-seal { width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle at 35% 30%,#fbf3d6,#e3c766 60%,#c9a227); display: grid; place-items: center; text-align: center; box-shadow: 0 8px 18px -8px rgba(201,162,39,.7); border: 2px solid #fff; }
     .l1-seal span { font-family: Fraunces, Georgia, serif; font-weight: 900; font-size: 11px; color: #7a5e10; line-height: 1.1; letter-spacing: .5px; }
     .l1-date-row { text-align: center; }
-    .l1-date-value { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 16px; color: #1f2d3d; margin-bottom: 4px; }
-    .l1-date-label { font-size: 11px; letter-spacing: 2px; color: #6b7886; text-transform: uppercase; }
+    .l1-date-value { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 14px; color: #1f2d3d; margin-bottom: 3px; }
+    .l1-date-label { font-size: 10px; letter-spacing: 2px; color: #6b7886; text-transform: uppercase; }
   </style>
 </head>
 <body>
@@ -436,8 +436,18 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
           .level-one-certificate {
             page-break-before: always !important;
             break-before: page !important;
-            min-height: calc(297mm - 16mm) !important;
-            padding: 18px !important;
+            height: calc(297mm - 20mm) !important;
+            min-height: calc(297mm - 20mm) !important;
+            padding: 12px !important;
+            overflow: hidden !important;
+          }
+          .level-one-certificate .l1-frame {
+            inset: 12px !important;
+          }
+          .level-one-certificate .l1-inner {
+            padding: 24px 28px 20px !important;
+            transform: scale(.93) !important;
+            transform-origin: top center !important;
           }
           .metric-fill, .metric-bar, .score-box, .certificate-page, .level-one-certificate {
             -webkit-print-color-adjust: exact;
