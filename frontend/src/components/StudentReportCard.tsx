@@ -34,52 +34,33 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   const showCertificate = finalGrade !== 'F'
   const showLevelOneCertificate = showCertificate && data.class_level === 1
   const completionDate = formatCompletionDate(data.completion_at || data.generated_at)
-  const printDate = new Date(data.generated_at).toLocaleDateString()
   const mentorSignatureName = (data.mentor_name || '').trim() || 'Class Mentor'
   const mentorHeadSignatureName = 'Mohamed Abdel Gawad'
 
   function handlePrint() {
     const logoSrc = `${window.location.origin}/static/logo/eighty-twenty-logo.png`
-    const sessionHeaders = data.session_evidence.map((s) => `<th>S${s.session_number}</th>`).join('')
-    const attendanceCells = data.session_evidence.map((s) => `<td>${escapeHtml(s.attendance_display || '—')}</td>`).join('')
-    const taskCells = data.session_evidence.map((s) => `<td>${escapeHtml(s.task_display || '—')}</td>`).join('')
-    const starCells = data.session_evidence.map((s) => `<td>${escapeHtml(s.participation_symbol || '—')}</td>`).join('')
-    const mentorComment = escapeHtml(data.mentor_comment?.trim() || 'No comment provided.')
+
+    if (!showCertificate) {
+      return
+    }
 
     const html = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Performance Report - ${escapeHtml(data.student_name)}</title>
+  <title>Official Certificate - ${escapeHtml(data.student_name)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Birthstone+Bounce:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Great+Vibes&family=Outfit:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
     @page { size: A4; margin: 10mm; }
     html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; color: #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .page { box-sizing: border-box; width: 100%; }
-    .report-page { page-break-after: always; }
-    .report-page:last-child { page-break-after: auto; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #dbe3ef; padding-bottom: 8px; margin-bottom: 8px; }
-    .logo { width: 62px; height: auto; }
-    .score { text-align: center; background: #eef6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 8px; margin: 8px 0; }
-    .score-value { font-size: 26px; font-weight: 800; }
-    .metric { margin: 6px 0; }
-    .metric-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; }
-    .bar { height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
-    .fill { height: 100%; background: #0ea5e9; }
-    .fill.tasks { background: #22c55e; }
-    .fill.part { background: #f59e0b; }
-    table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 8px; table-layout: fixed; }
-    th, td { border: 1px solid #cbd5e1; padding: 4px; text-align: center; }
-    th:first-child, td:first-child { text-align: left; font-weight: 700; background: #f8fafc; width: 130px; }
-    .comment { margin-top: 8px; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; font-size: 12px; }
-    .certificate { page-break-before: always; border: 8px solid #d4af37; height: 270mm; box-sizing: border-box; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12mm; }
+    .certificate { border: 8px solid #d4af37; height: 270mm; box-sizing: border-box; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12mm; }
     .cert-logo { width: 96px; margin-bottom: 12px; }
     .cert-title { font-size: 40px; font-weight: 800; margin: 10px 0 14px; color: #1e293b; }
     .cert-text { font-size: 20px; color: #334155; line-height: 1.5; }
     .cert-name { font-size: 42px; font-weight: 800; margin: 12px 0; }
-    .level-one-certificate { page-break-before: always; min-height: 270mm; box-sizing: border-box; font-family: Outfit, Arial, sans-serif; color: #2b3947; background: #fff; position: relative; overflow: hidden; padding: 18px; }
+    .level-one-certificate { min-height: 270mm; box-sizing: border-box; font-family: Outfit, Arial, sans-serif; color: #2b3947; background: #fff; position: relative; overflow: hidden; padding: 18px; }
     .l1-frame { position: absolute; inset: 18px; border: 3px solid #c9a227; border-radius: 4px; pointer-events: none; box-shadow: inset 0 0 0 1px rgba(201,162,39,.25); }
     .l1-frame::after { content: ""; position: absolute; inset: 6px; border: 1px solid rgba(201,162,39,.35); border-radius: 3px; }
     .l1-inner { position: relative; padding: 38px 46px 34px; }
@@ -144,41 +125,6 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   </style>
 </head>
 <body>
-  <section class="page report-page">
-    <div class="header">
-      <img class="logo" src="${logoSrc}" alt="Eighty Twenty" />
-      <div>
-        <div><strong>Student:</strong> ${escapeHtml(data.student_name)}</div>
-        <div><strong>Level:</strong> ${escapeHtml(data.class_level)}</div>
-        <div><strong>Date:</strong> ${escapeHtml(printDate)}</div>
-      </div>
-    </div>
-    <div class="score">
-      <div class="score-value">${finalScore} - ${escapeHtml(finalGrade)}</div>
-      <div>Final Grade</div>
-    </div>
-    <div class="metric">
-      <div class="metric-head"><span>Attendance</span><span>${data.calculation.attendance_score.toFixed(2)}/50 (${data.calculation.absences} Absences)</span></div>
-      <div class="bar"><div class="fill" style="width:${scoreBarWidth(data.calculation.attendance_score, 50)}"></div></div>
-    </div>
-    <div class="metric">
-      <div class="metric-head"><span>Tasks</span><span>${data.calculation.task_score.toFixed(2)}/40 (Missed ${data.calculation.missed_tasks} Tasks)</span></div>
-      <div class="bar"><div class="fill tasks" style="width:${scoreBarWidth(data.calculation.task_score, 40)}"></div></div>
-    </div>
-    <div class="metric">
-      <div class="metric-head"><span>Participation</span><span>${data.calculation.participation_score.toFixed(2)}/10 (${data.calculation.average_stars.toFixed(2)} Star Avg)</span></div>
-      <div class="bar"><div class="fill part" style="width:${scoreBarWidth(data.calculation.participation_score, 10)}"></div></div>
-    </div>
-    <table>
-      <thead><tr><th>Evidence</th>${sessionHeaders}</tr></thead>
-      <tbody>
-        <tr><td>Attendance</td>${attendanceCells}</tr>
-        <tr><td>Tasks</td>${taskCells}</tr>
-        <tr><td>Stars</td>${starCells}</tr>
-      </tbody>
-    </table>
-    <div class="comment"><strong>Mentor Comment:</strong><div style="margin-top: 6px">${mentorComment}</div></div>
-  </section>
   ${showLevelOneCertificate ? `<section class="level-one-certificate">
     <div class="l1-frame"></div>
     <div class="l1-inner">
@@ -440,6 +386,9 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
             min-height: 0 !important;
           }
           .report-shell { width: auto !important; margin: 0 !important; padding: 0 !important; max-width: none !important; }
+          .report-main {
+            display: none !important;
+          }
           .report-page {
             border: none !important;
             margin: 0 !important;
@@ -453,11 +402,6 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
             overflow: visible !important;
             break-inside: avoid-page;
             page-break-inside: avoid;
-          }
-          .report-main {
-            height: calc(297mm - 20mm) !important;
-            max-height: calc(297mm - 20mm) !important;
-            overflow: hidden !important;
           }
           .report-header { margin-bottom: 10px !important; padding-bottom: 8px !important; }
           .report-logo { width: 64px !important; }
@@ -504,9 +448,11 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
 
       <div className="report-shell">
         <div className="report-toolbar no-print">
-          <button className="report-btn" onClick={handlePrint}>
-            Print / Download PDF
-          </button>
+          {showCertificate && (
+            <button className="report-btn" onClick={handlePrint}>
+              Print / Download Official Certificate
+            </button>
+          )}
           <button className="report-btn" onClick={onClose}>
             Close
           </button>
