@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api, User } from '../api/client'
 import AvailabilityReminderBanner from './AvailabilityReminderBanner'
+import GlobalAnnouncementBanner from './GlobalAnnouncementBanner'
 import LateJoinerBanner from './LateJoinerBanner'
 import OpsNotificationBanner from './OpsNotificationBanner'
 
@@ -245,6 +246,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
       </aside>
       <main className="main-content">
+        <GlobalAnnouncementBanner />
         <AvailabilityReminderBanner userRole={role} />
         <LateJoinerBanner userRole={role} />
         <OpsNotificationBanner userRole={role} />

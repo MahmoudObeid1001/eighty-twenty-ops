@@ -81,6 +81,20 @@
         <main class="main-content">
             {{end}}
 
+            <div id="global-announcement-banner"
+                style="display: none; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; padding: 16px 18px; border-radius: 12px; border: 1px solid #f5d28a; background: linear-gradient(135deg, #fff8e8 0%, #fff1c9 100%); box-shadow: 0 8px 20px rgba(180, 126, 0, 0.08);">
+                <div style="min-width: 0;">
+                    <div style="font-size: 18px; font-weight: 700; color: #7a4a00; margin-bottom: 4px;">Eid El Adha
+                        Break</div>
+                    <div style="font-size: 14px; line-height: 1.5; color: #6a5320;">
+                        We will be on Eid El Adha break from Tuesday, May 26, 2026 through Monday, June 1, 2026.
+                        Happy Eid, and wishing you all the best.
+                    </div>
+                </div>
+                <button type="button" id="global-announcement-dismiss" aria-label="Dismiss announcement"
+                    style="flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; border: 1px solid #e2be68; background: rgba(255,255,255,0.72); color: #8a5a00; font-size: 22px; line-height: 1; cursor: pointer;">×</button>
+            </div>
+
             {{if .PendingLateJoinerAlerts}}
             <div id="late-joiner-alerts-container" style="margin-bottom: 20px;">
                 {{range .PendingLateJoinerAlerts}}
@@ -217,6 +231,24 @@
             event.preventDefault();
             openAdminWhatsApp(link.href);
         });
+
+        (function () {
+            const bannerKey = 'eid-al-adha-break-2026-05-26-to-2026-06-01';
+            const startAt = new Date('2026-05-25T00:00:00+03:00').getTime();
+            const endAt = new Date('2026-06-02T00:00:00+03:00').getTime();
+            const now = Date.now();
+            const banner = document.getElementById('global-announcement-banner');
+            const dismissButton = document.getElementById('global-announcement-dismiss');
+            if (!banner || !dismissButton) return;
+            if (now < startAt || now >= endAt) return;
+            if (window.localStorage.getItem(bannerKey) === 'dismissed') return;
+
+            banner.style.display = 'flex';
+            dismissButton.addEventListener('click', function () {
+                window.localStorage.setItem(bannerKey, 'dismissed');
+                banner.style.display = 'none';
+            });
+        })();
     </script>
     {{end}}
 </body>
