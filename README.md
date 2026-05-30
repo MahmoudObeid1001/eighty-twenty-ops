@@ -30,6 +30,7 @@
    MENTOR_PASSWORD=mentor123
    COMMUNITY_OFFICER_EMAIL=community_officer@eightytwenty.test
    COMMUNITY_OFFICER_PASSWORD=community_officer123
+   LANDING_LEAD_TOKEN=generate-a-long-random-token
    ```
 
 3. **Install Go dependencies:**
@@ -57,6 +58,7 @@
 - Sessions are stored in signed cookies (`eighty_twenty_session`)
 - Default admin, moderator, mentor_head, mentor, and community_officer users are automatically created on first server start if they don't exist
 - After login, users are redirected to `/pre-enrolment`
+- Public landing-page lead intake is available at `POST /api/public/landing-leads` only when `LANDING_LEAD_TOKEN` is set, and requires the matching `X-Landing-Lead-Token` header from the landing-page proxy.
 
 **Role Permissions:**
 - **Admin:** Full access - can create, view, edit, delete leads, update lead status, manage payments/offers/refunds, access Classes, Finance, Mentor Head, Mentor, and Community Officer pages

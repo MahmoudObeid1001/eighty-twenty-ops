@@ -27,6 +27,7 @@ type Config struct {
 	ManagerEmail             string
 	ManagerPassword          string
 	FrontendOrigin           string
+	LandingLeadToken         string
 	Debug                    bool
 	OpenAIAPIKey             string
 	OpenAIModel              string
@@ -59,6 +60,7 @@ func Load() *Config {
 		ManagerEmail:             getEnv("MANAGER_EMAIL", "manager@eightytwenty.test"),
 		ManagerPassword:          getEnv("MANAGER_PASSWORD", "manager123"),
 		FrontendOrigin:           frontendOrigin,
+		LandingLeadToken:         getEnv("LANDING_LEAD_TOKEN", ""),
 		Debug:                    getEnvBool("DEBUG", false),
 		OpenAIAPIKey:             getEnv("OPENAI_API_KEY", ""),
 		OpenAIModel:              getEnv("OPENAI_MODEL", "gpt-4o-mini"),

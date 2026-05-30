@@ -98,6 +98,9 @@ func main() {
 
 	// API routes (JSON) - register BEFORE React app to avoid shadowing /api/*
 	// React app handler will be registered AFTER all API routes
+	mux.HandleFunc("/api/public/landing-leads", requestLogMiddleware(apiHandler.CreateLandingLead))
+	cfg.Debugf("ROUTE REGISTERED: /api/public/landing-leads -> apiHandler.CreateLandingLead [token]")
+
 	mux.HandleFunc("/api/me", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		middleware.RequireAuth(apiHandler.GetMe, cfg.SessionSecret)(w, r)
 	}))
