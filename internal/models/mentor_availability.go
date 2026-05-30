@@ -116,8 +116,8 @@ func GetMentorLockedDates(mentorUserID uuid.UUID) ([]string, error) {
 
 // MentorAvailabilityForMonth holds a mentor's windows for use in the MH calendar.
 type MentorAvailabilityForMonth struct {
-	MentorUserID string                   `json:"mentor_user_id"`
-	Name         string                   `json:"name"`
+	MentorUserID string                     `json:"mentor_user_id"`
+	Name         string                     `json:"name"`
 	Windows      []MentorAvailabilityWindow `json:"windows"`
 }
 
@@ -279,7 +279,6 @@ func ReplaceMentorAvailabilityWindows(mentorUserID uuid.UUID, monthStart time.Ti
 	return GetMentorAvailabilityWindows(mentorUserID, monthStart)
 }
 
-
 func GetAvailabilityReminder(userID uuid.UUID, role string, now time.Time) (*AvailabilityReminderNotification, error) {
 	role = strings.TrimSpace(role)
 	if role != "mentor" && role != "mentor_head" {
@@ -357,6 +356,20 @@ func CheckMentorAvailabilityForClass(classKey string, mentorUserID uuid.UUID) ([
 		return nil, err
 	}
 	return CheckMentorAvailabilityForSessions(mentorUserID, sessions)
+}
+
+func CheckMentorAvailabilityForClassFromSession(classKey string, mentorUserID uuid.UUID, fromSessionNumber int32) ([]MentorAvailabilityWarning, error) {
+	sessions, err := buildAvailabilitySessionsForClass(classKey)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]availabilitySession, 0, len(sessions))
+	for _, session := range sessions {
+		if session.SessionNumber >= fromSessionNumber {
+			filtered = append(filtered, session)
+		}
+	}
+	return CheckMentorAvailabilityForSessions(mentorUserID, filtered)
 }
 
 func CheckMentorAvailabilityForSessions(mentorUserID uuid.UUID, sessions []availabilitySession) ([]MentorAvailabilityWarning, error) {

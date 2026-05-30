@@ -36,6 +36,7 @@ const (
 
 var ErrAttendanceDeadlinePassed = errors.New("attendance deadline passed")
 var ErrAttendanceIncomplete = errors.New("attendance incomplete")
+var ErrNoCurrentMentorAssignment = errors.New("no current mentor assignment")
 
 func ValidateSuggestedStartDateNotPast(d time.Time) error {
 	if util.CairoStartOfDay(d).Before(util.CairoStartOfDay(util.CairoNow())) {
@@ -7018,7 +7019,13 @@ func GetRefundableAmount(leadID uuid.UUID) (int32, error) {
 // AssignMentorToClass assigns a mentor (user with role='mentor') to a class
 func AssignMentorToClass(classKey string, mentorUserID uuid.UUID, createdByUserID uuid.UUID) error {
 	now := time.Now()
-	_, err := db.DB.Exec(`
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin mentor assignment tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(`
 		INSERT INTO mentor_assignments (id, mentor_user_id, class_key, assigned_at, created_by_user_id)
 		VALUES (gen_random_uuid(), $1, $2, $3, $4)
 		ON CONFLICT (class_key) DO UPDATE SET
@@ -7026,7 +7033,59 @@ func AssignMentorToClass(classKey string, mentorUserID uuid.UUID, createdByUserI
 			assigned_at = EXCLUDED.assigned_at,
 			created_by_user_id = EXCLUDED.created_by_user_id
 	`, mentorUserID, classKey, now, createdByUserID)
-	return err
+	if err != nil {
+		return err
+	}
+
+	var existingOpenMentor sql.NullString
+	err = tx.QueryRow(`
+		SELECT mentor_user_id::text
+		FROM class_mentor_assignment_windows
+		WHERE class_key = $1
+		  AND effective_to_session IS NULL
+	`, classKey).Scan(&existingOpenMentor)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to inspect mentor assignment history: %w", err)
+	}
+	if !existingOpenMentor.Valid {
+		_, err = tx.Exec(`
+			INSERT INTO class_mentor_assignment_windows (
+				class_key, mentor_user_id, effective_from_session, assigned_by_user_id, reason, created_at, updated_at
+			)
+			VALUES ($1, $2, 1, $3, 'Initial mentor assignment', $4, $4)
+		`, classKey, mentorUserID, createdByUserID, now)
+		if err != nil {
+			return fmt.Errorf("failed to create mentor assignment history: %w", err)
+		}
+	} else if existingOpenMentor.String != mentorUserID.String() {
+		// Pre-round reassignment replaces the open ownership window instead of creating a split.
+		var completedCount int
+		err = tx.QueryRow(`
+			SELECT COUNT(*)
+			FROM class_sessions
+			WHERE class_key = $1
+			  AND status = 'completed'
+		`, classKey).Scan(&completedCount)
+		if err != nil {
+			return fmt.Errorf("failed to inspect class sessions for mentor assignment history: %w", err)
+		}
+		if completedCount == 0 {
+			_, err = tx.Exec(`
+				UPDATE class_mentor_assignment_windows
+				SET mentor_user_id = $2,
+				    assigned_by_user_id = $3,
+				    reason = 'Pre-round mentor reassignment',
+				    updated_at = $4
+				WHERE class_key = $1
+				  AND effective_to_session IS NULL
+			`, classKey, mentorUserID, createdByUserID, now)
+			if err != nil {
+				return fmt.Errorf("failed to update mentor assignment history: %w", err)
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 // CheckMentorDoubleBookByDaysTime returns true if mentor is already assigned to another class
@@ -7085,6 +7144,372 @@ func CheckMentorScheduleConflict(mentorUserID uuid.UUID, date time.Time, startTi
 		return false, fmt.Errorf("failed to check conflict: %w", err)
 	}
 	return count > 0, nil
+}
+
+func checkMentorScheduleConflictExcludingClassTx(tx *sql.Tx, mentorUserID uuid.UUID, excludeClassKey string, date time.Time, startTime, endTime string) (bool, error) {
+	var count int
+	err := tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM class_sessions cs
+		INNER JOIN mentor_assignments ma ON cs.class_key = ma.class_key
+		WHERE ma.mentor_user_id = $1
+		  AND ma.class_key != $2
+		  AND cs.scheduled_date = $3
+		  AND cs.status != 'cancelled'
+		  AND (
+			(cs.scheduled_time <= $4 AND cs.scheduled_end_time > $4) OR
+			(cs.scheduled_time < $5 AND cs.scheduled_end_time >= $5) OR
+			(cs.scheduled_time >= $4 AND cs.scheduled_time <= $5)
+		  )
+	`, mentorUserID, excludeClassKey, date, startTime, endTime).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check conflict: %w", err)
+	}
+	return count > 0, nil
+}
+
+func getNextUncompletedSessionNumberTx(tx *sql.Tx, classKey string) (int32, error) {
+	var sessionNumber sql.NullInt32
+	err := tx.QueryRow(`
+		SELECT session_number
+		FROM class_sessions
+		WHERE class_key = $1
+		  AND status != 'completed'
+		ORDER BY session_number ASC
+		LIMIT 1
+	`, classKey).Scan(&sessionNumber)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("all sessions are completed")
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to find next uncompleted session: %w", err)
+	}
+	if !sessionNumber.Valid {
+		return 0, fmt.Errorf("next uncompleted session is unavailable")
+	}
+	return sessionNumber.Int32, nil
+}
+
+func GetNextUncompletedSessionNumber(classKey string) (int32, error) {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin session lookup tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	sessionNumber, err := getNextUncompletedSessionNumberTx(tx, classKey)
+	if err != nil {
+		return 0, err
+	}
+	return sessionNumber, tx.Commit()
+}
+
+func ensureCurrentMentorAssignmentWindowTx(tx *sql.Tx, classKey string, mentorUserID uuid.UUID, assignedByUserID uuid.UUID) error {
+	var openID uuid.UUID
+	err := tx.QueryRow(`
+		SELECT id
+		FROM class_mentor_assignment_windows
+		WHERE class_key = $1
+		  AND effective_to_session IS NULL
+		FOR UPDATE
+	`, classKey).Scan(&openID)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = tx.Exec(`
+			INSERT INTO class_mentor_assignment_windows (
+				class_key, mentor_user_id, effective_from_session, assigned_by_user_id, reason
+			)
+			VALUES ($1, $2, 1, $3, 'Assignment history repair')
+		`, classKey, mentorUserID, assignedByUserID)
+		if err != nil {
+			return fmt.Errorf("failed to repair mentor assignment history: %w", err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to lock mentor assignment history: %w", err)
+	}
+	return nil
+}
+
+func GetMentorAssignmentWindowsForClass(classKey string) ([]ClassMentorAssignmentWindow, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, class_key, mentor_user_id, effective_from_session, effective_to_session,
+		       assigned_by_user_id::text, ended_by_user_id::text, reason, created_at, updated_at
+		FROM class_mentor_assignment_windows
+		WHERE class_key = $1
+		ORDER BY effective_from_session ASC
+	`, classKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query mentor assignment windows: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []ClassMentorAssignmentWindow{}
+	for rows.Next() {
+		var item ClassMentorAssignmentWindow
+		if err := rows.Scan(
+			&item.ID,
+			&item.ClassKey,
+			&item.MentorUserID,
+			&item.EffectiveFromSession,
+			&item.EffectiveToSession,
+			&item.AssignedByUserID,
+			&item.EndedByUserID,
+			&item.Reason,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan mentor assignment window: %w", err)
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func ShiftClassMentor(classKey string, newMentorUserID uuid.UUID, effectiveSessionNumber *int32, reason string, changedByUserID uuid.UUID) (*ShiftClassMentorResult, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return nil, fmt.Errorf("reason is required")
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin mentor shift tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var roundStatus string
+	err = tx.QueryRow(`
+		SELECT COALESCE(round_status, 'not_started')
+		FROM class_groups
+		WHERE class_key = $1
+		FOR UPDATE
+	`, classKey).Scan(&roundStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("class not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock class: %w", err)
+	}
+	if roundStatus != "active" {
+		return nil, fmt.Errorf("mentor shifts are only allowed for active classes")
+	}
+
+	var role string
+	err = tx.QueryRow(`SELECT role FROM users WHERE id = $1`, newMentorUserID).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) || role != "mentor" {
+		return nil, fmt.Errorf("invalid mentor user")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate mentor user: %w", err)
+	}
+
+	var previousMentorUserID uuid.UUID
+	err = tx.QueryRow(`
+		SELECT mentor_user_id
+		FROM mentor_assignments
+		WHERE class_key = $1
+		FOR UPDATE
+	`, classKey).Scan(&previousMentorUserID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoCurrentMentorAssignment
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock current mentor assignment: %w", err)
+	}
+	if previousMentorUserID == newMentorUserID {
+		return nil, fmt.Errorf("new mentor is already assigned to this class")
+	}
+
+	nextUncompleted, err := getNextUncompletedSessionNumberTx(tx, classKey)
+	if err != nil {
+		return nil, err
+	}
+	effective := nextUncompleted
+	if effectiveSessionNumber != nil {
+		effective = *effectiveSessionNumber
+	}
+	if effective < 1 || effective > 8 {
+		return nil, fmt.Errorf("effective_session_number must be between 1 and 8")
+	}
+	if effective != nextUncompleted {
+		return nil, fmt.Errorf("effective_session_number must be the next uncompleted session (%d)", nextUncompleted)
+	}
+
+	if err := ensureCurrentMentorAssignmentWindowTx(tx, classKey, previousMentorUserID, changedByUserID); err != nil {
+		return nil, err
+	}
+	var openWindowID uuid.UUID
+	var openWindowFrom int32
+	err = tx.QueryRow(`
+		SELECT id, effective_from_session
+		FROM class_mentor_assignment_windows
+		WHERE class_key = $1
+		  AND effective_to_session IS NULL
+		FOR UPDATE
+	`, classKey).Scan(&openWindowID, &openWindowFrom)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock current mentor assignment window: %w", err)
+	}
+
+	type remainingSessionForConflict struct {
+		ScheduledDate time.Time
+		StartTime     string
+		EndTime       string
+	}
+	rows, err := tx.Query(`
+		SELECT scheduled_date, scheduled_time::text, scheduled_end_time::text
+		FROM class_sessions
+		WHERE class_key = $1
+		  AND session_number >= $2
+		  AND status != 'cancelled'
+		ORDER BY session_number
+	`, classKey, effective)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load remaining class sessions: %w", err)
+	}
+	remainingSessions := []remainingSessionForConflict{}
+	for rows.Next() {
+		var scheduledDate time.Time
+		var startTime, endTime sql.NullString
+		if err := rows.Scan(&scheduledDate, &startTime, &endTime); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("failed to scan remaining class session: %w", err)
+		}
+		if !startTime.Valid || !endTime.Valid {
+			continue
+		}
+		remainingSessions = append(remainingSessions, remainingSessionForConflict{
+			ScheduledDate: scheduledDate,
+			StartTime:     startTime.String,
+			EndTime:       endTime.String,
+		})
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close remaining session rows: %w", err)
+	}
+	for _, session := range remainingSessions {
+		hasConflict, err := checkMentorScheduleConflictExcludingClassTx(tx, newMentorUserID, classKey, session.ScheduledDate, session.StartTime, session.EndTime)
+		if err != nil {
+			return nil, err
+		}
+		if hasConflict {
+			return nil, fmt.Errorf("mentor has conflicting session on %s at %s", session.ScheduledDate.Format("2006-01-02"), session.StartTime)
+		}
+	}
+
+	now := time.Now()
+	if effective <= openWindowFrom {
+		merged := false
+		if effective > 1 {
+			var mergeWindowID uuid.UUID
+			err := tx.QueryRow(`
+				SELECT id
+				FROM class_mentor_assignment_windows
+				WHERE class_key = $1
+				  AND mentor_user_id = $2
+				  AND effective_to_session = $3
+				LIMIT 1
+			`, classKey, newMentorUserID, effective-1).Scan(&mergeWindowID)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("failed to find previous mentor assignment window: %w", err)
+			}
+			if err == nil {
+				_, err = tx.Exec(`
+					DELETE FROM class_mentor_assignment_windows
+					WHERE id = $1
+				`, openWindowID)
+				if err != nil {
+					return nil, fmt.Errorf("failed to remove superseded mentor assignment window: %w", err)
+				}
+				mergeRes, err := tx.Exec(`
+				UPDATE class_mentor_assignment_windows
+				SET effective_to_session = NULL,
+				    ended_by_user_id = NULL,
+				    reason = CONCAT(COALESCE(reason, ''), CASE WHEN COALESCE(reason, '') = '' THEN '' ELSE '; ' END, $2::text),
+				    updated_at = $3
+				WHERE id = $1
+			`, mergeWindowID, reason, now)
+				if err != nil {
+					return nil, fmt.Errorf("failed to restore previous mentor assignment window: %w", err)
+				}
+				affected, err := mergeRes.RowsAffected()
+				if err != nil {
+					return nil, fmt.Errorf("failed to read restored assignment window result: %w", err)
+				}
+				merged = affected > 0
+			}
+		}
+		if !merged {
+			_, err = tx.Exec(`
+				UPDATE class_mentor_assignment_windows
+				SET mentor_user_id = $2,
+				    assigned_by_user_id = $3,
+				    ended_by_user_id = NULL,
+				    reason = $4,
+				    updated_at = $5
+				WHERE id = $1
+			`, openWindowID, newMentorUserID, changedByUserID, reason, now)
+			if err != nil {
+				return nil, fmt.Errorf("failed to update current mentor assignment window: %w", err)
+			}
+		}
+	} else {
+		closeTo := effective - 1
+		res, err := tx.Exec(`
+			UPDATE class_mentor_assignment_windows
+			SET effective_to_session = $2,
+			    ended_by_user_id = $3,
+			    updated_at = $4
+			WHERE id = $1
+		`, openWindowID, closeTo, changedByUserID, now)
+		if err != nil {
+			return nil, fmt.Errorf("failed to close current mentor assignment window: %w", err)
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read assignment window update result: %w", err)
+		}
+		if affected == 0 {
+			return nil, fmt.Errorf("current mentor assignment window not found")
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO class_mentor_assignment_windows (
+				class_key, mentor_user_id, effective_from_session, assigned_by_user_id, reason, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $6)
+		`, classKey, newMentorUserID, effective, changedByUserID, reason, now)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create new mentor assignment window: %w", err)
+		}
+	}
+
+	_, err = tx.Exec(`
+		UPDATE mentor_assignments
+		SET mentor_user_id = $2,
+		    assigned_at = $3,
+		    created_by_user_id = $4
+		WHERE class_key = $1
+	`, classKey, newMentorUserID, now, changedByUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update current mentor assignment: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit mentor shift: %w", err)
+	}
+
+	warnings, err := CheckMentorAvailabilityForClassFromSession(classKey, newMentorUserID, effective)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check mentor availability: %w", err)
+	}
+
+	return &ShiftClassMentorResult{
+		PreviousMentorUserID:   previousMentorUserID,
+		NewMentorUserID:        newMentorUserID,
+		EffectiveSessionNumber: effective,
+		AvailabilityWarnings:   warnings,
+	}, nil
 }
 
 // GetMentorAssignment returns the mentor assignment for a class
@@ -8347,6 +8772,80 @@ func averageRecordedSessionQuality(values []int) int {
 	return int(math.Round(float64(total) / float64(count)))
 }
 
+func sessionOwnershipBounds(from int32, to sql.NullInt32) (int32, int32) {
+	if from < 1 {
+		from = 1
+	}
+	if from > 8 {
+		from = 8
+	}
+	ownedTo := int32(8)
+	if to.Valid {
+		ownedTo = to.Int32
+	}
+	if ownedTo < from {
+		ownedTo = from
+	}
+	if ownedTo > 8 {
+		ownedTo = 8
+	}
+	return from, ownedTo
+}
+
+func countOwnedSessions(from, to int32) int {
+	if from < 1 {
+		from = 1
+	}
+	if to > 8 {
+		to = 8
+	}
+	if to < from {
+		return 0
+	}
+	return int(to-from) + 1
+}
+
+func countRecordedSessionQualitiesInRange(values []int, from, to int32) int {
+	count := 0
+	for i, value := range values {
+		sessionNumber := int32(i + 1)
+		if sessionNumber < from || sessionNumber > to || value <= 0 {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func averageRecordedSessionQualityInRange(values []int, from, to int32) int {
+	total := 0
+	count := 0
+	for i, value := range values {
+		sessionNumber := int32(i + 1)
+		if sessionNumber < from || sessionNumber > to || value <= 0 {
+			continue
+		}
+		total += value
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return int(math.Round(float64(total) / float64(count)))
+}
+
+func countTrueChecksInRange(values []bool, from, to int32) int {
+	count := 0
+	for i, ok := range values {
+		sessionNumber := int32(i + 1)
+		if sessionNumber < from || sessionNumber > to || !ok {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
 type classComplianceMetrics struct {
 	Statuses       []string
 	PunctualityPct int
@@ -8358,10 +8857,16 @@ type classComplianceMetrics struct {
 }
 
 func getClassComplianceMetrics(classKey string) (*classComplianceMetrics, error) {
+	return getClassComplianceMetricsForRange(classKey, 1, 8)
+}
+
+func getClassComplianceMetricsForRange(classKey string, from, to int32) (*classComplianceMetrics, error) {
 	sessions, err := GetComplianceByClassKey(classKey)
 	if err != nil {
 		return nil, err
 	}
+	from, to = sessionOwnershipBounds(from, sql.NullInt32{Int32: to, Valid: true})
+	ownedSessions := countOwnedSessions(from, to)
 
 	statuses := make([]string, 8)
 	for i := range statuses {
@@ -8379,6 +8884,17 @@ func getClassComplianceMetrics(classKey string) (*classComplianceMetrics, error)
 		}
 		idx := int(s.SessionNumber - 1)
 		if s.Check == nil {
+			continue
+		}
+		inOwnedRange := s.SessionNumber >= from && s.SessionNumber <= to
+		if !inOwnedRange {
+			if s.Check.IsAbsent {
+				statuses[idx] = "absent"
+			} else if s.Check.DelayMinutes > 0 {
+				statuses[idx] = "late"
+			} else {
+				statuses[idx] = "on-time"
+			}
 			continue
 		}
 		checkedCount++
@@ -8413,11 +8929,14 @@ func getClassComplianceMetrics(classKey string) (*classComplianceMetrics, error)
 	}
 
 	equivalentAbsences := absentCount + (delayedCount / 2)
-	onTimeEquivalent := 8 - equivalentAbsences
+	onTimeEquivalent := ownedSessions - equivalentAbsences
 	if onTimeEquivalent < 0 {
 		onTimeEquivalent = 0
 	}
-	punctualityPercent := int((float64(onTimeEquivalent) / 8.0) * 100.0)
+	punctualityPercent := 0
+	if ownedSessions > 0 {
+		punctualityPercent = int((float64(onTimeEquivalent) / float64(ownedSessions)) * 100.0)
+	}
 
 	return &classComplianceMetrics{
 		Statuses:       statuses,
@@ -8438,15 +8957,48 @@ func computeAttendanceFromCompliance(classKey string) (statuses []string, punctu
 	return metrics.Statuses, metrics.PunctualityPct, metrics.WhatsAppPct, nil
 }
 
+func intPtr(value int) *int {
+	return &value
+}
+
 func computeCollectiveClassScore(sessionQuality10 int, feedback10 int, trelloPercent int, punctualityPercent int, whatsappPercent int) int {
-	sessionQualityPct := sessionQuality10 * 10
-	feedbackPct := feedback10 * 10
-	weighted := float64(punctualityPercent)*0.25 +
-		float64(sessionQualityPct)*0.25 +
-		float64(feedbackPct)*0.20 +
-		float64(whatsappPercent)*0.10 +
-		float64(trelloPercent)*0.20
-	return int(math.Round(weighted))
+	var sessionQualityPct *int
+	if sessionQuality10 > 0 {
+		sessionQualityPct = intPtr(sessionQuality10 * 10)
+	}
+	var feedbackPct *int
+	if feedback10 > 0 {
+		feedbackPct = intPtr(feedback10 * 10)
+	}
+	return computeCollectiveClassScoreOptional(sessionQualityPct, feedbackPct, intPtr(trelloPercent), intPtr(punctualityPercent), intPtr(whatsappPercent))
+}
+
+func computeCollectiveClassScoreOptional(sessionQualityPct *int, feedbackPct *int, trelloPercent *int, punctualityPercent *int, whatsappPercent *int) int {
+	total := 0.0
+	weight := 0.0
+	add := func(value *int, componentWeight float64) {
+		if value == nil {
+			return
+		}
+		clamped := *value
+		if clamped < 0 {
+			clamped = 0
+		}
+		if clamped > 100 {
+			clamped = 100
+		}
+		total += float64(clamped) * componentWeight
+		weight += componentWeight
+	}
+	add(punctualityPercent, 0.25)
+	add(sessionQualityPct, 0.25)
+	add(feedbackPct, 0.20)
+	add(whatsappPercent, 0.10)
+	add(trelloPercent, 0.20)
+	if weight == 0 {
+		return 0
+	}
+	return int(math.Round(total / weight))
 }
 
 func durationLabel(start, end sql.NullTime) string {
@@ -8489,20 +9041,50 @@ func GetMentorEvaluationsByRoundStatus(roundStatus string, mentorQuery string, f
 
 	rows, err := db.DB.Query(`
 		WITH scoped_classes AS (
-			SELECT ma.class_key AS class_key, ma.mentor_user_id AS mentor_user_id
-			FROM mentor_assignments ma
-			INNER JOIN class_groups cg ON cg.class_key = ma.class_key
+			SELECT w.class_key AS class_key,
+			       w.mentor_user_id AS mentor_user_id,
+			       w.effective_from_session AS ownership_from_session,
+			       w.effective_to_session AS ownership_to_session
+			FROM class_mentor_assignment_windows w
+			INNER JOIN class_groups cg ON cg.class_key = w.class_key
 			WHERE $1 = 'active' AND cg.round_status = 'active'
 			UNION ALL
-			SELECT cg.class_key AS class_key, cg.closed_mentor_user_id AS mentor_user_id
+			SELECT ma.class_key AS class_key,
+			       ma.mentor_user_id AS mentor_user_id,
+			       1 AS ownership_from_session,
+			       NULL::integer AS ownership_to_session
+			FROM mentor_assignments ma
+			INNER JOIN class_groups cg ON cg.class_key = ma.class_key
+			WHERE $1 = 'active'
+			  AND cg.round_status = 'active'
+			  AND NOT EXISTS (
+			    SELECT 1 FROM class_mentor_assignment_windows w WHERE w.class_key = ma.class_key
+			  )
+			UNION ALL
+			SELECT w.class_key AS class_key,
+			       w.mentor_user_id AS mentor_user_id,
+			       w.effective_from_session AS ownership_from_session,
+			       w.effective_to_session AS ownership_to_session
+			FROM class_mentor_assignment_windows w
+			INNER JOIN class_groups cg ON cg.class_key = w.class_key
+			WHERE $1 = 'closed' AND cg.round_status = 'closed'
+			UNION ALL
+			SELECT cg.class_key AS class_key,
+			       cg.closed_mentor_user_id AS mentor_user_id,
+			       1 AS ownership_from_session,
+			       NULL::integer AS ownership_to_session
 			FROM class_groups cg
 			WHERE $1 = 'closed'
 			  AND cg.round_status = 'closed'
 			  AND cg.closed_mentor_user_id IS NOT NULL
+			  AND NOT EXISTS (
+			    SELECT 1 FROM class_mentor_assignment_windows w WHERE w.class_key = cg.class_key
+			  )
 		)
 		SELECT
 			u.id, u.email, COALESCE(u.full_name, ''), COALESCE(u.phone, ''), u.password_hash, u.role, u.created_at,
 			cg.class_key, cg.level, cg.class_days, cg.class_time, cg.class_number, cg.round_status,
+			sc.ownership_from_session, sc.ownership_to_session,
 			COALESCE(me.kpi_session_quality, 0) AS kpi_session_quality,
 			COALESCE(me.kpi_students_feedback, 0) AS kpi_students_feedback,
 			me.kpi_session_quality_by_session,
@@ -8563,31 +9145,41 @@ func GetMentorEvaluationsByRoundStatus(roundStatus string, mentorQuery string, f
 		if err := rows.Scan(
 			&user.ID, &user.Email, &user.FullName, &user.Phone, &user.PasswordHash, &user.Role, &user.CreatedAt,
 			&classItem.ClassKey, &classItem.Level, &classItem.ClassDays, &classItem.ClassTime, &classItem.ClassNumber, &classItem.RoundStatus,
+			&classItem.OwnershipFromSession, &classItem.OwnershipToSession,
 			&classItem.KPISessionQuality, &classItem.KPIStudentsFeedback, &sessionQualityBySessionJSON, &trelloJSON,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan mentor evaluation class row: %w", err)
 		}
 
-		statuses, punctuality, whatsapp, err := computeAttendanceFromCompliance(classItem.ClassKey)
+		ownedFrom, ownedTo := sessionOwnershipBounds(classItem.OwnershipFromSession, classItem.OwnershipToSession)
+		metrics, err := getClassComplianceMetricsForRange(classItem.ClassKey, ownedFrom, ownedTo)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compute compliance metrics for class %s: %w", classItem.ClassKey, err)
 		}
 
 		classItem.KPISessionQualityByS = parseSessionQualityBySessionJSON(sessionQualityBySessionJSON, classItem.KPISessionQuality)
-		classItem.KPISessionQuality = averageRecordedSessionQuality(classItem.KPISessionQualityByS)
-		classItem.RecordedSessionCount = countRecordedSessionQualities(classItem.KPISessionQualityByS)
+		classItem.KPISessionQuality = averageRecordedSessionQualityInRange(classItem.KPISessionQualityByS, ownedFrom, ownedTo)
+		classItem.RecordedSessionCount = countRecordedSessionQualitiesInRange(classItem.KPISessionQualityByS, ownedFrom, ownedTo)
 		classItem.TrelloSessionChecks = parseTrelloChecksJSON(trelloJSON)
-		classItem.AttendanceStatuses = statuses
-		classItem.AttendancePercent = punctuality
-		classItem.AutoWhatsAppPercent = whatsapp
-		checked := 0
-		for _, ok := range classItem.TrelloSessionChecks {
-			if ok {
-				checked++
-			}
+		classItem.AttendanceStatuses = metrics.Statuses
+		classItem.AttendancePercent = metrics.PunctualityPct
+		classItem.AutoWhatsAppPercent = metrics.WhatsAppPct
+
+		var sessionQualityPct *int
+		if classItem.KPISessionQuality > 0 {
+			sessionQualityPct = intPtr(classItem.KPISessionQuality * 10)
 		}
-		trelloPercent := (checked * 100) / 8
-		classItem.ClassCollectiveScore = computeCollectiveClassScore(classItem.KPISessionQuality, classItem.KPIStudentsFeedback, trelloPercent, punctuality, whatsapp)
+		var feedbackPct *int
+		if classItem.KPIStudentsFeedback > 0 {
+			feedbackPct = intPtr(classItem.KPIStudentsFeedback * 10)
+		}
+		var trelloPercent *int
+		checked := countTrueChecksInRange(classItem.TrelloSessionChecks, ownedFrom, ownedTo)
+		if checked > 0 {
+			percent := (checked * 100) / countOwnedSessions(ownedFrom, ownedTo)
+			trelloPercent = &percent
+		}
+		classItem.ClassCollectiveScore = computeCollectiveClassScoreOptional(sessionQualityPct, feedbackPct, trelloPercent, intPtr(metrics.PunctualityPct), intPtr(metrics.WhatsAppPct))
 
 		entry, ok := mentorMap[user.ID]
 		if !ok {
@@ -8727,19 +9319,31 @@ func GetMentorProfile(mentorID uuid.UUID) (*MentorProfile, error) {
 
 	rows, err := db.DB.Query(`
 		WITH class_keys AS (
-			SELECT ma.class_key
+			SELECT w.class_key, w.effective_from_session AS ownership_from_session, w.effective_to_session AS ownership_to_session
+			FROM class_mentor_assignment_windows w
+			WHERE w.mentor_user_id = $1
+			UNION
+			SELECT ma.class_key, 1 AS ownership_from_session, NULL::integer AS ownership_to_session
 			FROM mentor_assignments ma
 			WHERE ma.mentor_user_id = $1
+			  AND NOT EXISTS (
+			    SELECT 1 FROM class_mentor_assignment_windows w WHERE w.class_key = ma.class_key
+			  )
 			UNION
-			SELECT cg.class_key
+			SELECT cg.class_key, 1 AS ownership_from_session, NULL::integer AS ownership_to_session
 			FROM class_groups cg
 			WHERE cg.closed_mentor_user_id = $1
+			  AND NOT EXISTS (
+			    SELECT 1 FROM class_mentor_assignment_windows w WHERE w.class_key = cg.class_key
+			  )
 		)
 		SELECT
 			ck.class_key,
 			cg.level,
 			cg.class_days,
 			cg.class_time,
+			ck.ownership_from_session,
+			ck.ownership_to_session,
 			COALESCE(cg.round_started_at, cg.sent_at, ma.assigned_at, cg.round_closed_at) AS start_date,
 			cg.round_closed_at,
 			COALESCE(me.kpi_session_quality, 0) AS kpi_session_quality,
@@ -8768,34 +9372,45 @@ func GetMentorProfile(mentorID uuid.UUID) (*MentorProfile, error) {
 	for rows.Next() {
 		item := MentorClassHistoryItem{}
 		var sessionQuality, feedback int
+		var ownershipFrom int32
+		var ownershipTo sql.NullInt32
 		var sessionQualityBySessionJSON sql.NullString
 		var trelloJSON sql.NullString
 		if err := rows.Scan(
 			&item.ClassKey, &item.Level, &item.Days, &item.Time,
+			&ownershipFrom, &ownershipTo,
 			&item.StartDate, &item.EndDate,
 			&sessionQuality, &feedback, &sessionQualityBySessionJSON, &trelloJSON,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan mentor class history row: %w", err)
 		}
 
-		metrics, err := getClassComplianceMetrics(item.ClassKey)
+		ownedFrom, ownedTo := sessionOwnershipBounds(ownershipFrom, ownershipTo)
+		metrics, err := getClassComplianceMetricsForRange(item.ClassKey, ownedFrom, ownedTo)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compute compliance for class %s: %w", item.ClassKey, err)
 		}
 
 		sessionQualityBySession := parseSessionQualityBySessionJSON(sessionQualityBySessionJSON, sessionQuality)
-		sessionQuality = averageRecordedSessionQuality(sessionQualityBySession)
+		sessionQuality = averageRecordedSessionQualityInRange(sessionQualityBySession, ownedFrom, ownedTo)
 		trelloChecks := parseTrelloChecksJSON(trelloJSON)
-		checked := 0
-		for _, ok := range trelloChecks {
-			if ok {
-				checked++
-			}
-		}
-		trelloPercent := (checked * 100) / 8
+		checked := countTrueChecksInRange(trelloChecks, ownedFrom, ownedTo)
 
 		item.ComplianceScore = metrics.WhatsAppPct
-		item.EvaluationScore = computeCollectiveClassScore(sessionQuality, feedback, trelloPercent, metrics.PunctualityPct, metrics.WhatsAppPct)
+		var sessionQualityPct *int
+		if sessionQuality > 0 {
+			sessionQualityPct = intPtr(sessionQuality * 10)
+		}
+		var feedbackPct *int
+		if feedback > 0 {
+			feedbackPct = intPtr(feedback * 10)
+		}
+		var trelloPercent *int
+		if checked > 0 {
+			percent := (checked * 100) / countOwnedSessions(ownedFrom, ownedTo)
+			trelloPercent = &percent
+		}
+		item.EvaluationScore = computeCollectiveClassScoreOptional(sessionQualityPct, feedbackPct, trelloPercent, intPtr(metrics.PunctualityPct), intPtr(metrics.WhatsAppPct))
 		item.Duration = durationLabel(item.StartDate, item.EndDate)
 		if feedback > 0 {
 			totalFeedback += feedback * 10
@@ -8959,8 +9574,8 @@ func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluato
 			return fmt.Errorf("session_quality_by_session must be between 0 and 10")
 		}
 	}
-	if studentsFeedback < 1 || studentsFeedback > 10 {
-		return fmt.Errorf("students_feedback must be between 1 and 10")
+	if studentsFeedback < 0 || studentsFeedback > 10 {
+		return fmt.Errorf("students_feedback must be between 0 and 10")
 	}
 	sessionQuality := averageRecordedSessionQuality(sessionQualityBySession)
 	sessionQualityJSON, err := json.Marshal(sessionQualityBySession)
@@ -8973,22 +9588,53 @@ func UpsertMentorEvaluationByClass(mentorID uuid.UUID, classKey string, evaluato
 		return fmt.Errorf("failed to encode trello checks: %w", err)
 	}
 
-	var exists bool
+	var ownedFrom int32
+	var ownedTo sql.NullInt32
 	err = db.DB.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1
+		WITH ownership AS (
+			SELECT w.effective_from_session, w.effective_to_session
+			FROM class_mentor_assignment_windows w
+			INNER JOIN class_groups cg ON cg.class_key = w.class_key
+			WHERE w.class_key = $1
+			  AND w.mentor_user_id = $2
+			  AND cg.round_status = 'active'
+			UNION ALL
+			SELECT 1, NULL::integer
 			FROM class_groups cg
 			INNER JOIN mentor_assignments ma ON ma.class_key = cg.class_key
 			WHERE cg.class_key = $1
 			  AND cg.round_status = 'active'
 			  AND ma.mentor_user_id = $2
+			  AND NOT EXISTS (
+			    SELECT 1 FROM class_mentor_assignment_windows w WHERE w.class_key = cg.class_key
+			  )
 		)
-	`, classKey, mentorID).Scan(&exists)
+		SELECT effective_from_session, effective_to_session
+		FROM ownership
+		ORDER BY effective_from_session DESC
+		LIMIT 1
+	`, classKey, mentorID).Scan(&ownedFrom, &ownedTo)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("class is not an active class assigned to this mentor")
+		}
 		return fmt.Errorf("failed to validate active class ownership: %w", err)
 	}
-	if !exists {
-		return fmt.Errorf("class is not an active class assigned to this mentor")
+	ownedUntil := int32(8)
+	if ownedTo.Valid {
+		ownedUntil = ownedTo.Int32
+	}
+	for i, value := range sessionQualityBySession {
+		sessionNumber := int32(i + 1)
+		if (sessionNumber < ownedFrom || sessionNumber > ownedUntil) && value > 0 {
+			return fmt.Errorf("session quality can only be edited for sessions %d-%d", ownedFrom, ownedUntil)
+		}
+	}
+	for i, checked := range trelloSessionChecks {
+		sessionNumber := int32(i + 1)
+		if (sessionNumber < ownedFrom || sessionNumber > ownedUntil) && checked {
+			return fmt.Errorf("trello checks can only be edited for sessions %d-%d", ownedFrom, ownedUntil)
+		}
 	}
 
 	tx, err := db.DB.Begin()
@@ -9176,7 +9822,7 @@ func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 	rows, err := db.DB.Query(`
 		SELECT class_key, level, class_days, class_time, class_number,
 		       sent_to_mentor, sent_at, suggested_start_date, returned_at, updated_at,
-		       hidden_in_ops, hidden_at, hidden_by::text
+		       hidden_in_ops, hidden_at, hidden_by::text, COALESCE(round_status, 'not_started')
 		FROM class_groups
 		WHERE sent_to_mentor = true AND COALESCE(round_status, '') != 'closed'
 		ORDER BY level, class_days, class_time
@@ -9195,7 +9841,7 @@ func GetClassGroupsSentToMentor() ([]*ClassGroupWorkflow, error) {
 		err := rows.Scan(
 			&g.ClassKey, &g.Level, &g.ClassDays, &g.ClassTime, &g.ClassNumber,
 			&g.SentToMentor, &sentAt, &suggestedStartDate, &returnedAt, &g.UpdatedAt,
-			&g.HiddenInOps, &hiddenAt, &hiddenBy,
+			&g.HiddenInOps, &hiddenAt, &hiddenBy, &g.RoundStatus,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan class group: %w", err)

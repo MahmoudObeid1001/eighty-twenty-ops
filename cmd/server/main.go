@@ -217,6 +217,15 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/assign-mentor -> apiHandler.AssignMentor [mentor_head+admin+manager]")
 
+	mux.HandleFunc("/api/mentor-head/shift-mentor", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.ShiftMentor)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/shift-mentor -> apiHandler.ShiftMentor [mentor_head+admin+manager]")
+
 	mux.HandleFunc("/api/mentor-head/availability-check", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.CheckMentorAvailability)(w, r)

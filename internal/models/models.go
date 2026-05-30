@@ -586,6 +586,26 @@ type MentorAssignment struct {
 	CreatedByUserID sql.NullString
 }
 
+type ClassMentorAssignmentWindow struct {
+	ID                   uuid.UUID
+	ClassKey             string
+	MentorUserID         uuid.UUID
+	EffectiveFromSession int32
+	EffectiveToSession   sql.NullInt32
+	AssignedByUserID     sql.NullString
+	EndedByUserID        sql.NullString
+	Reason               sql.NullString
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type ShiftClassMentorResult struct {
+	PreviousMentorUserID   uuid.UUID
+	NewMentorUserID        uuid.UUID
+	EffectiveSessionNumber int32
+	AvailabilityWarnings   []MentorAvailabilityWarning
+}
+
 type MentorAvailabilityWindow struct {
 	ID            uuid.UUID
 	MentorUserID  uuid.UUID
@@ -636,6 +656,8 @@ type MentorEvaluationClassItem struct {
 	ClassTime            string
 	ClassNumber          int32
 	RoundStatus          string
+	OwnershipFromSession int32
+	OwnershipToSession   sql.NullInt32
 	KPISessionQuality    int
 	KPISessionQualityByS []int
 	KPIStudentsFeedback  int

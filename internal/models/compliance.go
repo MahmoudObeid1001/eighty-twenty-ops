@@ -269,11 +269,30 @@ func GetMentorComplianceReports(roundStatus string, mentorID *uuid.UUID) ([]*Men
 
 	query := `
 		WITH class_owner AS (
-			SELECT cg.class_key,
-			       COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) AS mentor_user_id
-			FROM class_groups cg
-			LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
-			WHERE COALESCE(ma.mentor_user_id::text, cg.closed_mentor_user_id::text) IS NOT NULL
+			SELECT owned.class_key,
+			       owned.mentor_user_id,
+			       owned.effective_from_session,
+			       owned.effective_to_session
+			FROM (
+				SELECT w.class_key,
+				       w.mentor_user_id,
+				       w.effective_from_session,
+				       w.effective_to_session
+				FROM class_mentor_assignment_windows w
+				UNION ALL
+				SELECT cg.class_key,
+				       COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) AS mentor_user_id,
+				       1 AS effective_from_session,
+				       NULL::integer AS effective_to_session
+				FROM class_groups cg
+				LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+				WHERE COALESCE(ma.mentor_user_id::text, cg.closed_mentor_user_id::text) IS NOT NULL
+				  AND NOT EXISTS (
+				    SELECT 1 FROM class_mentor_assignment_windows w WHERE w.class_key = cg.class_key
+				  )
+			) owned
+			INNER JOIN class_groups cg ON cg.class_key = owned.class_key
+			WHERE owned.mentor_user_id IS NOT NULL
 	`
 	if roundStatus != "" {
 		query += fmt.Sprintf(" AND cg.round_status = $%d", i)
@@ -281,7 +300,7 @@ func GetMentorComplianceReports(roundStatus string, mentorID *uuid.UUID) ([]*Men
 		i++
 	}
 	if mentorID != nil {
-		query += fmt.Sprintf(" AND COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) = $%d", i)
+		query += fmt.Sprintf(" AND owned.mentor_user_id = $%d", i)
 		args = append(args, *mentorID)
 		i++
 	}
@@ -297,6 +316,8 @@ func GetMentorComplianceReports(roundStatus string, mentorID *uuid.UUID) ([]*Men
 			SELECT co.mentor_user_id, COUNT(cs.id) AS sessions_count
 			FROM class_owner co
 			LEFT JOIN class_sessions cs ON cs.class_key = co.class_key
+			 AND cs.session_number >= co.effective_from_session
+			 AND cs.session_number <= COALESCE(co.effective_to_session, 8)
 			GROUP BY co.mentor_user_id
 		),
 		compliance AS (
@@ -311,6 +332,8 @@ func GetMentorComplianceReports(roundStatus string, mentorID *uuid.UUID) ([]*Men
 			       COALESCE(SUM(CASE WHEN msc.is_absent THEN 1 ELSE 0 END), 0) AS absence_count
 			FROM class_owner co
 			LEFT JOIN class_sessions cs ON cs.class_key = co.class_key
+			 AND cs.session_number >= co.effective_from_session
+			 AND cs.session_number <= COALESCE(co.effective_to_session, 8)
 			LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
 			GROUP BY co.mentor_user_id
 		),
@@ -403,13 +426,32 @@ func GetMentorComplianceChecklist(mentorID uuid.UUID, roundStatus string) ([]*Me
 	args := []interface{}{mentorID}
 	query := `
 		WITH class_owner AS (
-			SELECT cg.class_key,
+			SELECT owned.class_key,
 			       cg.class_days,
 			       cg.class_time,
-			       COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) AS mentor_user_id
-			FROM class_groups cg
-			LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
-			WHERE COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) = $1
+			       owned.mentor_user_id,
+			       owned.effective_from_session,
+			       owned.effective_to_session
+			FROM (
+				SELECT w.class_key,
+				       w.mentor_user_id,
+				       w.effective_from_session,
+				       w.effective_to_session
+				FROM class_mentor_assignment_windows w
+				UNION ALL
+				SELECT cg.class_key,
+				       COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) AS mentor_user_id,
+				       1 AS effective_from_session,
+				       NULL::integer AS effective_to_session
+				FROM class_groups cg
+				LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+				WHERE COALESCE(ma.mentor_user_id::text, cg.closed_mentor_user_id::text) IS NOT NULL
+				  AND NOT EXISTS (
+				    SELECT 1 FROM class_mentor_assignment_windows w WHERE w.class_key = cg.class_key
+				  )
+			) owned
+			INNER JOIN class_groups cg ON cg.class_key = owned.class_key
+			WHERE owned.mentor_user_id = $1
 	`
 	if roundStatus == "active" || roundStatus == "closed" {
 		args = append(args, roundStatus)
@@ -432,6 +474,8 @@ func GetMentorComplianceChecklist(mentorID uuid.UUID, roundStatus string) ([]*Me
 		       u.email
 		FROM class_owner co
 		INNER JOIN class_sessions cs ON cs.class_key = co.class_key
+		 AND cs.session_number >= co.effective_from_session
+		 AND cs.session_number <= COALESCE(co.effective_to_session, 8)
 		LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
 		LEFT JOIN users u ON u.id = msc.checked_by_user_id
 		ORDER BY co.class_key, cs.session_number
@@ -483,15 +527,34 @@ func GetMentorClassComplianceReports(roundStatus string, mentorID *uuid.UUID) ([
 
 	query := `
 		WITH class_owner AS (
-			SELECT cg.class_key,
+			SELECT owned.class_key,
 			       cg.level,
 			       cg.class_days,
 			       cg.class_time,
 			       cg.class_number,
-			       COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) AS mentor_user_id
-			FROM class_groups cg
-			LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
-			WHERE COALESCE(ma.mentor_user_id::text, cg.closed_mentor_user_id::text) IS NOT NULL
+			       owned.mentor_user_id,
+			       owned.effective_from_session,
+			       owned.effective_to_session
+			FROM (
+				SELECT w.class_key,
+				       w.mentor_user_id,
+				       w.effective_from_session,
+				       w.effective_to_session
+				FROM class_mentor_assignment_windows w
+				UNION ALL
+				SELECT cg.class_key,
+				       COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) AS mentor_user_id,
+				       1 AS effective_from_session,
+				       NULL::integer AS effective_to_session
+				FROM class_groups cg
+				LEFT JOIN mentor_assignments ma ON ma.class_key = cg.class_key
+				WHERE COALESCE(ma.mentor_user_id::text, cg.closed_mentor_user_id::text) IS NOT NULL
+				  AND NOT EXISTS (
+				    SELECT 1 FROM class_mentor_assignment_windows w WHERE w.class_key = cg.class_key
+				  )
+			) owned
+			INNER JOIN class_groups cg ON cg.class_key = owned.class_key
+			WHERE owned.mentor_user_id IS NOT NULL
 	`
 	if roundStatus != "" {
 		query += fmt.Sprintf(" AND cg.round_status = $%d", i)
@@ -499,19 +562,22 @@ func GetMentorClassComplianceReports(roundStatus string, mentorID *uuid.UUID) ([
 		i++
 	}
 	if mentorID != nil {
-		query += fmt.Sprintf(" AND COALESCE(ma.mentor_user_id, cg.closed_mentor_user_id) = $%d", i)
+		query += fmt.Sprintf(" AND owned.mentor_user_id = $%d", i)
 		args = append(args, *mentorID)
 	}
 	query += `
 		),
 		session_counts AS (
-			SELECT co.class_key, COUNT(cs.id) AS sessions_count
+			SELECT co.class_key, co.mentor_user_id, COUNT(cs.id) AS sessions_count
 			FROM class_owner co
 			LEFT JOIN class_sessions cs ON cs.class_key = co.class_key
-			GROUP BY co.class_key
+			 AND cs.session_number >= co.effective_from_session
+			 AND cs.session_number <= COALESCE(co.effective_to_session, 8)
+			GROUP BY co.class_key, co.mentor_user_id
 		),
 		compliance AS (
 			SELECT co.class_key,
+			       co.mentor_user_id,
 			       COUNT(msc.id) AS checks_count,
 			       COALESCE(SUM(
 			           (CASE WHEN msc.reminder_1d THEN 1 ELSE 0 END) +
@@ -522,8 +588,10 @@ func GetMentorClassComplianceReports(roundStatus string, mentorID *uuid.UUID) ([
 			       COALESCE(SUM(CASE WHEN msc.is_absent THEN 1 ELSE 0 END), 0) AS absence_count
 			FROM class_owner co
 			LEFT JOIN class_sessions cs ON cs.class_key = co.class_key
+			 AND cs.session_number >= co.effective_from_session
+			 AND cs.session_number <= COALESCE(co.effective_to_session, 8)
 			LEFT JOIN mentor_session_checks msc ON msc.class_session_id = cs.id
-			GROUP BY co.class_key
+			GROUP BY co.class_key, co.mentor_user_id
 		),
 		complaints AS (
 			SELECT f.class_key, COUNT(*) AS complaints_count
@@ -550,8 +618,8 @@ func GetMentorClassComplianceReports(roundStatus string, mentorID *uuid.UUID) ([
 		       COALESCE(cp.complaints_count, 0)
 		FROM class_owner co
 		INNER JOIN users u ON u.id = co.mentor_user_id
-		LEFT JOIN session_counts sc ON sc.class_key = co.class_key
-		LEFT JOIN compliance c ON c.class_key = co.class_key
+		LEFT JOIN session_counts sc ON sc.class_key = co.class_key AND sc.mentor_user_id = co.mentor_user_id
+		LEFT JOIN compliance c ON c.class_key = co.class_key AND c.mentor_user_id = co.mentor_user_id
 		LEFT JOIN complaints cp ON cp.class_key = co.class_key
 		ORDER BY u.email ASC, co.level ASC, co.class_days ASC, co.class_time ASC, co.class_number ASC
 	`
