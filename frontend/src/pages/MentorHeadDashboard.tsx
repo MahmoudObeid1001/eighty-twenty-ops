@@ -24,6 +24,8 @@ export default function MentorHeadDashboard() {
   const [actioning, setActioning] = useState<string | null>(null)
   const [cardError, setCardError] = useState<Record<string, string>>({}) // per-class_key error (e.g. 409)
   const [selectedMentorIds, setSelectedMentorIds] = useState<Record<string, string>>({})
+  const [shiftMentorIds, setShiftMentorIds] = useState<Record<string, string>>({})
+  const [shiftReasons, setShiftReasons] = useState<Record<string, string>>({})
   const [checkingAvailability, setCheckingAvailability] = useState<string | null>(null)
   const [availabilityWarnings, setAvailabilityWarnings] = useState<Record<string, MentorAvailabilityWarning[]>>({})
   const [closeConfirm, setCloseConfirm] = useState<{ open: boolean; classKey: string | null }>({
@@ -120,6 +122,41 @@ export default function MentorHeadDashboard() {
       setCardError((prev) => ({ ...prev, [classKey]: msg }))
     } finally {
       setAssigning(null)
+    }
+  }
+
+  async function handleShiftMentor(cls: MentorHeadClass) {
+    const classKey = cls.class_key
+    const mentorUserId = shiftMentorIds[classKey]
+    const reason = (shiftReasons[classKey] || '').trim()
+    if (!mentorUserId) {
+      setCardError((prev) => ({ ...prev, [classKey]: 'Select the new mentor.' }))
+      return
+    }
+    if (!reason) {
+      setCardError((prev) => ({ ...prev, [classKey]: 'Enter the reason for shifting this class.' }))
+      return
+    }
+    try {
+      setActioning(`${classKey}:shift`)
+      setMessage(null)
+      clearCardError(classKey)
+      const res = await api.shiftMentor(classKey, mentorUserId, reason, cls.next_session_number)
+      const warningSummary = availabilityWarningSummary(res.availability_warnings)
+      setAvailabilityWarnings((prev) => ({ ...prev, [classKey]: res.availability_warnings || [] }))
+      setMessage({
+        type: 'success',
+        text: warningSummary
+          ? `Mentor shifted from session ${res.effective_session_number}. ${warningSummary} Shift is still allowed.`
+          : `Mentor shifted from session ${res.effective_session_number}.`,
+      })
+      setShiftMentorIds((prev) => ({ ...prev, [classKey]: '' }))
+      setShiftReasons((prev) => ({ ...prev, [classKey]: '' }))
+      await loadData()
+    } catch (err) {
+      setCardError((prev) => ({ ...prev, [classKey]: err instanceof Error ? err.message : 'Failed to shift mentor' }))
+    } finally {
+      setActioning(null)
     }
   }
 
@@ -601,6 +638,88 @@ export default function MentorHeadDashboard() {
                           <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#155724' }}>
                             Assigned to {cls.mentor_email}
                           </p>
+                          {cls.round_status === 'active' && (
+                            <div style={{ marginBottom: '8px', padding: '8px', background: '#f8f9fa', borderRadius: '4px' }}>
+                              <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>
+                                Shift from session {cls.next_session_number || '-'}
+                              </div>
+                              <select
+                                value={shiftMentorIds[cls.class_key] || ''}
+                                onChange={(e) => {
+                                  setShiftMentorIds((prev) => ({ ...prev, [cls.class_key]: e.target.value }))
+                                  clearCardError(cls.class_key)
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '4px',
+                                  fontSize: '13px',
+                                  marginBottom: '6px',
+                                }}
+                              >
+                                <option value="">New mentor...</option>
+                                {dashboard?.mentors
+                                  .filter((m) => m.id !== cls.mentor_user_id)
+                                  .map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.email}
+                                    </option>
+                                  ))}
+                              </select>
+                              <textarea
+                                value={shiftReasons[cls.class_key] || ''}
+                                onChange={(e) => {
+                                  setShiftReasons((prev) => ({ ...prev, [cls.class_key]: e.target.value }))
+                                  clearCardError(cls.class_key)
+                                }}
+                                placeholder="Reason for shift"
+                                rows={2}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '4px',
+                                  fontSize: '13px',
+                                  marginBottom: '6px',
+                                  resize: 'vertical',
+                                }}
+                              />
+                              <button
+                                onClick={() => void handleShiftMentor(cls)}
+                                disabled={
+                                  actioning === `${cls.class_key}:shift` ||
+                                  !shiftMentorIds[cls.class_key] ||
+                                  !(shiftReasons[cls.class_key] || '').trim() ||
+                                  !cls.next_session_number
+                                }
+                                style={{
+                                  width: '100%',
+                                  padding: '6px',
+                                  background:
+                                    actioning === `${cls.class_key}:shift` ||
+                                    !shiftMentorIds[cls.class_key] ||
+                                    !(shiftReasons[cls.class_key] || '').trim() ||
+                                    !cls.next_session_number
+                                      ? '#ccc'
+                                      : '#0f766e',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor:
+                                    actioning === `${cls.class_key}:shift` ||
+                                    !shiftMentorIds[cls.class_key] ||
+                                    !(shiftReasons[cls.class_key] || '').trim() ||
+                                    !cls.next_session_number
+                                      ? 'not-allowed'
+                                      : 'pointer',
+                                  fontSize: '13px',
+                                }}
+                              >
+                                {actioning === `${cls.class_key}:shift` ? 'Shifting...' : 'Shift Mentor'}
+                              </button>
+                            </div>
+                          )}
                           <button
                             onClick={() => handleUnassign(cls.class_key)}
                             disabled={actioning === `${cls.class_key}:unassign`}

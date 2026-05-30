@@ -12,14 +12,19 @@ interface MentorClassEvaluation {
   time: string
   classNumber: number
   roundStatus: 'active' | 'closed'
+  ownershipFromSession?: number
+  ownershipToSession?: number
   classCollectiveScore: number
   manual: {
     sessionQuality: number
     sessionQualityBySession: number[]
     recordedSessionCount: number
     studentsFeedback: number
+    studentsFeedbackRecorded?: boolean
     trelloSessionChecks: boolean[]
     trelloCompliancePercent: number
+    trelloComplianceRecorded?: boolean
+    ownedSessionCount?: number
   }
   automatic: {
     whatsAppManagementPercent: number
@@ -70,6 +75,37 @@ function averageRecordedSessionQuality(values: number[]): number {
   const recorded = values.filter((value) => value > 0)
   if (recorded.length === 0) return 0
   return Math.round(recorded.reduce((acc, value) => acc + value, 0) / recorded.length)
+}
+
+function ownedBounds(classItem: MentorClassEvaluation): { from: number; to: number } {
+  const from = Math.max(1, Math.min(8, classItem.ownershipFromSession || 1))
+  const to = Math.max(from, Math.min(8, classItem.ownershipToSession || 8))
+  return { from, to }
+}
+
+function ownedSessionCount(classItem: MentorClassEvaluation): number {
+  const bounds = ownedBounds(classItem)
+  return bounds.to - bounds.from + 1
+}
+
+function isOwnedSession(classItem: MentorClassEvaluation, index: number): boolean {
+  const sessionNumber = index + 1
+  const bounds = ownedBounds(classItem)
+  return sessionNumber >= bounds.from && sessionNumber <= bounds.to
+}
+
+function averageRecordedSessionQualityForOwned(classItem: MentorClassEvaluation, values: number[]): number {
+  return averageRecordedSessionQuality(values.filter((_, index) => isOwnedSession(classItem, index)))
+}
+
+function countRecordedSessionQualityForOwned(classItem: MentorClassEvaluation, values: number[]): number {
+  return values.filter((value, index) => isOwnedSession(classItem, index) && value > 0).length
+}
+
+function trelloPercentForOwned(classItem: MentorClassEvaluation, checks: boolean[]): number | null {
+  const checked = checks.filter((value, index) => isOwnedSession(classItem, index) && value).length
+  if (checked === 0) return null
+  return Math.round((checked / ownedSessionCount(classItem)) * 100)
 }
 
 function computeCollectiveKPI(classItem: MentorClassEvaluation): number {
@@ -211,8 +247,11 @@ export default function MentorEvaluations() {
                     sessionQualityBySession: normalizeSessionQualityBySession(res.manual.sessionQualityBySession),
                     recordedSessionCount: res.manual.recordedSessionCount,
                     studentsFeedback: res.manual.studentsFeedback,
+                    studentsFeedbackRecorded: res.manual.studentsFeedbackRecorded,
                     trelloSessionChecks: res.manual.trelloSessionChecks,
                     trelloCompliancePercent: res.manual.trelloCompliancePct,
+                    trelloComplianceRecorded: res.manual.trelloComplianceRecorded,
+                    ownedSessionCount: res.manual.ownedSessionCount,
                   }
                   const updatedClass: MentorClassEvaluation = {
                     ...cls,
@@ -799,37 +838,41 @@ function MetricCell({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ScoreBar({ label, score, max = 10 }: { label: string; score: number; max?: number }) {
-  const percent = Math.max(0, Math.min(100, (score / max) * 100))
+function ScoreBar({ label, score, max = 10 }: { label: string; score: number | null; max?: number }) {
+  const recorded = score !== null
+  const rawScore = score ?? 0
+  const percent = recorded ? Math.max(0, Math.min(100, (rawScore / max) * 100)) : 0
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
         <span style={{ fontSize: '14px' }}>{label}</span>
         <strong style={{ fontSize: '14px' }}>
-          {score}/{max}
+          {recorded ? `${rawScore}/${max}` : 'N/A'}
         </strong>
       </div>
       <div style={{ height: '8px', background: '#eceff1', borderRadius: '4px', overflow: 'hidden' }}>
-        <div style={{ width: `${percent}%`, height: '100%', background: '#1c7ed6' }} />
+        <div style={{ width: `${percent}%`, height: '100%', background: recorded ? '#1c7ed6' : '#cbd5e1' }} />
       </div>
     </div>
   )
 }
 
-function PercentBar({ label, percent }: { label: string; percent: number }) {
-  const clamped = Math.max(0, Math.min(100, percent))
+function PercentBar({ label, percent }: { label: string; percent: number | null }) {
+  const recorded = percent !== null
+  const rawPercent = percent ?? 0
+  const clamped = recorded ? Math.max(0, Math.min(100, rawPercent)) : 0
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
         <span style={{ fontSize: '14px' }}>{label}</span>
-        <strong style={{ fontSize: '14px' }}>{clamped}%</strong>
+        <strong style={{ fontSize: '14px' }}>{recorded ? `${clamped}%` : 'N/A'}</strong>
       </div>
       <div style={{ height: '8px', background: '#eceff1', borderRadius: '4px', overflow: 'hidden' }}>
         <div
           style={{
             width: `${clamped}%`,
             height: '100%',
-            background: clamped >= 80 ? '#2f9e44' : clamped >= 60 ? '#f59f00' : '#e03131',
+            background: recorded ? (clamped >= 80 ? '#2f9e44' : clamped >= 60 ? '#f59f00' : '#e03131') : '#cbd5e1',
           }}
         />
       </div>
@@ -881,6 +924,9 @@ function ClassCard({
   onViewReport: () => void
 }) {
   const collective = computeCollectiveKPI(classItem)
+  const ownedSessions = classItem.manual.ownedSessionCount || ownedSessionCount(classItem)
+  const feedbackRecorded = classItem.manual.studentsFeedbackRecorded ?? classItem.manual.studentsFeedback > 0
+  const trelloRecorded = classItem.manual.trelloComplianceRecorded ?? classItem.manual.trelloSessionChecks.some((checked, index) => isOwnedSession(classItem, index) && checked)
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px', background: '#fff' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
@@ -900,8 +946,8 @@ function ClassCard({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <PercentBar label="Collective KPI Ratio (Weighted)" percent={collective} />
-        <ScoreBar label="Students Feedback (Manual)" score={classItem.manual.studentsFeedback} />
-        <PercentBar label="Trello Compliance (Manual)" percent={classItem.manual.trelloCompliancePercent} />
+        <ScoreBar label="Students Feedback (Manual)" score={feedbackRecorded ? classItem.manual.studentsFeedback : null} />
+        <PercentBar label="Trello Compliance (Manual)" percent={trelloRecorded ? classItem.manual.trelloCompliancePercent : null} />
         <PercentBar label="WhatsApp Groups Management (Auto)" percent={classItem.automatic.whatsAppManagementPercent} />
         <PercentBar label="Attendance Punctuality (Auto)" percent={classItem.automatic.attendancePunctualityPercent} />
       </div>
@@ -910,7 +956,7 @@ function ClassCard({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
           <div style={{ fontWeight: 800, color: '#111827' }}>Session Quality by Session</div>
           <div style={{ fontSize: '13px', color: '#475569' }}>
-            Average {classItem.manual.sessionQuality > 0 ? `${classItem.manual.sessionQuality}/10` : '-'} · {classItem.manual.recordedSessionCount}/8 recorded
+            Average {classItem.manual.sessionQuality > 0 ? `${classItem.manual.sessionQuality}/10` : '-'} · {classItem.manual.recordedSessionCount}/{ownedSessions} recorded
           </div>
         </div>
         <SessionQualityStrip values={classItem.manual.sessionQualityBySession} />
@@ -950,21 +996,25 @@ function computePreviewCollective(
   manual: {
     sessionQuality: number
     studentsFeedback: number
-    trelloCompliancePercent: number
+    trelloCompliancePercent: number | null
+    trelloComplianceRecorded?: boolean
   },
 ): number {
-  const punctuality = classItem.automatic.attendancePunctualityPercent
-  const sessionQuality = manual.sessionQuality * 10
-  const feedback = manual.studentsFeedback * 10
-  const whatsapp = classItem.automatic.whatsAppManagementPercent
-  const trello = manual.trelloCompliancePercent
-  return Math.round(
-    punctuality * 0.25 +
-      sessionQuality * 0.25 +
-      feedback * 0.20 +
-      whatsapp * 0.10 +
-      trello * 0.20,
-  )
+  let total = 0
+  let weight = 0
+  const add = (value: number | null, componentWeight: number) => {
+    if (value === null) return
+    total += Math.max(0, Math.min(100, value)) * componentWeight
+    weight += componentWeight
+  }
+  add(classItem.automatic.attendancePunctualityPercent, 0.25)
+  add(manual.sessionQuality > 0 ? manual.sessionQuality * 10 : null, 0.25)
+  add(manual.studentsFeedback > 0 ? manual.studentsFeedback * 10 : null, 0.20)
+  add(classItem.automatic.whatsAppManagementPercent, 0.10)
+  const trelloRecorded = manual.trelloComplianceRecorded ?? manual.trelloCompliancePercent !== null
+  add(trelloRecorded ? manual.trelloCompliancePercent : null, 0.20)
+  if (weight === 0) return 0
+  return Math.round(total / weight)
 }
 
 function EditClassEvaluationModal({
@@ -985,7 +1035,7 @@ function EditClassEvaluationModal({
   const [sessionQualityBySession, setSessionQualityBySession] = useState<number[]>(() =>
     normalizeSessionQualityBySession(classItem.manual.sessionQualityBySession),
   )
-  const [studentsFeedback, setStudentsFeedback] = useState(Math.max(1, classItem.manual.studentsFeedback || 1))
+  const [studentsFeedback, setStudentsFeedback] = useState(Math.max(0, classItem.manual.studentsFeedback || 0))
   const [trelloChecks, setTrelloChecks] = useState<boolean[]>(() => {
     const fixed = new Array(8).fill(false) as boolean[]
     const src = classItem.manual.trelloSessionChecks || []
@@ -994,17 +1044,18 @@ function EditClassEvaluationModal({
   })
 
   const avgSessionQuality = useMemo(
-    () => averageRecordedSessionQuality(sessionQualityBySession),
-    [sessionQualityBySession],
+    () => averageRecordedSessionQualityForOwned(classItem, sessionQualityBySession),
+    [classItem, sessionQualityBySession],
   )
   const recordedSessionCount = useMemo(
-    () => sessionQualityBySession.filter((value) => value > 0).length,
-    [sessionQualityBySession],
+    () => countRecordedSessionQualityForOwned(classItem, sessionQualityBySession),
+    [classItem, sessionQualityBySession],
   )
   const trelloPercent = useMemo(
-    () => Math.round((trelloChecks.filter(Boolean).length / 8) * 100),
-    [trelloChecks],
+    () => trelloPercentForOwned(classItem, trelloChecks),
+    [classItem, trelloChecks],
   )
+  const ownedSessions = ownedSessionCount(classItem)
   const collectivePreview = useMemo(
     () => computePreviewCollective(classItem, {
       sessionQuality: avgSessionQuality,
@@ -1020,6 +1071,10 @@ function EditClassEvaluationModal({
 
   function toggleSession(index: number) {
     setTrelloChecks((prev) => prev.map((v, i) => (i === index ? !v : v)))
+  }
+
+  function ownsSession(index: number) {
+    return isOwnedSession(classItem, index)
   }
 
   return (
@@ -1056,59 +1111,67 @@ function EditClassEvaluationModal({
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
               <div>
                 <div style={{ fontWeight: 800 }}>Session Quality by Session</div>
-                <div style={{ fontSize: '13px', color: '#6b7280' }}>Leave any session at `0` if MH did not evaluate it yet.</div>
+                <div style={{ fontSize: '13px', color: '#6b7280' }}>Leave a session at 0 when it has not been evaluated.</div>
               </div>
               <div style={{ fontSize: '13px', color: '#475569' }}>
-                Average {avgSessionQuality > 0 ? `${avgSessionQuality}/10` : '-'} · {recordedSessionCount}/8 recorded
+                Average {avgSessionQuality > 0 ? `${avgSessionQuality}/10` : '-'} · {recordedSessionCount}/{ownedSessions} recorded
               </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-              {sessionQualityBySession.map((score, index) => (
-                <div key={index} style={{ padding: '12px', borderRadius: '10px', background: '#fff', border: '1px solid #e5e7eb' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
-                    <strong>S{index + 1}</strong>
-                    <span style={{ color: score > 0 ? '#0d6efd' : '#6b7280', fontWeight: 700 }}>{score > 0 ? `${score}/10` : 'Not recorded'}</span>
+              {sessionQualityBySession.map((score, index) => {
+                const editable = ownsSession(index)
+                return (
+                  <div key={index} style={{ padding: '12px', borderRadius: '10px', background: editable ? '#fff' : '#f8f9fa', border: '1px solid #e5e7eb', opacity: editable ? 1 : 0.65 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                      <strong>S{index + 1}</strong>
+                      <span style={{ color: score > 0 ? '#0d6efd' : '#6b7280', fontWeight: 700 }}>{editable ? (score > 0 ? `${score}/10` : 'Not recorded') : 'Other mentor'}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={10}
+                      value={score}
+                      disabled={!editable}
+                      onChange={(e) => updateSessionQuality(index, parseInt(e.target.value, 10))}
+                      style={{ width: '100%' }}
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={10}
-                    value={score}
-                    onChange={(e) => updateSessionQuality(index, parseInt(e.target.value, 10))}
-                    style={{ width: '100%' }}
-                  />
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 
           <div>
-            <label style={{ display: 'block', marginBottom: '6px' }}>Students Feedback (1-10): {studentsFeedback}</label>
-            <input type="range" min={1} max={10} value={studentsFeedback} onChange={(e) => setStudentsFeedback(parseInt(e.target.value, 10))} style={{ width: '100%' }} />
+            <label style={{ display: 'block', marginBottom: '6px' }}>Students Feedback (0-10): {studentsFeedback > 0 ? studentsFeedback : 'N/A'}</label>
+            <input type="range" min={0} max={10} value={studentsFeedback} onChange={(e) => setStudentsFeedback(parseInt(e.target.value, 10))} style={{ width: '100%' }} />
           </div>
 
           <div>
             <div style={{ marginBottom: '8px', fontWeight: 600 }}>Trello Compliance by Session (Manual)</div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {trelloChecks.map((checked, idx) => (
-                <label
-                  key={idx}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    background: '#f1f3f5',
-                    borderRadius: '4px',
-                    padding: '6px 8px',
-                  }}
-                >
-                  <input type="checkbox" checked={checked} onChange={() => toggleSession(idx)} />
-                  S{idx + 1}
-                </label>
-              ))}
+              {trelloChecks.map((checked, idx) => {
+                const editable = ownsSession(idx)
+                return (
+                  <label
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      background: editable ? '#f1f3f5' : '#f8f9fa',
+                      borderRadius: '4px',
+                      padding: '6px 8px',
+                      opacity: editable ? 1 : 0.65,
+                    }}
+                  >
+                    <input type="checkbox" checked={checked} disabled={!editable} onChange={() => toggleSession(idx)} />
+                    S{idx + 1}
+                  </label>
+                )
+              })}
             </div>
-            <div style={{ marginTop: '6px', fontSize: '13px', color: '#555' }}>Total: {trelloPercent}%</div>
+            <div style={{ marginTop: '6px', fontSize: '13px', color: '#555' }}>Total: {trelloPercent === null ? 'N/A' : `${trelloPercent}%`}</div>
           </div>
         </div>
 
@@ -1118,7 +1181,13 @@ function EditClassEvaluationModal({
           </button>
           <button
             disabled={saving}
-            onClick={() => onSave({ sessionQualityBySession, studentsFeedback, trelloSessionChecks: trelloChecks })}
+            onClick={() =>
+              onSave({
+                sessionQualityBySession: sessionQualityBySession.map((value, index) => (ownsSession(index) ? value : 0)),
+                studentsFeedback,
+                trelloSessionChecks: trelloChecks.map((value, index) => (ownsSession(index) ? value : false)),
+              })
+            }
             style={primaryButtonStyle}
           >
             {saving ? 'Saving...' : 'Save'}

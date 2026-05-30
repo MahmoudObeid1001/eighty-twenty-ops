@@ -102,6 +102,100 @@ func averageSessionQualityForResponse(raw []int) int {
 	return int(math.Round(float64(total) / float64(count)))
 }
 
+func ownershipBoundsForResponse(from int32, to *int32) (int32, int32) {
+	if from < 1 {
+		from = 1
+	}
+	if from > 8 {
+		from = 8
+	}
+	ownedTo := int32(8)
+	if to != nil {
+		ownedTo = *to
+	}
+	if ownedTo < from {
+		ownedTo = from
+	}
+	if ownedTo > 8 {
+		ownedTo = 8
+	}
+	return from, ownedTo
+}
+
+func ownedSessionCountForResponse(from, to int32) int {
+	if to < from {
+		return 0
+	}
+	return int(to-from) + 1
+}
+
+func countRecordedSessionQualityInRangeForResponse(raw []int, from, to int32) int {
+	count := 0
+	for i, value := range normalizeSessionQualityBySessionForResponse(raw) {
+		sessionNumber := int32(i + 1)
+		if sessionNumber >= from && sessionNumber <= to && value > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func averageSessionQualityInRangeForResponse(raw []int, from, to int32) int {
+	total := 0
+	count := 0
+	for i, value := range normalizeSessionQualityBySessionForResponse(raw) {
+		sessionNumber := int32(i + 1)
+		if sessionNumber < from || sessionNumber > to || value <= 0 {
+			continue
+		}
+		total += value
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return int(math.Round(float64(total) / float64(count)))
+}
+
+func trelloComplianceInRangeForResponse(raw []bool, from, to int32) (int, bool) {
+	fixed := make([]bool, 8)
+	copy(fixed, raw)
+	checked := 0
+	for i, ok := range fixed {
+		sessionNumber := int32(i + 1)
+		if sessionNumber >= from && sessionNumber <= to && ok {
+			checked++
+		}
+	}
+	if checked == 0 {
+		return 0, false
+	}
+	owned := ownedSessionCountForResponse(from, to)
+	if owned == 0 {
+		return 0, false
+	}
+	return (checked * 100) / owned, true
+}
+
+func mentorOwnershipBoundsForResponse(classKey string, mentorID uuid.UUID) (int32, int32) {
+	windows, err := models.GetMentorAssignmentWindowsForClass(classKey)
+	if err != nil {
+		return 1, 8
+	}
+	for _, window := range windows {
+		if window.MentorUserID != mentorID {
+			continue
+		}
+		var to *int32
+		if window.EffectiveToSession.Valid {
+			value := window.EffectiveToSession.Int32
+			to = &value
+		}
+		return ownershipBoundsForResponse(window.EffectiveFromSession, to)
+	}
+	return 1, 8
+}
+
 func availabilityWindowResponse(item models.MentorAvailabilityWindow) map[string]interface{} {
 	note := ""
 	if item.Note.Valid {
@@ -2099,6 +2193,8 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 		MentorUserID       *string `json:"mentor_user_id,omitempty"`
 		MentorEmail        string  `json:"mentor_email,omitempty"`
 		SentToMentor       bool    `json:"sent_to_mentor"`
+		RoundStatus        string  `json:"round_status"`
+		NextSessionNumber  *int32  `json:"next_session_number,omitempty"`
 		SuggestedStartDate string  `json:"suggested_start_date,omitempty"`
 	}
 
@@ -2111,6 +2207,7 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 			Time:         c.ClassTime,
 			ClassNumber:  c.ClassNumber,
 			SentToMentor: c.SentToMentor,
+			RoundStatus:  c.RoundStatus,
 			SuggestedStartDate: func() string {
 				if c.SuggestedStartDate.Valid && c.RoundStatus != "active" {
 					return util.FormatDateCairo(c.SuggestedStartDate.Time)
@@ -2128,6 +2225,11 @@ func (h *APIHandler) GetMentorHeadDashboard(w http.ResponseWriter, r *http.Reque
 			user, err := models.GetUserByID(mentorIDStr)
 			if err == nil && user != nil {
 				cr.MentorEmail = user.Email
+			}
+		}
+		if c.RoundStatus == "active" {
+			if nextSession, err := models.GetNextUncompletedSessionNumber(c.ClassKey); err == nil {
+				cr.NextSessionNumber = &nextSession
 			}
 		}
 
@@ -2547,6 +2649,80 @@ func (h *APIHandler) AssignMentor(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"ok":                    true,
 		"availability_warnings": availabilityWarningsResponse(availabilityWarnings),
+	})
+}
+
+// POST /api/mentor-head/shift-mentor - shifts an active class from one mentor to another.
+func (h *APIHandler) ShiftMentor(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userRole := middleware.GetUserRole(r)
+	if userRole != "mentor_head" && userRole != "admin" && userRole != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Mentor Head, Admin, or Manager access required")
+		return
+	}
+
+	var req struct {
+		ClassKey               string `json:"class_key"`
+		MentorUserID           string `json:"mentor_user_id"`
+		EffectiveSessionNumber *int32 `json:"effective_session_number"`
+		Reason                 string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ClassKey = strings.TrimSpace(req.ClassKey)
+	req.MentorUserID = strings.TrimSpace(req.MentorUserID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.ClassKey == "" || req.MentorUserID == "" {
+		jsonError(w, http.StatusBadRequest, "class_key and mentor_user_id are required")
+		return
+	}
+	if req.Reason == "" {
+		jsonError(w, http.StatusBadRequest, "reason is required")
+		return
+	}
+
+	mentorUserID, err := uuid.Parse(req.MentorUserID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid mentor_user_id")
+		return
+	}
+	changedByUserID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	result, err := models.ShiftClassMentor(req.ClassKey, mentorUserID, req.EffectiveSessionNumber, req.Reason, changedByUserID)
+	if err != nil {
+		log.Printf("ERROR: Failed to shift mentor: %v", err)
+		status := http.StatusBadRequest
+		msg := err.Error()
+		switch {
+		case errors.Is(err, models.ErrNoCurrentMentorAssignment):
+			status = http.StatusConflict
+			msg = "Class has no current mentor assignment."
+		case strings.Contains(msg, "class not found"):
+			status = http.StatusNotFound
+		case strings.Contains(msg, "conflicting session"):
+			status = http.StatusConflict
+		}
+		jsonError(w, status, msg)
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ok":                       true,
+		"class_key":                req.ClassKey,
+		"previous_mentor_user_id":  result.PreviousMentorUserID.String(),
+		"new_mentor_user_id":       result.NewMentorUserID.String(),
+		"effective_session_number": result.EffectiveSessionNumber,
+		"availability_warnings":    availabilityWarningsResponse(result.AvailabilityWarnings),
 	})
 }
 
@@ -3277,19 +3453,24 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 	}
 
 	type ClassResponse struct {
-		ClassKey    string `json:"classKey"`
-		Level       int32  `json:"level"`
-		Days        string `json:"days"`
-		Time        string `json:"time"`
-		ClassNumber int32  `json:"classNumber"`
-		RoundStatus string `json:"roundStatus"`
-		Manual      struct {
-			SessionQuality          int    `json:"sessionQuality"`
-			SessionQualityBySession []int  `json:"sessionQualityBySession"`
-			RecordedSessionCount    int    `json:"recordedSessionCount"`
-			StudentsFeedback        int    `json:"studentsFeedback"`
-			TrelloSessionChecks     []bool `json:"trelloSessionChecks"`
-			TrelloCompliancePct     int    `json:"trelloCompliancePercent"`
+		ClassKey             string `json:"classKey"`
+		Level                int32  `json:"level"`
+		Days                 string `json:"days"`
+		Time                 string `json:"time"`
+		ClassNumber          int32  `json:"classNumber"`
+		RoundStatus          string `json:"roundStatus"`
+		OwnershipFromSession int32  `json:"ownershipFromSession"`
+		OwnershipToSession   *int32 `json:"ownershipToSession,omitempty"`
+		Manual               struct {
+			SessionQuality           int    `json:"sessionQuality"`
+			SessionQualityBySession  []int  `json:"sessionQualityBySession"`
+			RecordedSessionCount     int    `json:"recordedSessionCount"`
+			StudentsFeedback         int    `json:"studentsFeedback"`
+			StudentsFeedbackRecorded bool   `json:"studentsFeedbackRecorded"`
+			TrelloSessionChecks      []bool `json:"trelloSessionChecks"`
+			TrelloCompliancePct      int    `json:"trelloCompliancePercent"`
+			TrelloComplianceRecorded bool   `json:"trelloComplianceRecorded"`
+			OwnedSessionCount        int    `json:"ownedSessionCount"`
 		} `json:"manual"`
 		Automatic struct {
 			WhatsAppManagementPercent int      `json:"whatsAppManagementPercent"`
@@ -3319,25 +3500,27 @@ func (h *APIHandler) GetMentorEvaluations(w http.ResponseWriter, r *http.Request
 
 		for _, classItem := range item.ActiveClasses {
 			c := ClassResponse{
-				ClassKey:    classItem.ClassKey,
-				Level:       classItem.Level,
-				Days:        classItem.ClassDays,
-				Time:        classItem.ClassTime,
-				ClassNumber: classItem.ClassNumber,
-				RoundStatus: classItem.RoundStatus,
+				ClassKey:             classItem.ClassKey,
+				Level:                classItem.Level,
+				Days:                 classItem.ClassDays,
+				Time:                 classItem.ClassTime,
+				ClassNumber:          classItem.ClassNumber,
+				RoundStatus:          classItem.RoundStatus,
+				OwnershipFromSession: classItem.OwnershipFromSession,
 			}
+			if classItem.OwnershipToSession.Valid {
+				to := classItem.OwnershipToSession.Int32
+				c.OwnershipToSession = &to
+			}
+			ownedFrom, ownedTo := ownershipBoundsForResponse(classItem.OwnershipFromSession, c.OwnershipToSession)
 			c.Manual.SessionQuality = classItem.KPISessionQuality
 			c.Manual.SessionQualityBySession = classItem.KPISessionQualityByS
 			c.Manual.RecordedSessionCount = classItem.RecordedSessionCount
 			c.Manual.StudentsFeedback = classItem.KPIStudentsFeedback
+			c.Manual.StudentsFeedbackRecorded = classItem.KPIStudentsFeedback > 0
 			c.Manual.TrelloSessionChecks = classItem.TrelloSessionChecks
-			checked := 0
-			for _, ok := range classItem.TrelloSessionChecks {
-				if ok {
-					checked++
-				}
-			}
-			c.Manual.TrelloCompliancePct = (checked * 100) / 8
+			c.Manual.TrelloCompliancePct, c.Manual.TrelloComplianceRecorded = trelloComplianceInRangeForResponse(classItem.TrelloSessionChecks, ownedFrom, ownedTo)
+			c.Manual.OwnedSessionCount = ownedSessionCountForResponse(ownedFrom, ownedTo)
 
 			c.Automatic.WhatsAppManagementPercent = classItem.AutoWhatsAppPercent
 			c.Automatic.AttendancePunctualityPct = classItem.AttendancePercent
@@ -3443,23 +3626,24 @@ func (h *APIHandler) UpdateMentorEvaluation(w http.ResponseWriter, r *http.Reque
 		copy(fixed, trelloChecks)
 		trelloChecks = fixed
 	}
-	checked := 0
-	for _, ok := range trelloChecks {
-		if ok {
-			checked++
-		}
-	}
+	ownedFrom, ownedTo := mentorOwnershipBoundsForResponse(req.ClassKey, mentorID)
+	sessionQuality := averageSessionQualityInRangeForResponse(req.Manual.SessionQualityBySession, ownedFrom, ownedTo)
+	recordedSessionCount := countRecordedSessionQualityInRangeForResponse(req.Manual.SessionQualityBySession, ownedFrom, ownedTo)
+	trelloCompliancePct, trelloComplianceRecorded := trelloComplianceInRangeForResponse(trelloChecks, ownedFrom, ownedTo)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"id":       mentorID.String(),
 		"classKey": req.ClassKey,
 		"manual": map[string]interface{}{
-			"sessionQuality":          averageSessionQualityForResponse(req.Manual.SessionQualityBySession),
-			"sessionQualityBySession": normalizeSessionQualityBySessionForResponse(req.Manual.SessionQualityBySession),
-			"recordedSessionCount":    countRecordedSessionQualityForResponse(req.Manual.SessionQualityBySession),
-			"studentsFeedback":        req.Manual.StudentsFeedback,
-			"trelloSessionChecks":     trelloChecks,
-			"trelloCompliancePct":     (checked * 100) / 8,
+			"sessionQuality":           sessionQuality,
+			"sessionQualityBySession":  normalizeSessionQualityBySessionForResponse(req.Manual.SessionQualityBySession),
+			"recordedSessionCount":     recordedSessionCount,
+			"studentsFeedback":         req.Manual.StudentsFeedback,
+			"studentsFeedbackRecorded": req.Manual.StudentsFeedback > 0,
+			"trelloSessionChecks":      trelloChecks,
+			"trelloCompliancePct":      trelloCompliancePct,
+			"trelloComplianceRecorded": trelloComplianceRecorded,
+			"ownedSessionCount":        ownedSessionCountForResponse(ownedFrom, ownedTo),
 		},
 	})
 }

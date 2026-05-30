@@ -156,6 +156,15 @@ export interface MentorAvailabilityCheckResponse {
   availability_warnings: MentorAvailabilityWarning[]
 }
 
+export interface MentorShiftResponse {
+  ok: boolean
+  class_key: string
+  previous_mentor_user_id: string
+  new_mentor_user_id: string
+  effective_session_number: number
+  availability_warnings: MentorAvailabilityWarning[]
+}
+
 export interface AvailabilityReminderNotification {
   banner_key: string
   month: string
@@ -190,6 +199,8 @@ export interface MentorHeadClass {
   mentor_user_id?: string
   mentor_email?: string
   sent_to_mentor: boolean
+  round_status?: string
+  next_session_number?: number
 }
 
 export interface MentorHeadDashboard {
@@ -957,6 +968,17 @@ export const api = {
       body: JSON.stringify({ class_key: classKey, mentor_user_id: mentorUserId }),
     }),
 
+  shiftMentor: (classKey: string, mentorUserId: string, reason: string, effectiveSessionNumber?: number): Promise<MentorShiftResponse> =>
+    fetchAPI('/mentor-head/shift-mentor', {
+      method: 'POST',
+      body: JSON.stringify({
+        class_key: classKey,
+        mentor_user_id: mentorUserId,
+        reason,
+        ...(effectiveSessionNumber ? { effective_session_number: effectiveSessionNumber } : {}),
+      }),
+    }),
+
   unassignMentor: (classKey: string) =>
     fetchAPI('/mentor-head/unassign', {
       method: 'POST',
@@ -1057,14 +1079,19 @@ export const api = {
         time: string
         classNumber: number
         roundStatus: 'active' | 'closed'
+        ownershipFromSession?: number
+        ownershipToSession?: number
         classCollectiveScore: number
         manual: {
           sessionQuality: number
           sessionQualityBySession: number[]
           recordedSessionCount: number
           studentsFeedback: number
+          studentsFeedbackRecorded?: boolean
           trelloSessionChecks: boolean[]
           trelloCompliancePercent: number
+          trelloComplianceRecorded?: boolean
+          ownedSessionCount?: number
         }
         automatic: {
           whatsAppManagementPercent: number
@@ -1097,8 +1124,11 @@ export const api = {
       sessionQualityBySession: number[]
       recordedSessionCount: number
       studentsFeedback: number
+      studentsFeedbackRecorded?: boolean
       trelloSessionChecks: boolean[]
       trelloCompliancePct: number
+      trelloComplianceRecorded?: boolean
+      ownedSessionCount?: number
     }
   }> => fetchAPI(`/mentor-head/evaluations/${encodeURIComponent(mentorId)}`, {
     method: 'PUT',
