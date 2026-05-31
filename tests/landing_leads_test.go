@@ -32,7 +32,7 @@ func TestCreateLandingLead(t *testing.T) {
 	nowSuffix := time.Now().UnixNano()
 
 	t.Run("rejects missing token", func(t *testing.T) {
-		body := bytes.NewBufferString(`{"full_name":"Landing Missing Token","whatsapp_number":"01000000000"}`)
+		body := bytes.NewBufferString(`{"full_name":"Landing Missing Token","whatsapp_number":"01000000000","learning_goal":"الشغل والترقي"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/public/landing-leads", body)
 		res := httptest.NewRecorder()
 
@@ -46,6 +46,7 @@ func TestCreateLandingLead(t *testing.T) {
 		payload := map[string]string{
 			"full_name":       "Landing Lead",
 			"whatsapp_number": phone,
+			"learning_goal":   "السفر والهجرة",
 		}
 		raw, _ := json.Marshal(payload)
 		req := httptest.NewRequest(http.MethodPost, "/api/public/landing-leads", bytes.NewReader(raw))
@@ -74,7 +75,7 @@ func TestCreateLandingLead(t *testing.T) {
 		if !source.Valid || source.String != "Landing Page" {
 			t.Fatalf("expected Landing Page source, got %q", source.String)
 		}
-		if !notes.Valid || notes.String != "Landing page signup" {
+		if !notes.Valid || notes.String != "Landing page signup\nLearning goal: السفر والهجرة" {
 			t.Fatalf("expected landing signup note, got %q", notes.String)
 		}
 		if status != "lead_created" {
@@ -82,9 +83,21 @@ func TestCreateLandingLead(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects invalid level", func(t *testing.T) {
+	t.Run("rejects missing learning goal", func(t *testing.T) {
 		phone := uniquePhone(nowSuffix, 91)
-		body := bytes.NewBufferString(fmt.Sprintf(`{"full_name":"Landing Invalid","whatsapp_number":%q,"english_level":"fluent"}`, phone))
+		body := bytes.NewBufferString(fmt.Sprintf(`{"full_name":"Landing Missing Goal","whatsapp_number":%q}`, phone))
+		req := httptest.NewRequest(http.MethodPost, "/api/public/landing-leads", body)
+		req.Header.Set("X-Landing-Lead-Token", cfg.LandingLeadToken)
+		res := httptest.NewRecorder()
+
+		h.CreateLandingLead(res, req)
+
+		requireErrorResponse(t, res, http.StatusBadRequest, "full_name, whatsapp_number, and learning_goal are required")
+	})
+
+	t.Run("rejects invalid level", func(t *testing.T) {
+		phone := uniquePhone(nowSuffix, 92)
+		body := bytes.NewBufferString(fmt.Sprintf(`{"full_name":"Landing Invalid","whatsapp_number":%q,"learning_goal":"الشغل والترقي","english_level":"fluent"}`, phone))
 		req := httptest.NewRequest(http.MethodPost, "/api/public/landing-leads", body)
 		req.Header.Set("X-Landing-Lead-Token", cfg.LandingLeadToken)
 		res := httptest.NewRecorder()
@@ -92,5 +105,17 @@ func TestCreateLandingLead(t *testing.T) {
 		h.CreateLandingLead(res, req)
 
 		requireErrorResponse(t, res, http.StatusBadRequest, "english_level must be beginner, intermediate, or advanced")
+	})
+
+	t.Run("rejects invalid learning goal", func(t *testing.T) {
+		phone := uniquePhone(nowSuffix, 93)
+		body := bytes.NewBufferString(fmt.Sprintf(`{"full_name":"Landing Invalid Goal","whatsapp_number":%q,"learning_goal":"anything else"}`, phone))
+		req := httptest.NewRequest(http.MethodPost, "/api/public/landing-leads", body)
+		req.Header.Set("X-Landing-Lead-Token", cfg.LandingLeadToken)
+		res := httptest.NewRecorder()
+
+		h.CreateLandingLead(res, req)
+
+		requireErrorResponse(t, res, http.StatusBadRequest, "learning_goal must be one of the supported landing page options")
 	})
 }

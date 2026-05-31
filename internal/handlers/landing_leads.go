@@ -15,6 +15,7 @@ type landingLeadRequest struct {
 	FullName       string `json:"full_name"`
 	WhatsAppNumber string `json:"whatsapp_number"`
 	EnglishLevel   string `json:"english_level"`
+	LearningGoal   string `json:"learning_goal"`
 }
 
 func (h *APIHandler) CreateLandingLead(w http.ResponseWriter, r *http.Request) {
@@ -48,16 +49,21 @@ func (h *APIHandler) CreateLandingLead(w http.ResponseWriter, r *http.Request) {
 	fullName := strings.TrimSpace(req.FullName)
 	phone := strings.TrimSpace(req.WhatsAppNumber)
 	level := normalizeLandingEnglishLevel(req.EnglishLevel)
-	if fullName == "" || phone == "" {
-		jsonError(w, http.StatusBadRequest, "full_name and whatsapp_number are required")
+	learningGoal := normalizeLandingLearningGoal(req.LearningGoal)
+	if fullName == "" || phone == "" || strings.TrimSpace(req.LearningGoal) == "" {
+		jsonError(w, http.StatusBadRequest, "full_name, whatsapp_number, and learning_goal are required")
 		return
 	}
 	if strings.TrimSpace(req.EnglishLevel) != "" && level == "" {
 		jsonError(w, http.StatusBadRequest, "english_level must be beginner, intermediate, or advanced")
 		return
 	}
+	if strings.TrimSpace(req.LearningGoal) != "" && learningGoal == "" {
+		jsonError(w, http.StatusBadRequest, "learning_goal must be one of the supported landing page options")
+		return
+	}
 
-	notes := "Landing page signup"
+	notes := fmt.Sprintf("Landing page signup\nLearning goal: %s", learningGoal)
 	if level != "" {
 		notes = fmt.Sprintf("%s\nEnglish level: %s", notes, level)
 	}
@@ -86,6 +92,23 @@ func normalizeLandingEnglishLevel(raw string) string {
 		return "intermediate"
 	case "advanced":
 		return "advanced"
+	default:
+		return ""
+	}
+}
+
+func normalizeLandingLearningGoal(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "الشغل والترقي":
+		return "الشغل والترقي"
+	case "السفر والهجرة":
+		return "السفر والهجرة"
+	case "الدراسة والمنح":
+		return "الدراسة والمنح"
+	case "ازاكر للأولاد":
+		return "ازاكر للأولاد"
+	case "غير كده":
+		return "غير كده"
 	default:
 		return ""
 	}
