@@ -1741,18 +1741,15 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason,
-		       l.landing_page_contacted_at, l.landing_page_contacted_by_user_id, l.landing_page_contacted_status,
-		       COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, ''),
-		       l.sent_to_classes,
-		       levels_purchased_total, levels_consumed, remaining_credits,
+		SELECT id, full_name, phone, source, notes, status, ops_queue_reason, mentor_head_return_reason,
+		       landing_page_contacted_at, landing_page_contacted_by_user_id, landing_page_contacted_status,
+		       sent_to_classes, levels_purchased_total, levels_consumed, remaining_credits,
 		       is_returning, high_priority_follow_up, created_by_user_id, offer_sent_at, created_at, updated_at
-		FROM leads l
-		LEFT JOIN users u ON u.id::text = l.landing_page_contacted_by_user_id
-		WHERE l.id = $1
+		FROM leads
+		WHERE id = $1
 	`, id).Scan(
 		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
-		&lead.LandingPageContactedAt, &lead.LandingPageContactedBy, &lead.LandingPageContactedStatus, &lead.LandingPageContactedByName,
+		&lead.LandingPageContactedAt, &lead.LandingPageContactedBy, &lead.LandingPageContactedStatus,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
 		&lead.IsReturning, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 	)
