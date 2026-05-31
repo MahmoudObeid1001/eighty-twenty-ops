@@ -1105,6 +1105,8 @@ func (h *PreEnrolmentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		successMsg = "Lead cancelled and refund recorded."
 	} else if r.URL.Query().Get("cancelled") == "1" {
 		successMsg = "Lead cancelled successfully."
+	} else if r.URL.Query().Get("landing_contacted") == "1" {
+		successMsg = "Landing lead marked as contacted."
 	} else if r.URL.Query().Get("saved") == "1" {
 		successMsg = "Lead saved successfully!"
 	} else if flashMessageType == "success" {
@@ -1548,6 +1550,12 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		log.Printf("ERROR: Failed to load pre-enrolment contact history: %v", err)
 		contactHistory = []*models.ContactHistoryItem{}
 	}
+	isLandingLeadValue := isLandingLead(detail.Lead)
+	landingLeadContactedActive := isLandingLeadContactedInCurrentStatus(detail.Lead)
+	landingLeadContactedAt := ""
+	if detail.Lead.LandingPageContactedAt.Valid {
+		landingLeadContactedAt = detail.Lead.LandingPageContactedAt.Time.Format("2006-01-02 03:04 PM")
+	}
 	canMarkRefusedRenewal := userRole == "admin" &&
 		detail.Lead.IsReturning &&
 		creditsRemaining <= 0 &&
@@ -1589,6 +1597,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"HotLevel":                   tempItem.HotLevel,
 		"NextAction":                 tempItem.NextAction,
 		"LeadWhatsAppURL":            tempItem.WhatsAppURL,
+		"LeadWhatsAppOpenURL":        fmt.Sprintf("/pre-enrolment/%s?open_whatsapp=1", leadID.String()),
 		"OfferFollowUpStep":          tempItem.OfferFollowUpStep,
 		"OfferFollowUpDueAt":         tempItem.OfferFollowUpDueAt,
 		"OfferFollowUpDueNow":        tempItem.OfferFollowUpDueNow,
@@ -1679,10 +1688,14 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			_, reason := canUseCoursePaymentFlow(detail)
 			return reason
 		}(),
-		"PricingTrack":   inferOfferPricingTrack(detail.Offer),
-		"IsPrivateTrack": detail.Lead.OpsQueueReason.Valid && detail.Lead.OpsQueueReason.String == "private_track",
-		"IsRefundReview": isRefundReviewLead(detail.Lead),
-		"IsLandingLead":  isLandingLead(detail.Lead),
+		"PricingTrack":                inferOfferPricingTrack(detail.Offer),
+		"IsPrivateTrack":              detail.Lead.OpsQueueReason.Valid && detail.Lead.OpsQueueReason.String == "private_track",
+		"IsRefundReview":              isRefundReviewLead(detail.Lead),
+		"IsLandingLead":               isLandingLeadValue,
+		"CanMarkLandingLeadContacted": isLandingLeadValue && !landingLeadContactedActive && (userRole == "admin" || userRole == "manager"),
+		"LandingLeadContactedActive":  landingLeadContactedActive,
+		"LandingLeadContactedAt":      landingLeadContactedAt,
+		"LandingLeadContactedByName":  detail.Lead.LandingPageContactedByName,
 		"CanMarkOfferSent": func() bool {
 			ok, _ := canMarkOfferSent(detail)
 			return ok
@@ -1766,6 +1779,16 @@ func isLandingLead(lead *models.Lead) bool {
 	notes := strings.ToLower(strings.TrimSpace(lead.Notes.String))
 	return strings.Contains(notes, "landing page signup") ||
 		strings.Contains(notes, "تم التواصل عن طريق السيستم")
+}
+
+func isLandingLeadContactedInCurrentStatus(lead *models.Lead) bool {
+	if lead == nil {
+		return false
+	}
+	if !lead.LandingPageContactedAt.Valid || !lead.LandingPageContactedStatus.Valid {
+		return false
+	}
+	return strings.TrimSpace(lead.LandingPageContactedStatus.String) == strings.TrimSpace(lead.Status)
 }
 
 // renderDetailWithError fetches the lead, builds detail page data with Error set, and renders.
@@ -2275,6 +2298,48 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/pre-enrolment?status_flash=tested", http.StatusFound)
 		return
 
+	case "mark_landing_contacted":
+		h.cfg.Debugf("  → Action: mark_landing_contacted")
+		if userRole != "admin" && userRole != "manager" {
+			http.Error(w, "You don't have permission to update this lead.", http.StatusForbidden)
+			return
+		}
+		if userID == uuid.Nil {
+			http.Error(w, "Couldn't identify the current user for this action.", http.StatusUnauthorized)
+			return
+		}
+		detail, err := models.GetLeadByID(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't load this lead. Please refresh and try again.", http.StatusInternalServerError)
+			return
+		}
+		if !isLandingLead(detail.Lead) {
+			h.renderDetailWithError(w, r, leadID, "This action is available only for landing page leads.")
+			return
+		}
+		if isLandingLeadContactedInCurrentStatus(detail.Lead) {
+			http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), http.StatusFound)
+			return
+		}
+		if err := models.MarkLandingPageLeadContacted(leadID, userID); err != nil {
+			log.Printf("ERROR: Failed to mark landing lead contacted: %v", err)
+			http.Error(w, "Couldn't update the landing lead contact status. Please try again.", http.StatusInternalServerError)
+			return
+		}
+		if err := models.RecordPreEnrolmentContactHistory(models.ContactHistoryLogInput{
+			LeadID:          leadID,
+			Channel:         "manual",
+			EventType:       "contact_confirmed",
+			Source:          "landing_page_contacted",
+			MessageText:     fmt.Sprintf("Lead marked as contacted while status was %s.", detail.Lead.Status),
+			Metadata:        map[string]interface{}{"status": detail.Lead.Status},
+			CreatedByUserID: &userID,
+		}); err != nil {
+			log.Printf("ERROR: Failed to log landing lead contacted event for lead %s: %v", leadID, err)
+		}
+		http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?landing_contacted=1", leadID.String()), http.StatusFound)
+		return
+
 	case "mark_offer_sent":
 		h.cfg.Debugf("  → Action: mark_offer_sent")
 		// Server-side check: moderators cannot update status
@@ -2380,11 +2445,9 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			detail.Offer = &models.Offer{LeadID: leadID}
 		}
 		if offerNotes := strings.TrimSpace(r.FormValue("offer_notes")); offerNotes != "" {
-			detail.Lead.Notes = sql.NullString{String: offerNotes, Valid: true}
-			if err := models.UpdateLeadBasicInfo(detail.Lead); err != nil {
-				http.Error(w, "Couldn't save offer notes. Please try again.", http.StatusInternalServerError)
-				return
-			}
+			detail.Offer.FollowUpNotes = sql.NullString{String: offerNotes, Valid: true}
+		} else {
+			detail.Offer.FollowUpNotes = sql.NullString{Valid: false}
 		}
 
 		if b, err := strconv.Atoi(bundle); err == nil {
@@ -3832,9 +3895,6 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	if notes := r.FormValue("notes"); notes != "" {
 		detail.Lead.Notes = sql.NullString{String: notes, Valid: true}
 	}
-	if offerNotes := strings.TrimSpace(r.FormValue("offer_notes")); offerNotes != "" {
-		detail.Lead.Notes = sql.NullString{String: offerNotes, Valid: true}
-	}
 
 	// existingDetail already loaded above for validation
 	currentStatus := existingDetail.Lead.Status
@@ -5133,11 +5193,9 @@ func (h *PreEnrolmentHandler) MarkOfferSent(w http.ResponseWriter, r *http.Reque
 		detail.Offer = &models.Offer{LeadID: leadID}
 	}
 	if offerNotes := strings.TrimSpace(r.FormValue("offer_notes")); offerNotes != "" {
-		detail.Lead.Notes = sql.NullString{String: offerNotes, Valid: true}
-		if err := models.UpdateLeadBasicInfo(detail.Lead); err != nil {
-			http.Error(w, "Couldn't save offer notes. Please try again.", http.StatusInternalServerError)
-			return
-		}
+		detail.Offer.FollowUpNotes = sql.NullString{String: offerNotes, Valid: true}
+	} else {
+		detail.Offer.FollowUpNotes = sql.NullString{Valid: false}
 	}
 
 	if b, err := strconv.Atoi(bundle); err == nil {

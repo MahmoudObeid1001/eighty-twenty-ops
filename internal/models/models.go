@@ -21,27 +21,31 @@ type User struct {
 }
 
 type Lead struct {
-	ID                     uuid.UUID
-	FullName               string
-	Phone                  string
-	Source                 sql.NullString
-	Notes                  sql.NullString
-	Status                 string
-	OpsQueueReason         sql.NullString
-	MentorHeadReturnReason sql.NullString
-	SentToClasses          bool           // Whether student has been manually sent to classes board
-	LevelsPurchasedTotal   sql.NullInt32  // Total levels purchased (from bundles)
-	LevelsConsumed         sql.NullInt32  // Levels consumed (when rounds start)
-	BundleType             sql.NullString // none, single, bundle2, bundle3, bundle4
-	RemainingCredits       sql.NullInt32  // Remaining class credits (after-class pipeline)
-	IsReturning            bool           // Flag for returning students (after-class pipeline)
-	HighPriorityFollowUp   bool           // Set by mentor_head on round close for students with no remaining credits
-	HighPriorityAbsence    bool           // Set automatically if 3+ absences
-	HighPriorityReason     sql.NullString // Reason for high priority
-	CreatedByUserID        sql.NullString
-	OfferSentAt            sql.NullTime
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID                         uuid.UUID
+	FullName                   string
+	Phone                      string
+	Source                     sql.NullString
+	Notes                      sql.NullString
+	Status                     string
+	OpsQueueReason             sql.NullString
+	MentorHeadReturnReason     sql.NullString
+	LandingPageContactedAt     sql.NullTime
+	LandingPageContactedBy     sql.NullString
+	LandingPageContactedStatus sql.NullString
+	LandingPageContactedByName string
+	SentToClasses              bool           // Whether student has been manually sent to classes board
+	LevelsPurchasedTotal       sql.NullInt32  // Total levels purchased (from bundles)
+	LevelsConsumed             sql.NullInt32  // Levels consumed (when rounds start)
+	BundleType                 sql.NullString // none, single, bundle2, bundle3, bundle4
+	RemainingCredits           sql.NullInt32  // Remaining class credits (after-class pipeline)
+	IsReturning                bool           // Flag for returning students (after-class pipeline)
+	HighPriorityFollowUp       bool           // Set by mentor_head on round close for students with no remaining credits
+	HighPriorityAbsence        bool           // Set automatically if 3+ absences
+	HighPriorityReason         sql.NullString // Reason for high priority
+	CreatedByUserID            sql.NullString
+	OfferSentAt                sql.NullTime
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
 }
 
 type PlacementTest struct {
@@ -70,6 +74,7 @@ type Offer struct {
 	DiscountValue sql.NullInt32
 	DiscountType  sql.NullString
 	FinalPrice    sql.NullInt32
+	FollowUpNotes sql.NullString
 	UpdatedAt     time.Time
 }
 

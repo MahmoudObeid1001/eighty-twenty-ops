@@ -1741,12 +1741,18 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT id, full_name, phone, source, notes, status, ops_queue_reason, mentor_head_return_reason, sent_to_classes,
+		SELECT l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason,
+		       l.landing_page_contacted_at, l.landing_page_contacted_by_user_id, l.landing_page_contacted_status,
+		       COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, ''),
+		       l.sent_to_classes,
 		       levels_purchased_total, levels_consumed, remaining_credits,
 		       is_returning, high_priority_follow_up, created_by_user_id, offer_sent_at, created_at, updated_at
-		FROM leads WHERE id = $1
+		FROM leads l
+		LEFT JOIN users u ON u.id::text = l.landing_page_contacted_by_user_id
+		WHERE l.id = $1
 	`, id).Scan(
 		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
+		&lead.LandingPageContactedAt, &lead.LandingPageContactedBy, &lead.LandingPageContactedStatus, &lead.LandingPageContactedByName,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
 		&lead.IsReturning, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 	)
@@ -1774,11 +1780,11 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get offer
 	offer := &Offer{}
 	err = db.DB.QueryRow(`
-		SELECT id, lead_id, bundle_levels, base_price, discount_value, discount_type, final_price, updated_at
+		SELECT id, lead_id, bundle_levels, base_price, discount_value, discount_type, final_price, follow_up_notes, updated_at
 		FROM offers WHERE lead_id = $1
 	`, id).Scan(
 		&offer.ID, &offer.LeadID, &offer.BundleLevels, &offer.BasePrice, &offer.DiscountValue,
-		&offer.DiscountType, &offer.FinalPrice, &offer.UpdatedAt,
+		&offer.DiscountType, &offer.FinalPrice, &offer.FollowUpNotes, &offer.UpdatedAt,
 	)
 	if err == nil {
 		detail.Offer = offer
@@ -1923,6 +1929,18 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 		    notes = $4,
 		    status = $5,
 		    sent_to_classes = $6,
+		    landing_page_contacted_at = CASE
+		        WHEN status <> $5 THEN NULL
+		        ELSE landing_page_contacted_at
+		    END,
+		    landing_page_contacted_by_user_id = CASE
+		        WHEN status <> $5 THEN NULL
+		        ELSE landing_page_contacted_by_user_id
+		    END,
+		    landing_page_contacted_status = CASE
+		        WHEN status <> $5 THEN NULL
+		        ELSE landing_page_contacted_status
+		    END,
 		    ops_queue_reason = CASE
 		        WHEN COALESCE(ops_queue_reason, '') IN ('private_track', 'refund_review') THEN ops_queue_reason
 		        WHEN $5 = 'waiting_for_round' THEN ops_queue_reason
@@ -1970,17 +1988,18 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 	// Upsert offer
 	if detail.Offer != nil {
 		_, err = tx.Exec(`
-			INSERT INTO offers (id, lead_id, bundle_levels, base_price, discount_value, discount_type, final_price, updated_at)
-			VALUES (COALESCE((SELECT id FROM offers WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO offers (id, lead_id, bundle_levels, base_price, discount_value, discount_type, final_price, follow_up_notes, updated_at)
+			VALUES (COALESCE((SELECT id FROM offers WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (lead_id) DO UPDATE SET
 				bundle_levels = EXCLUDED.bundle_levels,
 				base_price = EXCLUDED.base_price,
 				discount_value = EXCLUDED.discount_value,
 				discount_type = EXCLUDED.discount_type,
 				final_price = EXCLUDED.final_price,
+				follow_up_notes = EXCLUDED.follow_up_notes,
 				updated_at = EXCLUDED.updated_at
 		`, detail.Lead.ID, detail.Offer.BundleLevels, detail.Offer.BasePrice,
-			detail.Offer.DiscountValue, detail.Offer.DiscountType, detail.Offer.FinalPrice, now)
+			detail.Offer.DiscountValue, detail.Offer.DiscountType, detail.Offer.FinalPrice, detail.Offer.FollowUpNotes, now)
 		if err != nil {
 			return fmt.Errorf("failed to upsert offer: %w", err)
 		}
@@ -2095,13 +2114,16 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 		}
 
 		_, err = tx.Exec(`
-			UPDATE leads
-			SET status = $1,
-			    sent_to_classes = false,
-			    ops_queue_reason = NULL,
-			    offer_sent_at = CASE
-			        WHEN $1 = 'offer_sent' AND status <> 'offer_sent' THEN CURRENT_TIMESTAMP
-			        ELSE offer_sent_at
+				UPDATE leads
+				SET status = $1,
+				    sent_to_classes = false,
+				    ops_queue_reason = NULL,
+				    landing_page_contacted_at = NULL,
+				    landing_page_contacted_by_user_id = NULL,
+				    landing_page_contacted_status = NULL,
+				    offer_sent_at = CASE
+				        WHEN $1 = 'offer_sent' AND status <> 'offer_sent' THEN CURRENT_TIMESTAMP
+				        ELSE offer_sent_at
 			    END,
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE id = $2
@@ -2119,6 +2141,9 @@ func UpdateLeadStatus(leadID uuid.UUID, status string) error {
 		UPDATE leads
 		SET status = $1,
 		    ops_queue_reason = NULL,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
 		    offer_sent_at = CASE
 		        WHEN $1 = 'offer_sent' AND status <> 'offer_sent' THEN CURRENT_TIMESTAMP
 		        ELSE offer_sent_at
@@ -2260,6 +2285,9 @@ func MarkRenewalRefusedAndSetCold(leadID uuid.UUID, refusedByUserID *uuid.UUID, 
 		UPDATE leads
 		SET status = 'cold_lead',
 		    sent_to_classes = false,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
 		    updated_at = $2
 		WHERE id = $1
 	`, leadID, now)
@@ -2391,18 +2419,34 @@ func UpdatePlacementTest(pt *PlacementTest) error {
 func UpdateOffer(offer *Offer) error {
 	now := time.Now()
 	_, err := db.DB.Exec(`
-		INSERT INTO offers (id, lead_id, bundle_levels, base_price, discount_value, discount_type, final_price, updated_at)
-		VALUES (COALESCE((SELECT id FROM offers WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO offers (id, lead_id, bundle_levels, base_price, discount_value, discount_type, final_price, follow_up_notes, updated_at)
+		VALUES (COALESCE((SELECT id FROM offers WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (lead_id) DO UPDATE SET
 			bundle_levels = EXCLUDED.bundle_levels,
 			base_price = EXCLUDED.base_price,
 			discount_value = EXCLUDED.discount_value,
 			discount_type = EXCLUDED.discount_type,
 			final_price = EXCLUDED.final_price,
+			follow_up_notes = EXCLUDED.follow_up_notes,
 			updated_at = EXCLUDED.updated_at
 	`, offer.LeadID, offer.BundleLevels, offer.BasePrice,
-		offer.DiscountValue, offer.DiscountType, offer.FinalPrice, now)
+		offer.DiscountValue, offer.DiscountType, offer.FinalPrice, offer.FollowUpNotes, now)
 	return err
+}
+
+func MarkLandingPageLeadContacted(leadID uuid.UUID, contactedByUserID uuid.UUID) error {
+	_, err := db.DB.Exec(`
+		UPDATE leads
+		SET landing_page_contacted_at = CURRENT_TIMESTAMP,
+		    landing_page_contacted_by_user_id = $2,
+		    landing_page_contacted_status = status,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, leadID, contactedByUserID.String())
+	if err != nil {
+		return fmt.Errorf("failed to mark landing lead contacted: %w", err)
+	}
+	return nil
 }
 
 // UpsertBookingAndShipping updates booking and shipping independently from full lead save.
@@ -2494,7 +2538,15 @@ func BookPlacementTest(leadID uuid.UUID, placementTest *PlacementTest) error {
 	}
 
 	// Update lead status to test_booked
-	_, err = tx.Exec(`UPDATE leads SET status = $1, updated_at = $2 WHERE id = $3`, "test_booked", now, leadID)
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET status = $1,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
+		    updated_at = $2
+		WHERE id = $3
+	`, "test_booked", now, leadID)
 	if err != nil {
 		return fmt.Errorf("failed to update lead status: %w", err)
 	}
@@ -3420,13 +3472,16 @@ func ReturnStudentToMainFeed(leadID uuid.UUID) error {
 	}
 
 	_, err = tx.Exec(`
-		UPDATE leads
-		SET status = $1,
-		    sent_to_classes = false,
-		    ops_queue_reason = NULL,
-		    updated_at = $2
-		WHERE id = $3
-	`, currentStatus, now, leadID)
+			UPDATE leads
+			SET status = $1,
+			    sent_to_classes = false,
+			    ops_queue_reason = NULL,
+			    landing_page_contacted_at = NULL,
+			    landing_page_contacted_by_user_id = NULL,
+			    landing_page_contacted_status = NULL,
+			    updated_at = $2
+			WHERE id = $3
+		`, currentStatus, now, leadID)
 	if err != nil {
 		return fmt.Errorf("failed to return student to main feed: %w", err)
 	}
@@ -3830,7 +3885,15 @@ func UpdateLeadStatusFromPayment(leadID uuid.UUID) error {
 		return nil
 	}
 	if newStatus != currentStatus {
-		_, err = db.DB.Exec(`UPDATE leads SET status = $1, updated_at = $2 WHERE id = $3`, newStatus, time.Now(), leadID)
+		_, err = db.DB.Exec(`
+				UPDATE leads
+				SET status = $1,
+				    landing_page_contacted_at = NULL,
+				    landing_page_contacted_by_user_id = NULL,
+				    landing_page_contacted_status = NULL,
+				    updated_at = $2
+				WHERE id = $3
+			`, newStatus, time.Now(), leadID)
 		if err != nil {
 			return fmt.Errorf("failed to update lead status: %w", err)
 		}
@@ -4751,6 +4814,9 @@ func AddWaitingListBundleCredit(leadID uuid.UUID, addedLevels int32, amount int3
 		    high_priority_follow_up = false,
 		    high_priority = false,
 		    high_priority_reason = '',
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
 		    updated_at = $3
 		WHERE id = $4
 	`, newPurchased, newRemaining, now, leadID)
@@ -4926,7 +4992,12 @@ func CancelLead(leadID uuid.UUID) error {
 	now := time.Now()
 	_, err := db.DB.Exec(`
 		UPDATE leads 
-		SET status = 'cancelled', cancelled_at = $1, updated_at = $1
+		SET status = 'cancelled',
+		    cancelled_at = $1,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
+		    updated_at = $1
 		WHERE id = $2
 	`, now, leadID)
 	if err != nil {
@@ -4940,7 +5011,12 @@ func ReopenLead(leadID uuid.UUID) error {
 	// Set status to lead_created as default, admin can update later
 	_, err := db.DB.Exec(`
 		UPDATE leads 
-		SET status = 'lead_created', cancelled_at = NULL, updated_at = $1
+		SET status = 'lead_created',
+		    cancelled_at = NULL,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
+		    updated_at = $1
 		WHERE id = $2 AND status = 'cancelled'
 	`, time.Now(), leadID)
 	if err != nil {
@@ -10390,6 +10466,9 @@ func addLateJoiner(leadID uuid.UUID, classKey string, reason string, userID uuid
 		SET status = 'in_classes',
 		    sent_to_classes = true,
 		    mentor_head_return_reason = NULL,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
 		    updated_at = NOW()
 		WHERE id = $1
 	`, leadID)
@@ -10562,7 +10641,12 @@ func UndoLateJoiner(leadID uuid.UUID, userID uuid.UUID) error {
 	// 5. Update leads.status to 'ready_to_start' and reset sent_to_classes
 	_, err = tx.Exec(`
 		UPDATE leads
-		SET status = 'ready_to_start', sent_to_classes = false, updated_at = NOW()
+		SET status = 'ready_to_start',
+		    sent_to_classes = false,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
+		    updated_at = NOW()
 		WHERE id = $1
 	`, leadID)
 	if err != nil {
@@ -10903,6 +10987,9 @@ func TransferStudentBetweenActiveClasses(leadID uuid.UUID, sourceClassKey, targe
 		    sent_to_classes = true,
 		    ops_queue_reason = NULL,
 		    mentor_head_return_reason = NULL,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
 		    updated_at = $1
 		WHERE id = $2
 	`, now, leadID)
@@ -11448,6 +11535,9 @@ func StartClassRound(classKey string, startedByUserID uuid.UUID, startDate time.
 		UPDATE leads l
 		SET status = 'in_classes',
 		    mentor_head_return_reason = NULL,
+		    landing_page_contacted_at = NULL,
+		    landing_page_contacted_by_user_id = NULL,
+		    landing_page_contacted_status = NULL,
 		    updated_at = NOW()
 		FROM scheduling s
 		INNER JOIN placement_tests pt ON pt.lead_id = s.lead_id

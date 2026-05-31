@@ -36,12 +36,18 @@
         </button>
         {{end}}
         {{if .LeadWhatsAppURL}}
-        <a href="{{.LeadWhatsAppURL}}" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
+        <a href="{{.LeadWhatsAppOpenURL}}" target="admin-whatsapp-chat" data-whatsapp-window="admin-whatsapp-chat"
             class="btn"
             style="background: #25D366; color: white; border: 1px solid #25D366; padding: 12px 18px; font-weight: 700;"
             title="{{if gt .OfferFollowUpStep 0}}Open WhatsApp with Message {{.OfferFollowUpStep}}{{else}}Open WhatsApp{{end}}">
             WhatsApp Lead
         </a>
+        {{end}}
+        {{if .CanMarkLandingLeadContacted}}
+        <button type="submit" form="mark-landing-contacted-form" class="btn"
+            style="background: #0EA5E9; color: white; border: 1px solid #0EA5E9; padding: 12px 18px; font-weight: 700;">
+            تم التواصل
+        </button>
         {{end}}
         {{if and (or .IsAdmin (eq .UserRole "manager")) .HasUnifiedMessageBank}}
         <button type="button" class="btn"
@@ -144,6 +150,17 @@
     style="background: #FFF7ED; border: 2px solid #FDBA74; border-left: 6px solid #F97316; padding: 18px 20px; margin-bottom: 20px; border-radius: 4px; color: #9A3412;">
     <h3 style="margin-top: 0; margin-bottom: 8px; color: #C2410C;">Landing Page Lead</h3>
     <p style="margin: 0; font-weight: 700;">This lead came through the public landing page form and should follow the landing-page handling flow.</p>
+</div>
+{{end}}
+
+{{if .LandingLeadContactedActive}}
+<div
+    style="background: #EFF6FF; border: 2px solid #93C5FD; border-left: 6px solid #3B82F6; padding: 18px 20px; margin-bottom: 20px; border-radius: 4px; color: #1D4ED8;">
+    <h3 style="margin-top: 0; margin-bottom: 8px; color: #1D4ED8;">تم التواصل مع الحالة</h3>
+    <p style="margin: 0; font-weight: 700;">
+        {{if .LandingLeadContactedByName}}{{.LandingLeadContactedByName}}{{else}}A team member{{end}}
+        marked this landing lead as contacted in the current status{{if .LandingLeadContactedAt}} on {{.LandingLeadContactedAt}}{{end}}.
+    </p>
 </div>
 {{end}}
 
@@ -678,7 +695,7 @@
             <div class="form-group">
                 <label for="offer_notes">Offer Follow-up Notes</label>
                 <textarea id="offer_notes" name="offer_notes"
-                    placeholder="Example: Student asked for discount on all packages. Follow up again on Friday.">{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
+                    placeholder="Example: Student asked for discount on all packages. Follow up again on Friday.">{{if and .Detail.Offer .Detail.Offer.FollowUpNotes.Valid}}{{.Detail.Offer.FollowUpNotes.String}}{{end}}</textarea>
                 <small style="color: #666; display: block; margin-top: 5px;">Use this to track callbacks, objections,
                     and discount discussions before payment.</small>
             </div>
@@ -1688,6 +1705,9 @@
 <form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="release-continuation-hold-form" style="display: none;">
     <input type="hidden" name="action" value="release_continuation_hold">
 </form>
+<form method="POST" action="/pre-enrolment/{{.Detail.Lead.ID}}" id="mark-landing-contacted-form" style="display: none;">
+    <input type="hidden" name="action" value="mark_landing_contacted">
+</form>
 </div>
 
 <div id="contact-history-panel" class="pre-enrolment-tab-panel" style="display: none;">
@@ -1717,6 +1737,7 @@
                         {{else if eq .Source "sleeping_lead_sequence"}}Sleeping lead follow-up
                         {{else if eq .Source "renewal_pending_post_level"}}Renewal pending message
                         {{else if eq .Source "refused_renewal_sequence"}}Refused renewal follow-up
+                        {{else if eq .Source "landing_page_contacted"}}Landing lead marked contacted
                         {{else}}{{.Source}}{{end}}
                     </strong>
                     <span style="font-size: 12px; color: #6B7280;">{{.CreatedAt.Format "2006-01-02 03:04 PM"}}</span>
