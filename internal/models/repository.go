@@ -443,6 +443,21 @@ func ComputeLeadFlags(item *LeadListItem) {
 	}
 }
 
+func isLandingLeadItem(lead *Lead) bool {
+	if lead == nil {
+		return false
+	}
+	if lead.Source.Valid && strings.EqualFold(strings.TrimSpace(lead.Source.String), "Landing Page") {
+		return true
+	}
+	if !lead.Notes.Valid {
+		return false
+	}
+	notes := strings.ToLower(strings.TrimSpace(lead.Notes.String))
+	return strings.Contains(notes, "landing page signup") ||
+		strings.Contains(notes, "تم التواصل عن طريق السيستم")
+}
+
 func applyLeadSnoozeState(item *LeadListItem, now time.Time) {
 	if item == nil || item.Lead == nil || !item.SnoozedUntil.Valid {
 		return
@@ -746,6 +761,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 			SnoozeNote:              snoozeNote,
 			OfferReminderAt:         offerReminderAt,
 			OfferReminderNote:       offerReminderNote,
+			IsLandingLead:           isLandingLeadItem(lead),
 		}
 		if refusedRenewalReason != "" {
 			item.RenewalRefusalReason = sql.NullString{String: refusedRenewalReason, Valid: true}
@@ -975,6 +991,7 @@ func getSleepingLeads(extraCondition string, extraArgs ...interface{}) ([]*LeadL
 			SleepingReminderAt:   reminderAt,
 			SleepingReminderNote: reminderNote,
 			SleepingReminderDue:  reminderDue,
+			IsLandingLead:        isLandingLeadItem(lead),
 		}
 		applyLeadSnoozeState(item, now)
 
@@ -1153,6 +1170,7 @@ func GetSnoozedLeads(searchFilter string) ([]*LeadListItem, error) {
 			RemainingBalance: remainingBalance,
 			SnoozedUntil:     snoozedUntil,
 			SnoozeNote:       snoozeNote,
+			IsLandingLead:    isLandingLeadItem(lead),
 		}
 		items = append(items, item)
 	}

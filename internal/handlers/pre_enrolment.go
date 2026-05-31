@@ -1682,6 +1682,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"PricingTrack":   inferOfferPricingTrack(detail.Offer),
 		"IsPrivateTrack": detail.Lead.OpsQueueReason.Valid && detail.Lead.OpsQueueReason.String == "private_track",
 		"IsRefundReview": isRefundReviewLead(detail.Lead),
+		"IsLandingLead":  isLandingLead(detail.Lead),
 		"CanMarkOfferSent": func() bool {
 			ok, _ := canMarkOfferSent(detail)
 			return ok
@@ -1750,6 +1751,21 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	data["SmartStepsSource"] = stepSource
 
 	return data, nil
+}
+
+func isLandingLead(lead *models.Lead) bool {
+	if lead == nil {
+		return false
+	}
+	if lead.Source.Valid && strings.EqualFold(strings.TrimSpace(lead.Source.String), "Landing Page") {
+		return true
+	}
+	if !lead.Notes.Valid {
+		return false
+	}
+	notes := strings.ToLower(strings.TrimSpace(lead.Notes.String))
+	return strings.Contains(notes, "landing page signup") ||
+		strings.Contains(notes, "تم التواصل عن طريق السيستم")
 }
 
 // renderDetailWithError fetches the lead, builds detail page data with Error set, and renders.

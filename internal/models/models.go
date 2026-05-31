@@ -136,6 +136,7 @@ type LeadListItem struct {
 	RefusedRenewalAt           sql.NullTime   // latest refusal timestamp
 	RenewalRefusalReason       sql.NullString
 	RenewalRefusalNotes        sql.NullString
+	IsLandingLead              bool
 	RenewalPendingMessageKey   string
 	RenewalPendingMessageLabel string
 	RenewalPendingMessageText  string

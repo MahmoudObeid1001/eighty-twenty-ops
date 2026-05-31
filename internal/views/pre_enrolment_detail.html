@@ -22,6 +22,14 @@
             style="background-color: #0d6efd; color: white; padding: 8px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.4px;">
             PRIVATE TRACK
         </span>
+        {{end}}
+        {{if .IsLandingLead}}
+        <span
+            style="background: linear-gradient(135deg, #F97316, #EA580C); color: white; padding: 8px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; letter-spacing: 0.4px; box-shadow: 0 4px 12px rgba(234, 88, 12, 0.22);">
+            LANDING PAGE LEAD
+        </span>
+        {{end}}
+        {{if .IsPrivateTrack}}
         <button type="submit" form="pre-enrolment-form" name="action" value="return_to_admin_feed"
             class="btn btn-secondary">
             Return to Admin Feed
@@ -128,6 +136,14 @@
 <div
     style="background-color: #D4EDDA; border: 1px solid #C3E6CB; border-left: 4px solid #28a745; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #155724;">
     <strong>✓ Success:</strong> {{.SuccessMessage}}
+</div>
+{{end}}
+
+{{if .IsLandingLead}}
+<div
+    style="background: #FFF7ED; border: 2px solid #FDBA74; border-left: 6px solid #F97316; padding: 18px 20px; margin-bottom: 20px; border-radius: 4px; color: #9A3412;">
+    <h3 style="margin-top: 0; margin-bottom: 8px; color: #C2410C;">Landing Page Lead</h3>
+    <p style="margin: 0; font-weight: 700;">This lead came through the public landing page form and should follow the landing-page handling flow.</p>
 </div>
 {{end}}
 
