@@ -1416,6 +1416,65 @@ func GetLatestClassSchedule(leadID uuid.UUID) (sql.NullString, sql.NullString, e
 	return classDays, classTime, nil
 }
 
+func HasPrepaidContinuation(leadID uuid.UUID) (bool, error) {
+	var isReturning bool
+	err := db.DB.QueryRow(`SELECT COALESCE(is_returning, false) FROM leads WHERE id = $1`, leadID).Scan(&isReturning)
+	if err == sql.ErrNoRows {
+		return false, fmt.Errorf("lead not found")
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to load returning flag: %w", err)
+	}
+	if !isReturning {
+		return false, nil
+	}
+
+	var reserved bool
+	err = db.DB.QueryRow(`
+		SELECT COALESCE(next_level_consumed_on_close, false)
+		FROM class_enrollments
+		WHERE lead_id = $1
+		  AND completed_at IS NOT NULL
+		ORDER BY completed_at DESC, enrolled_at DESC
+		LIMIT 1
+	`, leadID).Scan(&reserved)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to load latest class enrollment: %w", err)
+	}
+	return reserved, nil
+}
+
+func countCompletedClassEnrollmentsTx(tx *sql.Tx, leadID uuid.UUID) (int32, error) {
+	var completed int32
+	err := tx.QueryRow(`
+		SELECT COUNT(*)::int
+		FROM class_enrollments
+		WHERE lead_id = $1
+		  AND completed_at IS NOT NULL
+	`, leadID).Scan(&completed)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count completed class enrollments: %w", err)
+	}
+	return completed, nil
+}
+
+func ensurePrepaidContinuationAllowed(leadID uuid.UUID, targetStatus string) error {
+	if targetStatus != "offer_sent" {
+		return nil
+	}
+	hasContinuation, err := HasPrepaidContinuation(leadID)
+	if err != nil {
+		return err
+	}
+	if hasContinuation {
+		return &PrepaidContinuationBlockedError{LeadID: leadID, TargetStatus: targetStatus}
+	}
+	return nil
+}
+
 func CountPresentedAttendanceForClass(leadID uuid.UUID, classKey string) (int, error) {
 	var attendedSessions int
 	err := db.DB.QueryRow(`
@@ -1915,6 +1974,10 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 		_ = tx.Rollback()
 	}()
 
+	if err := ensurePrepaidContinuationAllowed(detail.Lead.ID, detail.Lead.Status); err != nil {
+		return err
+	}
+
 	now := time.Now()
 
 	// Update lead
@@ -2092,6 +2155,10 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 }
 
 func UpdateLeadStatus(leadID uuid.UUID, status string) error {
+	if err := ensurePrepaidContinuationAllowed(leadID, status); err != nil {
+		return err
+	}
+
 	// Waiting list should return the lead to pre-enrolment feed.
 	if status == "waiting_for_round" {
 		tx, err := db.DB.Begin()
@@ -3880,6 +3947,9 @@ func UpdateLeadStatusFromPayment(leadID uuid.UUID) error {
 		newStatus = "offer_sent"
 	} else {
 		return nil
+	}
+	if err := ensurePrepaidContinuationAllowed(leadID, newStatus); err != nil {
+		return err
 	}
 	if newStatus != currentStatus {
 		_, err = db.DB.Exec(`
@@ -7969,6 +8039,19 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		newStatus = "waiting_for_round"
 	}
 
+	if newStatus == "renewal_pending" && purchased.Valid {
+		completedEnrollments, err := countCompletedClassEnrollmentsTx(tx, leadID)
+		if err != nil {
+			return fmt.Errorf("failed to run prepaid continuation cross-check: %w", err)
+		}
+		if purchased.Int32 > completedEnrollments {
+			return fmt.Errorf(
+				"close-round cross-check failed for lead %s: purchased=%d completed_enrollments=%d but status would be renewal_pending",
+				leadID, purchased.Int32, completedEnrollments,
+			)
+		}
+	}
+
 	highPriorityFollowUp := newStatus == "renewal_pending"
 
 	// 7. Set returning flag and remaining credits snapshot
@@ -11372,6 +11455,33 @@ func ReturnStudentToAdminAsEarlyRepeat(leadID uuid.UUID, sourceClassKey, notes s
 	}
 
 	_, err = tx.Exec(`
+		INSERT INTO class_enrollments (
+			lead_id, class_key, level, class_days, class_time, mentor_name,
+			final_grade, outcome, enrolled_at, completed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'repeated', $7, $8)
+		ON CONFLICT (lead_id, class_key) DO UPDATE SET
+			final_grade = EXCLUDED.final_grade,
+			outcome = EXCLUDED.outcome,
+			completed_at = EXCLUDED.completed_at
+	`, leadID, sourceClassKey, currentLevel.Int32, classDays, classTime, mentorName, sourceMembership.CreatedAt, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to snapshot early repeat enrollment: %w", err)
+	}
+
+	if newStatus == "renewal_pending" && purchased.Valid {
+		completedEnrollments, err := countCompletedClassEnrollmentsTx(tx, leadID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to run early-repeat prepaid continuation cross-check: %w", err)
+		}
+		if purchased.Int32 > completedEnrollments {
+			return nil, fmt.Errorf(
+				"early-repeat cross-check failed for lead %s: purchased=%d completed_enrollments=%d but status would be renewal_pending",
+				leadID, purchased.Int32, completedEnrollments,
+			)
+		}
+	}
+
+	_, err = tx.Exec(`
 		UPDATE leads
 		SET remaining_credits = $1,
 		    status = $2,
@@ -11396,20 +11506,6 @@ func ReturnStudentToAdminAsEarlyRepeat(leadID uuid.UUID, sourceClassKey, notes s
 	_, err = tx.Exec(`DELETE FROM offers WHERE lead_id = $1`, leadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to clear offer snapshot for early repeat: %w", err)
-	}
-
-	_, err = tx.Exec(`
-		INSERT INTO class_enrollments (
-			lead_id, class_key, level, class_days, class_time, mentor_name,
-			final_grade, outcome, enrolled_at, completed_at
-		) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'repeated', $7, $8)
-		ON CONFLICT (lead_id, class_key) DO UPDATE SET
-			final_grade = EXCLUDED.final_grade,
-			outcome = EXCLUDED.outcome,
-			completed_at = EXCLUDED.completed_at
-	`, leadID, sourceClassKey, currentLevel.Int32, classDays, classTime, mentorName, sourceMembership.CreatedAt, now)
-	if err != nil {
-		return nil, fmt.Errorf("failed to snapshot early repeat enrollment: %w", err)
 	}
 
 	_, err = tx.Exec(`

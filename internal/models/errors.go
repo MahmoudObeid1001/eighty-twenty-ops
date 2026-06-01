@@ -31,6 +31,21 @@ func (e *PhoneAlreadyExistsError) Error() string {
 	return fmt.Sprintf("Phone number %s already exists", e.Phone)
 }
 
+// PrepaidContinuationBlockedError is returned when code attempts to move a
+// returning student with a prepaid reserved continuation back into a renewal
+// or offer-selling state.
+type PrepaidContinuationBlockedError struct {
+	LeadID       uuid.UUID
+	TargetStatus string
+}
+
+func (e *PrepaidContinuationBlockedError) Error() string {
+	return fmt.Sprintf(
+		"cannot move lead %s to %s: student has prepaid continuation and should remain in waiting_for_round",
+		e.LeadID, e.TargetStatus,
+	)
+}
+
 // IsPhoneConstraintError checks if an error is a PostgreSQL unique constraint violation on phone
 // Returns the error wrapped as PhoneAlreadyExistsError if it matches, or nil otherwise
 func IsPhoneConstraintError(err error) *PhoneAlreadyExistsError {

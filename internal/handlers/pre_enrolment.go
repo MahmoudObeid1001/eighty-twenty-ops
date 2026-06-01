@@ -1825,6 +1825,11 @@ func (h *PreEnrolmentHandler) renderDetailWithErrorAndPaymentContext(
 	renderTemplate(w, r, "pre_enrolment_detail.html", data)
 }
 
+func (h *PreEnrolmentHandler) renderPrepaidContinuationBlocked(w http.ResponseWriter, r *http.Request, leadID uuid.UUID) {
+	h.renderDetailWithError(w, r, leadID,
+		"This student has prepaid continuation. Their next level was already reserved by the system, so they should stay in Waiting for Round instead of receiving a renewal offer.")
+}
+
 func normalizeClassTime(raw string) string {
 	// Expected formats: "HH:MM" or "HH:MM:SS"
 	if len(raw) >= 5 {
@@ -2487,6 +2492,11 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		err = models.UpdateLeadStatus(leadID, "offer_sent")
 		if err != nil {
+			var prepaidErr *models.PrepaidContinuationBlockedError
+			if errors.As(err, &prepaidErr) {
+				h.renderPrepaidContinuationBlocked(w, r, leadID)
+				return
+			}
 			log.Printf("ERROR: Failed to update status: %v", err)
 			http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 			return
@@ -4687,10 +4697,20 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		detail.Lead.Status = currentStatus
 		h.cfg.Debugf("  🧊 Cold lead: preserving status, skipping auto-stage, leadID=%s", leadID)
 	} else if currentStatus == "renewal_pending" && offerWasExplicitlyChanged {
-		// Allow renewal_pending → offer_sent when offer is saved
-		newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
-		detail.Lead.Status = dbStatus
-		h.cfg.Debugf("  ♻️ Renewal offer changed: computed stage=%s, dbStatus=%s (was %s)", newStage, dbStatus, currentStatus)
+		hasContinuation, err := models.HasPrepaidContinuation(leadID)
+		if err != nil {
+			http.Error(w, "Couldn't verify prepaid continuation. Please try again.", http.StatusInternalServerError)
+			return
+		}
+		if hasContinuation {
+			detail.Lead.Status = currentStatus
+			h.cfg.Debugf("  ♻️ Renewal offer changed but prepaid continuation exists: preserving status=%s, leadID=%s", currentStatus, leadID)
+		} else {
+			// Allow renewal_pending → offer_sent when offer is saved
+			newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
+			detail.Lead.Status = dbStatus
+			h.cfg.Debugf("  ♻️ Renewal offer changed: computed stage=%s, dbStatus=%s (was %s)", newStage, dbStatus, currentStatus)
+		}
 	} else if currentStatus == "in_classes" {
 		detail.Lead.Status = currentStatus
 		h.cfg.Debugf("  🎯 In-classes lead: preserving status, skipping auto-stage, leadID=%s", leadID)
@@ -4726,6 +4746,12 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 
 	err = models.UpdateLeadDetail(detail)
 	if err != nil {
+		var prepaidErr *models.PrepaidContinuationBlockedError
+		if errors.As(err, &prepaidErr) {
+			h.renderPrepaidContinuationBlocked(w, r, leadID)
+			return
+		}
+
 		// Check if it's a phone constraint error
 		var phoneErr *models.PhoneAlreadyExistsError
 		if errors.As(err, &phoneErr) {
@@ -5233,6 +5259,11 @@ func (h *PreEnrolmentHandler) MarkOfferSent(w http.ResponseWriter, r *http.Reque
 	// Update status
 	err = models.UpdateLeadStatus(leadID, "offer_sent")
 	if err != nil {
+		var prepaidErr *models.PrepaidContinuationBlockedError
+		if errors.As(err, &prepaidErr) {
+			h.renderPrepaidContinuationBlocked(w, r, leadID)
+			return
+		}
 		http.Error(w, "Couldn't update the status. Please try again.", http.StatusInternalServerError)
 		return
 	}
