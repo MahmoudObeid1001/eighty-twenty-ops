@@ -484,7 +484,9 @@ func GetPaymentStatus(remainingBalance, amountPaid sql.NullInt32) string {
 func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool, followUpFilter string, returningFilter string, coldFilter string, repeatFilter string, opsQueueReasonFilter string) ([]*LeadListItem, error) {
 	query := `
 		SELECT 
-			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason, l.sent_to_classes,
+			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason,
+			l.new_lead_contacted_at, l.new_lead_contacted_by_user_id, l.new_lead_contacted_status,
+			l.sent_to_classes,
 			COALESCE(l.is_returning, false),
 			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) AS remaining_credits_calc,
 			l.created_by_user_id, l.offer_sent_at, l.created_at, l.updated_at,
@@ -697,7 +699,9 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var lastRefusedMessageSentAt sql.NullTime
 
 		err := rows.Scan(
-			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason, &lead.SentToClasses,
+			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
+			&lead.NewLeadContactedAt, &lead.NewLeadContactedBy, &lead.NewLeadContactedStatus,
+			&lead.SentToClasses,
 			&lead.IsReturning, &lead.RemainingCredits,
 			&lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
 			&assignedLevel, &testDate,
@@ -1307,12 +1311,25 @@ func GetLatestOfferSentFollowUp(leadID uuid.UUID) (int, sql.NullTime, error) {
 }
 
 func RecordOfferSentFollowUp(leadID uuid.UUID, messageNumber int, sentByUserID uuid.UUID) error {
-	_, err := db.DB.Exec(`
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin offer follow-up record: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`
 		INSERT INTO offer_sent_follow_ups (lead_id, message_number, sent_by_user_id, sent_at)
 		VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-	`, leadID, messageNumber, sentByUserID)
-	if err != nil {
+	`, leadID, messageNumber, sentByUserID); err != nil {
 		return fmt.Errorf("failed to record offer follow-up: %w", err)
+	}
+
+	if err := markNonLandingLeadContactedTx(tx, leadID, sentByUserID); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit offer follow-up record: %w", err)
 	}
 	return nil
 }
@@ -1807,6 +1824,7 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
 		SELECT id, full_name, phone, source, notes, status, ops_queue_reason, mentor_head_return_reason,
+		       new_lead_contacted_at, new_lead_contacted_by_user_id, new_lead_contacted_status,
 		       landing_page_contacted_at, landing_page_contacted_by_user_id, landing_page_contacted_status,
 		       sent_to_classes, levels_purchased_total, levels_consumed, remaining_credits,
 		       is_returning, high_priority_follow_up, created_by_user_id, offer_sent_at, created_at, updated_at
@@ -1814,6 +1832,7 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 		WHERE id = $1
 	`, id).Scan(
 		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
+		&lead.NewLeadContactedAt, &lead.NewLeadContactedBy, &lead.NewLeadContactedStatus,
 		&lead.LandingPageContactedAt, &lead.LandingPageContactedBy, &lead.LandingPageContactedStatus,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
 		&lead.IsReturning, &lead.HighPriorityFollowUp, &lead.CreatedByUserID, &lead.OfferSentAt, &lead.CreatedAt, &lead.UpdatedAt,
@@ -2519,6 +2538,52 @@ func MarkLandingPageLeadContacted(leadID uuid.UUID, contactedByUserID uuid.UUID)
 	`, leadID, contactedByUserID.String())
 	if err != nil {
 		return fmt.Errorf("failed to mark landing lead contacted: %w", err)
+	}
+	return nil
+}
+
+func MarkNewLeadContacted(leadID uuid.UUID, contactedByUserID uuid.UUID) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin new lead contact update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := markNonLandingLeadContactedTx(tx, leadID, contactedByUserID); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit new lead contact update: %w", err)
+	}
+	return nil
+}
+
+func markNonLandingLeadContactedTx(tx *sql.Tx, leadID uuid.UUID, contactedByUserID uuid.UUID) error {
+	var source sql.NullString
+	var notes sql.NullString
+	err := tx.QueryRow(`
+		SELECT source, notes
+		FROM leads
+		WHERE id = $1
+	`, leadID).Scan(&source, &notes)
+	if err != nil {
+		return fmt.Errorf("failed to load lead before marking contacted: %w", err)
+	}
+
+	if isLandingLeadItem(&Lead{Source: source, Notes: notes}) {
+		return nil
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE leads
+		SET new_lead_contacted_at = CURRENT_TIMESTAMP,
+		    new_lead_contacted_by_user_id = $2,
+		    new_lead_contacted_status = status,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, leadID, contactedByUserID.String()); err != nil {
+		return fmt.Errorf("failed to mark non-landing lead contacted: %w", err)
 	}
 	return nil
 }
@@ -5100,6 +5165,9 @@ func ReopenLead(leadID uuid.UUID) error {
 		UPDATE leads 
 		SET status = 'lead_created',
 		    cancelled_at = NULL,
+		    new_lead_contacted_at = NULL,
+		    new_lead_contacted_by_user_id = NULL,
+		    new_lead_contacted_status = NULL,
 		    landing_page_contacted_at = NULL,
 		    landing_page_contacted_by_user_id = NULL,
 		    landing_page_contacted_status = NULL,

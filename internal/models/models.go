@@ -29,6 +29,10 @@ type Lead struct {
 	Status                     string
 	OpsQueueReason             sql.NullString
 	MentorHeadReturnReason     sql.NullString
+	NewLeadContactedAt         sql.NullTime
+	NewLeadContactedBy         sql.NullString
+	NewLeadContactedStatus     sql.NullString
+	NewLeadContactedByName     string
 	LandingPageContactedAt     sql.NullTime
 	LandingPageContactedBy     sql.NullString
 	LandingPageContactedStatus sql.NullString
