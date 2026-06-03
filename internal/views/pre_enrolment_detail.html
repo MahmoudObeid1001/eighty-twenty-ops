@@ -414,7 +414,8 @@
 
             <div class="form-group">
                 <label for="notes">Notes</label>
-                <textarea id="notes" name="notes"
+                <textarea id="notes" name="notes" dir="auto"
+                    style="direction: rtl; text-align: right; unicode-bidi: plaintext;"
                     placeholder="Internal notes about this lead...">{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
             </div>
         </div>

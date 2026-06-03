@@ -1865,6 +1865,36 @@ func canMarkNewLeadContacted(lead *models.Lead, userRole string) bool {
 	return true
 }
 
+func buildNewLeadContactArabicNote(lead *models.Lead, admin *models.User) string {
+	adminName := "أحد الأدمن"
+	if admin != nil {
+		if admin.FullName.Valid && strings.TrimSpace(admin.FullName.String) != "" {
+			adminName = strings.TrimSpace(admin.FullName.String)
+		} else if strings.TrimSpace(admin.Email) != "" {
+			adminName = strings.TrimSpace(admin.Email)
+		}
+	}
+	adminName = "\u2068" + adminName + "\u2069"
+
+	stateText := "وتابع مع العميل."
+	if lead != nil {
+		switch lead.Status {
+		case "lead_created", "test_booked":
+			stateText = "وارسل رسالة لتحديد ميعاد تحديد المستوي."
+		case "tested":
+			stateText = "وتابع مع العميل بعد تحديد المستوي."
+		case "offer_sent":
+			stateText = "وارسل رسالة متابعة بعد إرسال الأوفر."
+		case "cold_lead":
+			stateText = "وتابع مع العميل لإعادة تنشيط الطلب."
+		default:
+			stateText = fmt.Sprintf("وتابع مع العميل خلال مرحلة %s.", lead.Status)
+		}
+	}
+
+	return fmt.Sprintf("قام %s بالتواصل مع العميل %s", adminName, stateText)
+}
+
 // renderDetailWithError fetches the lead, builds detail page data with Error set, and renders.
 // Uses buildDetailViewModel so template context matches Detail() (status, banners, modal flags, etc.).
 func (h *PreEnrolmentHandler) renderDetailWithError(w http.ResponseWriter, r *http.Request, leadID uuid.UUID, errMsg string) {
@@ -2474,7 +2504,15 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), http.StatusFound)
 			return
 		}
-		if err := models.MarkNewLeadContacted(leadID, userID); err != nil {
+
+		currentUser, err := models.GetUserByID(userID.String())
+		if err != nil {
+			log.Printf("ERROR: Failed to load current user while marking lead contacted: %v", err)
+			http.Error(w, "Couldn't load the current user. Please try again.", http.StatusInternalServerError)
+			return
+		}
+
+		if err := models.MarkNewLeadContactedWithLeadNote(leadID, userID, buildNewLeadContactArabicNote(detail.Lead, currentUser)); err != nil {
 			log.Printf("ERROR: Failed to mark new lead contacted: %v", err)
 			http.Error(w, "Couldn't update the new lead contact status. Please try again.", http.StatusInternalServerError)
 			return

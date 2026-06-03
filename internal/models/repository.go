@@ -2559,6 +2559,26 @@ func MarkNewLeadContacted(leadID uuid.UUID, contactedByUserID uuid.UUID) error {
 	return nil
 }
 
+func MarkNewLeadContactedWithLeadNote(leadID uuid.UUID, contactedByUserID uuid.UUID, noteText string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin new lead contact note update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := markNonLandingLeadContactedTx(tx, leadID, contactedByUserID); err != nil {
+		return err
+	}
+	if err := appendLeadInfoNoteTx(tx, leadID, noteText); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit new lead contact note update: %w", err)
+	}
+	return nil
+}
+
 func markNonLandingLeadContactedTx(tx *sql.Tx, leadID uuid.UUID, contactedByUserID uuid.UUID) error {
 	var source sql.NullString
 	var notes sql.NullString
@@ -2584,6 +2604,26 @@ func markNonLandingLeadContactedTx(tx *sql.Tx, leadID uuid.UUID, contactedByUser
 		WHERE id = $1
 	`, leadID, contactedByUserID.String()); err != nil {
 		return fmt.Errorf("failed to mark non-landing lead contacted: %w", err)
+	}
+	return nil
+}
+
+func appendLeadInfoNoteTx(tx *sql.Tx, leadID uuid.UUID, noteText string) error {
+	cleanNote := strings.TrimSpace(noteText)
+	if cleanNote == "" {
+		return nil
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE leads
+		SET notes = CASE
+			WHEN COALESCE(TRIM(notes), '') = '' THEN $2
+			ELSE notes || E'\n' || $2
+		END,
+		updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, leadID, cleanNote); err != nil {
+		return fmt.Errorf("failed to append lead info note: %w", err)
 	}
 	return nil
 }
