@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, type StudentSuccessClass, type PlacementTestQueueItem } from '../api/client'
+import { api, type StudentSuccessClass, type PlacementTestQueueItem, type StudentSuccessAvailabilityWindow } from '../api/client'
 import { buildWhatsAppLink, openWhatsAppLink } from '../utils/whatsapp'
 
 interface Group {
@@ -10,16 +10,129 @@ interface Group {
   classes: StudentSuccessClass[]
 }
 
+interface SSAvailabilityWindowDraft {
+  local_id: string
+  start_time: string
+  end_time: string
+  note: string
+}
+
+function dateKey(date: Date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function monthKey(dateStr: string) {
+  return dateStr.slice(0, 7)
+}
+
+function todayKey() {
+  return dateKey(new Date())
+}
+
+function addDays(dateStr: string, days: number) {
+  const date = new Date(`${dateStr}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return dateKey(date)
+}
+
+function weekDates(startDate: string) {
+  return Array.from({ length: 7 }, (_, index) => addDays(startDate, index))
+}
+
+function defaultAvailabilityWindow(): SSAvailabilityWindowDraft {
+  return {
+    local_id: Math.random().toString(36).slice(2),
+    start_time: '14:00',
+    end_time: '14:30',
+    note: '',
+  }
+}
+
+function minutesFromClock(value: string) {
+  const [hours, minutes] = value.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+function clockFromMinutes(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+}
+
+function nextAvailabilityWindow(existing: SSAvailabilityWindowDraft[]) {
+  if (existing.length === 0) {
+    return defaultAvailabilityWindow()
+  }
+
+  const sorted = [...existing].sort((a, b) => minutesFromClock(a.start_time) - minutesFromClock(b.start_time))
+  const last = sorted[sorted.length - 1]
+  const lastEnd = minutesFromClock(last.end_time)
+  const nextStart = Math.max(14 * 60, lastEnd)
+  const nextEnd = nextStart + 30
+
+  if (nextEnd <= 23 * 60) {
+    return {
+      local_id: Math.random().toString(36).slice(2),
+      start_time: clockFromMinutes(nextStart),
+      end_time: clockFromMinutes(nextEnd),
+      note: '',
+    }
+  }
+
+  return {
+    local_id: Math.random().toString(36).slice(2),
+    start_time: '22:30',
+    end_time: '23:00',
+    note: '',
+  }
+}
+
+function validateAvailabilityDrafts(days: Record<string, SSAvailabilityWindowDraft[]>) {
+  for (const [date, windows] of Object.entries(days)) {
+    const sorted = [...windows].sort((a, b) => minutesFromClock(a.start_time) - minutesFromClock(b.start_time))
+    for (let i = 0; i < sorted.length; i++) {
+      const current = sorted[i]
+      if (!current.start_time || !current.end_time) {
+        return `Every slot on ${date} needs both start and end time.`
+      }
+      if (minutesFromClock(current.start_time) >= minutesFromClock(current.end_time)) {
+        return `On ${date}, each slot must end after it starts.`
+      }
+      if (i > 0) {
+        const previous = sorted[i - 1]
+        if (minutesFromClock(current.start_time) < minutesFromClock(previous.end_time)) {
+          return `On ${date}, slot windows cannot overlap or repeat.`
+        }
+      }
+    }
+  }
+  return null
+}
+
+function normalizeWeekStart(dateStr: string) {
+  const date = new Date(`${dateStr}T00:00:00Z`)
+  const offset = (date.getUTCDay() + 6) % 7
+  date.setUTCDate(date.getUTCDate() - offset)
+  return dateKey(date)
+}
+
 export default function StudentSuccessDashboard() {
   const [classes, setClasses] = useState<StudentSuccessClass[]>([])
   const [placementTests, setPlacementTests] = useState<PlacementTestQueueItem[]>([])
   const [loading, setLoading] = useState(true)
   const [placementLoading, setPlacementLoading] = useState(false)
+  const [availabilityLoading, setAvailabilityLoading] = useState(false)
+  const [availabilitySaving, setAvailabilitySaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [placementError, setPlacementError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'classes' | 'placement_tests'>('classes')
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
+  const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'classes' | 'placement_tests' | 'availability'>('classes')
   const [showCompletedTests, setShowCompletedTests] = useState(false)
   const [pendingPlacementCount, setPendingPlacementCount] = useState(0)
+  const [availabilityWeekStart, setAvailabilityWeekStart] = useState(normalizeWeekStart(todayKey()))
+  const [availabilityWindows, setAvailabilityWindows] = useState<StudentSuccessAvailabilityWindow[]>([])
+  const [availabilityDays, setAvailabilityDays] = useState<Record<string, SSAvailabilityWindowDraft[]>>({})
   const [resultModal, setResultModal] = useState<{
     open: boolean
     item: PlacementTestQueueItem | null
@@ -78,6 +191,99 @@ export default function StudentSuccessDashboard() {
     }
   }
 
+  async function loadAvailability() {
+    try {
+      setAvailabilityLoading(true)
+      setAvailabilityError(null)
+      setAvailabilityMessage(null)
+      const dates = weekDates(availabilityWeekStart)
+      const months = Array.from(new Set(dates.map(monthKey)))
+      const responses = await Promise.all(months.map((month) => api.getStudentSuccessAvailability(month)))
+      const windows = responses.flatMap((response) => response.windows || [])
+      setAvailabilityWindows(windows)
+      const nextDays: Record<string, SSAvailabilityWindowDraft[]> = {}
+      for (const date of dates) {
+        const matching = windows
+          .filter((window) => window.available_date.slice(0, 10) === date)
+          .map((window) => ({
+            local_id: window.id || Math.random().toString(36).slice(2),
+            start_time: window.start_time.slice(0, 5),
+            end_time: window.end_time.slice(0, 5),
+            note: window.note || '',
+          }))
+        nextDays[date] = matching
+      }
+      setAvailabilityDays(nextDays)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load availability'
+      setAvailabilityError(message === 'Not Found' ? 'Availability endpoint was not found. Restart the backend after deploying this change.' : message)
+    } finally {
+      setAvailabilityLoading(false)
+    }
+  }
+
+  async function saveAvailability() {
+    try {
+      setAvailabilitySaving(true)
+      setAvailabilityError(null)
+      setAvailabilityMessage(null)
+      const validationError = validateAvailabilityDrafts(availabilityDays)
+      if (validationError) {
+        setAvailabilityError(validationError)
+        setAvailabilitySaving(false)
+        return
+      }
+      const dates = weekDates(availabilityWeekStart)
+      const dateSet = new Set(dates)
+      const months = Array.from(new Set(dates.map(monthKey)))
+      await Promise.all(months.map((month) => {
+        const preserved = availabilityWindows.filter((window) => {
+          const date = window.available_date.slice(0, 10)
+          return date.startsWith(month) && !dateSet.has(date) && date >= todayKey()
+        })
+        const edited = dates
+          .filter((date) => date.startsWith(month) && date >= todayKey())
+          .flatMap((date) => (availabilityDays[date] || []).map((window) => ({
+            available_date: date,
+            start_time: window.start_time,
+            end_time: window.end_time,
+            note: window.note,
+          })))
+        return api.updateStudentSuccessAvailability(month, [...preserved, ...edited])
+      }))
+      setAvailabilityMessage('Availability saved.')
+      await loadAvailability()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save availability'
+      setAvailabilityError(message === 'Not Found' ? 'Availability endpoint was not found. Restart the backend after deploying this change.' : message)
+    } finally {
+      setAvailabilitySaving(false)
+    }
+  }
+
+  function addAvailabilityWindow(date: string) {
+    setAvailabilityDays((prev) => ({
+      ...prev,
+      [date]: [...(prev[date] || []), nextAvailabilityWindow(prev[date] || [])],
+    }))
+  }
+
+  function updateAvailabilityWindow(date: string, localID: string, patch: Partial<SSAvailabilityWindowDraft>) {
+    setAvailabilityDays((prev) => ({
+      ...prev,
+      [date]: (prev[date] || []).map((window) => (
+        window.local_id === localID ? { ...window, ...patch } : window
+      )),
+    }))
+  }
+
+  function removeAvailabilityWindow(date: string, localID: string) {
+    setAvailabilityDays((prev) => ({
+      ...prev,
+      [date]: (prev[date] || []).filter((window) => window.local_id !== localID),
+    }))
+  }
+
   useEffect(() => {
     loadPlacementTestsCount()
   }, [])
@@ -87,6 +293,12 @@ export default function StudentSuccessDashboard() {
       loadPlacementTests()
     }
   }, [activeTab, showCompletedTests])
+
+  useEffect(() => {
+    if (activeTab === 'availability') {
+      loadAvailability()
+    }
+  }, [activeTab, availabilityWeekStart])
 
   function groupByMentor(list: StudentSuccessClass[]): Group[] {
     const mentorMap = new Map<string, Group>()
@@ -137,6 +349,7 @@ export default function StudentSuccessDashboard() {
   const midRoundClasses = classes.filter((c) => c.mid_round_required)
   const endRoundClasses = classes.filter((c) => c.end_round_required)
   const complianceDueClasses = classes.filter((c) => c.compliance_required)
+  const currentWeekDates = weekDates(availabilityWeekStart)
 
   return (
     <div>
@@ -224,7 +437,9 @@ export default function StudentSuccessDashboard() {
         <p className="ss-dashboard-description" style={{ margin: 0, color: '#666' }}>
           {activeTab === 'classes'
             ? 'Active classes only (round started). Grouped by mentor.'
-            : 'Leads with placement tests scheduled by Ops. Record level and notes after the test.'}
+            : activeTab === 'placement_tests'
+            ? 'Your assigned placement tests. Record level and notes after the test.'
+            : 'Set the weekly time windows when admins can assign you placement tests.'}
         </p>
         <div className="ss-dashboard-tabs" style={{ display: 'flex', gap: '8px' }}>
           <button
@@ -256,6 +471,21 @@ export default function StudentSuccessDashboard() {
             }}
           >
             Placement Tests
+          </button>
+          <button
+            onClick={() => setActiveTab('availability')}
+            className="ss-dashboard-tab-button"
+            style={{
+              padding: '8px 14px',
+              borderRadius: '6px',
+              border: activeTab === 'availability' ? '1px solid #007bff' : '1px solid #ddd',
+              background: activeTab === 'availability' ? '#e7f1ff' : '#fff',
+              color: activeTab === 'availability' ? '#007bff' : '#333',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            Availability
           </button>
         </div>
       </div>
@@ -579,6 +809,187 @@ export default function StudentSuccessDashboard() {
               </>
             )}
           </>
+        )}
+
+        {activeTab === 'availability' && (
+          <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: '10px', padding: '18px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '18px' }}>Placement Test Availability</h2>
+                <p style={{ margin: '6px 0 0', color: '#666', fontSize: '13px' }}>
+                  Placement tests are 30 minutes. Availability must stay between 14:00 and 23:00.
+                </p>
+              </div>
+              <label style={{ display: 'grid', gap: '4px', fontSize: '13px', fontWeight: 700 }}>
+                Week starts
+                <input
+                  type="date"
+                  value={availabilityWeekStart}
+                  min={normalizeWeekStart(todayKey())}
+                  onChange={(event) => setAvailabilityWeekStart(normalizeWeekStart(event.target.value || todayKey()))}
+                  style={{ padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px' }}
+                />
+              </label>
+            </div>
+
+            {availabilityError && (
+              <div style={{ padding: '12px 16px', background: '#f8d7da', color: '#721c24', borderRadius: '8px', marginBottom: '12px' }}>
+                {availabilityError}
+              </div>
+            )}
+            {availabilityMessage && (
+              <div style={{ padding: '12px 16px', background: '#d4edda', color: '#155724', borderRadius: '8px', marginBottom: '12px' }}>
+                {availabilityMessage}
+              </div>
+            )}
+
+            {availabilityLoading ? (
+              <div style={{ padding: '24px', textAlign: 'center' }}>Loading availability...</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {currentWeekDates.map((date) => {
+                  const windows = availabilityDays[date] || []
+                  const isPastDate = date < todayKey()
+                  const label = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                    timeZone: 'UTC',
+                  })
+                  return (
+                    <div
+                      key={date}
+                      style={{
+                        display: 'grid',
+                        gap: '12px',
+                        padding: '12px',
+                        border: '1px solid #edf0f2',
+                        borderRadius: '8px',
+                        background: windows.length > 0 ? '#f7fcff' : '#fafafa',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div>
+                          <div style={{ fontWeight: 700 }}>{label}</div>
+                          <div style={{ color: '#666', fontSize: '13px', marginTop: '4px' }}>
+                            {windows.length > 0 ? `${windows.length} slot window${windows.length === 1 ? '' : 's'} assigned.` : 'No assigned slots for this day.'}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => addAvailabilityWindow(date)}
+                          disabled={isPastDate}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            border: `1px solid ${isPastDate ? '#c9d2d8' : '#0b7285'}`,
+                            background: '#fff',
+                            color: isPastDate ? '#8a98a5' : '#0b7285',
+                            cursor: isPastDate ? 'not-allowed' : 'pointer',
+                            fontWeight: 700,
+                            opacity: isPastDate ? 0.7 : 1,
+                          }}
+                        >
+                          Add Slot
+                        </button>
+                      </div>
+
+                      {windows.length === 0 ? (
+                        <div style={{ padding: '10px 12px', borderRadius: '6px', background: '#fff', color: '#666', fontSize: '13px', border: '1px dashed #d7dee3' }}>
+                          {isPastDate
+                            ? 'Past day. Availability can no longer be edited here.'
+                            : 'Admins will see this day as unavailable until you add at least one slot window.'}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'grid', gap: '10px' }}>
+                          {windows.map((window, index) => (
+                            <div
+                              key={window.local_id}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(70px, auto) 120px 120px minmax(180px, 1fr) auto',
+                                gap: '10px',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <div style={{ fontSize: '13px', fontWeight: 700, color: '#345' }}>
+                                Slot {index + 1}
+                              </div>
+                              <input
+                                type="time"
+                                min="14:00"
+                                max="22:30"
+                                step="1800"
+                                value={window.start_time}
+                                disabled={isPastDate}
+                                onChange={(event) => updateAvailabilityWindow(date, window.local_id, { start_time: event.target.value })}
+                                style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}
+                              />
+                              <input
+                                type="time"
+                                min="14:30"
+                                max="23:00"
+                                step="1800"
+                                value={window.end_time}
+                                disabled={isPastDate}
+                                onChange={(event) => updateAvailabilityWindow(date, window.local_id, { end_time: event.target.value })}
+                                style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}
+                              />
+                              <input
+                                type="text"
+                                value={window.note}
+                                disabled={isPastDate}
+                                onChange={(event) => updateAvailabilityWindow(date, window.local_id, { note: event.target.value })}
+                                placeholder="Optional note"
+                                style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeAvailabilityWindow(date, window.local_id)}
+                                disabled={isPastDate}
+                                style={{
+                                  padding: '8px 10px',
+                                  borderRadius: '6px',
+                                  border: `1px solid ${isPastDate ? '#c9d2d8' : '#dc3545'}`,
+                                  background: '#fff',
+                                  color: isPastDate ? '#8a98a5' : '#dc3545',
+                                  cursor: isPastDate ? 'not-allowed' : 'pointer',
+                                  fontWeight: 700,
+                                  opacity: isPastDate ? 0.7 : 1,
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button
+                type="button"
+                disabled={availabilityLoading || availabilitySaving}
+                onClick={saveAvailability}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  background: '#0b7285',
+                  color: '#fff',
+                  fontWeight: 700,
+                  cursor: availabilityLoading || availabilitySaving ? 'not-allowed' : 'pointer',
+                  opacity: availabilityLoading || availabilitySaving ? 0.65 : 1,
+                }}
+              >
+                {availabilitySaving ? 'Saving...' : 'Save Availability'}
+              </button>
+            </div>
+          </div>
         )}
       </div>
 

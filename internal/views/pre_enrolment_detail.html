@@ -1,4 +1,42 @@
 {{define "pre_enrolment_detail_content"}}
+<style>
+    .placement-slot-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+        gap: 8px;
+        margin-top: 8px;
+    }
+    .placement-slot-chip {
+        border: 1px solid #B9D7C0;
+        border-radius: 8px;
+        padding: 9px 10px;
+        font-weight: 700;
+        cursor: pointer;
+        background: #EAF7ED;
+        color: #176B2C;
+    }
+    .placement-slot-chip:disabled {
+        cursor: not-allowed;
+    }
+    .placement-slot-booked {
+        background: #F1F3F5;
+        color: #8A8F98;
+        border-color: #D7DBDF;
+        opacity: 0.68;
+        text-decoration: line-through;
+    }
+    .placement-slot-outside_availability,
+    .placement-slot-past {
+        background: #FFF4E6;
+        color: #A15C00;
+        border-color: #FFD8A8;
+        opacity: 0.62;
+    }
+    .placement-slot-selected {
+        outline: 3px solid rgba(22, 101, 52, 0.25);
+        border-color: #166534;
+    }
+</style>
 <!-- Header -->
 <div class="header content-header pre-enrolment-detail-header" style="display: flex; justify-content: space-between; align-items: center;">
     <div class="pre-enrolment-detail-header-left" style="display: flex; align-items: center; gap: 10px;">
@@ -526,13 +564,14 @@
                     const paidInput = document.getElementById('placement_test_fee_paid');
                     const paymentDateInput = document.getElementById('placement_test_payment_date');
                     const paymentMethodInput = document.getElementById('placement_test_payment_method');
+                    const studentSuccessInput = document.getElementById('scheduled_student_success_user_id');
                     const testDateInput = document.getElementById('test_date');
                     const testTimeInput = document.getElementById('test_time');
                     if (!paidInput || !paymentDateInput || !paymentMethodInput) return true;
 
                     const final = Number.isFinite(finalFee) ? finalFee : calculatePlacementTestFinal();
                     const paid = parseInt(paidInput.value, 10) || 0;
-                    const bookingSubmitted = Boolean(testDateInput && testDateInput.value && testTimeInput && testTimeInput.value);
+                    const bookingSubmitted = Boolean(studentSuccessInput && studentSuccessInput.value && testDateInput && testDateInput.value && testTimeInput && testTimeInput.value);
                     const paymentRequired = paid > 0 || (bookingSubmitted && final > 0);
                     paymentDateInput.required = paymentRequired;
                     paymentMethodInput.required = paymentRequired;
@@ -567,12 +606,13 @@
                     const paymentMethodInput = document.getElementById('placement_test_payment_method');
                     const testDateInput = document.getElementById('test_date');
                     const testTimeInput = document.getElementById('test_time');
+                    const studentSuccessInput = document.getElementById('scheduled_student_success_user_id');
                     if (paidInput) {
                         paidInput.addEventListener('input', function () {
                             calculatePlacementTestFinal();
                         });
                     }
-                    [paymentDateInput, paymentMethodInput, testDateInput, testTimeInput].forEach(function (input) {
+                    [paymentDateInput, paymentMethodInput, studentSuccessInput, testDateInput, testTimeInput].forEach(function (input) {
                         if (input) {
                             input.addEventListener('input', function () {
                                 calculatePlacementTestFinal();
@@ -582,10 +622,107 @@
                             });
                         }
                     });
+                    initPlacementTestSlotPicker();
                 });
+
+                async function initPlacementTestSlotPicker() {
+                    const ssInput = document.getElementById('scheduled_student_success_user_id');
+                    const dateInput = document.getElementById('test_date');
+                    const timeInput = document.getElementById('test_time');
+                    const slotsEl = document.getElementById('placement-test-slots');
+                    const statusEl = document.getElementById('placement-test-slot-status');
+                    if (!ssInput || !dateInput || !timeInput || !slotsEl || !statusEl) return;
+
+                    async function loadSlots() {
+                        slotsEl.innerHTML = '';
+                        statusEl.textContent = '';
+                        const ssID = ssInput.value;
+                        const date = dateInput.value;
+                        if (!ssID || !date) {
+                            statusEl.textContent = 'Choose Student Success and date to see available 30-minute slots.';
+                            return;
+                        }
+                        statusEl.textContent = 'Loading slots...';
+                        try {
+                            const response = await fetch(`/api/admin/placement-test-slots?student_success_user_id=${encodeURIComponent(ssID)}&date=${encodeURIComponent(date)}`, {
+                                credentials: 'include'
+                            });
+                            if (!response.ok) {
+                                statusEl.textContent = 'Could not load slots. Please refresh and try again.';
+                                return;
+                            }
+                            const data = await response.json();
+                            const slots = data.slots || [];
+                            const windows = data.availability_windows || [];
+                            if (!data.has_availability) {
+                                statusEl.textContent = 'No assigned slots for this day.';
+                                return;
+                            }
+                            if (slots.length === 0) {
+                                statusEl.textContent = 'This Student Success has availability on this day, but no slots could be generated.';
+                                return;
+                            }
+                            const windowSummary = windows
+                                .map(function (window) {
+                                    return `${String(window.start_time || '').slice(0, 5)}-${String(window.end_time || '').slice(0, 5)}`;
+                                })
+                                .filter(Boolean)
+                                .join(', ');
+                            statusEl.textContent = windowSummary
+                                ? `Assigned windows: ${windowSummary}. Pick one available slot.`
+                                : 'Pick one available slot. Booked and unavailable slots are disabled.';
+                            slots.forEach(function (slot) {
+                                const btn = document.createElement('button');
+                                btn.type = 'button';
+                                btn.textContent = slot.time;
+                                btn.disabled = Boolean(slot.disabled);
+                                btn.title = slot.lead_name ? `${slot.reason || 'Booked'}: ${slot.lead_name}` : (slot.reason || slot.state);
+                                btn.className = `placement-slot-chip placement-slot-${slot.state || 'unknown'}`;
+                                if (timeInput.value && timeInput.value.slice(0, 5) === slot.time) {
+                                    btn.className += ' placement-slot-selected';
+                                }
+                                btn.addEventListener('click', function () {
+                                    if (btn.disabled) return;
+                                    timeInput.value = slot.time;
+                                    calculatePlacementTestFinal();
+                                    loadSlots();
+                                });
+                                slotsEl.appendChild(btn);
+                            });
+                        } catch {
+                            statusEl.textContent = 'Could not load slots. Please refresh and try again.';
+                        }
+                    }
+
+                    ssInput.addEventListener('change', function () {
+                        timeInput.value = '';
+                        loadSlots();
+                    });
+                    dateInput.addEventListener('change', function () {
+                        timeInput.value = '';
+                        loadSlots();
+                    });
+                    timeInput.addEventListener('change', loadSlots);
+                    loadSlots();
+                }
             </script>
 
             <!-- Full placement test form (for main form) -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="scheduled_student_success_user_id">Student Success *</label>
+                    <select id="scheduled_student_success_user_id" name="scheduled_student_success_user_id">
+                        <option value="">Choose Student Success</option>
+                        {{range .StudentSuccessUsers}}
+                        <option value="{{.ID}}" {{if $.Detail.PlacementTest}}{{if $.Detail.PlacementTest.ScheduledStudentSuccessID.Valid}}{{if eq $.Detail.PlacementTest.ScheduledStudentSuccessID.String .ID}}selected{{end}}{{end}}{{end}}>
+                            {{.Name}}{{if ne .Name .Email}} — {{.Email}}{{end}}
+                        </option>
+                        {{end}}
+                    </select>
+                    <small style="color: #666; display: block; margin-top: 5px;">Choose who will conduct this placement test before choosing a time.</small>
+                </div>
+            </div>
+
             <div class="form-row">
                 <div class="form-group">
                     <label for="test_date">Test Date</label>
@@ -595,8 +732,15 @@
                 <div class="form-group">
                     <label for="test_time">Test Time</label>
                     <input type="time" id="test_time" name="test_time"
+                        step="1800" min="14:00" max="22:30"
                         value="{{if and .Detail.PlacementTest .Detail.PlacementTest.TestTime.Valid}}{{.Detail.PlacementTest.TestTime.String}}{{end}}">
                 </div>
+            </div>
+
+            <div class="form-group">
+                <label>Available Slots</label>
+                <div id="placement-test-slots" class="placement-slot-grid"></div>
+                <small id="placement-test-slot-status" style="color: #666; display: block; margin-top: 6px;"></small>
             </div>
 
             <div class="form-row">

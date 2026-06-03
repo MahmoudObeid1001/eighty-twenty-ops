@@ -138,6 +138,20 @@ export interface MentorAvailabilityResponse {
   locked_dates?: string[]
 }
 
+export interface StudentSuccessAvailabilityWindow {
+  id?: string
+  student_success_user_id?: string
+  available_date: string
+  start_time: string
+  end_time: string
+  note?: string
+}
+
+export interface StudentSuccessAvailabilityResponse {
+  month: string
+  windows: StudentSuccessAvailabilityWindow[]
+}
+
 export interface MentorHeadCalendarMentor {
   mentor_user_id: string
   name: string
@@ -407,6 +421,7 @@ export interface PlacementTestQueueItem {
   test_type: string
   assigned_level?: number
   test_notes?: string
+  scheduled_student_success?: string
 }
 
 export interface MentorArchiveGroup {
@@ -1146,6 +1161,15 @@ export const api = {
   // Student Success endpoints
   getStudentSuccessClasses: (): Promise<{ classes: StudentSuccessClass[] }> =>
     fetchAPI('/student-success/classes'),
+
+  getStudentSuccessAvailability: (month: string): Promise<StudentSuccessAvailabilityResponse> =>
+    fetchAPI(`/student-success/availability?month=${encodeURIComponent(month)}`),
+
+  updateStudentSuccessAvailability: (month: string, windows: StudentSuccessAvailabilityWindow[]): Promise<StudentSuccessAvailabilityResponse> =>
+    fetchAPI(`/student-success/availability?month=${encodeURIComponent(month)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ windows }),
+    }),
 
   getStudentSuccessPlacementTests: (showCompleted: boolean = false): Promise<{ placement_tests: PlacementTestQueueItem[] }> =>
     fetchAPI(`/student-success/placement-tests?show_completed=${showCompleted ? '1' : '0'}`),

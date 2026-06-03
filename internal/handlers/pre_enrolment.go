@@ -62,6 +62,12 @@ type refusalReasonTab struct {
 	Label string
 }
 
+type staffSelectOption struct {
+	ID    string
+	Name  string
+	Email string
+}
+
 type renewalPendingMessageDecision struct {
 	Key              string
 	Label            string
@@ -1387,6 +1393,24 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			log.Printf("ERROR: Failed to load unidentified transfers: %v", err)
 		}
 	}
+	studentSuccessUsers := []staffSelectOption{}
+	if userRole == "admin" || userRole == "manager" {
+		if users, err := models.GetUsersByRole("student_success"); err == nil {
+			for _, user := range users {
+				name := strings.TrimSpace(user.FullName.String)
+				if name == "" {
+					name = user.Email
+				}
+				studentSuccessUsers = append(studentSuccessUsers, staffSelectOption{
+					ID:    user.ID.String(),
+					Name:  name,
+					Email: user.Email,
+				})
+			}
+		} else {
+			log.Printf("ERROR: Failed to load Student Success users: %v", err)
+		}
+	}
 
 	var finalPriceValue int32 = 0
 	if detail.Offer != nil && detail.Offer.FinalPrice.Valid {
@@ -1757,6 +1781,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			"unidentified_transfer_id": "",
 		},
 		"CoursePaymentFieldErrors": map[string]string{},
+		"StudentSuccessUsers":      studentSuccessUsers,
 	}
 	stepCodes, stepArabic, stepSource := h.buildSmartStepsForDetail(detail, isFullyPaid, creditsRemaining, finalPriceValue, totalCoursePaid, lastOutcome)
 	data["SmartStepsCodes"] = stepCodes
@@ -1886,6 +1911,33 @@ func normalizeLegacyPlacementTestFee(pt *models.PlacementTest) {
 	}
 }
 
+func isPlacementTestSchedulingValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if models.IsPlacementTestSlotConflict(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "student success") ||
+		strings.Contains(msg, "placement test slot") ||
+		strings.Contains(msg, "outside") ||
+		strings.Contains(msg, "30-minute")
+}
+
+func placementTestSchedulingErrorMessage(err error) string {
+	if err == nil {
+		return "Couldn't book the placement test. Please try again."
+	}
+	if models.IsPlacementTestSlotConflict(err) {
+		return "This Student Success already has a placement test in that slot. Please choose another time."
+	}
+	if isPlacementTestSchedulingValidationError(err) {
+		return err.Error()
+	}
+	return "Couldn't book the placement test. Please try again."
+}
+
 func applyPlacementTestFormValuesForRender(detail *models.LeadDetail, r *http.Request) {
 	if detail == nil || detail.Lead == nil || r == nil {
 		return
@@ -1935,14 +1987,18 @@ func applyPlacementTestFormValuesForRender(detail *models.LeadDetail, r *http.Re
 	if testType := strings.TrimSpace(r.FormValue("test_type")); testType != "" {
 		pt.TestType = sql.NullString{String: testType, Valid: true}
 	}
+	if studentSuccessID := strings.TrimSpace(r.FormValue("scheduled_student_success_user_id")); studentSuccessID != "" {
+		pt.ScheduledStudentSuccessID = sql.NullString{String: studentSuccessID, Valid: true}
+	}
 }
 
 func buildBookedPlacementTestFromRequest(leadID uuid.UUID, existing *models.PlacementTest, r *http.Request) (*models.PlacementTest, error) {
 	testDate := strings.TrimSpace(r.FormValue("test_date"))
 	testTime := strings.TrimSpace(r.FormValue("test_time"))
 	testType := strings.TrimSpace(r.FormValue("test_type"))
-	if testDate == "" || testTime == "" || testType == "" {
-		return nil, fmt.Errorf("Please choose the test date, time, and type.")
+	studentSuccessID := strings.TrimSpace(r.FormValue("scheduled_student_success_user_id"))
+	if testDate == "" || testTime == "" || testType == "" || studentSuccessID == "" {
+		return nil, fmt.Errorf("Please choose the Student Success, test date, time, and type.")
 	}
 
 	baseFee := int32(60)
@@ -2002,6 +2058,7 @@ func buildBookedPlacementTestFromRequest(leadID uuid.UUID, existing *models.Plac
 	if testType != "" {
 		pt.TestType = sql.NullString{String: testType, Valid: true}
 	}
+	pt.ScheduledStudentSuccessID = sql.NullString{String: studentSuccessID, Valid: true}
 	if notes := strings.TrimSpace(r.FormValue("test_notes")); notes != "" {
 		pt.TestNotes = sql.NullString{String: notes, Valid: true}
 	}
@@ -2237,7 +2294,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		err = models.BookPlacementTest(leadID, placementTest)
 		if err != nil {
 			log.Printf("ERROR: Failed to book placement test: %v", err)
-			http.Error(w, "Couldn't book the placement test. Please try again.", http.StatusInternalServerError)
+			h.renderDetailWithError(w, r, leadID, placementTestSchedulingErrorMessage(err))
 			return
 		}
 		if err := syncPlacementTestFinanceForBooking(leadID, placementTest); err != nil {
@@ -3914,6 +3971,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 
 	// Placement test
 	if r.FormValue("test_date") != "" ||
+		r.FormValue("scheduled_student_success_user_id") != "" ||
 		r.FormValue("assigned_level") != "" ||
 		r.FormValue("placement_test_fee") != "" ||
 		r.FormValue("placement_test_fee_paid") != "" ||
@@ -3936,6 +3994,9 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		}
 		if testType := r.FormValue("test_type"); testType != "" {
 			pt.TestType = sql.NullString{String: testType, Valid: true}
+		}
+		if studentSuccessID := strings.TrimSpace(r.FormValue("scheduled_student_success_user_id")); studentSuccessID != "" {
+			pt.ScheduledStudentSuccessID = sql.NullString{String: studentSuccessID, Valid: true}
 		}
 		if assignedLevel := r.FormValue("assigned_level"); assignedLevel != "" {
 			level, err := strconv.Atoi(assignedLevel)
@@ -3979,6 +4040,9 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			}
 			if !pt.TestNotes.Valid && existingDetail.PlacementTest.TestNotes.Valid {
 				pt.TestNotes = existingDetail.PlacementTest.TestNotes
+			}
+			if !pt.ScheduledStudentSuccessID.Valid && existingDetail.PlacementTest.ScheduledStudentSuccessID.Valid {
+				pt.ScheduledStudentSuccessID = existingDetail.PlacementTest.ScheduledStudentSuccessID
 			}
 		}
 		// Placement test fee fields
@@ -4781,6 +4845,10 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 			return
 		}
+		if isPlacementTestSchedulingValidationError(err) {
+			h.renderDetailWithError(w, r, leadID, placementTestSchedulingErrorMessage(err))
+			return
+		}
 
 		http.Error(w, "Couldn't update this lead. Please try again.", http.StatusInternalServerError)
 		return
@@ -5398,7 +5466,7 @@ func (h *PreEnrolmentHandler) BookTest(w http.ResponseWriter, r *http.Request) {
 	err = models.BookPlacementTest(leadID, placementTest)
 	if err != nil {
 		log.Printf("ERROR: Failed to book placement test: %v", err)
-		http.Error(w, "Couldn't book the placement test. Please try again.", http.StatusInternalServerError)
+		http.Error(w, placementTestSchedulingErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	if err := syncPlacementTestFinanceForBooking(leadID, placementTest); err != nil {

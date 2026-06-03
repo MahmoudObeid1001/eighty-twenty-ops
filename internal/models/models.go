@@ -57,6 +57,7 @@ type PlacementTest struct {
 	AssignedLevel              sql.NullInt32
 	TestNotes                  sql.NullString
 	RunByUserID                sql.NullString
+	ScheduledStudentSuccessID  sql.NullString
 	PlacementTestFee           sql.NullInt32
 	PlacementTestFeePaid       sql.NullInt32
 	PlacementTestPaymentDate   sql.NullTime
@@ -217,15 +218,39 @@ type LastClassOutcome struct {
 }
 
 type PlacementTestQueueItem struct {
-	LeadID        uuid.UUID
-	FullName      string
-	Phone         string
-	Status        string
-	TestDate      sql.NullTime
-	TestTime      sql.NullString
-	TestType      sql.NullString
-	AssignedLevel sql.NullInt32
-	TestNotes     sql.NullString
+	LeadID                    uuid.UUID
+	FullName                  string
+	Phone                     string
+	Status                    string
+	TestDate                  sql.NullTime
+	TestTime                  sql.NullString
+	TestType                  sql.NullString
+	AssignedLevel             sql.NullInt32
+	TestNotes                 sql.NullString
+	ScheduledStudentSuccessID sql.NullString
+	ScheduledStudentSuccess   sql.NullString
+}
+
+type StudentSuccessAvailabilityWindow struct {
+	ID                   uuid.UUID
+	StudentSuccessUserID uuid.UUID
+	AvailableDate        time.Time
+	StartTime            string
+	EndTime              string
+	Note                 sql.NullString
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type PlacementTestSlot struct {
+	Time      string `json:"time"`
+	State     string `json:"state"`
+	LeadID    string `json:"lead_id,omitempty"`
+	LeadName  string `json:"lead_name,omitempty"`
+	LeadPhone string `json:"lead_phone,omitempty"`
+	TestType  string `json:"test_type,omitempty"`
+	Disabled  bool   `json:"disabled"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // ClassGroup represents a group of students with same level+days+time

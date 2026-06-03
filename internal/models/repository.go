@@ -1741,17 +1741,21 @@ func ReleaseContinuationHold(leadID, userID uuid.UUID) error {
 	return tx.Commit()
 }
 
-// GetPlacementTestsForStudentSuccess returns leads with placement tests scheduled.
+// GetPlacementTestsForStudentSuccess returns tests assigned to the current Student Success user.
 // Used by Student Success dashboard to record test results.
-func GetPlacementTestsForStudentSuccess(showCompleted bool) ([]*PlacementTestQueueItem, error) {
+func GetPlacementTestsForStudentSuccess(studentSuccessUserID uuid.UUID, showCompleted bool) ([]*PlacementTestQueueItem, error) {
 	query := `
 		SELECT
 			l.id, l.full_name, l.phone, l.status,
-			pt.test_date, pt.test_time, pt.test_type, pt.assigned_level, pt.test_notes
+			pt.test_date, pt.test_time, pt.test_type, pt.assigned_level, pt.test_notes,
+			pt.scheduled_student_success_user_id::TEXT,
+			COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, '')
 		FROM leads l
 		INNER JOIN placement_tests pt ON pt.lead_id = l.id
+		LEFT JOIN users u ON u.id = pt.scheduled_student_success_user_id
 		WHERE pt.test_date IS NOT NULL
 		  AND pt.test_time IS NOT NULL
+		  AND pt.scheduled_student_success_user_id = $1
 		  AND l.status != 'cancelled'
 		  AND l.status != 'in_classes'
 	`
@@ -1764,7 +1768,7 @@ func GetPlacementTestsForStudentSuccess(showCompleted bool) ([]*PlacementTestQue
 		ORDER BY pt.test_date ASC, pt.test_time ASC, l.created_at ASC
 	`
 
-	rows, err := db.DB.Query(query)
+	rows, err := db.DB.Query(query, studentSuccessUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -1785,6 +1789,8 @@ func GetPlacementTestsForStudentSuccess(showCompleted bool) ([]*PlacementTestQue
 			&item.TestType,
 			&item.AssignedLevel,
 			&item.TestNotes,
+			&item.ScheduledStudentSuccessID,
+			&item.ScheduledStudentSuccess,
 		); err != nil {
 			return nil, err
 		}
@@ -1821,11 +1827,11 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get placement test
 	pt := &PlacementTest{}
 	err = db.DB.QueryRow(`
-		SELECT id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
+		SELECT id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, scheduled_student_success_user_id::TEXT, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
 		FROM placement_tests WHERE lead_id = $1
 	`, id).Scan(
 		&pt.ID, &pt.LeadID, &pt.TestDate, &pt.TestTime, &pt.TestType, &pt.AssignedLevel,
-		&pt.TestNotes, &pt.RunByUserID, &pt.PlacementTestFee, &pt.PlacementTestFeePaid, &pt.PlacementTestPaymentDate, &pt.PlacementTestPaymentMethod, &pt.UpdatedAt,
+		&pt.TestNotes, &pt.RunByUserID, &pt.ScheduledStudentSuccessID, &pt.PlacementTestFee, &pt.PlacementTestFeePaid, &pt.PlacementTestPaymentDate, &pt.PlacementTestPaymentMethod, &pt.UpdatedAt,
 	)
 	if err == nil {
 		detail.PlacementTest = pt
@@ -2019,9 +2025,12 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 
 	// Upsert placement test
 	if detail.PlacementTest != nil {
+		if err := ValidatePlacementTestScheduleTx(tx, detail.Lead.ID, detail.PlacementTest); err != nil {
+			return err
+		}
 		_, err = tx.Exec(`
-			INSERT INTO placement_tests (id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at)
-			VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			INSERT INTO placement_tests (id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, scheduled_student_success_user_id, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at)
+			VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8::UUID, $9, $10, $11, $12, $13)
 			ON CONFLICT (lead_id) DO UPDATE SET
 				test_date = EXCLUDED.test_date,
 				test_time = EXCLUDED.test_time,
@@ -2029,6 +2038,7 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 				assigned_level = COALESCE(EXCLUDED.assigned_level, placement_tests.assigned_level),
 				test_notes = COALESCE(EXCLUDED.test_notes, placement_tests.test_notes),
 				run_by_user_id = EXCLUDED.run_by_user_id,
+				scheduled_student_success_user_id = EXCLUDED.scheduled_student_success_user_id,
 				placement_test_fee = EXCLUDED.placement_test_fee,
 				placement_test_fee_paid = EXCLUDED.placement_test_fee_paid,
 				placement_test_payment_date = EXCLUDED.placement_test_payment_date,
@@ -2036,7 +2046,7 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 				updated_at = EXCLUDED.updated_at
 		`, detail.Lead.ID, detail.PlacementTest.TestDate, detail.PlacementTest.TestTime,
 			detail.PlacementTest.TestType, detail.PlacementTest.AssignedLevel,
-			detail.PlacementTest.TestNotes, detail.PlacementTest.RunByUserID,
+			detail.PlacementTest.TestNotes, detail.PlacementTest.RunByUserID, detail.PlacementTest.ScheduledStudentSuccessID,
 			detail.PlacementTest.PlacementTestFee, detail.PlacementTest.PlacementTestFeePaid,
 			detail.PlacementTest.PlacementTestPaymentDate, detail.PlacementTest.PlacementTestPaymentMethod,
 			now)
@@ -2574,30 +2584,40 @@ func BookPlacementTest(leadID uuid.UUID, placementTest *PlacementTest) error {
 	if placementTest.PlacementTestFeePaid.Valid {
 		placementTestFeePaid = placementTest.PlacementTestFeePaid
 	}
+	if err := ValidatePlacementTestScheduleTx(tx, leadID, placementTest); err != nil {
+		return err
+	}
 
 	// Update or insert placement test with default fee of 60 if not exists.
 	_, err = tx.Exec(`
 		INSERT INTO placement_tests (
-			id, lead_id, test_date, test_time, test_type, test_notes,
+			id, lead_id, test_date, test_time, test_type, test_notes, scheduled_student_success_user_id,
 			placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
 		)
 		VALUES (
 			COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()),
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+			$1, $2, $3, $4, $5, $6::UUID, $7, $8, $9, $10, $11
 		)
 		ON CONFLICT (lead_id) DO UPDATE SET
 			test_date = EXCLUDED.test_date,
 			test_time = EXCLUDED.test_time,
 			test_type = EXCLUDED.test_type,
 			test_notes = EXCLUDED.test_notes,
+			scheduled_student_success_user_id = EXCLUDED.scheduled_student_success_user_id,
 			placement_test_fee = COALESCE(EXCLUDED.placement_test_fee, placement_tests.placement_test_fee, 60),
 			placement_test_fee_paid = COALESCE(EXCLUDED.placement_test_fee_paid, placement_tests.placement_test_fee_paid, 0),
 			placement_test_payment_date = EXCLUDED.placement_test_payment_date,
 			placement_test_payment_method = EXCLUDED.placement_test_payment_method,
 			updated_at = EXCLUDED.updated_at
 	`, leadID, placementTest.TestDate, placementTest.TestTime, placementTest.TestType, placementTest.TestNotes,
-		placementTestFee, placementTestFeePaid, placementTest.PlacementTestPaymentDate, placementTest.PlacementTestPaymentMethod, now)
+		placementTest.ScheduledStudentSuccessID, placementTestFee, placementTestFeePaid, placementTest.PlacementTestPaymentDate, placementTest.PlacementTestPaymentMethod, now)
 	if err != nil {
+		if IsPlacementTestSlotConflict(err) {
+			return &PlacementTestSlotConflictError{
+				TestDate: placementTest.TestDate.Time,
+				TestTime: placementTest.TestTime.String,
+			}
+		}
 		return fmt.Errorf("failed to upsert placement test: %w", err)
 	}
 

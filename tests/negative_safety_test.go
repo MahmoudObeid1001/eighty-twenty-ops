@@ -240,6 +240,7 @@ func TestNegativeSafetyRails(t *testing.T) {
 		classTimeText := "07:30"
 		classTimeScheduling := "07:30:00"
 		closedClassKey := models.GenerateClassKey(level, classDays, classTimeText, 1)
+		cleanupClass(t, closedClassKey)
 
 		mustExec(t, `
 			INSERT INTO placement_tests (lead_id, assigned_level, updated_at)

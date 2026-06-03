@@ -238,6 +238,25 @@ func availabilityWindowsResponse(windows []models.MentorAvailabilityWindow) []ma
 	return out
 }
 
+func studentSuccessAvailabilityWindowsResponse(windows []models.StudentSuccessAvailabilityWindow) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(windows))
+	for _, window := range windows {
+		note := ""
+		if window.Note.Valid {
+			note = window.Note.String
+		}
+		out = append(out, map[string]interface{}{
+			"id":                      window.ID.String(),
+			"student_success_user_id": window.StudentSuccessUserID.String(),
+			"available_date":          window.AvailableDate.Format("2006-01-02"),
+			"start_time":              window.StartTime,
+			"end_time":                window.EndTime,
+			"note":                    note,
+		})
+	}
+	return out
+}
+
 func formatOptionalDate(date *time.Time) interface{} {
 	if date == nil || date.IsZero() {
 		return nil
@@ -3806,6 +3825,168 @@ func (h *APIHandler) GetMentorReminders(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// GET/PUT /api/student-success/availability?month=YYYY-MM - Student Success owned placement-test availability
+func (h *APIHandler) StudentSuccessAvailability(w http.ResponseWriter, r *http.Request) {
+	if middleware.GetUserRole(r) != "student_success" {
+		jsonError(w, http.StatusForbidden, "Only Student Success can edit their own availability")
+		return
+	}
+
+	studentSuccessUserID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid Student Success session")
+		return
+	}
+
+	monthStart, _, err := models.ParseAvailabilityMonth(r.URL.Query().Get("month"))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		windows, err := models.GetStudentSuccessAvailabilityWindows(studentSuccessUserID, monthStart)
+		if err != nil {
+			log.Printf("ERROR: Failed to load student success availability: %v", err)
+			jsonError(w, http.StatusInternalServerError, "Failed to load availability")
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"month":   monthStart.Format("2006-01"),
+			"windows": studentSuccessAvailabilityWindowsResponse(windows),
+		})
+	case http.MethodPut:
+		var req struct {
+			Windows []struct {
+				AvailableDate string `json:"available_date"`
+				StartTime     string `json:"start_time"`
+				EndTime       string `json:"end_time"`
+				Note          string `json:"note"`
+			} `json:"windows"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		windows := make([]models.StudentSuccessAvailabilityWindow, 0, len(req.Windows))
+		for _, item := range req.Windows {
+			availableDate, err := time.Parse("2006-01-02", strings.TrimSpace(item.AvailableDate))
+			if err != nil {
+				jsonError(w, http.StatusBadRequest, "available_date must be in YYYY-MM-DD format")
+				return
+			}
+			note := strings.TrimSpace(item.Note)
+			windows = append(windows, models.StudentSuccessAvailabilityWindow{
+				StudentSuccessUserID: studentSuccessUserID,
+				AvailableDate:        availableDate,
+				StartTime:            strings.TrimSpace(item.StartTime),
+				EndTime:              strings.TrimSpace(item.EndTime),
+				Note:                 sql.NullString{String: note, Valid: note != ""},
+			})
+		}
+		updated, err := models.ReplaceStudentSuccessAvailabilityWindows(studentSuccessUserID, monthStart, windows)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"month":   monthStart.Format("2006-01"),
+			"windows": studentSuccessAvailabilityWindowsResponse(updated),
+		})
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+// GET /api/admin/student-success-users - active Student Success users for placement-test booking
+func (h *APIHandler) GetStudentSuccessUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	role := middleware.GetUserRole(r)
+	if role != "admin" && role != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	users, err := models.GetUsersByRole("student_success")
+	if err != nil {
+		log.Printf("ERROR: Failed to load Student Success users: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load Student Success users")
+		return
+	}
+	type userResp struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	out := make([]userResp, 0, len(users))
+	for _, user := range users {
+		out = append(out, userResp{
+			ID:    user.ID.String(),
+			Name:  userDisplayName(user),
+			Email: user.Email,
+		})
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"student_success_users": out})
+}
+
+// GET /api/admin/placement-test-slots?student_success_user_id=...&date=YYYY-MM-DD
+func (h *APIHandler) GetPlacementTestSlots(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	role := middleware.GetUserRole(r)
+	if role != "admin" && role != "manager" {
+		jsonError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	studentSuccessID, err := uuid.Parse(strings.TrimSpace(r.URL.Query().Get("student_success_user_id")))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "student_success_user_id is required")
+		return
+	}
+	user, err := models.GetUserByID(studentSuccessID.String())
+	if err != nil {
+		log.Printf("ERROR: Failed to validate Student Success user: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to validate Student Success user")
+		return
+	}
+	if user == nil || user.Role != "student_success" || !user.IsActive {
+		jsonError(w, http.StatusNotFound, "Student Success user not found")
+		return
+	}
+
+	date, err := time.Parse("2006-01-02", strings.TrimSpace(r.URL.Query().Get("date")))
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "date must be in YYYY-MM-DD format")
+		return
+	}
+	slots, err := models.GetPlacementTestSlots(studentSuccessID, date, time.Now())
+	if err != nil {
+		log.Printf("ERROR: Failed to load placement test slots: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load placement test slots")
+		return
+	}
+	windows, err := models.GetStudentSuccessAvailabilityWindowsForDate(studentSuccessID, date)
+	if err != nil {
+		log.Printf("ERROR: Failed to load Student Success availability windows: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to load Student Success availability windows")
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"student_success_user_id": studentSuccessID.String(),
+		"date":                    date.Format("2006-01-02"),
+		"has_availability":        len(windows) > 0,
+		"availability_windows":    studentSuccessAvailabilityWindowsResponse(windows),
+		"slots":                   slots,
+	})
+}
+
 // GET /api/student-success/placement-tests - returns placement tests scheduled and awaiting results
 func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -3817,8 +3998,14 @@ func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *h
 		return
 	}
 
+	userID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid Student Success session")
+		return
+	}
+
 	showCompleted := r.URL.Query().Get("show_completed") == "1" || r.URL.Query().Get("show_completed") == "true"
-	rows, err := models.GetPlacementTestsForStudentSuccess(showCompleted)
+	rows, err := models.GetPlacementTestsForStudentSuccess(userID, showCompleted)
 	if err != nil {
 		log.Printf("ERROR: Failed to get placement tests: %v", err)
 		jsonError(w, http.StatusInternalServerError, "Failed to load placement tests")
@@ -3835,6 +4022,7 @@ func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *h
 		TestType      string `json:"test_type"`
 		AssignedLevel *int32 `json:"assigned_level,omitempty"`
 		TestNotes     string `json:"test_notes,omitempty"`
+		ScheduledSS   string `json:"scheduled_student_success,omitempty"`
 	}
 
 	out := make([]PlacementTestResp, 0, len(rows))
@@ -3860,6 +4048,10 @@ func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *h
 		if row.TestNotes.Valid {
 			testNotes = row.TestNotes.String
 		}
+		scheduledSS := ""
+		if row.ScheduledStudentSuccess.Valid {
+			scheduledSS = row.ScheduledStudentSuccess.String
+		}
 		out = append(out, PlacementTestResp{
 			LeadID:        row.LeadID.String(),
 			FullName:      row.FullName,
@@ -3870,6 +4062,7 @@ func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *h
 			TestType:      testType,
 			AssignedLevel: assignedLevel,
 			TestNotes:     testNotes,
+			ScheduledSS:   scheduledSS,
 		})
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"placement_tests": out})
@@ -3883,6 +4076,11 @@ func (h *APIHandler) CompletePlacementTest(w http.ResponseWriter, r *http.Reques
 	}
 	if middleware.GetUserRole(r) != "student_success" {
 		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
+		return
+	}
+	currentUserID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid Student Success session")
 		return
 	}
 
@@ -3917,6 +4115,14 @@ func (h *APIHandler) CompletePlacementTest(w http.ResponseWriter, r *http.Reques
 	}
 	if detail.PlacementTest == nil || !detail.PlacementTest.TestDate.Valid || !detail.PlacementTest.TestTime.Valid {
 		jsonError(w, http.StatusBadRequest, "Placement test is not scheduled yet")
+		return
+	}
+	if !detail.PlacementTest.ScheduledStudentSuccessID.Valid {
+		jsonError(w, http.StatusBadRequest, "Placement test is not assigned to a Student Success yet")
+		return
+	}
+	if detail.PlacementTest.ScheduledStudentSuccessID.String != currentUserID.String() {
+		jsonError(w, http.StatusForbidden, "Placement test is assigned to another Student Success")
 		return
 	}
 

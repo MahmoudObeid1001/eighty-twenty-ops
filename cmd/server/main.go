@@ -244,6 +244,24 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/mentor-head/availability-calendar -> apiHandler.GetMentorHeadAvailabilityCalendar [mentor_head+admin+manager+hr]")
 
+	mux.HandleFunc("/api/admin/student-success-users", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"admin", "manager"}, cfg.SessionSecret)(apiHandler.GetStudentSuccessUsers)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/admin/student-success-users -> apiHandler.GetStudentSuccessUsers [admin+manager]")
+
+	mux.HandleFunc("/api/admin/placement-test-slots", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			middleware.RequireAnyRole([]string{"admin", "manager"}, cfg.SessionSecret)(apiHandler.GetPlacementTestSlots)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/admin/placement-test-slots -> apiHandler.GetPlacementTestSlots [admin+manager]")
+
 	mux.HandleFunc("/api/mentor-head/return-to-ops", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			middleware.RequireAnyRole([]string{"mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.ReturnToOps)(w, r)
@@ -589,6 +607,19 @@ func main() {
 		}
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/classes -> apiHandler.GetStudentSuccessClasses [student_success only]")
+
+	mux.HandleFunc("/api/student-success/availability", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/student-success/availability" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet || r.Method == http.MethodPut {
+			middleware.RequireAnyRole([]string{"student_success"}, cfg.SessionSecret)(apiHandler.StudentSuccessAvailability)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/student-success/availability -> apiHandler.StudentSuccessAvailability [student_success only]")
 
 	mux.HandleFunc("/api/student-success/class", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/student-success/class" {

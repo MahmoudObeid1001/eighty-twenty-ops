@@ -39,7 +39,13 @@ func TestMentorAvailabilityWarnings(t *testing.T) {
 		mustExec(t, `DELETE FROM users WHERE id IN ($1, $2, $3, $4)`, mentorHead.ID, mentor.ID, otherMentor.ID, hr.ID)
 	})
 
-	startDate := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	startDate := time.Now().UTC().AddDate(0, 1, 0)
+	for startDate.Weekday() != time.Monday {
+		startDate = startDate.AddDate(0, 0, 1)
+	}
+	startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, time.UTC)
+	startMonth := startDate.Format("2006-01")
+	startDateText := startDate.Format("2006-01-02")
 	classKey := createClassGroup(t, nowSuffix, 4, "Mon/Thu", "18:00:00", 93001, true, "not_started")
 	t.Cleanup(func() { cleanupClass(t, classKey) })
 	mustExec(t, `UPDATE class_groups SET suggested_start_date = $1 WHERE class_key = $2`, startDate, classKey)
@@ -65,13 +71,13 @@ func TestMentorAvailabilityWarnings(t *testing.T) {
 	t.Run("mentor self edit succeeds", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]interface{}{
 			"windows": []map[string]string{{
-				"available_date": "2026-06-01",
+				"available_date": startDateText,
 				"start_time":     "18:00",
 				"end_time":       "20:30",
 				"note":           "updated by mentor",
 			}},
 		})
-		req := httptest.NewRequest(http.MethodPut, "/api/mentor/availability?month=2026-06", bytes.NewReader(body))
+		req := httptest.NewRequest(http.MethodPut, "/api/mentor/availability?month="+startMonth, bytes.NewReader(body))
 		req = withUserContext(req, otherMentor.ID, otherMentor.Email, "mentor")
 		res := httptest.NewRecorder()
 
@@ -94,7 +100,7 @@ func TestMentorAvailabilityWarnings(t *testing.T) {
 	})
 
 	t.Run("hr can view mentor availability", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/mentors/"+mentor.ID.String()+"/availability?month=2026-06", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/mentors/"+mentor.ID.String()+"/availability?month="+startMonth, nil)
 		req = withUserContext(req, hr.ID, hr.Email, "hr")
 		res := httptest.NewRecorder()
 
@@ -181,7 +187,7 @@ func TestAvailabilityReminder(t *testing.T) {
 
 	if _, err := models.ReplaceMentorAvailabilityWindows(coveredMentor.ID, monthStart, []models.MentorAvailabilityWindow{{
 		MentorUserID:  coveredMentor.ID,
-		AvailableDate: monthStart.AddDate(0, 0, 9),
+		AvailableDate: monthStart.AddDate(0, 0, 5),
 		StartTime:     "17:00",
 		EndTime:       "21:00",
 		Note:          sql.NullString{String: "covered", Valid: true},
@@ -234,6 +240,13 @@ func TestMentorAvailabilityLocking(t *testing.T) {
 	mentorHead := mustCreateUser(t, "mentor_head", fmt.Sprintf("lock_mh_%d@eightytwenty.test", nowSuffix))
 	mentor := mustCreateUser(t, "mentor", fmt.Sprintf("lock_mentor_%d@eightytwenty.test", nowSuffix))
 	classKey := createClassGroup(t, nowSuffix, 5, "Mon/Thu", "18:00:00", 94001, true, "active")
+	firstLockedDate := time.Now().UTC().AddDate(0, 1, 0)
+	for firstLockedDate.Weekday() != time.Monday {
+		firstLockedDate = firstLockedDate.AddDate(0, 0, 1)
+	}
+	firstLockedDate = time.Date(firstLockedDate.Year(), firstLockedDate.Month(), firstLockedDate.Day(), 0, 0, 0, 0, time.UTC)
+	secondLockedDate := firstLockedDate.AddDate(0, 0, 3)
+	lockMonth := firstLockedDate.Format("2006-01")
 	t.Cleanup(func() {
 		cleanupClass(t, classKey)
 		mustExec(t, `DELETE FROM mentor_availability_windows WHERE mentor_user_id = $1`, mentor.ID)
@@ -249,28 +262,28 @@ func TestMentorAvailabilityLocking(t *testing.T) {
 			id, class_key, session_number, scheduled_date, scheduled_time, scheduled_end_time, status, created_at, updated_at
 		)
 		VALUES
-			(gen_random_uuid(), $1, 1, DATE '2026-06-10', '18:00'::time, '20:00'::time, 'scheduled', NOW(), NOW()),
-			(gen_random_uuid(), $1, 2, DATE '2026-06-12', '18:00'::time, '20:00'::time, 'scheduled', NOW(), NOW())
-	`, classKey)
+			(gen_random_uuid(), $1, 1, $2, '18:00'::time, '20:00'::time, 'scheduled', NOW(), NOW()),
+			(gen_random_uuid(), $1, 2, $3, '18:00'::time, '20:00'::time, 'scheduled', NOW(), NOW())
+	`, classKey, firstLockedDate, secondLockedDate)
 
 	lockedDates, err := models.GetMentorLockedDates(mentor.ID)
 	if err != nil {
 		t.Fatalf("failed to get lock date: %v", err)
 	}
-	if len(lockedDates) != 2 || lockedDates[1] != "2026-06-12" {
-		t.Fatalf("expected locked dates ending at 2026-06-12, got %v", lockedDates)
+	if len(lockedDates) != 2 || lockedDates[1] != secondLockedDate.Format("2006-01-02") {
+		t.Fatalf("expected locked dates ending at %s, got %v", secondLockedDate.Format("2006-01-02"), lockedDates)
 	}
 
-	if _, err := models.ReplaceMentorAvailabilityWindows(mentor.ID, time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC), []models.MentorAvailabilityWindow{{
+	if _, err := models.ReplaceMentorAvailabilityWindows(mentor.ID, firstLockedDate, []models.MentorAvailabilityWindow{{
 		MentorUserID:  mentor.ID,
-		AvailableDate: time.Date(2026, time.June, 11, 0, 0, 0, 0, time.UTC),
+		AvailableDate: firstLockedDate,
 		StartTime:     "18:00",
 		EndTime:       "20:00",
 	}}); err == nil {
 		t.Fatalf("expected locked date update to fail")
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/mentor/availability?month=2026-06", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/mentor/availability?month="+lockMonth, nil)
 	req = withUserContext(req, mentor.ID, mentor.Email, "mentor")
 	res := httptest.NewRecorder()
 
@@ -280,12 +293,12 @@ func TestMentorAvailabilityLocking(t *testing.T) {
 		t.Fatalf("expected mentor availability fetch to succeed, got %d body=%s", res.Code, res.Body.String())
 	}
 	var payload struct {
-		BlockedUntil string `json:"blocked_until"`
+		LockedDates []string `json:"locked_dates"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("failed to decode mentor availability payload: %v", err)
 	}
-	if payload.BlockedUntil != "2026-06-12" {
-		t.Fatalf("expected blocked_until=2026-06-12, got %q", payload.BlockedUntil)
+	if len(payload.LockedDates) != 2 || payload.LockedDates[1] != secondLockedDate.Format("2006-01-02") {
+		t.Fatalf("expected locked_dates ending at %s, got %v", secondLockedDate.Format("2006-01-02"), payload.LockedDates)
 	}
 }

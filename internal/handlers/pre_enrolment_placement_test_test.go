@@ -16,16 +16,21 @@ func newPlacementBookingRequest(form url.Values) *http.Request {
 	return req
 }
 
-func TestBuildBookedPlacementTestRequiresPaidAmount(t *testing.T) {
-	form := url.Values{
-		"test_date":                     {"2026-05-17"},
-		"test_time":                     {"15:23"},
-		"test_type":                     {"Online"},
-		"placement_test_fee":            {"60"},
-		"placement_test_fee_paid":       {"0"},
-		"placement_test_payment_date":   {"2026-05-17"},
-		"placement_test_payment_method": {"vodafone_cash"},
+func placementBookingBaseForm() url.Values {
+	return url.Values{
+		"test_date":                         {"2026-05-17"},
+		"test_time":                         {"15:30"},
+		"test_type":                         {"online"},
+		"scheduled_student_success_user_id": {uuid.New().String()},
+		"placement_test_fee":                {"60"},
+		"placement_test_payment_date":       {"2026-05-17"},
+		"placement_test_payment_method":     {"vodafone_cash"},
 	}
+}
+
+func TestBuildBookedPlacementTestRequiresPaidAmount(t *testing.T) {
+	form := placementBookingBaseForm()
+	form.Set("placement_test_fee_paid", "0")
 
 	_, err := buildBookedPlacementTestFromRequest(uuid.New(), nil, newPlacementBookingRequest(form))
 	if err == nil || !strings.Contains(err.Error(), "Paid amount is required") {
@@ -34,15 +39,8 @@ func TestBuildBookedPlacementTestRequiresPaidAmount(t *testing.T) {
 }
 
 func TestBuildBookedPlacementTestRequiresPaidAmountToEqualFinalFee(t *testing.T) {
-	form := url.Values{
-		"test_date":                     {"2026-05-17"},
-		"test_time":                     {"15:23"},
-		"test_type":                     {"Online"},
-		"placement_test_fee":            {"60"},
-		"placement_test_fee_paid":       {"30"},
-		"placement_test_payment_date":   {"2026-05-17"},
-		"placement_test_payment_method": {"vodafone_cash"},
-	}
+	form := placementBookingBaseForm()
+	form.Set("placement_test_fee_paid", "30")
 
 	_, err := buildBookedPlacementTestFromRequest(uuid.New(), nil, newPlacementBookingRequest(form))
 	if err == nil || !strings.Contains(err.Error(), "must equal the final placement test fee") {
@@ -51,15 +49,8 @@ func TestBuildBookedPlacementTestRequiresPaidAmountToEqualFinalFee(t *testing.T)
 }
 
 func TestBuildBookedPlacementTestAcceptsFullPaidAmount(t *testing.T) {
-	form := url.Values{
-		"test_date":                     {"2026-05-17"},
-		"test_time":                     {"15:23"},
-		"test_type":                     {"Online"},
-		"placement_test_fee":            {"60"},
-		"placement_test_fee_paid":       {"60"},
-		"placement_test_payment_date":   {"2026-05-17"},
-		"placement_test_payment_method": {"vodafone_cash"},
-	}
+	form := placementBookingBaseForm()
+	form.Set("placement_test_fee_paid", "60")
 
 	pt, err := buildBookedPlacementTestFromRequest(uuid.New(), nil, newPlacementBookingRequest(form))
 	if err != nil {
