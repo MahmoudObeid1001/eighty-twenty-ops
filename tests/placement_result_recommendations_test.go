@@ -53,6 +53,7 @@ func TestPlacementResultRecommendations_PrioritizesUnderconstructionClass(t *tes
 		ON CONFLICT (lead_id) DO UPDATE
 		SET assigned_level = EXCLUDED.assigned_level, updated_at = NOW()
 	`, leadID, enrolledLeadID)
+	mustExec(t, `UPDATE leads SET sent_to_classes = true WHERE id = $1`, enrolledLeadID)
 
 	classNumber := int32(nowSuffix%100000) + 1
 	classKey := models.GenerateClassKey(2, "Sat/Tues", "10:00:00", classNumber)
@@ -138,6 +139,7 @@ func TestPlacementResultRecommendations_DoesNotUseActiveOrEmptyUnderconstruction
 		ON CONFLICT (lead_id) DO UPDATE
 		SET assigned_level = EXCLUDED.assigned_level, updated_at = NOW()
 	`, leadID, activeLeadID)
+	mustExec(t, `UPDATE leads SET sent_to_classes = true WHERE id = $1`, activeLeadID)
 
 	activeClassNumber := int32(nowSuffix%100000) + 20
 	activeClassKey := models.GenerateClassKey(3, "Sun/Wed", "07:30:00", activeClassNumber)
@@ -189,5 +191,76 @@ func TestPlacementResultRecommendations_DoesNotUseActiveOrEmptyUnderconstruction
 		if slot.Kind != "standard" {
 			t.Fatalf("expected slot %d to be standard, got %+v", i, slot)
 		}
+	}
+}
+
+func TestPlacementResultRecommendations_PrioritizesVirtualUnderconstructionClass(t *testing.T) {
+	cfg := config.Load()
+	if err := db.Connect(cfg.DatabaseURL); err != nil {
+		t.Fatalf("failed to connect db: %v", err)
+	}
+	if err := db.RunMigrations(); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	h := handlers.NewAPIHandler(cfg)
+	nowSuffix := time.Now().UnixNano()
+	admin := mustCreateUser(t, "admin", fmt.Sprintf("placement_result_virtual_admin_%d@eightytwenty.test", nowSuffix))
+	t.Cleanup(func() {
+		mustExec(t, `DELETE FROM users WHERE id = $1`, admin.ID)
+	})
+
+	leadID := createLeadWithStatus(t, "Result Student Three", uniquePhone(nowSuffix, 21), "offer_sent", admin.ID)
+	scheduledLeadID := createLeadWithStatus(t, "Scheduled Student", uniquePhone(nowSuffix, 22), "ready_to_start", admin.ID)
+	t.Cleanup(func() {
+		cleanupLead(t, scheduledLeadID)
+		cleanupLead(t, leadID)
+	})
+
+	mustExec(t, `
+		INSERT INTO placement_tests (lead_id, assigned_level, updated_at)
+		VALUES ($1, 3, NOW()), ($2, 3, NOW())
+		ON CONFLICT (lead_id) DO UPDATE
+		SET assigned_level = EXCLUDED.assigned_level, updated_at = NOW()
+	`, leadID, scheduledLeadID)
+	mustExec(t, `UPDATE leads SET sent_to_classes = true WHERE id = $1`, scheduledLeadID)
+	mustExec(t, `
+		INSERT INTO scheduling (lead_id, class_days, class_time, class_group_index, updated_at)
+		VALUES ($1, 'Mon/Thu', '07:30:00'::time, 1, NOW())
+		ON CONFLICT (lead_id) DO UPDATE
+		SET class_days = EXCLUDED.class_days,
+		    class_time = EXCLUDED.class_time,
+		    class_group_index = EXCLUDED.class_group_index,
+		    updated_at = NOW()
+	`, scheduledLeadID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/pre-enrolment/"+leadID.String()+"/placement-result-data", nil)
+	res := httptest.NewRecorder()
+
+	h.GetPlacementResultData(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected success, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload placementResultPayload
+	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Slots) != 4 {
+		t.Fatalf("expected 4 slots when virtual underconstruction class exists, got %d payload=%+v", len(payload.Slots), payload)
+	}
+	if payload.Slots[0].Kind != "underconstruction" {
+		t.Fatalf("expected first slot to be underconstruction, got %+v", payload.Slots[0])
+	}
+	if payload.Slots[0].Days != "Mon-Thu" || payload.Slots[0].Time != "7:30PM" {
+		t.Fatalf("expected first slot to match virtual underconstruction class, got %+v", payload.Slots[0])
+	}
+	if payload.Slots[0].Enrollment != 1 {
+		t.Fatalf("expected virtual underconstruction enrollment 1, got %+v", payload.Slots[0])
 	}
 }

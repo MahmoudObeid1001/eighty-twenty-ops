@@ -140,60 +140,57 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 
 	var underconstructionClasses []ClassResult
 
-	// Query only underconstruction classes. Active classes must not trigger the
-	// 4-slot branch; that branch is reserved for not_started classes that already
-	// have enrolled students.
+	// Build underconstruction candidates from the same scheduling-based grouping
+	// used by the Ops board. This catches real pre-start classes even before a
+	// class_groups row has been created for them.
 	rows, queryErr := db.DB.Query(`
-		SELECT cg.class_key, cg.class_days, cg.class_time,
-		       COALESCE(cg.round_status, 'not_started') as round_status
-		FROM class_groups cg
-		WHERE cg.level = $1
-		  AND COALESCE(cg.round_status, 'not_started') = 'not_started'
+		SELECT
+			s.class_days,
+			TO_CHAR(s.class_time, 'HH24:MI') AS class_time,
+			COALESCE(cg.round_status, 'not_started') AS round_status,
+			COUNT(DISTINCT l.id) AS current_enrollment
+		FROM leads l
+		INNER JOIN placement_tests pt ON pt.lead_id = l.id
+		INNER JOIN scheduling s ON s.lead_id = l.id
+		LEFT JOIN class_groups cg ON (
+			cg.level = pt.assigned_level
+			AND cg.class_days = s.class_days
+			AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
+			AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+		)
+		WHERE pt.assigned_level = $1
+		  AND COALESCE(l.sent_to_classes, false) = true
+		  AND l.status IN ('ready_to_start', 'waiting_for_round', 'in_classes')
+		  AND s.class_days IS NOT NULL
+		  AND s.class_time IS NOT NULL
+		  AND COALESCE(cg.round_status, 'not_started') != 'closed'
+		GROUP BY
+			s.class_days,
+			TO_CHAR(s.class_time, 'HH24:MI'),
+			COALESCE(s.class_group_index, 1),
+			COALESCE(cg.round_status, 'not_started')
+		HAVING COALESCE(cg.round_status, 'not_started') = 'not_started'
 	`, level)
 
 	if queryErr == nil {
 		defer rows.Close()
 		for rows.Next() {
-			var classKey, classDays, classTime, roundStatus string
-			if scanErr := rows.Scan(&classKey, &classDays, &classTime, &roundStatus); scanErr == nil {
-				// Count enrollment
-				var currentEnrollment int
-				enrollErr := db.DB.QueryRow(`
-					SELECT COUNT(DISTINCT l.id)
-					FROM leads l
-					INNER JOIN scheduling s ON s.lead_id = l.id
-					INNER JOIN placement_tests pt ON pt.lead_id = l.id
-					INNER JOIN class_groups cg ON (
-						cg.level = pt.assigned_level
-						AND cg.class_days = s.class_days
-						AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
-						AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
-					)
-					WHERE cg.class_key = $1
-					  AND (
-					    l.status = 'in_classes'
-					    OR (
-					      $2 = 'not_started'
-					      AND l.status = 'ready_to_start'
-					    )
-					  )
-				`, classKey, roundStatus).Scan(&currentEnrollment)
-
-				if enrollErr == nil {
-					seats := 6 - currentEnrollment
-					if seats < 0 {
-						seats = 0
-					}
-					if seats > 0 && currentEnrollment >= 1 {
-						underconstructionClasses = append(underconstructionClasses, ClassResult{
-							Days:       normalizeDays(classDays),
-							Time:       normalizeTime(classTime),
-							Seats:      int(seats),
-							Enrollment: currentEnrollment,
-							Status:     roundStatus,
-							Kind:       "underconstruction",
-						})
-					}
+			var classDays, classTime, roundStatus string
+			var currentEnrollment int
+			if scanErr := rows.Scan(&classDays, &classTime, &roundStatus, &currentEnrollment); scanErr == nil {
+				seats := 6 - currentEnrollment
+				if seats < 0 {
+					seats = 0
+				}
+				if seats > 0 && currentEnrollment >= 1 {
+					underconstructionClasses = append(underconstructionClasses, ClassResult{
+						Days:       normalizeDays(classDays),
+						Time:       normalizeTime(classTime),
+						Seats:      int(seats),
+						Enrollment: currentEnrollment,
+						Status:     roundStatus,
+						Kind:       "underconstruction",
+					})
 				}
 			}
 		}

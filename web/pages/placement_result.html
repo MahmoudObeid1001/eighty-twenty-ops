@@ -805,13 +805,13 @@ function setupPage() {
       el.innerHTML = `
         <div class="cs-radio"></div>
         <div class="cs-info">
-          ${c.kind === "underconstruction" ? `<div class="cs-note">Recommended class to complete soon</div>` : ``}
+          ${c.kind === "underconstruction" ? `<div class="cs-note">Recommended class</div>` : ``}
           <div class="cs-days">${c.days}</div>
           <div class="cs-time">${c.time}</div>
           <div class="cs-ar ar">${c.days.replace("Sun","أحد").replace("Mon","اثنين").replace("Tue","ثلاثاء").replace("Wed","أربع").replace("Thu","خميس").replace("Fri","جمعة").replace("Sat","سبت")} — ${c.time}</div>
         </div>
         ${c.kind === "underconstruction"
-          ? `<span class="cs-badge recommended">Recommended</span>`
+          ? `<span class="cs-badge recommended">Recommended Class</span>`
           : (c.seats <= 2
             ? `<span class="cs-badge">⚡ ${c.seats} left</span>`
             : `<span class="cs-badge" style="background:#e8f0fe;color:#1a6fc4;">✓ Available</span>`)}`;
