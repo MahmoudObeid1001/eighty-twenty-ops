@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"eighty-twenty-ops/internal/db"
-	"eighty-twenty-ops/internal/models"
 )
 
 // PlacementResultData contains the data needed for the result page
@@ -98,20 +97,65 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 	}
 
 	var openClasses []ClassResult
-	eligibleClasses, err := models.GetEligibleClassesForLateJoin(leadID)
-	if err == nil {
-		for _, c := range eligibleClasses {
-			seats := 6 - c.CurrentEnrollment
-			if seats < 0 {
-				seats = 0
-			}
-			if seats > 0 {
-				openClasses = append(openClasses, ClassResult{
-					Days:       normalizeDays(c.ClassDays),
-					Time:       normalizeTime(c.ClassTime),
-					Seats:      int(seats),
-					Enrollment: int(c.CurrentEnrollment),
-				})
+	
+	// Query active or sent-to-mentor classes matching level directly
+	// to avoid blocking non-ready_to_start leads from showing open classes.
+	rows, queryErr := db.DB.Query(`
+		SELECT cg.class_key, cg.class_days, cg.class_time,
+		       COALESCE(cg.round_status, 'not_started') as round_status
+		FROM class_groups cg
+		WHERE cg.level = $1
+		  AND (
+		    COALESCE(cg.round_status, 'not_started') = 'active'
+		    OR (
+		      COALESCE(cg.round_status, 'not_started') = 'not_started'
+		      AND COALESCE(cg.sent_to_mentor, false) = true
+		    )
+		  )
+	`, level)
+
+	if queryErr == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var classKey, classDays, classTime, roundStatus string
+			if scanErr := rows.Scan(&classKey, &classDays, &classTime, &roundStatus); scanErr == nil {
+				// Count enrollment
+				var currentEnrollment int
+				enrollErr := db.DB.QueryRow(`
+					SELECT COUNT(DISTINCT l.id)
+					FROM leads l
+					INNER JOIN scheduling s ON s.lead_id = l.id
+					INNER JOIN placement_tests pt ON pt.lead_id = l.id
+					INNER JOIN class_groups cg ON (
+						cg.level = pt.assigned_level
+						AND cg.class_days = s.class_days
+						AND LEFT(cg.class_time, 5) = TO_CHAR(s.class_time, 'HH24:MI')
+						AND COALESCE(cg.class_number, 1) = COALESCE(s.class_group_index, 1)
+					)
+					WHERE cg.class_key = $1
+					  AND (
+					    l.status = 'in_classes'
+					    OR (
+					      $2 = 'not_started'
+					      AND l.status = 'ready_to_start'
+					    )
+					  )
+				`, classKey, roundStatus).Scan(&currentEnrollment)
+				
+				if enrollErr == nil {
+					seats := 6 - currentEnrollment
+					if seats < 0 {
+						seats = 0
+					}
+					if seats > 0 {
+						openClasses = append(openClasses, ClassResult{
+							Days:       normalizeDays(classDays),
+							Time:       normalizeTime(classTime),
+							Seats:      int(seats),
+							Enrollment: currentEnrollment,
+						})
+					}
+				}
 			}
 		}
 	}
