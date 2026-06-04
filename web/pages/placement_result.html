@@ -918,15 +918,16 @@ function sendWhatsApp(){
   let classLine = "";
   if(availableClasses.length > 0){
     if(!selectedClass){ alert("Please choose a class time first! / اختار موعد الحصة الأول"); return; }
-    classLine = `\nClass time: ${selectedClass.days} at ${selectedClass.time}`;
+    classLine = `\nموعد الحصة: ${selectedClass.days} الساعة ${selectedClass.time}`;
   } else {
     const time = document.getElementById("timeSel").value;
-    classLine = `\nPreferred days: ${selectedDays.join(", ") || "not selected"}`;
-    if(time) classLine += `\nPreferred time: ${time}`;
+    classLine = `\nالأيام المفضلة: ${selectedDays.join(", ") || "غير محدد"}`;
+    if(time) classLine += `\nالوقت المفضل: ${time}`;
   }
 
   const method = activeMethod === "ip" ? "InstaPay" : "Vodafone Cash";
-  const msg = `Hi! I'm ${cfg.name}. I just received my Eighty Twenty placement result (Level ${cfg.level} — ${lv.name}) and I've completed my payment via ${method} for ${selectedBundleLevels} Level(s) (${selectedBundlePrice.toLocaleString('en-US')} EGP).${classLine}\n\n📎 I'm sending my payment screenshot right after this message.\n\nPlease confirm my seat. 🙏`;
+  const levelsText = selectedBundleLevels === 1 ? "مستوى واحد" : `${selectedBundleLevels} مستويات`;
+  const msg = `أهلاً! أنا ${cfg.name}. لسه مستلم نتيجة تحديد المستوى من Eighty Twenty (المستوى ${cfg.level} — ${lv.name}) وأتممت الدفع عن طريق ${method} لـ ${levelsText} بقيمة (${selectedBundlePrice.toLocaleString('en-US')} EGP).${classLine}\n\n📎 هبعت سكرين شوت تأكيد الدفع بعد الرسالة دي علطول.\n\nياريت تأكدوا مكاني. 🙏`;
   window.open(`https://wa.me/${CONFIG.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
 
   /* show sticky reminder after a short delay */
