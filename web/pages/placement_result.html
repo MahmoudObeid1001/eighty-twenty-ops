@@ -142,6 +142,8 @@
     display:flex;align-items:center;gap:14px;transition:border-color .15s,background .15s;
     background:#fff;}
   .cslot:hover{border-color:var(--cyan);background:#f0f9ff;}
+  .cslot.recommended{border-color:#f0c95a;background:linear-gradient(135deg,#fff8de,#fff);}
+  .cslot.recommended:hover{border-color:#dbb145;background:linear-gradient(135deg,#fff4cb,#fff);}
   .cslot.selected{border-color:var(--cyan);background:linear-gradient(135deg,#eef7fc,#fff);
     box-shadow:0 4px 14px -6px rgba(59,180,229,.35);}
   .cslot .cs-radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);
@@ -151,8 +153,10 @@
   .cs-info .cs-days{font-weight:700;font-size:15px;color:var(--navy);}
   .cs-info .cs-time{font-size:13px;color:var(--muted);}
   .cs-info .cs-ar{font-size:12px;color:var(--cyan-deep);}
+  .cs-info .cs-note{font-size:12px;color:#8b6a16;font-weight:700;margin-bottom:3px;letter-spacing:.2px;}
   .cs-badge{margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;
     background:#e8f8ef;color:var(--green-deep);}
+  .cs-badge.recommended{background:#fff0bf;color:#7c5c05;}
 
   /* fallback time preference */
   .timepref{margin-top:14px;border:2px dashed var(--line);border-radius:14px;padding:18px;}
@@ -735,6 +739,39 @@ let selectedClass = null;
 let selectedDays  = [];
 let activeMethod  = "ip";
 
+function parseLegacyClasses(cParam) {
+  if(cParam.trim() === "") return [];
+  return cParam.split(",").map(c=>{
+    const [dt,s] = c.split("|");
+    const [days,time] = dt.split("_");
+    return {
+      days: days.replace(/-/g," / "),
+      time,
+      seats: parseInt(s ?? 1, 10),
+      kind: "standard",
+    };
+  });
+}
+
+function applySlotsData(data) {
+  if(Array.isArray(data?.slots) && data.slots.length > 0) {
+    classes = data.slots.map(slot => ({
+      days: (slot.days || "").replace(/-/g," / "),
+      time: slot.time,
+      seats: parseInt(slot.seats ?? 0, 10),
+      kind: slot.kind || "standard",
+      status: slot.status || "",
+      enrollment: parseInt(slot.enrollment ?? 0, 10),
+    }));
+    return;
+  }
+
+  const cParam = data?.classes;
+  if(typeof cParam === "string") {
+    classes = parseLegacyClasses(cParam);
+  }
+}
+
 function fill(id, items, sym){
   document.getElementById(id).innerHTML = items.map(([en,ar])=>
     `<li><span class="ic">${sym}</span><span class="txt">${en}<span class="ar" style="display:block;">${ar}</span></span></li>`
@@ -763,15 +800,21 @@ function setupPage() {
     availableClasses.forEach((c,i)=>{
       const el = document.createElement("div");
       el.className = "cslot";
+      if(c.kind === "underconstruction") el.classList.add("recommended");
       el.dataset.idx = i;
       el.innerHTML = `
         <div class="cs-radio"></div>
         <div class="cs-info">
+          ${c.kind === "underconstruction" ? `<div class="cs-note">Recommended class to complete soon</div>` : ``}
           <div class="cs-days">${c.days}</div>
           <div class="cs-time">${c.time}</div>
           <div class="cs-ar ar">${c.days.replace("Sun","أحد").replace("Mon","اثنين").replace("Tue","ثلاثاء").replace("Wed","أربع").replace("Thu","خميس").replace("Fri","جمعة").replace("Sat","سبت")} — ${c.time}</div>
         </div>
-        ${c.seats <= 2 ? `<span class="cs-badge">⚡ ${c.seats} left</span>` : `<span class="cs-badge" style="background:#e8f0fe;color:#1a6fc4;">✓ Available</span>`}`;
+        ${c.kind === "underconstruction"
+          ? `<span class="cs-badge recommended">Recommended</span>`
+          : (c.seats <= 2
+            ? `<span class="cs-badge">⚡ ${c.seats} left</span>`
+            : `<span class="cs-badge" style="background:#e8f0fe;color:#1a6fc4;">✓ Available</span>`)}`;
       el.onclick = ()=>{
         document.querySelectorAll(".cslot").forEach(s=>s.classList.remove("selected"));
         el.classList.add("selected");
@@ -844,19 +887,7 @@ if (leadId) {
     .then(data => {
       cfg.name = data.name;
       cfg.level = parseInt(data.level);
-      
-      let cParam = data.classes;
-      if(cParam) {
-        if(cParam.trim() === "") {
-          classes = [];
-        } else {
-          classes = cParam.split(",").map(c=>{
-            const [dt,s] = c.split("|");
-            const [days,time] = dt.split("_");
-            return {days:days.replace(/-/g," / "), time, seats:parseInt(s??1)};
-          });
-        }
-      }
+      applySlotsData(data);
       setupPage();
     })
     .catch(err => {
@@ -887,11 +918,7 @@ function loadFromURLParams() {
     if(cParam.trim() === "") {
       classes = [];
     } else {
-      classes = cParam.split(",").map(c=>{
-        const [dt,s] = c.split("|");
-        const [days,time] = dt.split("_");
-        return {days:days.replace(/-/g," / "), time, seats:parseInt(s??1)};
-      });
+      classes = parseLegacyClasses(cParam);
     }
   }
   setupPage();

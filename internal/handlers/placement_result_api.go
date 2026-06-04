@@ -7,15 +7,25 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/uuid"
 	"eighty-twenty-ops/internal/db"
+	"github.com/google/uuid"
 )
 
 // PlacementResultData contains the data needed for the result page
 type PlacementResultData struct {
-	Name    string `json:"name"`
-	Level   int32  `json:"level"`
-	Classes string `json:"classes"` // Format: Days_Time|seatsLeft,Days_Time|seatsLeft
+	Name    string                `json:"name"`
+	Level   int32                 `json:"level"`
+	Classes string                `json:"classes"` // Legacy format: Days_Time|seatsLeft,Days_Time|seatsLeft
+	Slots   []PlacementResultSlot `json:"slots"`
+}
+
+type PlacementResultSlot struct {
+	Days       string `json:"days"`
+	Time       string `json:"time"`
+	Seats      int    `json:"seats"`
+	Kind       string `json:"kind"`
+	Status     string `json:"status,omitempty"`
+	Enrollment int    `json:"enrollment,omitempty"`
 }
 
 // GetPlacementResultData returns lead info and available classes formatted for the result URL
@@ -85,6 +95,7 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 		Seats      int
 		Enrollment int
 		Status     string
+		Kind       string
 	}
 
 	// Standard 6 slots defined by the school system
@@ -127,15 +138,17 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 		})
 	}
 
-	var openClasses []ClassResult
-	
-	// Query active or underconstruction classes matching level directly
+	var underconstructionClasses []ClassResult
+
+	// Query only underconstruction classes. Active classes must not trigger the
+	// 4-slot branch; that branch is reserved for not_started classes that already
+	// have enrolled students.
 	rows, queryErr := db.DB.Query(`
 		SELECT cg.class_key, cg.class_days, cg.class_time,
 		       COALESCE(cg.round_status, 'not_started') as round_status
 		FROM class_groups cg
 		WHERE cg.level = $1
-		  AND COALESCE(cg.round_status, 'not_started') IN ('active', 'not_started')
+		  AND COALESCE(cg.round_status, 'not_started') = 'not_started'
 	`, level)
 
 	if queryErr == nil {
@@ -165,19 +178,20 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 					    )
 					  )
 				`, classKey, roundStatus).Scan(&currentEnrollment)
-				
+
 				if enrollErr == nil {
 					seats := 6 - currentEnrollment
 					if seats < 0 {
 						seats = 0
 					}
-					if seats > 0 {
-						openClasses = append(openClasses, ClassResult{
+					if seats > 0 && currentEnrollment >= 1 {
+						underconstructionClasses = append(underconstructionClasses, ClassResult{
 							Days:       normalizeDays(classDays),
 							Time:       normalizeTime(classTime),
 							Seats:      int(seats),
 							Enrollment: currentEnrollment,
 							Status:     roundStatus,
+							Kind:       "underconstruction",
 						})
 					}
 				}
@@ -185,47 +199,28 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Sort classes:
-	// Priority 1: underconstruction ('not_started') classes with >= 1 student (descending by enrollment)
-	// Priority 2: active classes (descending by enrollment)
-	// Priority 3: underconstruction classes with 0 students (descending by enrollment)
-	sort.Slice(openClasses, func(i, j int) bool {
-		cI, cJ := openClasses[i], openClasses[j]
-		
-		isPriI := cI.Status == "not_started" && cI.Enrollment >= 1
-		isPriJ := cJ.Status == "not_started" && cJ.Enrollment >= 1
-		
-		if isPriI && !isPriJ {
-			return true
-		}
-		if !isPriI && isPriJ {
-			return false
-		}
-		if isPriI && isPriJ {
+	sort.SliceStable(underconstructionClasses, func(i, j int) bool {
+		cI, cJ := underconstructionClasses[i], underconstructionClasses[j]
+		if cI.Enrollment != cJ.Enrollment {
 			return cI.Enrollment > cJ.Enrollment
 		}
-		
-		isActiveI := cI.Status == "active"
-		isActiveJ := cJ.Status == "active"
-		
-		if isActiveI && !isActiveJ {
-			return true
+		if cI.Seats != cJ.Seats {
+			return cI.Seats < cJ.Seats
 		}
-		if !isActiveI && isActiveJ {
-			return false
+		if cI.Days != cJ.Days {
+			return cI.Days < cJ.Days
 		}
-		if isActiveI && isActiveJ {
-			return cI.Enrollment > cJ.Enrollment
-		}
-		
-		return cI.Enrollment > cJ.Enrollment
+		return cI.Time < cJ.Time
 	})
 
 	var selected []ClassResult
-	if len(openClasses) > 0 {
-		// Suggest the first prioritized open class (underconstruction with students, active, or empty underconstruction)
-		selected = append(selected, openClasses[0])
-		
+	hasUnderconstruction := len(underconstructionClasses) > 0
+
+	if hasUnderconstruction {
+		// Suggest the top underconstruction class first, then fill with the three
+		// most popular standard slots.
+		selected = append(selected, underconstructionClasses[0])
+
 		// Fill the remaining slots up to 4 using the standard slots (so 1 open + 3 standard slots)
 		for _, std := range stdSlots {
 			if len(selected) >= 4 {
@@ -244,6 +239,7 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 					Days:  std.Days,
 					Time:  std.Time,
 					Seats: 6, // default available seats
+					Kind:  "standard",
 				})
 			}
 		}
@@ -254,14 +250,24 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 				Days:  std.Days,
 				Time:  std.Time,
 				Seats: 6,
+				Kind:  "standard",
 			})
 		}
 	}
 
 	// Format output classes parameter
 	var classParts []string
+	slots := make([]PlacementResultSlot, 0, len(selected))
 	for _, s := range selected {
 		classParts = append(classParts, fmt.Sprintf("%s_%s|%d", s.Days, s.Time, s.Seats))
+		slots = append(slots, PlacementResultSlot{
+			Days:       s.Days,
+			Time:       s.Time,
+			Seats:      s.Seats,
+			Kind:       s.Kind,
+			Status:     s.Status,
+			Enrollment: s.Enrollment,
+		})
 	}
 	classesStr := strings.Join(classParts, ",")
 
@@ -269,5 +275,6 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 		Name:    strings.Split(name, " ")[0], // First name only
 		Level:   level,
 		Classes: classesStr,
+		Slots:   slots,
 	})
 }
