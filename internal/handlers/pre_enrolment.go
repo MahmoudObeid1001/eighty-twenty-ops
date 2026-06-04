@@ -4281,6 +4281,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	paymentDiscountType := strings.ToLower(firstNonEmpty(r.FormValue("discount_type"), r.FormValue("payment_discount_type")))
 	paymentFinalPriceStr := r.FormValue("payment_final_price")
 	pricingTrack := normalizePricingTrack(firstNonEmpty(r.FormValue("pricing_track"), inferOfferPricingTrack(existingDetail.Offer)))
+	offerNotes := strings.TrimSpace(r.FormValue("offer_notes"))
 	coursePaymentEnabledForExisting, _ := canUseCoursePaymentFlow(existingDetail)
 	if !coursePaymentEnabledForExisting {
 		paymentBundleStr = ""
@@ -4311,7 +4312,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	// 3. Final price is explicitly provided (user manually set it)
 	// Do NOT process if only existing offer exists (prevents auto-updating when saving other sections)
 	paymentDealProvided := paymentBundleStr != "" || paymentDiscountAmountStr != "" || paymentFinalPriceStr != ""
-	shouldProcessOffer := bundleStr != "" || isExplicitOfferSave || finalPriceStr != "" || paymentDealProvided
+	offerPricingChanged := bundleStr != "" || isExplicitOfferSave || finalPriceStr != "" || paymentDealProvided
+	existingOfferNotes := ""
+	if existingOffer != nil && existingOffer.FollowUpNotes.Valid {
+		existingOfferNotes = strings.TrimSpace(existingOffer.FollowUpNotes.String)
+	}
+	offerNotesChanged := offerNotes != existingOfferNotes
+	shouldProcessOffer := offerPricingChanged || offerNotesChanged
 	h.cfg.Debugf("  💰 Offer processing check: bundleStr=%q, finalPriceStr=%q, isExplicitOfferSave=%v, existingOffer!=nil=%v, shouldProcess=%v, leadID=%s",
 		bundleStr, finalPriceStr, isExplicitOfferSave, existingOffer != nil, shouldProcessOffer, leadID)
 
@@ -4325,6 +4332,13 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 			offer.DiscountValue = existingOffer.DiscountValue
 			offer.DiscountType = existingOffer.DiscountType
 			offer.FinalPrice = existingOffer.FinalPrice
+			offer.FollowUpNotes = existingOffer.FollowUpNotes
+		}
+
+		if offerNotes != "" {
+			offer.FollowUpNotes = sql.NullString{String: offerNotes, Valid: true}
+		} else {
+			offer.FollowUpNotes = sql.NullString{Valid: false}
 		}
 
 		bundlePrices := pricingTrackBundlePrices(pricingTrack)
@@ -4857,7 +4871,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	// CRITICAL: Preserve existing offer for display/computation, but track if it was explicitly changed
 	// This ensures that if user only updates other sections, offer final_price is not lost
 	// BUT: We only use it for status upgrade if it was explicitly changed
-	offerWasExplicitlyChanged := shouldProcessOffer
+	offerWasExplicitlyChanged := offerPricingChanged
 	if detail.Offer == nil && existingDetail.Offer != nil {
 		detail.Offer = existingDetail.Offer
 		h.cfg.Debugf("  💰 Preserving existing offer: FinalPrice.Valid=%v, FinalPrice.Int32=%d, leadID=%s",
@@ -4919,7 +4933,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		newStage, dbStatus := models.ComputeStageFromFormCompletion(stageDetail, currentStatus)
 
 		// Validation: If stage reaches OFFER_SENT or later, final_price must be valid
-		if newStage == models.StageOfferSent || newStage == models.StageBookingConfirmedPaidFull || newStage == models.StageBookingConfirmedDeposit {
+		if shouldRequireFinalPriceForSave(newStage, currentStatus, offerPricingChanged) {
 			if detail.Offer == nil || !detail.Offer.FinalPrice.Valid || detail.Offer.FinalPrice.Int32 < 0 {
 				h.renderDetailWithError(w, r, leadID, "Final price is required when sending an offer. Please fill in the Offer & Pricing section.")
 				return
@@ -5251,6 +5265,25 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to detail page to show saved changes
 	http.Redirect(w, r, fmt.Sprintf("/pre-enrolment/%s?saved=1", leadID.String()), http.StatusFound)
+}
+
+func isOfferStageOrLater(stage string) bool {
+	switch stage {
+	case models.StageOfferSent, models.StageBookingConfirmedPaidFull, models.StageBookingConfirmedDeposit:
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldRequireFinalPriceForSave(newStage, currentStatus string, offerPricingChanged bool) bool {
+	if !isOfferStageOrLater(newStage) {
+		return false
+	}
+	if offerPricingChanged {
+		return true
+	}
+	return !isOfferStageOrLater(models.MapOldStatusToStage(currentStatus))
 }
 
 // MarkTested sets status to "tested" and optionally saves test notes/assigned level

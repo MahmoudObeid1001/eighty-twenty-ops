@@ -66,6 +66,10 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 
 	normalizeTime := func(t string) string {
 		t = strings.ReplaceAll(t, " ", "")
+		parts := strings.Split(t, ":")
+		if len(parts) >= 2 {
+			t = parts[0] + ":" + parts[1]
+		}
 		if t == "07:30" || t == "7:30" {
 			return "7:30PM"
 		}
@@ -80,6 +84,7 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 		Time       string
 		Seats      int
 		Enrollment int
+		Status     string
 	}
 
 	// Standard 6 slots defined by the school system
@@ -124,20 +129,13 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 
 	var openClasses []ClassResult
 	
-	// Query active or sent-to-mentor classes matching level directly
-	// to avoid blocking non-ready_to_start leads from showing open classes.
+	// Query active or underconstruction classes matching level directly
 	rows, queryErr := db.DB.Query(`
 		SELECT cg.class_key, cg.class_days, cg.class_time,
 		       COALESCE(cg.round_status, 'not_started') as round_status
 		FROM class_groups cg
 		WHERE cg.level = $1
-		  AND (
-		    COALESCE(cg.round_status, 'not_started') = 'active'
-		    OR (
-		      COALESCE(cg.round_status, 'not_started') = 'not_started'
-		      AND COALESCE(cg.sent_to_mentor, false) = true
-		    )
-		  )
+		  AND COALESCE(cg.round_status, 'not_started') IN ('active', 'not_started')
 	`, level)
 
 	if queryErr == nil {
@@ -179,6 +177,7 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 							Time:       normalizeTime(classTime),
 							Seats:      int(seats),
 							Enrollment: currentEnrollment,
+							Status:     roundStatus,
 						})
 					}
 				}
@@ -186,37 +185,75 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Sort real classes by enrollment descending (most populated first)
+	// Sort classes:
+	// Priority 1: underconstruction ('not_started') classes with >= 1 student (descending by enrollment)
+	// Priority 2: active classes (descending by enrollment)
+	// Priority 3: underconstruction classes with 0 students (descending by enrollment)
 	sort.Slice(openClasses, func(i, j int) bool {
-		return openClasses[i].Enrollment > openClasses[j].Enrollment
+		cI, cJ := openClasses[i], openClasses[j]
+		
+		isPriI := cI.Status == "not_started" && cI.Enrollment >= 1
+		isPriJ := cJ.Status == "not_started" && cJ.Enrollment >= 1
+		
+		if isPriI && !isPriJ {
+			return true
+		}
+		if !isPriI && isPriJ {
+			return false
+		}
+		if isPriI && isPriJ {
+			return cI.Enrollment > cJ.Enrollment
+		}
+		
+		isActiveI := cI.Status == "active"
+		isActiveJ := cJ.Status == "active"
+		
+		if isActiveI && !isActiveJ {
+			return true
+		}
+		if !isActiveI && isActiveJ {
+			return false
+		}
+		if isActiveI && isActiveJ {
+			return cI.Enrollment > cJ.Enrollment
+		}
+		
+		return cI.Enrollment > cJ.Enrollment
 	})
 
-	// Select highly populated class, then less populated class (if it exists)
 	var selected []ClassResult
 	if len(openClasses) > 0 {
-		// Highly populated one
+		// Suggest the first prioritized open class (underconstruction with students, active, or empty underconstruction)
 		selected = append(selected, openClasses[0])
-		// Less populated one
-		if len(openClasses) > 1 {
-			selected = append(selected, openClasses[len(openClasses)-1])
-		}
-	}
-
-	// Fill the remaining standard slots
-	for _, std := range stdSlots {
-		// Skip if this slot is already selected
-		alreadySelected := false
-		for _, sel := range selected {
-			if sel.Days == std.Days && sel.Time == std.Time {
-				alreadySelected = true
+		
+		// Fill the remaining slots up to 4 using the standard slots (so 1 open + 3 standard slots)
+		for _, std := range stdSlots {
+			if len(selected) >= 4 {
 				break
 			}
+			// Skip if this slot is already selected
+			alreadySelected := false
+			for _, sel := range selected {
+				if sel.Days == std.Days && sel.Time == std.Time {
+					alreadySelected = true
+					break
+				}
+			}
+			if !alreadySelected {
+				selected = append(selected, ClassResult{
+					Days:  std.Days,
+					Time:  std.Time,
+					Seats: 6, // default available seats
+				})
+			}
 		}
-		if !alreadySelected {
+	} else {
+		// If no class is open, fill with all 6 standard slots
+		for _, std := range stdSlots {
 			selected = append(selected, ClassResult{
 				Days:  std.Days,
 				Time:  std.Time,
-				Seats: 6, // default available seats
+				Seats: 6,
 			})
 		}
 	}
