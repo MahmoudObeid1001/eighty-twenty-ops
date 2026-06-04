@@ -1011,8 +1011,8 @@ function sendWhatsApp(){
 
   let classLine = "";
   if(availableClasses.length > 0){
-    if(!selectedClass){ alert("Please choose a session time first! / اختار موعد الـ session الأول"); return; }
-    classLine = `\nموعد الـ session: ${selectedClass.days} الساعة ${selectedClass.time}`;
+    if(!selectedClass){ alert("Please choose a session time first! / اختار موعد السيشن الأول"); return; }
+    classLine = `\nموعد السيشن: ${selectedClass.days} الساعة ${selectedClass.time}`;
   } else {
     const time = document.getElementById("timeSel").value;
     classLine = `\nالأيام المفضلة: ${selectedDays.join(", ") || "غير محدد"}`;
