@@ -386,28 +386,6 @@
   </section>
 
   <hr class="divider" style="margin-top:20px;">
-
-  <!-- SCREENSHOT UPLOAD -->
-  <section class="upload-section">
-    <div class="up-title">Upload your payment screenshot</div>
-    <div class="up-title-ar ar">ارفع صورة تأكيد الدفع</div>
-
-    <div class="dropzone" id="dropzone">
-      <input type="file" id="fileInput" accept="image/*" capture="environment">
-      <span class="dz-icon" id="dzIcon">📸</span>
-      <div class="dz-main" id="dzMain">Tap to upload your screenshot</div>
-      <div class="dz-sub" id="dzSub">Take a photo or choose from your gallery</div>
-      <div class="dz-ar ar">اضغط هنا وارفع صورة التأكيد من الجاليري أو الكاميرا</div>
-    </div>
-
-    <div class="preview-wrap" id="previewWrap">
-      <span class="preview-badge">✓ Screenshot ready</span>
-      <img id="previewImg" src="" alt="Payment screenshot">
-      <button class="remove-btn" onclick="removeScreenshot()">Remove and re-upload / امسح وارفع تاني</button>
-    </div>
-  </section>
-
-  <hr class="divider" style="margin-top:20px;">
   
   <!-- BUNDLE PICKER -->
   <section class="bundle-section" id="bundleSection">
@@ -459,8 +437,7 @@
       </div>
     </div>
   </section>
-
-  <hr class="divider" style="margin-top:20px;">
+<hr class="divider" style="margin-top:20px;">
   <section class="pay-section">
     <div class="pay-title">Complete your payment</div>
     <div class="pay-title-ar ar">أتمّم دفعك وابدأ</div>
@@ -523,6 +500,30 @@
       </div>
     </div>
 
+    
+  </section>
+<hr class="divider" style="margin-top:20px;">
+
+  <!-- SCREENSHOT UPLOAD -->
+  <section class="upload-section">
+    <div class="up-title">Upload your payment screenshot</div>
+    <div class="up-title-ar ar">ارفع صورة تأكيد الدفع</div>
+
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept="image/*" capture="environment">
+      <span class="dz-icon" id="dzIcon">📸</span>
+      <div class="dz-main" id="dzMain">Tap to upload your screenshot</div>
+      <div class="dz-sub" id="dzSub">Take a photo or choose from your gallery</div>
+      <div class="dz-ar ar">اضغط هنا وارفع صورة التأكيد من الجاليري أو الكاميرا</div>
+    </div>
+
+    <div class="preview-wrap" id="previewWrap">
+      <span class="preview-badge">✓ Screenshot ready</span>
+      <img id="previewImg" src="" alt="Payment screenshot">
+      <button class="remove-btn" onclick="removeScreenshot()">Remove and re-upload / امسح وارفع تاني</button>
+    </div>
+  </section>
+  <section class="section" style="padding-top:10px;">
     <!-- price + CTA -->
     <div class="price-row">
       <div class="price"><span id="price">1,250</span> <small>EGP</small></div>
@@ -541,6 +542,7 @@
       <span class="ar" style="display:block;margin-top:3px;">هيفتح واتساب جاهز — اضغط إرسال وابعت صورة التأكيد في نفس الشات.</span>
     </div>
   </section>
+
 
   <!-- sticky reminder (shown after WhatsApp opens) -->
   <div class="reminder" id="reminder">
