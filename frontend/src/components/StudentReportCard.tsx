@@ -5,6 +5,160 @@ interface StudentReportCardProps {
   onClose: () => void
 }
 
+interface CertificateJourneyContent {
+  vocabularyCount: number
+  achievedItems: Array<{ en: string; ar?: string }>
+  nextLevel: number
+  nextItems: Array<{ en: string; ar?: string }>
+}
+
+const JOURNEY_HEADING_AR = 'رحلتك في تعلم الإنجليزية — انظر كم قطعت من الطريق'
+const JOURNEY_HEADING_EN = "Your English Journey — Look how far you've come"
+const ACHIEVED_HEADING_AR = 'أصبحت الآن قادراً على…'
+const ACHIEVED_HEADING_EN = 'You can now…'
+const NEXT_HEADING_AR = 'ستكتشف في المستوى القادم…'
+const NEXT_HEADING_EN = "Next, you'll unlock…"
+
+const CERTIFICATE_JOURNEY_BY_LEVEL: Record<number, CertificateJourneyContent> = {
+  1: {
+    vocabularyCount: 123,
+    achievedItems: [
+      { en: 'Introduce yourself and other people', ar: 'تعريف نفسك والآخرين' },
+      { en: 'Talk about your family', ar: 'التحدث عن عائلتك' },
+      { en: 'Talk about your daily routine', ar: 'وصف روتينك اليومي' },
+      { en: 'Talk about your favorite activities', ar: 'التحدث عن أنشطتك المفضلة' },
+      { en: 'Hold a small conversation', ar: 'إجراء محادثة بسيطة' },
+      { en: "Say why you're learning English", ar: 'التعبير عن سبب تعلّمك للإنجليزية' },
+    ],
+    nextLevel: 2,
+    nextItems: [
+      { en: 'Talking about your hobbies', ar: 'التحدث عن هواياتك' },
+      { en: 'Talking about your free time', ar: 'التحدث عن وقت فراغك' },
+      { en: 'Describing people', ar: 'وصف الأشخاص' },
+      { en: 'Describing common pain & symptoms', ar: 'وصف الألم والأعراض الشائعة' },
+      { en: 'Talking about your friendships', ar: 'التحدث عن علاقاتك وصداقاتك' },
+      { en: 'Inviting someone to your home', ar: 'دعوة شخص ما إلى منزلك' },
+      { en: 'Describing the weather', ar: 'وصف حالة الطقس' },
+    ],
+  },
+  2: {
+    vocabularyCount: 127,
+    achievedItems: [
+      { en: 'Talk about your hobbies.' },
+      { en: 'Talk about what you do in your free time.' },
+      { en: 'Talk about your future plans.' },
+      { en: 'Describe people.' },
+      { en: 'Describe pain when you feel it.' },
+      { en: 'Show care to someone who is sick.' },
+      { en: 'Talk about your best friends and how you got to know them.' },
+      { en: 'Talk about old friends.' },
+      { en: 'Describe the weather.' },
+    ],
+    nextLevel: 3,
+    nextItems: [
+      { en: 'Describe your neighborhood.' },
+      { en: "Describe your home or someone's apartment." },
+      { en: 'Describe your relationship with money.' },
+      { en: 'Ask for the price of something.' },
+      { en: 'Describe what you eat for breakfast, lunch, and dinner.' },
+      { en: 'Describe how you go to work, college, and school.' },
+      { en: 'Tell the difference between ways of transportation.' },
+      { en: "Describe someone's clothes and your own clothes." },
+      { en: 'Ask for and give directions to different places.' },
+      { en: 'Make your own cleaning routine.' },
+    ],
+  },
+  3: {
+    vocabularyCount: 151,
+    achievedItems: [
+      { en: 'Describe your neighborhood.' },
+      { en: "Describe your home or someone's apartment." },
+      { en: 'Describe your relationship with money.' },
+      { en: 'Ask for the price of something.' },
+      { en: 'Talk about prices in English.' },
+      { en: 'Describe food in general.' },
+      { en: 'Describe how you go to work, college, and school.' },
+      { en: 'Tell the difference between ways of transportation.' },
+      { en: 'Talk about what you like to wear at different times of the day.' },
+      { en: 'Give your opinion about winter and summer clothing.' },
+      { en: 'Ask for and give directions to different places.' },
+      { en: 'Name different places.' },
+      { en: 'Make your own cleaning routine.' },
+    ],
+    nextLevel: 4,
+    nextItems: [
+      { en: 'Describe what you did yesterday.' },
+      { en: 'Describe your personality.' },
+      { en: 'Talk about cellphones.' },
+      { en: 'Talk about what kind of movies you like to watch.' },
+      { en: 'Describe your childhood.' },
+      { en: "Describe what you feel when you're in pain." },
+      { en: "Talk about countries' problems." },
+    ],
+  },
+  4: {
+    vocabularyCount: 131,
+    achievedItems: [
+      { en: 'Talk about what you did yesterday.' },
+      { en: 'Describe your personality.' },
+      { en: 'Talk about cellphones.' },
+      { en: 'Talk about what kind of movies you like to watch.' },
+      { en: 'Describe your favorite movie.' },
+      { en: 'Comment on a bad movie.' },
+      { en: 'Describe your childhood.' },
+      { en: 'Talk about your relationship with your siblings and parents when you were a child.' },
+      { en: "Describe what you feel when you're in pain." },
+      { en: 'Describe other pains.' },
+      { en: 'Tell someone you feel sorry for them.' },
+      { en: "Talk about your country's problems." },
+    ],
+    nextLevel: 5,
+    nextItems: [
+      { en: 'Talk about yourself in detail in the form of a story.' },
+      { en: 'Learn the most common interview questions and answers.' },
+      { en: 'Describe your job.' },
+      { en: 'Describe your friendships with people.' },
+      { en: 'Learn general differences between men and women.' },
+      { en: 'Learn some law and legal terms.' },
+      { en: 'Learn the common kinds of crimes.' },
+      { en: 'Talk about your college life.' },
+    ],
+  },
+  5: {
+    vocabularyCount: 151,
+    achievedItems: [
+      { en: 'Talk about yourself in detail in the form of a story.' },
+      { en: 'Know what to do before, during, and after an interview.' },
+      { en: 'Talk about the most common interview questions and their answers.' },
+      { en: 'Talk about your job.' },
+      { en: 'Talk about your dream job.' },
+      { en: 'Describe your job.' },
+      { en: 'Talk about why people leave their jobs.' },
+      { en: 'Talk about why people love their jobs.' },
+      { en: 'Describe your friendships with people.' },
+      { en: 'Talk about the signs of a good friend.' },
+      { en: 'Talk about the signs of a toxic friend.' },
+      { en: 'Talk about why friends are so important.' },
+      { en: 'Talk about the differences between men and women, both physically and psychologically.' },
+      { en: 'Talk about whether women should work or not.' },
+      { en: 'Talk about some law and legal terms.' },
+      { en: 'Tell the differences between felony, misdemeanor, and infraction.' },
+      { en: 'Talk about the common kinds of crimes.' },
+      { en: 'Talk about your college life.' },
+    ],
+    nextLevel: 6,
+    nextItems: [
+      { en: 'Tell a story in detail the right way.' },
+      { en: 'Talk about social media platforms.' },
+      { en: 'Talk about a healthy lifestyle.' },
+      { en: 'Talk about parenthood.' },
+      { en: 'Discuss the difference between living in a first-world and a third-world country.' },
+      { en: "Describe how you feel when you're annoyed." },
+      { en: "Deal with someone you don't like." },
+    ],
+  },
+}
+
 function scoreBarWidth(value: number, max: number): string {
   if (max <= 0) return '0%'
   const pct = Math.max(0, Math.min(100, (value / max) * 100))
@@ -28,11 +182,21 @@ function formatCompletionDate(value: string): string {
   })
 }
 
+function renderJourneyListHtml(items: Array<{ en: string; ar?: string }>, icon: string): string {
+  return items
+    .map(
+      (item) =>
+        `<li><span class="l1-ic">${escapeHtml(icon)}</span><span class="l1-li-text"><span class="l1-li-en">${escapeHtml(item.en)}</span>${item.ar ? `<span class="l1-li-ar">${escapeHtml(item.ar)}</span>` : ''}</span></li>`,
+    )
+    .join('')
+}
+
 export default function StudentReportCard({ data, onClose }: StudentReportCardProps) {
   const finalScore = Math.round(data.calculation.total_score)
   const finalGrade = (data.final_grade || data.calculation.calculated_grade || '').toUpperCase()
   const showCertificate = finalGrade !== 'F'
-  const showLevelOneCertificate = showCertificate && data.class_level === 1
+  const journeyContent = showCertificate ? CERTIFICATE_JOURNEY_BY_LEVEL[data.class_level] : undefined
+  const showJourneyCertificate = !!journeyContent
   const completionDate = formatCompletionDate(data.completion_at || data.generated_at)
   const mentorSignatureName = (data.mentor_name || '').trim() || 'Class Mentor'
   const mentorHeadSignatureName = 'Mohamed Abdel Gawad'
@@ -125,7 +289,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   </style>
 </head>
 <body>
-  ${showLevelOneCertificate ? `<section class="level-one-certificate">
+  ${showJourneyCertificate && journeyContent ? `<section class="level-one-certificate">
     <div class="l1-frame"></div>
     <div class="l1-inner">
       <div class="l1-brand">
@@ -138,23 +302,23 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
         <div class="l1-presented">Presented to</div>
         <div class="l1-name">${escapeHtml(data.student_name)}</div>
         <div class="l1-name-rule"></div>
-        <div class="l1-reason">for successfully completing <strong>Level 1</strong> at Eighty Twenty.</div>
+        <div class="l1-reason">for successfully completing <strong>Level ${escapeHtml(data.class_level)}</strong> at Eighty Twenty.</div>
         <div class="l1-grade-chip"><span class="star">★</span> Final Grade: ${finalScore} - ${escapeHtml(finalGrade)}</div>
       </div>
       <div class="l1-journey">
         <div class="l1-bi">
-          <span class="l1-ar">رحلتك في تعلم الإنجليزية — انظر كم قطعت من الطريق</span>
-          <span class="l1-en-sub">Your English Journey — Look how far you've come</span>
+          <span class="l1-ar">${JOURNEY_HEADING_AR}</span>
+          <span class="l1-en-sub">${JOURNEY_HEADING_EN}</span>
         </div>
         <div class="l1-milestone">
           <div class="l1-ms-block">
-            <div class="l1-ms-num">123</div>
-            <div class="l1-ms-label-ar">كلمة تعلّمتها في المستوى الأول</div>
-            <div class="l1-ms-label-en">Words mastered · Level 1</div>
+            <div class="l1-ms-num">${escapeHtml(journeyContent.vocabularyCount)}</div>
+            <div class="l1-ms-label-ar">كلمة تعلّمتها في المستوى ${escapeHtml(data.class_level)}</div>
+            <div class="l1-ms-label-en">Words mastered · Level ${escapeHtml(data.class_level)}</div>
           </div>
           <div class="l1-ms-divider"></div>
           <div class="l1-ms-block">
-            <div class="l1-ms-num">Level 2</div>
+            <div class="l1-ms-num">Level ${escapeHtml(journeyContent.nextLevel)}</div>
             <div class="l1-ms-label-ar">الفصل القادم ينتظرك</div>
             <div class="l1-ms-label-en">Your next chapter awaits</div>
           </div>
@@ -163,33 +327,18 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
           <div class="l1-card now">
             <span class="l1-card-tag">✓ Achieved</span>
             <div class="l1-card-head">
-              <span class="l1-ar">أصبحت الآن قادراً على…</span>
-              <span class="l1-small">You can now…</span>
+              <span class="l1-ar">${ACHIEVED_HEADING_AR}</span>
+              <span class="l1-small">${ACHIEVED_HEADING_EN}</span>
             </div>
-            <ul class="l1-list">
-              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Introduce yourself and other people</span><span class="l1-li-ar">تعريف نفسك والآخرين</span></span></li>
-              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Talk about your family</span><span class="l1-li-ar">التحدث عن عائلتك</span></span></li>
-              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Talk about your daily routine</span><span class="l1-li-ar">وصف روتينك اليومي</span></span></li>
-              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Talk about your favorite activities</span><span class="l1-li-ar">التحدث عن أنشطتك المفضلة</span></span></li>
-              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Hold a small conversation</span><span class="l1-li-ar">إجراء محادثة بسيطة</span></span></li>
-              <li><span class="l1-ic">✓</span><span class="l1-li-text"><span class="l1-li-en">Say why you're learning English</span><span class="l1-li-ar">التعبير عن سبب تعلّمك للإنجليزية</span></span></li>
-            </ul>
+            <ul class="l1-list">${renderJourneyListHtml(journeyContent.achievedItems, '✓')}</ul>
           </div>
           <div class="l1-card next">
-            <span class="l1-card-tag">→ Coming in Level 2</span>
+            <span class="l1-card-tag">→ Coming in Level ${escapeHtml(journeyContent.nextLevel)}</span>
             <div class="l1-card-head">
-              <span class="l1-ar">ستكتشف في المستوى القادم…</span>
-              <span class="l1-small">Next, you'll unlock…</span>
+              <span class="l1-ar">${NEXT_HEADING_AR}</span>
+              <span class="l1-small">${NEXT_HEADING_EN}</span>
             </div>
-            <ul class="l1-list">
-              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Talking about your hobbies</span><span class="l1-li-ar">التحدث عن هواياتك</span></span></li>
-              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Talking about your free time</span><span class="l1-li-ar">التحدث عن وقت فراغك</span></span></li>
-              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Describing people</span><span class="l1-li-ar">وصف الأشخاص</span></span></li>
-              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Describing common pain &amp; symptoms</span><span class="l1-li-ar">وصف الألم والأعراض الشائعة</span></span></li>
-              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Talking about your friendships</span><span class="l1-li-ar">التحدث عن علاقاتك وصداقاتك</span></span></li>
-              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Inviting someone to your home</span><span class="l1-li-ar">دعوة شخص ما إلى منزلك</span></span></li>
-              <li><span class="l1-ic">→</span><span class="l1-li-text"><span class="l1-li-en">Describing the weather</span><span class="l1-li-ar">وصف حالة الطقس</span></span></li>
-            </ul>
+            <ul class="l1-list">${renderJourneyListHtml(journeyContent.nextItems, '→')}</ul>
           </div>
         </div>
       </div>
@@ -200,7 +349,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
             <div class="l1-sig-name">${escapeHtml(mentorSignatureName)}</div>
             <div class="l1-sig-line">Class Mentor</div>
           </div>
-          <div class="l1-seal"><span>LEVEL&nbsp;1<br>PASSED</span></div>
+          <div class="l1-seal"><span>LEVEL&nbsp;${escapeHtml(data.class_level)}<br>PASSED</span></div>
           <div class="l1-sig">
             <div class="l1-sig-script head">${escapeHtml(mentorHeadSignatureName)}</div>
             <div class="l1-sig-name">${escapeHtml(mentorHeadSignatureName)}</div>
@@ -544,7 +693,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
           </div>
         </div>
 
-        {showLevelOneCertificate ? (
+        {showJourneyCertificate && journeyContent ? (
           <div className="report-page level-one-certificate">
             <div className="l1-frame"></div>
             <div className="l1-inner">
@@ -559,25 +708,25 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
                 <div className="l1-presented">Presented to</div>
                 <div className="l1-name">{data.student_name}</div>
                 <div className="l1-name-rule"></div>
-                <div className="l1-reason">for successfully completing <strong>Level 1</strong> at Eighty Twenty.</div>
+                <div className="l1-reason">for successfully completing <strong>Level {data.class_level}</strong> at Eighty Twenty.</div>
                 <div className="l1-grade-chip"><span className="star">★</span> Final Grade: {finalScore} - {finalGrade}</div>
               </div>
 
               <div className="l1-journey">
                 <div className="l1-bi">
-                  <span className="l1-ar">رحلتك في تعلم الإنجليزية — انظر كم قطعت من الطريق</span>
-                  <span className="l1-en-sub">Your English Journey — Look how far you've come</span>
+                  <span className="l1-ar">{JOURNEY_HEADING_AR}</span>
+                  <span className="l1-en-sub">{JOURNEY_HEADING_EN}</span>
                 </div>
 
                 <div className="l1-milestone">
                   <div className="l1-ms-block">
-                    <div className="l1-ms-num">123</div>
-                    <div className="l1-ms-label-ar">كلمة تعلّمتها في المستوى الأول</div>
-                    <div className="l1-ms-label-en">Words mastered · Level 1</div>
+                    <div className="l1-ms-num">{journeyContent.vocabularyCount}</div>
+                    <div className="l1-ms-label-ar">كلمة تعلّمتها في المستوى {data.class_level}</div>
+                    <div className="l1-ms-label-en">Words mastered · Level {data.class_level}</div>
                   </div>
                   <div className="l1-ms-divider"></div>
                   <div className="l1-ms-block">
-                    <div className="l1-ms-num">Level 2</div>
+                    <div className="l1-ms-num">Level {journeyContent.nextLevel}</div>
                     <div className="l1-ms-label-ar">الفصل القادم ينتظرك</div>
                     <div className="l1-ms-label-en">Your next chapter awaits</div>
                   </div>
@@ -587,33 +736,38 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
                   <div className="l1-card now">
                     <span className="l1-card-tag">✓ Achieved</span>
                     <div className="l1-card-head">
-                      <span className="l1-ar">أصبحت الآن قادراً على…</span>
-                      <span className="l1-small">You can now…</span>
+                      <span className="l1-ar">{ACHIEVED_HEADING_AR}</span>
+                      <span className="l1-small">{ACHIEVED_HEADING_EN}</span>
                     </div>
                     <ul className="l1-list">
-                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Introduce yourself and other people</span><span className="l1-li-ar">تعريف نفسك والآخرين</span></span></li>
-                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Talk about your family</span><span className="l1-li-ar">التحدث عن عائلتك</span></span></li>
-                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Talk about your daily routine</span><span className="l1-li-ar">وصف روتينك اليومي</span></span></li>
-                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Talk about your favorite activities</span><span className="l1-li-ar">التحدث عن أنشطتك المفضلة</span></span></li>
-                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Hold a small conversation</span><span className="l1-li-ar">إجراء محادثة بسيطة</span></span></li>
-                      <li><span className="l1-ic">✓</span><span className="l1-li-text"><span className="l1-li-en">Say why you're learning English</span><span className="l1-li-ar">التعبير عن سبب تعلّمك للإنجليزية</span></span></li>
+                      {journeyContent.achievedItems.map((item) => (
+                        <li key={`achieved-${item.en}`}>
+                          <span className="l1-ic">✓</span>
+                          <span className="l1-li-text">
+                            <span className="l1-li-en">{item.en}</span>
+                            {item.ar && <span className="l1-li-ar">{item.ar}</span>}
+                          </span>
+                        </li>
+                      ))}
                     </ul>
                   </div>
 
                   <div className="l1-card next">
-                    <span className="l1-card-tag">→ Coming in Level 2</span>
+                    <span className="l1-card-tag">→ Coming in Level {journeyContent.nextLevel}</span>
                     <div className="l1-card-head">
-                      <span className="l1-ar">ستكتشف في المستوى القادم…</span>
-                      <span className="l1-small">Next, you'll unlock…</span>
+                      <span className="l1-ar">{NEXT_HEADING_AR}</span>
+                      <span className="l1-small">{NEXT_HEADING_EN}</span>
                     </div>
                     <ul className="l1-list">
-                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Talking about your hobbies</span><span className="l1-li-ar">التحدث عن هواياتك</span></span></li>
-                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Talking about your free time</span><span className="l1-li-ar">التحدث عن وقت فراغك</span></span></li>
-                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Describing people</span><span className="l1-li-ar">وصف الأشخاص</span></span></li>
-                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Describing common pain &amp; symptoms</span><span className="l1-li-ar">وصف الألم والأعراض الشائعة</span></span></li>
-                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Talking about your friendships</span><span className="l1-li-ar">التحدث عن علاقاتك وصداقاتك</span></span></li>
-                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Inviting someone to your home</span><span className="l1-li-ar">دعوة شخص ما إلى منزلك</span></span></li>
-                      <li><span className="l1-ic">→</span><span className="l1-li-text"><span className="l1-li-en">Describing the weather</span><span className="l1-li-ar">وصف حالة الطقس</span></span></li>
+                      {journeyContent.nextItems.map((item) => (
+                        <li key={`next-${item.en}`}>
+                          <span className="l1-ic">→</span>
+                          <span className="l1-li-text">
+                            <span className="l1-li-en">{item.en}</span>
+                            {item.ar && <span className="l1-li-ar">{item.ar}</span>}
+                          </span>
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 </div>
@@ -626,7 +780,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
                     <div className="l1-sig-name">{mentorSignatureName}</div>
                     <div className="l1-sig-line">Class Mentor</div>
                   </div>
-                  <div className="l1-seal"><span>LEVEL&nbsp;1<br />PASSED</span></div>
+                  <div className="l1-seal"><span>LEVEL&nbsp;{data.class_level}<br />PASSED</span></div>
                   <div className="l1-sig">
                     <div className="l1-sig-script head">{mentorHeadSignatureName}</div>
                     <div className="l1-sig-name">{mentorHeadSignatureName}</div>
