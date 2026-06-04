@@ -652,7 +652,16 @@
       ✅ I've paid — confirm my seat on WhatsApp
       <span class="ar">دفعت — أكّد مكاني على واتساب</span>
     </button>
-    <div class="cta-lock-hint" id="lockHint">⬆ Upload your payment screenshot above to continue<br><span class="ar" style="display:block;margin-top:2px;">ارفع صورة التأكيد الأول عشان تكمل</span></div>
+    <div class="cta-lock-hint" id="lockHint">
+      ⬆ Upload your payment screenshot above to continue<br>
+      <span class="ar" style="display:block;margin-top:2px;">ارفع صورة التأكيد الأول عشان تكمل</span>
+      <div style="margin-top: 12px; font-size: 13.5px; border-top: 1px dashed rgba(255,255,255,0.25); padding-top: 10px;">
+        <a href="#" style="color: #cdeafa; text-decoration: underline; font-weight: 500;" onclick="sendWhatsApp(true); event.preventDefault();">
+          Having trouble uploading? Confirm without screenshot<br>
+          <span class="ar" style="display:block;margin-top:2px;text-decoration:underline;">مش عارف ترفع الصورة؟ أكد من غيرها</span>
+        </a>
+      </div>
+    </div>
     <div class="reassure" id="reassureMsg" style="display:none;">
       Opens WhatsApp with everything pre-filled — just tap Send, then share your screenshot.<br>
       <span class="ar" style="display:block;margin-top:3px;">هيفتح واتساب جاهز — اضغط إرسال وابعت صورة التأكيد في نفس الشات.</span>
@@ -1006,8 +1015,8 @@ function copyNum(num, btn){
 }
 
 /* ---- WhatsApp prefill ---- */
-function sendWhatsApp(){
-  if(!screenshotReady){ alert("Please upload your payment screenshot first! / ارفع صورة التأكيد الأول"); return; }
+function sendWhatsApp(skipScreenshot = false){
+  if(!screenshotReady && !skipScreenshot){ alert("Please upload your payment screenshot first! / ارفع صورة التأكيد الأول"); return; }
 
   let classLine = "";
   if(availableClasses.length > 0){
@@ -1021,7 +1030,8 @@ function sendWhatsApp(){
 
   const method = activeMethod === "ip" ? "InstaPay" : "Vodafone Cash";
   const levelsText = selectedBundleLevels === 1 ? "مستوى واحد" : `${selectedBundleLevels} مستويات`;
-  const msg = `أهلاً! أنا ${cfg.name}. لسه مستلم نتيجة تحديد المستوى من Eighty Twenty (المستوى ${cfg.level} — ${lv.name}) وأتممت الدفع عن طريق ${method} لـ ${levelsText} بقيمة (${selectedBundlePrice.toLocaleString('en-US')} EGP).${classLine}\n\n📎 هبعت سكرين شوت تأكيد الدفع بعد الرسالة دي علطول.\n\nياريت تأكدوا مكاني. 🙏`;
+  const attachmentText = skipScreenshot ? `📎 هبعت سكرين شوت تأكيد الدفع في الشات هنا.` : `📎 هبعت سكرين شوت تأكيد الدفع بعد الرسالة دي علطول.`;
+  const msg = `أهلاً! أنا ${cfg.name}. لسه مستلم نتيجة تحديد المستوى من Eighty Twenty (المستوى ${cfg.level} — ${lv.name}) وأتممت الدفع عن طريق ${method} لـ ${levelsText} بقيمة (${selectedBundlePrice.toLocaleString('en-US')} EGP).${classLine}\n\n${attachmentText}\n\nياريت تأكدوا مكاني. 🙏`;
   window.open(`https://wa.me/${CONFIG.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
 
   /* show sticky reminder after a short delay */
