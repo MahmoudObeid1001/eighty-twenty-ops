@@ -220,6 +220,9 @@ func renderTemplate(w http.ResponseWriter, r *http.Request, name string, data in
 	if _, ok := dataMap["UserRole"]; !ok && r != nil {
 		dataMap["UserRole"] = middleware.GetUserRole(r)
 	}
+	if _, ok := dataMap["UserEmail"]; !ok && r != nil {
+		dataMap["UserEmail"] = middleware.GetUserEmail(r)
+	}
 
 	// Inject pending late joiner alerts for relevant roles
 	if userRole, ok := dataMap["UserRole"].(string); ok && (userRole == "mentor" || userRole == "mentor_head" || userRole == "student_success") {

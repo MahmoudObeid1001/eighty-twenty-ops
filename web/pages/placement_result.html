@@ -727,6 +727,13 @@ const LEVELS = {
 const qs   = new URLSearchParams(location.search);
 const get  = (k,d) => qs.get(k) ?? d;
 
+const sender = qs.get("s");
+if (sender === "zizo") {
+  CONFIG.whatsapp = "201033111400";
+} else if (sender === "manager") {
+  CONFIG.whatsapp = "201002954737";
+}
+
 let cfg = {
   name:    CONFIG.name,
   level:   CONFIG.level,
