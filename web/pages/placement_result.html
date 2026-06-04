@@ -255,6 +255,34 @@
   .hidden{display:none!important;}
   .divider{border:none;border-top:1px solid var(--line);margin:8px 22px;}
 
+  .load-error{
+    max-width:560px;
+    margin:60px auto;
+    background:var(--paper);
+    border:1px solid rgba(21,39,54,.08);
+    border-radius:20px;
+    box-shadow:0 15px 45px -15px rgba(21,39,54,.15);
+    padding:32px 28px;
+    text-align:center;
+  }
+  .load-error h1{
+    font-family:'Fraunces',serif;
+    font-size:32px;
+    color:var(--navy);
+    margin:0 0 10px;
+  }
+  .load-error p{
+    margin:0;
+    color:var(--ink);
+    font-size:15px;
+    line-height:1.6;
+  }
+  .load-error .ar{
+    display:block;
+    margin-top:8px;
+    color:var(--muted);
+  }
+
   /* SCREENSHOT UPLOAD */
   .upload-section{padding:0 22px 4px;}
   .up-title{font-family:'Fraunces',serif;font-weight:600;font-size:20px;color:var(--navy);}
@@ -755,6 +783,18 @@ let selectedClass = null;
 let selectedDays  = [];
 let activeMethod  = "ip";
 
+function showLoadError() {
+  document.body.innerHTML = `
+    <div class="load-error">
+      <h1>Couldn't load this result page</h1>
+      <p>
+        Please ask Eighty Twenty to resend your result link.
+        <span class="ar">اللينك ماقدرش يحمّل النتيجة. من فضلك اطلب من Eighty Twenty يبعتلك اللينك مرة تانية.</span>
+      </p>
+    </div>
+  `;
+}
+
 function parseLegacyClasses(cParam) {
   if(cParam.trim() === "") return [];
   return cParam.split(",").map(c=>{
@@ -895,12 +935,17 @@ function selectBundle(levels, price) {
 // Check if we need to load from backend using lead ID
 const leadId = qs.get("id") || qs.get("lead_id");
 if (leadId) {
-  fetch(`/api/pre-enrolment/${leadId}/placement-result-data`)
+  fetch(`/api/pre-enrolment/${encodeURIComponent(leadId)}/placement-result-data`, {
+    cache: "no-store",
+  })
     .then(res => {
       if (!res.ok) throw new Error("Failed to fetch placement result data");
       return res.json();
     })
     .then(data => {
+      if (!data || !data.name || !Number.isFinite(parseInt(data.level, 10))) {
+        throw new Error("Placement result data is incomplete");
+      }
       cfg.name = data.name;
       cfg.level = parseInt(data.level);
       applySlotsData(data);
@@ -908,7 +953,7 @@ if (leadId) {
     })
     .catch(err => {
       console.error(err);
-      loadFromURLParams();
+      showLoadError();
     });
 } else {
   loadFromURLParams();
