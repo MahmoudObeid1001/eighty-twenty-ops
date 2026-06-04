@@ -418,7 +418,7 @@
 </style>
 </head>
 <body>
-<div class="page">
+<div class="page" style="opacity: 0; transition: opacity 0.2s;">
   <div class="layout-container">
     <div class="panel-left">
       <!-- HERO -->
@@ -723,48 +723,95 @@ const LEVELS = {
 const qs   = new URLSearchParams(location.search);
 const get  = (k,d) => qs.get(k) ?? d;
 
-const cfg = {
-  name:    get("name",   CONFIG.name),
-  level:   parseInt(get("level", CONFIG.level)),
-  price:   get("price",  CONFIG.price).replace(/(\d)(?=(\d{3})+$)/g,'$1,'),
+let cfg = {
+  name:    CONFIG.name,
+  level:   CONFIG.level,
+  price:   CONFIG.price.replace(/(\d)(?=(\d{3})+$)/g,'$1,'),
 };
-
-/* parse classes from URL if provided */
 let classes = CONFIG.classes;
-let cParam = null;
-
-if(qs.has("c_b64")){
-  try {
-    cParam = atob(qs.get("c_b64"));
-  } catch(e) {
-    console.error("Failed to parse c_b64", e);
-  }
-} else if(qs.has("classes")){
-  cParam = qs.get("classes");
-}
-
-if(cParam !== null){
-  if(cParam.trim() === "") {
-    classes = []; // NO classes available from backend
-  } else {
-    classes = cParam.split(",").map(c=>{
-      const [dt,s] = c.split("|");
-      const [days,time] = dt.split("_");
-      return {days:days.replace(/-/g," / "), time, seats:parseInt(s??1)};
-    });
-  }
-}
-
-const lv = LEVELS[cfg.level] || LEVELS[2];
+let lv = LEVELS[2];
+let availableClasses = [];
 let selectedClass = null;
 let selectedDays  = [];
 let activeMethod  = "ip";
 
-/* ---- populate hero ---- */
-document.getElementById("greet").textContent   = "Well done, " + cfg.name + "!";
-document.getElementById("lvNum").textContent   = cfg.level;
-document.getElementById("lvName").textContent  = lv.name;
-// We now set price dynamically via selectBundle
+function fill(id, items, sym){
+  document.getElementById(id).innerHTML = items.map(([en,ar])=>
+    `<li><span class="ic">${sym}</span><span class="txt">${en}<span class="ar" style="display:block;">${ar}</span></span></li>`
+  ).join("");
+}
+
+function setupPage() {
+  lv = LEVELS[cfg.level] || LEVELS[2];
+  
+  /* ---- populate hero ---- */
+  document.getElementById("greet").textContent   = "Well done, " + cfg.name + "!";
+  document.getElementById("lvNum").textContent   = cfg.level;
+  document.getElementById("lvName").textContent  = lv.name;
+  
+  /* ---- skill lists ---- */
+  fill("nowList",  lv.now,  "✓");
+  fill("nextList", lv.next, "→");
+
+  /* ---- class slots or preference form ---- */
+  availableClasses = classes.filter(c => c.seats > 0);
+
+  if(availableClasses.length > 0){
+    const slotArea = document.getElementById("slotArea");
+    slotArea.innerHTML = "";
+    slotArea.classList.remove("hidden");
+    availableClasses.forEach((c,i)=>{
+      const el = document.createElement("div");
+      el.className = "cslot";
+      el.dataset.idx = i;
+      el.innerHTML = `
+        <div class="cs-radio"></div>
+        <div class="cs-info">
+          <div class="cs-days">${c.days}</div>
+          <div class="cs-time">${c.time}</div>
+          <div class="cs-ar ar">${c.days.replace("Sun","أحد").replace("Mon","اثنين").replace("Tue","ثلاثاء").replace("Wed","أربع").replace("Thu","خميس").replace("Fri","جمعة").replace("Sat","سبت")} — ${c.time}</div>
+        </div>
+        ${c.seats <= 2 ? `<span class="cs-badge">⚡ ${c.seats} left</span>` : `<span class="cs-badge" style="background:#e8f0fe;color:#1a6fc4;">✓ Available</span>`}`;
+      el.onclick = ()=>{
+        document.querySelectorAll(".cslot").forEach(s=>s.classList.remove("selected"));
+        el.classList.add("selected");
+        selectedClass = c;
+      };
+      slotArea.appendChild(el);
+    });
+  } else {
+    /* no classes — show preference form */
+    const prefArea = document.getElementById("prefArea");
+    prefArea.classList.remove("hidden");
+    const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    const arDays = ["اثنين","ثلاثاء","أربع","خميس","جمعة","سبت","أحد"];
+    const dg = document.getElementById("dayGrid");
+    dg.innerHTML = "";
+    days.forEach((d,i)=>{
+      const b = document.createElement("button");
+      b.className = "daybtn"; b.textContent = d;
+      b.title = arDays[i];
+      b.onclick = ()=>{
+        b.classList.toggle("sel");
+        selectedDays = [...document.querySelectorAll(".daybtn.sel")].map(x=>x.textContent);
+      };
+      dg.appendChild(b);
+    });
+  }
+
+  // Handle bundle preset from URL
+  if (qs.get("price") && qs.get("price") != "1250") {
+    const pStr = qs.get("price").replace(/,/g, '');
+    if (pStr == "2200") selectBundle(2, 2200);
+    else if (pStr == "3150") selectBundle(3, 3150);
+    else if (pStr == "4050") selectBundle(4, 4050);
+    else {
+      document.getElementById("price").textContent = cfg.price;
+    }
+  }
+
+  document.querySelector(".page").style.opacity = "1";
+}
 
 /* ---- bundle selection logic ---- */
 let selectedBundleLevels = 1;
@@ -785,68 +832,69 @@ function selectBundle(levels, price) {
     noteEl.innerHTML = `${levels} Levels • ${levels * 8} sessions • certificate included<span class="ar" style="display:block;">باقة ${levels} مستويات • ${levels * 8} حصص • شهادة معتمدة</span>`;
   }
 }
-// init with default price if provided in URL or fallback to single level 1250
-if (qs.get("price") && qs.get("price") != "1250") {
-  // Let's deduce the bundle from price if pre-set, otherwise just show the price
-  const pStr = qs.get("price").replace(/,/g, '');
-  if (pStr == "2200") selectBundle(2, 2200);
-  else if (pStr == "3150") selectBundle(3, 3150);
-  else if (pStr == "4050") selectBundle(4, 4050);
-  else {
-    document.getElementById("price").textContent = cfg.price;
-  }
-}
 
-/* ---- skill lists ---- */
-function fill(id, items, sym){
-  document.getElementById(id).innerHTML = items.map(([en,ar])=>
-    `<li><span class="ic">${sym}</span><span class="txt">${en}<span class="ar" style="display:block;">${ar}</span></span></li>`
-  ).join("");
-}
-fill("nowList",  lv.now,  "✓");
-fill("nextList", lv.next, "→");
-
-/* ---- class slots or preference form ---- */
-const availableClasses = classes.filter(c => c.seats > 0);
-
-if(availableClasses.length > 0){
-  const slotArea = document.getElementById("slotArea");
-  slotArea.classList.remove("hidden");
-  availableClasses.forEach((c,i)=>{
-    const el = document.createElement("div");
-    el.className = "cslot";
-    el.dataset.idx = i;
-    el.innerHTML = `
-      <div class="cs-radio"></div>
-      <div class="cs-info">
-        <div class="cs-days">${c.days}</div>
-        <div class="cs-time">${c.time}</div>
-        <div class="cs-ar ar">${c.days.replace("Sun","أحد").replace("Mon","اثنين").replace("Tue","ثلاثاء").replace("Wed","أربع").replace("Thu","خميس").replace("Fri","جمعة").replace("Sat","سبت")} — ${c.time}</div>
-      </div>
-      ${c.seats <= 2 ? `<span class="cs-badge">⚡ ${c.seats} left</span>` : `<span class="cs-badge" style="background:#e8f0fe;color:#1a6fc4;">✓ Available</span>`}`;
-    el.onclick = ()=>{
-      document.querySelectorAll(".cslot").forEach(s=>s.classList.remove("selected"));
-      el.classList.add("selected");
-      selectedClass = c;
-    };
-    slotArea.appendChild(el);
-  });
+// Check if we need to load from backend using lead ID
+const leadId = qs.get("id") || qs.get("lead_id");
+if (leadId) {
+  fetch(`/api/pre-enrolment/${leadId}/placement-result-data`)
+    .then(res => {
+      if (!res.ok) throw new Error("Failed to fetch placement result data");
+      return res.json();
+    })
+    .then(data => {
+      cfg.name = data.name;
+      cfg.level = parseInt(data.level);
+      
+      let cParam = data.classes;
+      if(cParam) {
+        if(cParam.trim() === "") {
+          classes = [];
+        } else {
+          classes = cParam.split(",").map(c=>{
+            const [dt,s] = c.split("|");
+            const [days,time] = dt.split("_");
+            return {days:days.replace(/-/g," / "), time, seats:parseInt(s??1)};
+          });
+        }
+      }
+      setupPage();
+    })
+    .catch(err => {
+      console.error(err);
+      loadFromURLParams();
+    });
 } else {
-  /* no classes — show preference form */
-  document.getElementById("prefArea").classList.remove("hidden");
-  const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-  const arDays = ["اثنين","ثلاثاء","أربع","خميس","جمعة","سبت","أحد"];
-  const dg = document.getElementById("dayGrid");
-  days.forEach((d,i)=>{
-    const b = document.createElement("button");
-    b.className = "daybtn"; b.textContent = d;
-    b.title = arDays[i];
-    b.onclick = ()=>{
-      b.classList.toggle("sel");
-      selectedDays = [...document.querySelectorAll(".daybtn.sel")].map(x=>x.textContent);
-    };
-    dg.appendChild(b);
-  });
+  loadFromURLParams();
+}
+
+function loadFromURLParams() {
+  cfg.name = get("name", CONFIG.name);
+  cfg.level = parseInt(get("level", CONFIG.level));
+  cfg.price = get("price", CONFIG.price).replace(/(\d)(?=(\d{3})+$)/g,'$1,');
+
+  let cParam = null;
+  if(qs.has("c_b64")){
+    try {
+      cParam = atob(qs.get("c_b64"));
+    } catch(e) {
+      console.error("Failed to parse c_b64", e);
+    }
+  } else if(qs.has("classes")){
+    cParam = qs.get("classes");
+  }
+
+  if(cParam !== null){
+    if(cParam.trim() === "") {
+      classes = [];
+    } else {
+      classes = cParam.split(",").map(c=>{
+        const [dt,s] = c.split("|");
+        const [days,time] = dt.split("_");
+        return {days:days.replace(/-/g," / "), time, seats:parseInt(s??1)};
+      });
+    }
+  }
+  setupPage();
 }
 
 /* ---- screenshot upload ---- */

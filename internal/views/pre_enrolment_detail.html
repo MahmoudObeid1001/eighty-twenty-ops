@@ -2820,12 +2820,7 @@
             const data = await res.json();
             // Build the URL
             const url = new URL('https://app.eightytwentyegy.com/result');
-            url.searchParams.set('name', data.name);
-            url.searchParams.set('level', data.level);
-            if (data.classes) {
-                // Use base64 encoding to prevent WhatsApp URL parsing bugs with special characters
-                url.searchParams.set('c_b64', btoa(data.classes));
-            }
+            url.searchParams.set('id', leadId);
             
             const resultLink = url.toString();
             
