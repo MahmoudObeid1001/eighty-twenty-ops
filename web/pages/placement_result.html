@@ -729,10 +729,21 @@ const cfg = {
   price:   get("price",  CONFIG.price).replace(/(\d)(?=(\d{3})+$)/g,'$1,'),
 };
 
-/* parse ?classes=Sun-Wed_7:30AM|3,Tue-Thu_9:00AM|1 from URL if provided */
+/* parse classes from URL if provided */
 let classes = CONFIG.classes;
-if(qs.has("classes")){
-  const cParam = qs.get("classes");
+let cParam = null;
+
+if(qs.has("c_b64")){
+  try {
+    cParam = atob(qs.get("c_b64"));
+  } catch(e) {
+    console.error("Failed to parse c_b64", e);
+  }
+} else if(qs.has("classes")){
+  cParam = qs.get("classes");
+}
+
+if(cParam !== null){
   if(cParam.trim() === "") {
     classes = []; // NO classes available from backend
   } else {

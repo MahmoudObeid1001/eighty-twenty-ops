@@ -96,6 +96,32 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 		{Days: "Mon-Thu", Time: "10:00PM"},
 	}
 
+	// Fetch popularity counts for standard slots
+	popRows, popErr := db.DB.Query(`
+		SELECT class_days, class_time, COUNT(*) 
+		FROM class_groups 
+		GROUP BY class_days, class_time
+	`)
+	if popErr == nil {
+		counts := make(map[string]int)
+		for popRows.Next() {
+			var d, t string
+			var count int
+			if err := popRows.Scan(&d, &t, &count); err == nil {
+				key := normalizeDays(d) + "_" + normalizeTime(t)
+				counts[key] = count
+			}
+		}
+		popRows.Close()
+
+		// Sort stdSlots based on counts (descending)
+		sort.SliceStable(stdSlots, func(i, j int) bool {
+			keyI := stdSlots[i].Days + "_" + stdSlots[i].Time
+			keyJ := stdSlots[j].Days + "_" + stdSlots[j].Time
+			return counts[keyI] > counts[keyJ]
+		})
+	}
+
 	var openClasses []ClassResult
 	
 	// Query active or sent-to-mentor classes matching level directly
@@ -176,11 +202,8 @@ func (h *APIHandler) GetPlacementResultData(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Fill the remaining slots up to 4 using the standard slots
+	// Fill the remaining standard slots
 	for _, std := range stdSlots {
-		if len(selected) >= 4 {
-			break
-		}
 		// Skip if this slot is already selected
 		alreadySelected := false
 		for _, sel := range selected {

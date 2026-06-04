@@ -2823,7 +2823,8 @@
             url.searchParams.set('name', data.name);
             url.searchParams.set('level', data.level);
             if (data.classes) {
-                url.searchParams.set('classes', data.classes);
+                // Use base64 encoding to prevent WhatsApp URL parsing bugs with special characters
+                url.searchParams.set('c_b64', btoa(data.classes));
             }
             
             const resultLink = url.toString();
