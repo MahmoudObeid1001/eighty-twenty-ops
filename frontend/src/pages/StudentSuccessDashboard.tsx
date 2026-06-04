@@ -36,7 +36,7 @@ function addDays(dateStr: string, days: number) {
 }
 
 function weekDates(startDate: string) {
-  return Array.from({ length: 7 }, (_, index) => addDays(startDate, index))
+  return Array.from({ length: 10 }, (_, index) => addDays(startDate, index))
 }
 
 function defaultAvailabilityWindow(): SSAvailabilityWindowDraft {
@@ -109,13 +109,6 @@ function validateAvailabilityDrafts(days: Record<string, SSAvailabilityWindowDra
   return null
 }
 
-function normalizeWeekStart(dateStr: string) {
-  const date = new Date(`${dateStr}T00:00:00Z`)
-  const offset = (date.getUTCDay() + 6) % 7
-  date.setUTCDate(date.getUTCDate() - offset)
-  return dateKey(date)
-}
-
 export default function StudentSuccessDashboard() {
   const [classes, setClasses] = useState<StudentSuccessClass[]>([])
   const [placementTests, setPlacementTests] = useState<PlacementTestQueueItem[]>([])
@@ -130,7 +123,7 @@ export default function StudentSuccessDashboard() {
   const [activeTab, setActiveTab] = useState<'classes' | 'placement_tests' | 'availability'>('classes')
   const [showCompletedTests, setShowCompletedTests] = useState(false)
   const [pendingPlacementCount, setPendingPlacementCount] = useState(0)
-  const [availabilityWeekStart, setAvailabilityWeekStart] = useState(normalizeWeekStart(todayKey()))
+  const [availabilityWeekStart, setAvailabilityWeekStart] = useState(todayKey())
   const [availabilityWindows, setAvailabilityWindows] = useState<StudentSuccessAvailabilityWindow[]>([])
   const [availabilityDays, setAvailabilityDays] = useState<Record<string, SSAvailabilityWindowDraft[]>>({})
   const [resultModal, setResultModal] = useState<{
@@ -817,16 +810,16 @@ export default function StudentSuccessDashboard() {
               <div>
                 <h2 style={{ margin: 0, fontSize: '18px' }}>Placement Test Availability</h2>
                 <p style={{ margin: '6px 0 0', color: '#666', fontSize: '13px' }}>
-                  Placement tests are 30 minutes. Availability must stay between 14:00 and 23:00.
+                  Placement tests are 30 minutes. Set availability for the next 10 days between 14:00 and 23:00.
                 </p>
               </div>
               <label style={{ display: 'grid', gap: '4px', fontSize: '13px', fontWeight: 700 }}>
-                Week starts
+                Window starts
                 <input
                   type="date"
                   value={availabilityWeekStart}
-                  min={normalizeWeekStart(todayKey())}
-                  onChange={(event) => setAvailabilityWeekStart(normalizeWeekStart(event.target.value || todayKey()))}
+                  min={todayKey()}
+                  onChange={(event) => setAvailabilityWeekStart(event.target.value || todayKey())}
                   style={{ padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px' }}
                 />
               </label>
