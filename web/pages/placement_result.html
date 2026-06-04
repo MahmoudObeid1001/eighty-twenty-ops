@@ -39,75 +39,77 @@
   .reveal-ar{position:relative;font-size:15px;color:#cdeafa;margin-top:4px;}
   .greet{position:relative;font-family:'Fraunces',serif;font-weight:600;font-size:26px;margin-top:14px;}
   .level-badge {
-    position: relative;
-    margin: 28px auto 10px;
-    width: 190px;
-    height: 190px;
-    border-radius: 50%;
+    display: none; /* deprecated old design style */
+  }
+  .result-display {
     display: flex;
     flex-direction: column;
-    justify-content: center;
     align-items: center;
-    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 
-      0 20px 40px -10px rgba(0,0,0,0.4),
-      inset 0 2px 20px rgba(255,255,255,0.2),
-      inset 0 0 0 6px rgba(255, 215, 0, 0.4);
+    margin: 24px 0 10px;
     animation: pop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) both 0.1s;
   }
-  .level-badge::before {
-    content: "";
-    position: absolute;
-    inset: -3px;
-    background: conic-gradient(from 180deg at 50% 50%, transparent 0deg, rgba(255, 215, 0, 0.6) 180deg, transparent 360deg);
-    animation: spin 3.5s linear infinite;
-    border-radius: 50%;
-    z-index: 0;
-  }
-  @keyframes spin { 100% { transform: rotate(360deg); } }
-  .level-badge::after {
-    content: "";
-    position: absolute;
-    inset: 6px;
-    background: linear-gradient(145deg, #18354c, #0b1c29);
-    border-radius: 50%;
-    z-index: 1;
-    box-shadow: inset 0 4px 10px rgba(0,0,0,0.5);
-  }
-  @keyframes pop{from{transform:scale(.4);opacity:0;}to{transform:scale(1);opacity:1;}}
   .lv-label {
-    position: relative; z-index: 2;
     font-size: 11px;
+    font-weight: 600;
     letter-spacing: 3px;
     text-transform: uppercase;
     color: #9fd6ee;
-    font-weight: 600;
+    margin-bottom: 14px;
   }
+  .level-circle {
+    position: relative;
+    width: 125px;
+    height: 125px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fffbf0, #e6cf78 50%, #c9a227);
+    border: 3px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 
+      0 12px 24px -6px rgba(0, 0, 0, 0.3),
+      0 0 20px 2px rgba(255, 215, 0, 0.25),
+      inset 0 2px 10px rgba(255, 255, 255, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+  }
+  .level-circle::before {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border: 1px dashed rgba(255, 215, 0, 0.4);
+    border-radius: 50%;
+    animation: spin 20s linear infinite;
+  }
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+  @keyframes pop{from{transform:scale(.4);opacity:0;}to{transform:scale(1);opacity:1;}}
   .lv-num {
-    position: relative; z-index: 2;
     font-family: 'Fraunces', serif;
     font-weight: 900;
-    font-size: 78px;
+    font-size: 64px;
     line-height: 1;
-    color: #fff;
-    text-shadow: 0 4px 12px rgba(0,0,0,0.4), 0 0 20px rgba(255,215,0,0.3);
-    background: linear-gradient(180deg, #fff 0%, #e6cf78 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #152736;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.7);
+  }
+  .lv-badge-pill {
+    background: linear-gradient(135deg, #fff 0%, #e6cf78 100%);
+    border: 1.5px solid rgba(255, 255, 255, 0.5);
+    padding: 6px 20px;
+    border-radius: 999px;
+    box-shadow: 0 6px 16px -4px rgba(20, 40, 60, 0.25);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .lv-name {
-    position: relative; z-index: 2;
-    font-weight: 700;
-    font-size: 14px;
-    color: #e6cf78;
-    letter-spacing: 1px;
+    font-weight: 800;
+    font-size: 13px;
+    color: #152736;
+    letter-spacing: 1.5px;
     text-transform: uppercase;
   }
-  .hero-sub{position:relative;margin-top:20px;font-size:15px;color:#dceffb;}
-  .hero-sub .ar{margin-top:6px;font-size:14px;color:#a9d8ef;}
+  .hero-sub{position:relative;margin-top:24px;}
+  .hero-sub .en{font-size:15px;color:#dceffb;line-height:1.4;}
+  .hero-sub .ar{margin-top:8px;font-size:14px;color:#a9d8ef;line-height:1.4;direction:rtl;}
 
   /* JOURNEY */
   .section{padding:28px 22px;}
@@ -310,12 +312,116 @@
   .rem-close{margin-top:18px;width:100%;border:none;background:rgba(255,255,255,.15);
     color:#fff;font-family:'Outfit';font-weight:700;font-size:14px;padding:13px;
     border-radius:10px;cursor:pointer;}
+
+  /* RESPONSIVE / DESKTOP LAYOUT SUPPORT */
+  .layout-container {
+    display: block;
+  }
+  .panel-left, .panel-right {
+    display: block;
+  }
+  .mob-only {
+    display: block;
+  }
+
+  @media (min-width: 900px) {
+    body {
+      background: #e9f0f5;
+      padding: 40px 20px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+    }
+    .page {
+      max-width: 1024px;
+      width: 100%;
+      min-height: auto;
+      background: transparent;
+      box-shadow: none;
+      overflow: visible;
+      margin: 0;
+    }
+    .layout-container {
+      display: grid;
+      grid-template-columns: 440px 1fr;
+      gap: 30px;
+      align-items: start;
+    }
+    .panel-left {
+      background: var(--paper);
+      border-radius: 20px;
+      box-shadow: 0 15px 45px -15px rgba(21, 39, 54, 0.15);
+      border: 1px solid rgba(21, 39, 54, 0.08);
+      overflow: hidden;
+      position: sticky;
+      top: 30px;
+    }
+    .panel-right {
+      background: var(--paper);
+      border-radius: 20px;
+      box-shadow: 0 15px 45px -15px rgba(21, 39, 54, 0.15);
+      border: 1px solid rgba(21, 39, 54, 0.08);
+      padding: 14px 10px;
+    }
+    .mob-only {
+      display: none !important;
+    }
+
+    /* Padding adjustments for right panel sections */
+    .panel-right section {
+      padding-left: 30px;
+      padding-right: 30px;
+    }
+    .panel-right .divider {
+      margin-left: 30px;
+      margin-right: 30px;
+    }
+
+    /* Grids & Cards */
+    .bundle-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .day-grid {
+      grid-template-columns: repeat(7, 1fr);
+    }
+
+    /* Sticky reminder toast style */
+    .reminder {
+      left: auto;
+      right: 40px;
+      bottom: 40px;
+      transform: none;
+      border-radius: 20px;
+      max-width: 380px;
+      box-shadow: 0 15px 45px -10px rgba(0, 0, 0, 0.3);
+      animation: slidein-right .35s ease;
+    }
+    @keyframes slidein-right {
+      from { transform: translateX(120%); }
+      to { transform: translateX(0); }
+    }
+    .reminder.show {
+      display: block;
+    }
+
+    /* Footer styling */
+    .foot {
+      grid-column: 1 / -1;
+      border-top: none;
+      margin-top: 30px;
+      padding: 24px 0 0;
+    }
+  }
 </style>
 </head>
 <body>
 <div class="page">
-
-  <!-- HERO -->
+  <div class="layout-container">
+    <div class="panel-left">
+      <!-- HERO -->
   <section class="hero">
     <div class="brand">
       <div class="logo"><span class="a">8O</span><span class="b">2O</span></div>
@@ -324,14 +430,18 @@
     <div class="reveal-eyebrow">Your placement result is ready</div>
     <div class="reveal-ar ar">نتيجة اختبار تحديد المستوى جاهزة 🎉</div>
     <div class="greet" id="greet">Well done, Ahmed!</div>
-    <div class="level-badge">
+    <div class="result-display">
       <div class="lv-label">Your Level</div>
-      <div class="lv-num" id="lvNum">2</div>
-      <div class="lv-name" id="lvName">Elementary</div>
+      <div class="level-circle">
+        <span class="lv-num" id="lvNum">2</span>
+      </div>
+      <div class="lv-badge-pill">
+        <span class="lv-name" id="lvName">Elementary</span>
+      </div>
     </div>
     <div class="hero-sub">
-      You're ready to start exactly here — no time wasted.
-      <span class="ar">إنت جاهز تبدأ من المكان الصح بالظبط — من غير ما تضيّع وقت.</span>
+      <div class="en">You're ready to start exactly here — no time wasted.</div>
+      <div class="ar">إنت جاهز تبدأ من المكان الصح بالظبط — من غير ما تضيّع وقت.</div>
     </div>
   </section>
 
@@ -352,10 +462,12 @@
       <ul class="skills" id="nextList"></ul>
     </div>
   </section>
+    </div> <!-- end of panel-left -->
 
-  <hr class="divider">
+    <div class="panel-right">
+      <hr class="divider mob-only">
 
-  <!-- CLASS PICKER -->
+      <!-- CLASS PICKER -->
   <section class="classpick" id="classSection">
     <div class="cp-title">Choose your class time</div>
     <div class="cp-title-ar ar">اختار موعدك المناسب</div>
@@ -542,6 +654,8 @@
       <span class="ar" style="display:block;margin-top:3px;">هيفتح واتساب جاهز — اضغط إرسال وابعت صورة التأكيد في نفس الشات.</span>
     </div>
   </section>
+    </div> <!-- end of panel-right -->
+  </div> <!-- end of layout-container -->
 
 
   <!-- sticky reminder (shown after WhatsApp opens) -->
