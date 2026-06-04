@@ -96,6 +96,9 @@ func main() {
 	mux.Handle("/static/", http.StripPrefix("/static/", fs))
 	cfg.Debugf("ROUTE REGISTERED: /static/ -> FileServer")
 
+	mux.HandleFunc("/result", requestLogMiddleware(handlers.ServePlacementResult))
+	cfg.Debugf("ROUTE REGISTERED: /result -> handlers.ServePlacementResult")
+
 	// API routes (JSON) - register BEFORE React app to avoid shadowing /api/*
 	// React app handler will be registered AFTER all API routes
 	mux.HandleFunc("/api/public/landing-leads", requestLogMiddleware(apiHandler.CreateLandingLead))
@@ -497,6 +500,15 @@ func main() {
 		// parts: [api, pre-enrolment, :leadId, ...]
 		if len(parts) < 3 {
 			http.NotFound(w, r)
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/placement-result-data") {
+			// This route can be accessed by anyone with the link or the admin.
+			// Ideally we don't strictly require auth if we want to share the link.
+			// But since this is called from the admin dashboard (Send Result button),
+			// we can leave it unauthenticated or authenticated. For simplicity, just use apiHandler.
+			apiHandler.GetPlacementResultData(w, r)
 			return
 		}
 

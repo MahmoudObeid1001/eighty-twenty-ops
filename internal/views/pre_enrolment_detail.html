@@ -86,6 +86,14 @@
             title="{{if gt .OfferFollowUpStep 0}}Open WhatsApp with Message {{.OfferFollowUpStep}}{{else}}Open WhatsApp{{end}}">
             WhatsApp Lead
         </a>
+        <button type="button" class="btn"
+            style="background: #E8B923; color: #1E293B; border: 1px solid #E8B923; padding: 12px 18px; font-weight: 700; display: flex; align-items: center; gap: 8px;"
+            onclick="sendPlacementResult('{{.Detail.Lead.ID}}', '{{.Detail.Lead.Phone}}')">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M15.964.686a.5.5 0 0 0-.65-.65L.767 5.855H.766l-.452.18a.5.5 0 0 0-.082.887l.41.26.001.002 4.995 3.178 3.178 4.995.002.002.26.41a.5.5 0 0 0 .886-.083l6-15Zm-1.833 1.89L6.637 10.07l-.215-.338a.5.5 0 0 0-.154-.154l-.338-.215 7.494-7.494 1.178-.471-.47 1.178Z"/>
+            </svg>
+            Send Result
+        </button>
         {{end}}
         {{if .CanMarkNewLeadContacted}}
         <button type="submit" form="mark-new-lead-contacted-form" class="btn"
@@ -2792,5 +2800,56 @@
             selectDetailRefusedRenewalReasonTab('{{if .RenewalRefusedReason}}{{.RenewalRefusedReason}}{{else}}time_pressure{{end}}');
         }
     });
+
+    async function sendPlacementResult(leadId, phone) {
+        try {
+            const btn = event.currentTarget;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = 'Generating...';
+            btn.disabled = true;
+
+            const res = await fetch(`/api/pre-enrolment/${leadId}/placement-result-data`);
+            if (!res.ok) {
+                const data = await res.json();
+                alert(data.error || 'Failed to fetch result data');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            }
+            
+            const data = await res.json();
+            // Build the URL
+            const url = new URL('https://app.eightytwentyegy.com/result');
+            url.searchParams.set('name', data.name);
+            url.searchParams.set('level', data.level);
+            if (data.classes) {
+                url.searchParams.set('classes', data.classes);
+            }
+            
+            const resultLink = url.toString();
+            
+            // Build WhatsApp message
+            const arText = `أهلاً يا ${data.name}!\n\nنتيجة امتحان تحديد المستوى جاهزة دلوقتي.\nتقدر تشوف مستواك، تختار الباقة المناسبة ليك، وموعد الحصة المتاح وتبعت صورة الدفع عشان نأكد تسجيلك من اللينك ده:\n\n${resultLink}\n\nلو عندك أي سؤال إحنا معاك! 🙏`;
+            
+            // Format phone (assuming it's Egyptian +20)
+            let formattedPhone = phone.replace(/[^0-9]/g, '');
+            if (formattedPhone.startsWith('01')) {
+                formattedPhone = '2' + formattedPhone;
+            }
+            
+            const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(arText)}`;
+            window.open(waUrl, 'admin-whatsapp-chat');
+            
+            btn.innerHTML = 'Sent ✓';
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }, 3000);
+            
+        } catch (e) {
+            alert('Error: ' + e.message);
+            event.currentTarget.disabled = false;
+        }
+    }
 </script>
 {{end}}

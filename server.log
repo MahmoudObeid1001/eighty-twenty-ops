@@ -1,0 +1,2 @@
+2026/06/04 20:03:44 Failed to connect to database: failed to ping database: failed to connect to `host=localhost user=postgres database=eighty_twenty_ops`: dial error (dial tcp 127.0.0.1:5432: connect: connection refused)
+exit status 1

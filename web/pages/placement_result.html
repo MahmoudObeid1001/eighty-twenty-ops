@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Placement Result — Eighty Twenty</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700;800&family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#152736;--navy-soft:#33455a;--cyan:#3bb4e5;--cyan-deep:#1a8fc4;
+    --gold:#c9a227;--gold-soft:#e6cf78;--ink:#243443;--muted:#728292;
+    --paper:#ffffff;--wash:#f3f8fb;--line:#e6eef4;
+    --green:#1faa6a;--green-deep:#15784b;
+    --vf-red:#e60000;--vf-dark:#9b0000;
+    --ip-blue:#003087;--ip-mid:#0050c8;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{font-family:'Outfit',sans-serif;color:var(--ink);background:#e9f0f5;line-height:1.5;}
+  .ar{font-family:'Cairo',sans-serif;direction:rtl;}
+
+  .page{max-width:440px;margin:0 auto;background:var(--paper);min-height:100vh;
+    position:relative;overflow:hidden;box-shadow:0 0 60px -20px rgba(21,39,54,.4);}
+
+  /* HERO */
+  .hero{position:relative;padding:30px 26px 44px;
+    background:radial-gradient(120% 90% at 80% -10%,#2a6e93 0%,transparent 55%),
+    linear-gradient(160deg,#0e2230 0%,#173a52 55%,#1a8fc4 140%);
+    color:#fff;text-align:center;overflow:hidden;}
+  .hero::before{content:"";position:absolute;inset:0;opacity:.07;
+    background-image:radial-gradient(#fff 1px,transparent 1px);background-size:18px 18px;}
+  .brand{display:flex;flex-direction:column;align-items:center;position:relative;}
+  .logo{font-family:'Fraunces',serif;font-weight:900;font-size:30px;line-height:.8;letter-spacing:-1px;}
+  .logo .a{color:#7fd2f2;}.logo .b{color:#cfeefb;display:block;}
+  .logo-word{font-family:'Fraunces',serif;font-weight:600;font-size:11px;letter-spacing:3px;color:#bfe6f6;margin-top:5px;}
+  .reveal-eyebrow{position:relative;margin-top:30px;font-size:12px;letter-spacing:3px;text-transform:uppercase;color:#9fd6ee;}
+  .reveal-ar{position:relative;font-size:15px;color:#cdeafa;margin-top:4px;}
+  .greet{position:relative;font-family:'Fraunces',serif;font-weight:600;font-size:26px;margin-top:14px;}
+  .level-badge{position:relative;margin:22px auto 0;width:170px;height:170px;border-radius:50%;
+    display:grid;place-items:center;
+    background:radial-gradient(circle at 35% 30%,#fbf4d8,#e6cf78 55%,#c9a227);
+    box-shadow:0 18px 40px -14px rgba(201,162,39,.65),inset 0 0 0 6px rgba(255,255,255,.4);
+    animation:pop .7s cubic-bezier(.2,1.3,.4,1) both .15s;}
+  @keyframes pop{from{transform:scale(.4);opacity:0;}to{transform:scale(1);opacity:1;}}
+  .lv-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a5e10;}
+  .lv-num{font-family:'Fraunces',serif;font-weight:900;font-size:62px;line-height:.9;color:#3a2c05;}
+  .lv-name{font-weight:700;font-size:13px;color:#5e480c;letter-spacing:.5px;}
+  .hero-sub{position:relative;margin-top:20px;font-size:15px;color:#dceffb;}
+  .hero-sub .ar{margin-top:6px;font-size:14px;color:#a9d8ef;}
+
+  /* JOURNEY */
+  .section{padding:28px 22px;}
+  .sec-title{font-family:'Fraunces',serif;font-weight:600;font-size:21px;color:var(--navy);text-align:center;}
+  .sec-title-ar{text-align:center;font-size:15px;color:var(--cyan-deep);margin-top:3px;}
+  .jcard{border-radius:16px;padding:18px 18px 20px;margin-top:16px;border:1px solid var(--line);}
+  .jcard.now{background:linear-gradient(180deg,#f0faf4,#fff);border-color:#cfe9da;}
+  .jcard.next{background:linear-gradient(180deg,#eef7fc,#fff);border-color:#cfe7f6;}
+  .jtag{display:inline-flex;align-items:center;gap:7px;font-size:11px;letter-spacing:1.5px;
+    text-transform:uppercase;font-weight:700;padding:5px 11px;border-radius:999px;}
+  .jcard.now .jtag{background:#d5efe1;color:var(--green-deep);}
+  .jcard.next .jtag{background:#d4ecf9;color:var(--cyan-deep);}
+  .jhead{font-family:'Fraunces',serif;font-weight:600;font-size:17px;color:var(--navy);margin:9px 0 2px;}
+  .jhead-ar{font-size:14px;color:var(--muted);margin-bottom:12px;}
+  ul.skills{list-style:none;display:flex;flex-direction:column;gap:9px;}
+  ul.skills li{display:flex;gap:10px;align-items:flex-start;}
+  ul.skills li .ic{flex:0 0 19px;width:19px;height:19px;margin-top:2px;border-radius:6px;
+    display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;}
+  .jcard.now ul.skills li .ic{background:var(--green);}
+  .jcard.next ul.skills li .ic{background:var(--cyan);}
+  ul.skills li .txt{font-size:14px;color:var(--ink);}
+  ul.skills li .txt .ar{font-size:12.5px;color:var(--muted);}
+
+  /* CLASS PICKER */
+  .classpick{padding:0 22px 6px;}
+  .cp-title{font-family:'Fraunces',serif;font-weight:600;font-size:20px;color:var(--navy);}
+  .cp-title-ar{font-size:14px;color:var(--cyan-deep);margin-top:2px;margin-bottom:16px;}
+  .class-grid{display:flex;flex-direction:column;gap:10px;}
+  .cslot{border:2px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;
+    display:flex;align-items:center;gap:14px;transition:border-color .15s,background .15s;
+    background:#fff;}
+  .cslot:hover{border-color:var(--cyan);background:#f0f9ff;}
+  .cslot.selected{border-color:var(--cyan);background:linear-gradient(135deg,#eef7fc,#fff);
+    box-shadow:0 4px 14px -6px rgba(59,180,229,.35);}
+  .cslot .cs-radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);
+    display:grid;place-items:center;flex:0 0 20px;transition:border-color .15s,background .15s;}
+  .cslot.selected .cs-radio{border-color:var(--cyan);background:var(--cyan);}
+  .cslot.selected .cs-radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#fff;}
+  .cs-info .cs-days{font-weight:700;font-size:15px;color:var(--navy);}
+  .cs-info .cs-time{font-size:13px;color:var(--muted);}
+  .cs-info .cs-ar{font-size:12px;color:var(--cyan-deep);}
+  .cs-badge{margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;
+    background:#e8f8ef;color:var(--green-deep);}
+
+  /* fallback time preference */
+  .timepref{margin-top:14px;border:2px dashed var(--line);border-radius:14px;padding:18px;}
+  .timepref p{font-size:14px;color:var(--ink);margin-bottom:12px;}
+  .timepref .ar{font-size:13px;color:var(--muted);margin-top:3px;}
+  .day-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+  .daybtn{border:2px solid var(--line);border-radius:10px;padding:8px 4px;font-size:12px;
+    font-weight:600;color:var(--navy-soft);cursor:pointer;background:#fff;text-align:center;
+    transition:border-color .15s,background .15s;}
+  .daybtn.sel{border-color:var(--cyan);background:#eef7fc;color:var(--cyan-deep);}
+  .time-sel{width:100%;padding:11px 13px;border:2px solid var(--line);border-radius:10px;
+    font-family:'Outfit';font-size:14px;color:var(--navy);background:#fff;margin-top:2px;}
+  .time-sel:focus{outline:none;border-color:var(--cyan);}
+
+  /* BUNDLE PICKER */
+  .bundle-section { padding: 10px 22px 20px; }
+  .bundle-title { font-family: 'Fraunces', serif; font-weight: 600; font-size: 20px; color: var(--navy); }
+  .bundle-title-ar { font-size: 14px; color: var(--cyan-deep); margin-top: 2px; margin-bottom: 16px; }
+  .bundle-grid { display: flex; flex-direction: column; gap: 10px; }
+  .bcard { border: 2px solid var(--line); border-radius: 14px; padding: 14px 16px; cursor: pointer; background: #fff; transition: border-color .15s, background .15s; display: flex; justify-content: space-between; align-items: center; }
+  .bcard:hover { border-color: var(--cyan); background: #f0f9ff; }
+  .bcard.selected { border-color: var(--cyan); background: linear-gradient(135deg, #eef7fc, #fff); box-shadow: 0 4px 14px -6px rgba(59,180,229,.35); }
+  .b-info .b-name { font-weight: 700; font-size: 16px; color: var(--navy); }
+  .b-info .b-ar { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .b-info .b-save { font-size: 12px; font-weight: 700; color: var(--green-deep); margin-top: 4px; background: #e8f8ef; display: inline-block; padding: 2px 8px; border-radius: 999px; }
+  .b-price { font-family: 'Fraunces', serif; font-weight: 900; font-size: 22px; color: var(--navy); text-align: right; }
+  .b-price small { font-family: 'Outfit'; font-weight: 500; font-size: 12px; color: var(--muted); }
+  .b-radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; flex: 0 0 20px; margin-left: 14px; transition: border-color .15s, background .15s; }
+  .bcard.selected .b-radio { border-color: var(--cyan); background: var(--cyan); }
+  .bcard.selected .b-radio::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #fff; }
+
+  /* PAYMENT SECTION */
+  .pay-section{padding:20px 22px 10px;}
+  .pay-title{font-family:'Fraunces',serif;font-weight:600;font-size:20px;color:var(--navy);}
+  .pay-title-ar{font-size:14px;color:var(--cyan-deep);margin-top:2px;margin-bottom:18px;}
+
+  /* method toggle */
+  .method-toggle{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:22px;}
+  .mcard{border:2px solid var(--line);border-radius:14px;padding:16px 12px;cursor:pointer;
+    text-align:center;transition:all .15s;background:#fff;}
+  .mcard:hover{border-color:#ccc;}
+  .mcard.active.ip{border-color:var(--ip-mid);background:linear-gradient(180deg,#eef3fc,#fff);}
+  .mcard.active.vf{border-color:var(--vf-red);background:linear-gradient(180deg,#fff0f0,#fff);}
+  .mcard .mc-icon{font-size:28px;margin-bottom:6px;}
+  .mcard .mc-name{font-weight:700;font-size:14px;}
+  .mcard.ip .mc-name{color:var(--ip-mid);}
+  .mcard.vf .mc-name{color:var(--vf-red);}
+  .mcard .mc-ar{font-size:11.5px;color:var(--muted);}
+
+  /* pay detail panels */
+  .pay-detail{display:none;}
+  .pay-detail.show{display:block;}
+  .pd-box{border-radius:14px;padding:20px;margin-bottom:4px;}
+  .pd-box.ip{background:linear-gradient(180deg,#eef3fc,#f7f9ff);border:1.5px solid #c5d8f5;}
+  .pd-box.vf{background:linear-gradient(180deg,#fff0f0,#fff7f7);border:1.5px solid #f5c5c5;}
+  .pd-acct{margin-bottom:14px;}
+  .pd-acct-label{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;color:var(--muted);margin-bottom:8px;}
+  .pd-num-row{display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--line);
+    border-radius:12px;padding:13px 14px;}
+  .pd-num{font-family:'Outfit';font-weight:800;font-size:22px;color:var(--navy);flex:1;letter-spacing:.5px;}
+  .pd-name{font-size:12px;color:var(--muted);margin-top:5px;}
+  .copybtn{border:none;padding:10px 14px;border-radius:9px;font-family:'Outfit';font-weight:700;
+    font-size:12px;color:#fff;cursor:pointer;transition:background .15s;white-space:nowrap;}
+  .copybtn.ip-copy{background:var(--ip-mid);}
+  .copybtn.vf-copy{background:var(--vf-red);}
+  .copybtn.done{background:var(--green)!important;}
+  .pd-steps{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
+  .pd-step{display:flex;gap:11px;align-items:flex-start;font-size:13.5px;}
+  .pd-step .sn{flex:0 0 22px;height:22px;border-radius:50%;color:#fff;font-weight:700;font-size:12px;
+    display:grid;place-items:center;}
+  .pd-step.ip .sn{background:var(--ip-mid);}
+  .pd-step.vf .sn{background:var(--vf-red);}
+  .pd-step .st{color:var(--ink);}
+  .pd-step .st .ar{display:block;font-size:12px;color:var(--muted);}
+
+  /* price + CTA */
+  .price-row{text-align:center;margin:22px 0 16px;}
+  .price{font-family:'Fraunces',serif;font-weight:900;font-size:42px;color:var(--navy);}
+  .price small{font-family:'Outfit';font-weight:500;font-size:16px;color:var(--muted);}
+  .price-note{font-size:13px;color:var(--muted);margin-top:3px;}
+
+  .cta{display:block;width:100%;border:none;cursor:pointer;font-family:'Outfit';font-weight:700;
+    font-size:17px;color:#fff;padding:18px;border-radius:14px;
+    background:linear-gradient(180deg,#25d366,#128c4b);
+    box-shadow:0 14px 26px -10px rgba(18,140,75,.55);transition:transform .12s,box-shadow .12s;
+    text-align:center;}
+  .cta:active{transform:translateY(2px);}
+  .cta .ar{font-weight:600;font-size:13px;opacity:.9;display:block;}
+  .reassure{font-size:12px;color:var(--muted);text-align:center;margin-top:10px;}
+
+  /* FOOTER */
+  .foot{padding:24px;text-align:center;border-top:1px solid var(--line);margin-top:16px;}
+  .trust{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+  .foot-brand{font-family:'Fraunces',serif;color:var(--cyan-deep);font-weight:600;margin-top:14px;font-size:14px;}
+
+  .hidden{display:none!important;}
+  .divider{border:none;border-top:1px solid var(--line);margin:8px 22px;}
+
+  /* SCREENSHOT UPLOAD */
+  .upload-section{padding:0 22px 4px;}
+  .up-title{font-family:'Fraunces',serif;font-weight:600;font-size:20px;color:var(--navy);}
+  .up-title-ar{font-size:14px;color:var(--cyan-deep);margin-top:2px;margin-bottom:14px;}
+
+  .dropzone{
+    position:relative;border:2.5px dashed var(--line);border-radius:16px;
+    padding:28px 20px;text-align:center;cursor:pointer;
+    background:var(--wash);transition:border-color .2s,background .2s;
+  }
+  .dropzone:hover,.dropzone.drag{border-color:var(--cyan);background:#eef7fc;}
+  .dropzone.done{border-color:var(--green);border-style:solid;background:#f0faf4;}
+  .dz-icon{font-size:36px;margin-bottom:10px;display:block;}
+  .dz-main{font-weight:700;font-size:15px;color:var(--navy);}
+  .dz-sub{font-size:13px;color:var(--muted);margin-top:4px;}
+  .dz-ar{font-size:13px;color:var(--cyan-deep);margin-top:6px;}
+  #fileInput{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+
+  /* preview */
+  .preview-wrap{margin-top:14px;display:none;position:relative;}
+  .preview-wrap.show{display:block;}
+  .preview-wrap img{width:100%;border-radius:12px;border:2px solid var(--green);
+    box-shadow:0 8px 20px -10px rgba(31,170,106,.4);display:block;}
+  .preview-badge{
+    position:absolute;top:-10px;right:-6px;
+    background:var(--green);color:#fff;font-weight:700;font-size:12px;
+    padding:5px 12px;border-radius:999px;
+    box-shadow:0 4px 10px -4px rgba(31,170,106,.6);
+  }
+  .remove-btn{
+    display:block;width:100%;margin-top:10px;border:none;background:none;
+    color:var(--muted);font-size:13px;cursor:pointer;text-decoration:underline;
+    font-family:'Outfit';
+  }
+
+  /* locked CTA state */
+  .cta:disabled{background:linear-gradient(180deg,#b0c4cc,#8fa5ae);box-shadow:none;cursor:not-allowed;}
+  .cta-lock-hint{font-size:12.5px;color:var(--muted);text-align:center;margin-top:8px;}
+
+  /* sticky reminder overlay */
+  .reminder{
+    position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+    width:100%;max-width:440px;z-index:999;
+    background:linear-gradient(180deg,#0d3b26,#0a4a2e);
+    color:#fff;padding:18px 22px 26px;
+    border-radius:20px 20px 0 0;
+    box-shadow:0 -10px 30px -10px rgba(0,0,0,.35);
+    display:none;animation:slideup .35s ease;
+  }
+  @keyframes slideup{from{transform:translateX(-50%) translateY(100%);}to{transform:translateX(-50%) translateY(0);}}
+  .reminder.show{display:block;}
+  .rem-head{font-weight:700;font-size:16px;display:flex;align-items:center;gap:10px;}
+  .rem-body{font-size:14px;margin-top:10px;opacity:.9;line-height:1.5;}
+  .rem-body .ar{display:block;font-size:13px;margin-top:6px;opacity:.8;}
+  .rem-steps{margin-top:14px;display:flex;flex-direction:column;gap:8px;}
+  .rem-step{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;}
+  .rem-step .rn{flex:0 0 22px;height:22px;border-radius:50%;background:rgba(255,255,255,.2);
+    display:grid;place-items:center;font-weight:700;font-size:12px;}
+  .rem-close{margin-top:18px;width:100%;border:none;background:rgba(255,255,255,.15);
+    color:#fff;font-family:'Outfit';font-weight:700;font-size:14px;padding:13px;
+    border-radius:10px;cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="brand">
+      <div class="logo"><span class="a">8O</span><span class="b">2O</span></div>
+      <div class="logo-word">EIGHTY TWENTY</div>
+    </div>
+    <div class="reveal-eyebrow">Your placement result is ready</div>
+    <div class="reveal-ar ar">نتيجة اختبار تحديد المستوى جاهزة 🎉</div>
+    <div class="greet" id="greet">Well done, Ahmed!</div>
+    <div class="level-badge">
+      <div class="lv-label">Your Level</div>
+      <div class="lv-num" id="lvNum">2</div>
+      <div class="lv-name" id="lvName">Elementary</div>
+    </div>
+    <div class="hero-sub">
+      You're ready to start exactly here — no time wasted.
+      <span class="ar">إنت جاهز تبدأ من المكان الصح بالظبط — من غير ما تضيّع وقت.</span>
+    </div>
+  </section>
+
+  <!-- JOURNEY -->
+  <section class="section" style="padding-bottom:8px;">
+    <div class="sec-title">Look how far you've already come</div>
+    <div class="sec-title-ar ar">شوف إنت وصلت لفين</div>
+    <div class="jcard now">
+      <span class="jtag">✓ You can already</span>
+      <div class="jhead">What you can do now</div>
+      <div class="jhead-ar ar">اللي إنت بالفعل قادر تعمله</div>
+      <ul class="skills" id="nowList"></ul>
+    </div>
+    <div class="jcard next">
+      <span class="jtag">→ Coming next</span>
+      <div class="jhead">What you'll unlock in your level</div>
+      <div class="jhead-ar ar">اللي هتتعلمه في مستواك الجديد</div>
+      <ul class="skills" id="nextList"></ul>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- CLASS PICKER -->
+  <section class="classpick" id="classSection">
+    <div class="cp-title">Choose your class time</div>
+    <div class="cp-title-ar ar">اختار موعدك المناسب</div>
+
+    <!-- available slots (shown when classes exist) -->
+    <div id="slotArea" class="class-grid hidden"></div>
+
+    <!-- fallback: no classes yet -->
+    <div id="prefArea" class="timepref hidden">
+      <p>No scheduled classes right now — tell us when works for you and we'll set one up.
+        <span class="ar">مفيش حصص متاحة دلوقتي — قولنا المواعيد المناسبة وهنرتبلك.</span>
+      </p>
+      <div class="day-grid" id="dayGrid"></div>
+      <select class="time-sel" id="timeSel">
+        <option value="">Preferred time / الوقت المفضل</option>
+        <option value="7:00 AM">7:00 AM</option>
+        <option value="8:00 AM">8:00 AM</option>
+        <option value="9:00 AM">9:00 AM</option>
+        <option value="10:00 AM">10:00 AM</option>
+        <option value="11:00 AM">11:00 AM</option>
+        <option value="12:00 PM">12:00 PM</option>
+        <option value="2:00 PM">2:00 PM</option>
+        <option value="4:00 PM">4:00 PM</option>
+        <option value="6:00 PM">6:00 PM</option>
+        <option value="8:00 PM">8:00 PM</option>
+      </select>
+    </div>
+  </section>
+
+  <hr class="divider" style="margin-top:20px;">
+
+  <!-- SCREENSHOT UPLOAD -->
+  <section class="upload-section">
+    <div class="up-title">Upload your payment screenshot</div>
+    <div class="up-title-ar ar">ارفع صورة تأكيد الدفع</div>
+
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept="image/*" capture="environment">
+      <span class="dz-icon" id="dzIcon">📸</span>
+      <div class="dz-main" id="dzMain">Tap to upload your screenshot</div>
+      <div class="dz-sub" id="dzSub">Take a photo or choose from your gallery</div>
+      <div class="dz-ar ar">اضغط هنا وارفع صورة التأكيد من الجاليري أو الكاميرا</div>
+    </div>
+
+    <div class="preview-wrap" id="previewWrap">
+      <span class="preview-badge">✓ Screenshot ready</span>
+      <img id="previewImg" src="" alt="Payment screenshot">
+      <button class="remove-btn" onclick="removeScreenshot()">Remove and re-upload / امسح وارفع تاني</button>
+    </div>
+  </section>
+
+  <hr class="divider" style="margin-top:20px;">
+  
+  <!-- BUNDLE PICKER -->
+  <section class="bundle-section" id="bundleSection">
+    <div class="bundle-title">Choose your plan</div>
+    <div class="bundle-title-ar ar">اختار الباقة المناسبة ليك</div>
+    <div class="bundle-grid" id="bundleGrid">
+      <div class="bcard selected" onclick="selectBundle(1, 1250)" id="bundle1">
+        <div class="b-info">
+          <div class="b-name">1 Level</div>
+          <div class="b-ar ar">مستوى واحد</div>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div class="b-price">1,250<br><small>EGP</small></div>
+          <div class="b-radio"></div>
+        </div>
+      </div>
+      <div class="bcard" onclick="selectBundle(2, 2200)" id="bundle2">
+        <div class="b-info">
+          <div class="b-name">2 Levels</div>
+          <div class="b-ar ar">باقة مستويين</div>
+          <div class="b-save ar">وفر ٢٥٠ ج (خصم ١٠٪)</div>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div class="b-price">2,200<br><small>EGP</small></div>
+          <div class="b-radio"></div>
+        </div>
+      </div>
+      <div class="bcard" onclick="selectBundle(3, 3150)" id="bundle3">
+        <div class="b-info">
+          <div class="b-name">3 Levels</div>
+          <div class="b-ar ar">باقة ٣ مستويات</div>
+          <div class="b-save ar">وفر ٦٠٠ ج (خصم ١٦٪)</div>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div class="b-price">3,150<br><small>EGP</small></div>
+          <div class="b-radio"></div>
+        </div>
+      </div>
+      <div class="bcard" onclick="selectBundle(4, 4050)" id="bundle4">
+        <div class="b-info">
+          <div class="b-name">4 Levels</div>
+          <div class="b-ar ar">باقة ٤ مستويات</div>
+          <div class="b-save ar">وفر ٩٥٠ ج (خصم ١٩٪)</div>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div class="b-price">4,050<br><small>EGP</small></div>
+          <div class="b-radio"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider" style="margin-top:20px;">
+  <section class="pay-section">
+    <div class="pay-title">Complete your payment</div>
+    <div class="pay-title-ar ar">أتمّم دفعك وابدأ</div>
+
+    <!-- method toggle -->
+    <div class="method-toggle">
+      <div class="mcard ip active" onclick="setMethod('ip')">
+        <div class="mc-icon">🏦</div>
+        <div class="mc-name">InstaPay</div>
+        <div class="mc-ar ar">إنستاباي</div>
+      </div>
+      <div class="mcard vf" onclick="setMethod('vf')">
+        <div class="mc-icon">📱</div>
+        <div class="mc-name">Vodafone Cash</div>
+        <div class="mc-ar ar">فودافون كاش</div>
+      </div>
+    </div>
+
+    <!-- InstaPay panel -->
+    <div class="pay-detail ip show" id="pdIp">
+      <div class="pd-box ip">
+        <div class="pd-acct">
+          <div class="pd-acct-label">Send to / ابعت على</div>
+          <div class="pd-num-row">
+            <div>
+              <div class="pd-num">01002954737</div>
+              <div class="pd-name">Mahmoud Ahmed — InstaPay</div>
+            </div>
+            <button class="copybtn ip-copy" onclick="copyNum('01002954737',this)">Copy</button>
+          </div>
+        </div>
+        <div class="pd-steps">
+          <div class="pd-step ip"><span class="sn">1</span><span class="st">Open your banking app and go to InstaPay.<span class="ar">افتح تطبيق البنك وروح على إنستاباي.</span></span></div>
+          <div class="pd-step ip"><span class="sn">2</span><span class="st">Send to mobile number — paste <b>01002954737</b>.<span class="ar">ابعت على رقم موبايل — الصق الرقم.</span></span></div>
+          <div class="pd-step ip"><span class="sn">3</span><span class="st">Enter the amount and confirm.<span class="ar">اكتب المبلغ وأكّد.</span></span></div>
+          <div class="pd-step ip"><span class="sn">4</span><span class="st">Take a screenshot and tap the button below.<span class="ar">خد سكرين شوت واضغط الزرار تحت.</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vodafone Cash panel -->
+    <div class="pay-detail vf" id="pdVf">
+      <div class="pd-box vf">
+        <div class="pd-acct">
+          <div class="pd-acct-label">Send to / ابعت على</div>
+          <div class="pd-num-row">
+            <div>
+              <div class="pd-num" id="vfNum">01002954737</div>
+              <div class="pd-name">Mahmoud Ahmed — Vodafone Cash</div>
+            </div>
+            <button class="copybtn vf-copy" id="vfCopyBtn" onclick="copyNum(document.getElementById('vfNum').textContent,this)">Copy</button>
+          </div>
+        </div>
+        <div class="pd-steps">
+          <div class="pd-step vf"><span class="sn">1</span><span class="st">Open the Vodafone Cash app (or dial <b>*9#</b>).<span class="ar">افتح تطبيق فودافون كاش (أو اتصل <b>*9#</b>).</span></span></div>
+          <div class="pd-step vf"><span class="sn">2</span><span class="st">Choose "Send Money" and paste the number.<span class="ar">اختار "تحويل فلوس" والصق الرقم.</span></span></div>
+          <div class="pd-step vf"><span class="sn">3</span><span class="st">Enter the amount and confirm your PIN.<span class="ar">اكتب المبلغ وأكّد بالـ PIN.</span></span></div>
+          <div class="pd-step vf"><span class="sn">4</span><span class="st">Take a screenshot and tap the button below.<span class="ar">خد سكرين شوت واضغط الزرار تحت.</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- price + CTA -->
+    <div class="price-row">
+      <div class="price"><span id="price">1,250</span> <small>EGP</small></div>
+      <div class="price-note">Full level • 8 sessions • certificate included
+        <span class="ar" style="display:block;">المستوى كامل • ٨ حصص • شهادة معتمدة</span>
+      </div>
+    </div>
+
+    <button class="cta" id="ctaBtn" onclick="sendWhatsApp()" disabled>
+      ✅ I've paid — confirm my seat on WhatsApp
+      <span class="ar">دفعت — أكّد مكاني على واتساب</span>
+    </button>
+    <div class="cta-lock-hint" id="lockHint">⬆ Upload your payment screenshot above to continue<br><span class="ar" style="display:block;margin-top:2px;">ارفع صورة التأكيد الأول عشان تكمل</span></div>
+    <div class="reassure" id="reassureMsg" style="display:none;">
+      Opens WhatsApp with everything pre-filled — just tap Send, then share your screenshot.<br>
+      <span class="ar" style="display:block;margin-top:3px;">هيفتح واتساب جاهز — اضغط إرسال وابعت صورة التأكيد في نفس الشات.</span>
+    </div>
+  </section>
+
+  <!-- sticky reminder (shown after WhatsApp opens) -->
+  <div class="reminder" id="reminder">
+    <div class="rem-head">📎 One more step!</div>
+    <div class="rem-body">
+      WhatsApp is open with your message ready. Now send your payment screenshot in the same chat.
+      <span class="ar">واتساب فتح بالرسالة الجاهزة. دلوقتي ابعت صورة التأكيد في نفس الشات.</span>
+    </div>
+    <div class="rem-steps">
+      <div class="rem-step"><span class="rn">1</span>Tap Send on the pre-filled message</div>
+      <div class="rem-step"><span class="rn">2</span>Tap the 📎 attachment icon</div>
+      <div class="rem-step"><span class="rn">3</span>Choose your screenshot from Gallery → Send</div>
+    </div>
+    <button class="rem-close" onclick="document.getElementById('reminder').classList.remove('show')">Got it — I'm sending it now ✓</button>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="foot">
+    <div class="trust">
+      <span>🎓 Certified mentors</span>
+      <span>👥 Small groups</span>
+      <span>⭐ Real progress</span>
+    </div>
+    <div class="foot-brand">Eighty Twenty — Mentors Deliver English</div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+   CONFIG — edit here OR pass via URL params
+   URL example:
+   ?name=Ahmed&level=2&price=2200
+   &classes=Sun-Wed_7:30AM|6,Tue-Thu_9:00AM|3,Tue-Thu_6:00PM|0
+     (format: Days_Time|seatsLeft  — seatsLeft=0 means full)
+   ============================================================ */
+const CONFIG = {
+  name:       "Ahmed",
+  level:      2,
+  price:      "1,250",
+  whatsapp:   "201002954737",          // your WhatsApp in intl format, no +
+  instapay:   "01002954737",
+  vodafoneCash: "01002954737",         // change if VF Cash number is different
+  /* classes: leave empty [] to show the time-preference form instead */
+  classes: [
+    { days:"Sun / Wed", time:"7:30 AM", seats:3 },
+    { days:"Tue / Thu", time:"9:00 AM", seats:1 },
+    { days:"Tue / Thu", time:"6:00 PM", seats:0 },   // seats:0 = full
+  ],
+};
+
+/* per-level skill content */
+const LEVELS = {
+  1:{name:"Beginner",
+    now:[["Recognise everyday words & phrases","تعرف كلمات وجمل يومية"],["Greet people and say your name","تحيي الناس وتقول اسمك"]],
+    next:[["Introduce yourself & other people","تعرّف بنفسك وبالناس"],["Talk about your family","تتكلم عن عائلتك"],["Talk about your daily routine","تتكلم عن روتينك اليومي"],["Talk about your favorite activities","تتكلم عن أنشطتك المفضلة"],["Hold a small conversation","تعمل محادثة بسيطة"],["Say why you're learning English","تقول ليه بتتعلم إنجليزي"]]},
+  2:{name:"Elementary",
+    now:[["Introduce yourself & other people","تعرّف بنفسك وبالناس"],["Talk about your family","تتكلم عن عائلتك"],["Talk about your daily routine","تتكلم عن روتينك اليومي"],["Talk about your favorite activities","تتكلم عن أنشطتك المفضلة"],["Hold a small conversation","تعمل محادثة بسيطة"],["Say why you're learning English","تقول ليه بتتعلم إنجليزي"]],
+    next:[["Talk about your hobbies","تتكلم عن هواياتك"],["Talk about your free time","تتكلم عن وقت فراغك"],["Describe people","تصف الأشخاص"],["Describe common pain & symptoms","تصف الألم والأعراض الشائعة"],["Talk about your friendships","تتكلم عن صداقاتك"],["Invite someone to your home","تدعو حد عندك البيت"],["Describe the weather","تصف الطقس"]]},
+};
+
+/* ---- read URL params ---- */
+const qs   = new URLSearchParams(location.search);
+const get  = (k,d) => qs.get(k) ?? d;
+
+const cfg = {
+  name:    get("name",   CONFIG.name),
+  level:   parseInt(get("level", CONFIG.level)),
+  price:   get("price",  CONFIG.price).replace(/(\d)(?=(\d{3})+$)/g,'$1,'),
+};
+
+/* parse ?classes=Sun-Wed_7:30AM|3,Tue-Thu_9:00AM|1 from URL if provided */
+let classes = CONFIG.classes;
+if(qs.get("classes")){
+  classes = qs.get("classes").split(",").map(c=>{
+    const [dt,s] = c.split("|");
+    const [days,time] = dt.split("_");
+    return {days:days.replace(/-/g," / "), time, seats:parseInt(s??1)};
+  });
+}
+
+const lv = LEVELS[cfg.level] || LEVELS[2];
+let selectedClass = null;
+let selectedDays  = [];
+let activeMethod  = "ip";
+
+/* ---- populate hero ---- */
+document.getElementById("greet").textContent   = "Well done, " + cfg.name + "!";
+document.getElementById("lvNum").textContent   = cfg.level;
+document.getElementById("lvName").textContent  = lv.name;
+// We now set price dynamically via selectBundle
+
+/* ---- bundle selection logic ---- */
+let selectedBundleLevels = 1;
+let selectedBundlePrice = 1250;
+
+function selectBundle(levels, price) {
+  document.querySelectorAll(".bcard").forEach(c => c.classList.remove("selected"));
+  document.getElementById("bundle" + levels).classList.add("selected");
+  selectedBundleLevels = levels;
+  selectedBundlePrice = price;
+  
+  document.getElementById("price").textContent = price.toLocaleString('en-US');
+  
+  const noteEl = document.querySelector(".price-note");
+  if(levels === 1) {
+    noteEl.innerHTML = `Full level • 8 sessions • certificate included<span class="ar" style="display:block;">المستوى كامل • ٨ حصص • شهادة معتمدة</span>`;
+  } else {
+    noteEl.innerHTML = `${levels} Levels • ${levels * 8} sessions • certificate included<span class="ar" style="display:block;">باقة ${levels} مستويات • ${levels * 8} حصص • شهادة معتمدة</span>`;
+  }
+}
+// init with default price if provided in URL or fallback to single level 1250
+if (qs.get("price") && qs.get("price") != "1250") {
+  // Let's deduce the bundle from price if pre-set, otherwise just show the price
+  const pStr = qs.get("price").replace(/,/g, '');
+  if (pStr == "2200") selectBundle(2, 2200);
+  else if (pStr == "3150") selectBundle(3, 3150);
+  else if (pStr == "4050") selectBundle(4, 4050);
+  else {
+    document.getElementById("price").textContent = cfg.price;
+  }
+}
+
+/* ---- skill lists ---- */
+function fill(id, items, sym){
+  document.getElementById(id).innerHTML = items.map(([en,ar])=>
+    `<li><span class="ic">${sym}</span><span class="txt">${en}<span class="ar" style="display:block;">${ar}</span></span></li>`
+  ).join("");
+}
+fill("nowList",  lv.now,  "✓");
+fill("nextList", lv.next, "→");
+
+/* ---- class slots or preference form ---- */
+const availableClasses = classes.filter(c => c.seats > 0);
+
+if(availableClasses.length > 0){
+  const slotArea = document.getElementById("slotArea");
+  slotArea.classList.remove("hidden");
+  availableClasses.forEach((c,i)=>{
+    const el = document.createElement("div");
+    el.className = "cslot";
+    el.dataset.idx = i;
+    el.innerHTML = `
+      <div class="cs-radio"></div>
+      <div class="cs-info">
+        <div class="cs-days">${c.days}</div>
+        <div class="cs-time">${c.time}</div>
+        <div class="cs-ar ar">${c.days.replace("Sun","أحد").replace("Mon","اثنين").replace("Tue","ثلاثاء").replace("Wed","أربع").replace("Thu","خميس").replace("Fri","جمعة").replace("Sat","سبت")} — ${c.time}</div>
+      </div>
+      ${c.seats <= 2 ? `<span class="cs-badge">⚡ ${c.seats} left</span>` : `<span class="cs-badge" style="background:#e8f0fe;color:#1a6fc4;">✓ Available</span>`}`;
+    el.onclick = ()=>{
+      document.querySelectorAll(".cslot").forEach(s=>s.classList.remove("selected"));
+      el.classList.add("selected");
+      selectedClass = c;
+    };
+    slotArea.appendChild(el);
+  });
+} else {
+  /* no classes — show preference form */
+  document.getElementById("prefArea").classList.remove("hidden");
+  const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const arDays = ["اثنين","ثلاثاء","أربع","خميس","جمعة","سبت","أحد"];
+  const dg = document.getElementById("dayGrid");
+  days.forEach((d,i)=>{
+    const b = document.createElement("button");
+    b.className = "daybtn"; b.textContent = d;
+    b.title = arDays[i];
+    b.onclick = ()=>{
+      b.classList.toggle("sel");
+      selectedDays = [...document.querySelectorAll(".daybtn.sel")].map(x=>x.textContent);
+    };
+    dg.appendChild(b);
+  });
+}
+
+/* ---- screenshot upload ---- */
+let screenshotReady = false;
+
+const fileInput  = document.getElementById("fileInput");
+const dropzone   = document.getElementById("dropzone");
+const previewWrap= document.getElementById("previewWrap");
+const previewImg = document.getElementById("previewImg");
+const ctaBtn     = document.getElementById("ctaBtn");
+const lockHint   = document.getElementById("lockHint");
+const reassureMsg= document.getElementById("reassureMsg");
+
+fileInput.addEventListener("change", e => {
+  const file = e.target.files[0];
+  if(file) showPreview(file);
+});
+
+dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("drag"); });
+dropzone.addEventListener("dragleave", ()=> dropzone.classList.remove("drag"));
+dropzone.addEventListener("drop", e => {
+  e.preventDefault(); dropzone.classList.remove("drag");
+  const file = e.dataTransfer.files[0];
+  if(file && file.type.startsWith("image/")) showPreview(file);
+});
+
+function showPreview(file){
+  const reader = new FileReader();
+  reader.onload = ev => {
+    previewImg.src = ev.target.result;
+    previewWrap.classList.add("show");
+    dropzone.classList.add("done");
+    document.getElementById("dzIcon").textContent = "✅";
+    document.getElementById("dzMain").textContent = "Screenshot uploaded!";
+    document.getElementById("dzSub").textContent  = file.name;
+    screenshotReady = true;
+    ctaBtn.disabled = false;
+    lockHint.style.display  = "none";
+    reassureMsg.style.display = "block";
+    ctaBtn.scrollIntoView({behavior:"smooth", block:"center"});
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeScreenshot(){
+  previewImg.src = "";
+  previewWrap.classList.remove("show");
+  dropzone.classList.remove("done");
+  document.getElementById("dzIcon").textContent = "📸";
+  document.getElementById("dzMain").textContent = "Tap to upload your screenshot";
+  document.getElementById("dzSub").textContent  = "Take a photo or choose from your gallery";
+  fileInput.value = "";
+  screenshotReady = false;
+  ctaBtn.disabled = true;
+  lockHint.style.display  = "block";
+  reassureMsg.style.display = "none";
+}
+
+/* ---- payment method toggle ---- */
+function setMethod(m){
+  activeMethod = m;
+  document.querySelectorAll(".mcard").forEach(c=>c.classList.remove("active"));
+  document.querySelector(".mcard."+m).classList.add("active");
+  document.querySelectorAll(".pay-detail").forEach(p=>p.classList.remove("show"));
+  document.getElementById("pd"+m.charAt(0).toUpperCase()+m.slice(1)).classList.add("show");
+}
+
+/* ---- copy number ---- */
+function copyNum(num, btn){
+  navigator.clipboard.writeText(num).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = "Copied ✓"; btn.classList.add("done");
+    setTimeout(()=>{btn.textContent = orig; btn.classList.remove("done");}, 2500);
+  });
+}
+
+/* ---- WhatsApp prefill ---- */
+function sendWhatsApp(){
+  if(!screenshotReady){ alert("Please upload your payment screenshot first! / ارفع صورة التأكيد الأول"); return; }
+
+  let classLine = "";
+  if(availableClasses.length > 0){
+    if(!selectedClass){ alert("Please choose a class time first! / اختار موعد الحصة الأول"); return; }
+    classLine = `\nClass time: ${selectedClass.days} at ${selectedClass.time}`;
+  } else {
+    const time = document.getElementById("timeSel").value;
+    classLine = `\nPreferred days: ${selectedDays.join(", ") || "not selected"}`;
+    if(time) classLine += `\nPreferred time: ${time}`;
+  }
+
+  const method = activeMethod === "ip" ? "InstaPay" : "Vodafone Cash";
+  const msg = `Hi! I'm ${cfg.name}. I just received my Eighty Twenty placement result (Level ${cfg.level} — ${lv.name}) and I've completed my payment via ${method} for ${selectedBundleLevels} Level(s) (${selectedBundlePrice.toLocaleString('en-US')} EGP).${classLine}\n\n📎 I'm sending my payment screenshot right after this message.\n\nPlease confirm my seat. 🙏`;
+  window.open(`https://wa.me/${CONFIG.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank");
+
+  /* show sticky reminder after a short delay */
+  setTimeout(()=> document.getElementById("reminder").classList.add("show"), 800);
+}
+</script>
+</body>
+</html>
