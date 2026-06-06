@@ -613,12 +613,12 @@ func main() {
 			return
 		}
 		if r.Method == http.MethodGet {
-			middleware.RequireAnyRole([]string{"student_success"}, cfg.SessionSecret)(apiHandler.GetStudentSuccessClasses)(w, r)
+			middleware.RequireAnyRole([]string{"student_success", "manager"}, cfg.SessionSecret)(apiHandler.GetStudentSuccessClasses)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/student-success/classes -> apiHandler.GetStudentSuccessClasses [student_success only]")
+	cfg.Debugf("ROUTE REGISTERED: /api/student-success/classes -> apiHandler.GetStudentSuccessClasses [student_success+manager]")
 
 	mux.HandleFunc("/api/student-success/availability", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/student-success/availability" {
@@ -639,12 +639,12 @@ func main() {
 			return
 		}
 		if r.Method == http.MethodGet {
-			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetStudentSuccessClass)(w, r)
+			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetStudentSuccessClass)(w, r)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	cfg.Debugf("ROUTE REGISTERED: /api/student-success/class -> apiHandler.GetStudentSuccessClass [student_success, mentor_head, admin]")
+	cfg.Debugf("ROUTE REGISTERED: /api/student-success/class -> apiHandler.GetStudentSuccessClass [student_success+mentor_head+admin+manager]")
 
 	mux.HandleFunc("/api/student-success/placement-tests", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/student-success/placement-tests" {
@@ -673,16 +673,16 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/placement-tests/complete -> apiHandler.CompletePlacementTest [student_success only]")
 
 	mux.HandleFunc("/api/student-success/class/absence-feed", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetAbsenceFeed)(w, r)
+		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetAbsenceFeed)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/class/absence-feed -> apiHandler.GetAbsenceFeed")
 
 	mux.HandleFunc("/api/student-success/followups", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetFollowUps)(w, r)
+			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetFollowUps)(w, r)
 		case http.MethodPost:
-			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.CreateFollowUp)(w, r)
+			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.CreateFollowUp)(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -690,27 +690,27 @@ func main() {
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/followups -> apiHandler.CreateFollowUp")
 
 	mux.HandleFunc("/api/student-success/resolve-absence", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.ResolveAbsence)(w, r)
+		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.ResolveAbsence)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/resolve-absence -> apiHandler.ResolveAbsence")
 
 	mux.HandleFunc("/api/student-success/feedback", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "admin"}, cfg.SessionSecret)(apiHandler.SubmitFeedback)(w, r)
+		middleware.RequireAnyRole([]string{"student_success", "admin", "manager"}, cfg.SessionSecret)(apiHandler.SubmitFeedback)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/feedback -> apiHandler.SubmitFeedback")
 
 	mux.HandleFunc("/api/student-success/feedback/status", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "admin"}, cfg.SessionSecret)(apiHandler.UpdateFeedbackStatus)(w, r)
+		middleware.RequireAnyRole([]string{"student_success", "admin", "manager"}, cfg.SessionSecret)(apiHandler.UpdateFeedbackStatus)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/feedback/status -> apiHandler.UpdateFeedbackStatus")
 
 	mux.HandleFunc("/api/student-success/feedback-collected", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(apiHandler.GetFeedbackCollected)(w, r)
+			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetFeedbackCollected)(w, r)
 			return
 		}
 		if r.Method == http.MethodPost {
-			middleware.RequireAnyRole([]string{"student_success"}, cfg.SessionSecret)(apiHandler.UploadFeedbackCollected)(w, r)
+			middleware.RequireAnyRole([]string{"student_success", "manager"}, cfg.SessionSecret)(apiHandler.UploadFeedbackCollected)(w, r)
 			return
 		}
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -719,7 +719,7 @@ func main() {
 
 	mux.HandleFunc("/api/student-success/feedback-collected/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodDelete {
-			middleware.RequireAnyRole([]string{"student_success"}, cfg.SessionSecret)(apiHandler.DeleteFeedbackCollected)(w, r)
+			middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.DeleteFeedbackCollected)(w, r)
 			return
 		}
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -728,7 +728,7 @@ func main() {
 
 	// Complaint routes - Student Success
 	mux.HandleFunc("/api/student-success/complaints", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "admin"}, cfg.SessionSecret)(apiHandler.CreateComplaint)(w, r)
+		middleware.RequireAnyRole([]string{"student_success", "admin", "manager"}, cfg.SessionSecret)(apiHandler.CreateComplaint)(w, r)
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/complaints -> apiHandler.CreateComplaint")
 
@@ -762,7 +762,7 @@ func main() {
 
 	// Specific absence case actions
 	mux.HandleFunc("/api/absence-cases/", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin"}, cfg.SessionSecret)(func(w http.ResponseWriter, r *http.Request) {
+		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, "/follow-up") {
 				apiHandler.PostFollowUpUpdate(w, r)
 			} else if strings.HasSuffix(r.URL.Path, "/resolve") {

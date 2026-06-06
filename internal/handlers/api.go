@@ -4163,10 +4163,10 @@ func (h *APIHandler) GetStudentSuccessClass(w http.ResponseWriter, r *http.Reque
 	switch role {
 	case "student_success":
 		allowClosed = false
-	case "mentor_head", "admin":
+	case "mentor_head", "admin", "manager":
 		allowClosed = true
 	default:
-		jsonError(w, http.StatusForbidden, "Forbidden: Student Success or Mentor Head access required")
+		jsonError(w, http.StatusForbidden, "Forbidden: Student Success, Mentor Head, Admin, or Manager access required")
 		return
 	}
 
