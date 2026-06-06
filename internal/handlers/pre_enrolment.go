@@ -1638,6 +1638,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"NextAction":                 tempItem.NextAction,
 		"LeadWhatsAppURL":            tempItem.WhatsAppURL,
 		"LeadWhatsAppOpenURL":        fmt.Sprintf("/pre-enrolment/%s?open_whatsapp=1", leadID.String()),
+		"CanSendPlacementResult":     canSendPlacementResult(detail.Lead),
 		"OfferFollowUpStep":          tempItem.OfferFollowUpStep,
 		"OfferFollowUpDueAt":         tempItem.OfferFollowUpDueAt,
 		"OfferFollowUpDueNow":        tempItem.OfferFollowUpDueNow,
@@ -1843,10 +1844,22 @@ func hasNonLandingLeadContactMarker(lead *models.Lead) bool {
 	if isLandingLead(lead) {
 		return false
 	}
-	if !lead.NewLeadContactedAt.Valid {
+	if !lead.NewLeadContactedAt.Valid || !lead.NewLeadContactedStatus.Valid {
 		return false
 	}
-	return true
+	return strings.TrimSpace(lead.NewLeadContactedStatus.String) == strings.TrimSpace(lead.Status)
+}
+
+func canSendPlacementResult(lead *models.Lead) bool {
+	if lead == nil {
+		return false
+	}
+	switch strings.TrimSpace(lead.Status) {
+	case "tested", "offer_sent":
+		return true
+	default:
+		return false
+	}
 }
 
 func canMarkNewLeadContacted(lead *models.Lead, userRole string) bool {

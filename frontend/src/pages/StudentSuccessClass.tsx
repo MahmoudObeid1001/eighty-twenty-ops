@@ -360,8 +360,8 @@ export default function StudentSuccessClass() {
       setError(null)
       setActionError(null)
       const me = await api.getMe()
-      if (me.role !== 'student_success' && me.role !== 'mentor_head' && me.role !== 'admin') {
-        setError('No access. Student Success, Mentor Head, or Admin only.')
+      if (me.role !== 'student_success' && me.role !== 'mentor_head' && me.role !== 'admin' && me.role !== 'manager') {
+        setError('No access. Student Success, Mentor Head, Admin, or Manager only.')
         setLoading(false)
         return
       }
@@ -505,9 +505,9 @@ export default function StudentSuccessClass() {
           <h1>
             Level {c.level} · {c.days} · {c.time} · Class {c.class_number}
           </h1>
-          {userRole === 'mentor_head' && (
+          {(userRole === 'mentor_head' || userRole === 'manager') && (
             <button
-              onClick={() => navigate('/mentor-head')}
+              onClick={() => navigate(userRole === 'manager' ? '/manager-dashboard' : '/mentor-head')}
               style={{
                 padding: '8px 12px',
                 borderRadius: '6px',
@@ -519,7 +519,7 @@ export default function StudentSuccessClass() {
                 fontWeight: 600,
               }}
             >
-              Back to Mentor Head
+              {userRole === 'manager' ? 'Back to Manager Dashboard' : 'Back to Mentor Head'}
             </button>
           )}
         </div>

@@ -86,6 +86,8 @@
             title="{{if gt .OfferFollowUpStep 0}}Open WhatsApp with Message {{.OfferFollowUpStep}}{{else}}Open WhatsApp{{end}}">
             WhatsApp Lead
         </a>
+        {{end}}
+        {{if and .LeadWhatsAppURL .CanSendPlacementResult}}
         <button type="button" class="btn"
             style="background: #E8B923; color: #1E293B; border: 1px solid #E8B923; padding: 12px 18px; font-weight: 700; display: flex; align-items: center; gap: 8px;"
             onclick="sendPlacementResult('{{.Detail.Lead.ID}}', '{{.Detail.Lead.Phone}}')">
