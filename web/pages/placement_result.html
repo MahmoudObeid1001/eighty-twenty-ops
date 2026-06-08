@@ -510,7 +510,7 @@
     <!-- fallback: no classes yet -->
     <div id="prefArea" class="timepref hidden">
       <p>No scheduled classes right now — tell us when works for you and we'll set one up.
-        <span class="ar">مفيش حصص متاحة دلوقتي — قولنا المواعيد المناسبة وهنرتبلك.</span>
+        <span class="ar">مفيش سيشنز متاحة دلوقتي — قولنا المواعيد المناسبة وهنرتبلك.</span>
       </p>
       <div class="day-grid" id="dayGrid"></div>
       <select class="time-sel" id="timeSel">
@@ -672,7 +672,7 @@
     <div class="price-row">
       <div class="price"><span id="price">1,250</span> <small>EGP</small></div>
       <div class="price-note">Full level • 8 sessions • certificate included
-        <span class="ar" style="display:block;">المستوى كامل • ٨ حصص • شهادة معتمدة</span>
+        <span class="ar" style="display:block;">المستوى كامل • ٨ سيشنز • شهادة معتمدة</span>
       </div>
     </div>
 
@@ -683,11 +683,11 @@
     <div class="cta-lock-hint" id="lockHint">
       ⬆ Upload your payment screenshot above to continue<br>
       <span class="ar" style="display:block;margin-top:2px;">ارفع صورة التأكيد الأول عشان تكمل</span>
-      <div style="margin-top: 12px; font-size: 13.5px; border-top: 1px dashed rgba(0,0,0,0.12); padding-top: 10px;">
-        <a href="#" style="color: #1a8fc4; text-decoration: underline; font-weight: 600;" onclick="sendWhatsApp(true); event.preventDefault();">
-          Having trouble uploading? Confirm without screenshot<br>
-          <span class="ar" style="display:block;margin-top:2px;text-decoration:underline;">مش عارف ترفع الصورة؟ أكد من غيرها</span>
-        </a>
+      <div style="margin-top: 16px;">
+        <button style="width: 100%; padding: 14px; background: #fff; border: 2px solid #94a3b8; border-radius: 12px; color: #0f172a; font-weight: 700; font-size: 15px; cursor: pointer; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: all 0.2s;" onclick="sendWhatsApp(true); event.preventDefault();" onmouseover="this.style.borderColor='#64748b'; this.style.backgroundColor='#f8fafc';" onmouseout="this.style.borderColor='#94a3b8'; this.style.backgroundColor='#fff';">
+          <span style="display:block;margin-bottom:4px;">Having trouble uploading? Confirm without screenshot</span>
+          <span class="ar" style="display:block;font-size:14px;color:#334155;font-weight:600;">مش عارف ترفع الصورة؟ أكد من غيرها</span>
+        </button>
       </div>
     </div>
     <div class="reassure" id="reassureMsg" style="display:none;">
@@ -752,30 +752,136 @@ const CONFIG = {
 
 /* per-level skill content */
 const LEVELS = {
-  1:{name:"Beginner",
-    now:[["Recognise everyday words & phrases","تعرف كلمات وجمل يومية"],["Greet people and say your name","تحيي الناس وتقول اسمك"]],
-    next:[["Introduce yourself & other people","تعرّف بنفسك وبالناس"],["Talk about your family","تتكلم عن عائلتك"],["Talk about your daily routine","تتكلم عن روتينك اليومي"],["Talk about your favorite activities","تتكلم عن أنشطتك المفضلة"],["Hold a small conversation","تعمل محادثة بسيطة"],["Say why you're learning English","تقول ليه بتتعلم إنجليزي"]]},
-  2:{name:"Elementary",
-    now:[["Introduce yourself & other people","تعرّف بنفسك وبالناس"],["Talk about your family","تتكلم عن عائلتك"],["Talk about your daily routine","تتكلم عن روتينك اليومي"],["Talk about your favorite activities","تتكلم عن أنشطتك المفضلة"],["Hold a small conversation","تعمل محادثة بسيطة"],["Say why you're learning English","تقول ليه بتتعلم إنجليزي"]],
-    next:[["Talk about your hobbies","تتكلم عن هواياتك"],["Talk about your free time","تتكلم عن وقت فراغك"],["Describe people","تصف الأشخاص"],["Describe common pain & symptoms","تصف الألم والأعراض الشائعة"],["Talk about your friendships","تتكلم عن صداقاتك"],["Invite someone to your home","تدعو حد عندك البيت"],["Describe the weather","تصف الطقس"]]},
-  3:{name:"Pre-Intermediate",
-    now:[["Talk about your hobbies","تتكلم عن هواياتك"],["Talk about your free time","تتكلم عن وقت فراغك"],["Describe people","تصف الأشخاص"],["Describe common pain & symptoms","تصف الألم والأعراض الشائعة"],["Talk about your friendships","تتكلم عن صداقاتك"],["Invite someone to your home","تدعو حد عندك البيت"],["Describe the weather","تصف الطقس"]],
-    next:[["Discuss travel experiences and plans","التحدث عن تجارب وخطط السفر"],["Express opinions and preferences","التعبير عن الآراء والتفضيلات"],["Describe past events and stories","وصف الأحداث والقصص الماضية"],["Make polite requests and offers","تقديم الطلبات والعروض المهذبة"],["Talk about future hopes and goals","التحدث عن الآمال والأهداف المستقبلية"]]},
-  4:{name:"Intermediate",
-    now:[["Discuss travel experiences and plans","التحدث عن تجارب وخطط السفر"],["Express opinions and preferences","التعبير عن الآراء والتفضيلات"],["Describe past events and stories","وصف الأحداث والقصص الماضية"],["Make polite requests and offers","تقديم الطلبات والعروض المهذبة"],["Talk about future hopes and goals","التحدث عن الآمال والأهداف المستقبلية"]],
-    next:[["Participate in meetings & discussions","المشاركة في اجتماعات العمل والمناقشات"],["Express agreement & disagreement politely","التعبير عن الموافقة والاختلاف بأدب"],["Describe complex situations & problems","وصف المواقف والمشكلات المعقدة"],["Give detailed explanations & instructions","تقديم تفسيرات وإرشادات مفصلة"],["Talk about hypothetical scenarios","التحدث عن سيناريوهات افتراضية"]]},
-  5:{name:"Upper-Intermediate",
-    now:[["Participate in meetings & discussions","المشاركة في اجتماعات العمل والمناقشات"],["Express agreement & disagreement politely","التعبير عن الموافقة والاختلاف بأدب"],["Describe complex situations & problems","وصف المواقف والمشكلات المعقدة"],["Give detailed explanations & instructions","تقديم تفسيرات وإرشادات مفصلة"],["Talk about hypothetical scenarios","التحدث عن سيناريوهات افتراضية"]],
-    next:[["Negotiate and influence others","التفاوض والتأثير على الآخرين"],["Express abstract concepts and ideas","التعبير عن المفاهيم والأفكار المجردة"],["Give professional presentations","تقديم عروض تقديمية احترافية"],["Summarize complex articles or discussions","تلخيص مقالات أو مناقشات معقدة"],["Speak fluently on a wide range of topics","التحدث بطلاقة في مجموعة واسعة من المواضيع"]]},
-  6:{name:"Pre-Advanced",
-    now:[["Negotiate and influence others","التفاوض والتأثير على الآخرين"],["Express abstract concepts and ideas","التعبير عن المفاهيم والأفكار المجردة"],["Give professional presentations","تقديم عروض تقديمية احترافية"],["Summarize complex articles or discussions","تلخيص مقالات أو مناقشات معقدة"],["Speak fluently on a wide range of topics","التحدث بطلاقة في مجموعة واسعة من المواضيع"]],
-    next:[["Understand idiomatic English and slang","فهم اللغة الإنجليزية الاصطلاحية والعامية"],["Construct well-structured arguments","صياغة حجج ومناقشات منظمة جيداً"],["Express nuances and subtle feelings","التعبير عن الفروق الدقيقة والمشاعر الخفية"],["Analyze and critique written texts","تحليل ونقد النصوص المكتوبة"],["Handle complex professional scenarios","التعامل مع سيناريوهات مهنية معقدة"]]},
-  7:{name:"Advanced",
-    now:[["Understand idiomatic English and slang","فهم اللغة الإنجليزية الاصطلاحية والعامية"],["Construct well-structured arguments","صياغة حجج ومناقشات منظمة جيداً"],["Express nuances and subtle feelings","التعبير عن الفروق الدقيقة والمشاعر الخفية"],["Analyze and critique written texts","تحليل ونقد النصوص المكتوبة"],["Handle complex professional scenarios","التعامل مع سيناريوهات مهنية معقدة"]],
-    next:[["Debate complex global issues","مناظرة ومناقشة القضايا العالمية المعقدة"],["Write professional emails and reports","كتابة رسائل بريد إلكتروني وتقارير احترافية"],["Understand different English accents","فهم لهجات اللغة الإنجليزية المختلفة"],["Deliver persuasive speeches","إلقاء خطابات مقنعة ومؤثرة"],["Communicate with native speakers effortlessly","التواصل مع المتحدثين الأصليين دون مجهود"]]},
-  8:{name:"Fluent / Professional",
-    now:[["Debate complex global issues","مناظرة ومناقشة القضايا العالمية المعقدة"],["Write professional emails and reports","كتابة رسائل بريد إلكتروني وتقارير احترافية"],["Understand different English accents","فهم لهجات اللغة الإنجليزية المختلفة"],["Deliver persuasive speeches","إلقاء خطابات مقنعة ومؤثرة"],["Communicate with native speakers effortlessly","التواصل مع المتحدثين الأصليين دون مجهود"]],
-    next:[["Master conversational nuances and humor","إتقان الفروق الدقيقة والفكاهة في المحادثات"],["Speak with native-like accuracy and flow","التحدث بدقة وطلاقة تشبه المتحدثين الأصليين"],["Lead international negotiations","قيادة المفاوضات الدولية"],["Express complex philosophical ideas","التعبير عن الأفكار الفلسفية المعقدة"],["Handle any social or professional setting","التعامل مع أي موقف اجتماعي أو مهني بثقة"]]},
+  1:{name:"Level 1",
+    now:[
+      ["Recognise everyday words & phrases","تعرف كلمات وجمل يومية"],
+      ["Greet people and say your name","تحيي الناس وتقول اسمك"]
+    ],
+    next:[
+      ["Introduce yourself and other people","تعريف نفسك والآخرين"],
+      ["Talk about your family","التحدث عن عائلتك"],
+      ["Talk about your daily routine","وصف روتينك اليومي"],
+      ["Talk about your favorite activities","التحدث عن أنشطتك المفضلة"],
+      ["Hold a small conversation","إجراء محادثة بسيطة"],
+      ["Say why you're learning English","التعبير عن سبب تعلّمك للإنجليزية"]
+    ]
+  },
+  2:{name:"Level 2",
+    now:[
+      ["Introduce yourself and other people","تعريف نفسك والآخرين"],
+      ["Talk about your family","التحدث عن عائلتك"],
+      ["Talk about your daily routine","وصف روتينك اليومي"],
+      ["Talk about your favorite activities","التحدث عن أنشطتك المفضلة"],
+      ["Hold a small conversation","إجراء محادثة بسيطة"],
+      ["Say why you're learning English","التعبير عن سبب تعلّمك للإنجليزية"]
+    ],
+    next:[
+      ["Talk about your hobbies.",""],
+      ["Talk about what you do in your free time.",""],
+      ["Talk about your future plans.",""],
+      ["Describe people.",""],
+      ["Describe pain when you feel it.",""],
+      ["Show care to someone who is sick.",""],
+      ["Talk about your best friends and how you got to know them.",""],
+      ["Talk about old friends.",""],
+      ["Describe the weather.",""]
+    ]
+  },
+  3:{name:"Level 3",
+    now:[
+      ["Talk about your hobbies.",""],
+      ["Talk about what you do in your free time.",""],
+      ["Talk about your future plans.",""],
+      ["Describe people.",""],
+      ["Describe pain when you feel it.",""],
+      ["Show care to someone who is sick.",""],
+      ["Talk about your best friends and how you got to know them.",""],
+      ["Talk about old friends.",""],
+      ["Describe the weather.",""]
+    ],
+    next:[
+      ["Describe your neighborhood.",""],
+      ["Describe your home or someone's apartment.",""],
+      ["Describe your relationship with money.",""],
+      ["Ask for the price of something.",""],
+      ["Talk about prices in English.",""],
+      ["Describe food in general.",""],
+      ["Describe how you go to work, college, and school.",""],
+      ["Tell the difference between ways of transportation.",""],
+      ["Talk about what you like to wear at different times of the day.",""],
+      ["Give your opinion about winter and summer clothing.",""],
+      ["Ask for and give directions to different places.",""],
+      ["Name different places.",""],
+      ["Make your own cleaning routine.",""]
+    ]
+  },
+  4:{name:"Level 4",
+    now:[
+      ["Describe your neighborhood.",""],
+      ["Describe your home or someone's apartment.",""],
+      ["Describe your relationship with money.",""],
+      ["Ask for the price of something.",""],
+      ["Talk about prices in English.",""],
+      ["Describe food in general.",""],
+      ["Describe how you go to work, college, and school.",""],
+      ["Tell the difference between ways of transportation.",""],
+      ["Talk about what you like to wear at different times of the day.",""],
+      ["Give your opinion about winter and summer clothing.",""],
+      ["Ask for and give directions to different places.",""],
+      ["Name different places.",""],
+      ["Make your own cleaning routine.",""]
+    ],
+    next:[
+      ["Talk about what you did yesterday.",""],
+      ["Describe your personality.",""],
+      ["Talk about cellphones.",""],
+      ["Talk about what kind of movies you like to watch.",""],
+      ["Describe your favorite movie.",""],
+      ["Comment on a bad movie.",""],
+      ["Describe your childhood.",""],
+      ["Talk about your relationship with your siblings and parents when you were a child.",""],
+      ["Describe what you feel when you're in pain.",""],
+      ["Describe other pains.",""],
+      ["Tell someone you feel sorry for them.",""],
+      ["Talk about your country's problems.",""]
+    ]
+  },
+  5:{name:"Level 5",
+    now:[
+      ["Talk about what you did yesterday.",""],
+      ["Describe your personality.",""],
+      ["Talk about cellphones.",""],
+      ["Talk about what kind of movies you like to watch.",""],
+      ["Describe your favorite movie.",""],
+      ["Comment on a bad movie.",""],
+      ["Describe your childhood.",""],
+      ["Talk about your relationship with your siblings and parents when you were a child.",""],
+      ["Describe what you feel when you're in pain.",""],
+      ["Describe other pains.",""],
+      ["Tell someone you feel sorry for them.",""],
+      ["Talk about your country's problems.",""]
+    ],
+    next:[
+      ["Talk about yourself in detail in the form of a story.",""],
+      ["Know what to do before, during, and after an interview.",""],
+      ["Talk about the most common interview questions and their answers.",""],
+      ["Talk about your job.",""],
+      ["Talk about your dream job.",""],
+      ["Describe your job.",""],
+      ["Talk about why people leave their jobs.",""],
+      ["Talk about why people love their jobs.",""],
+      ["Describe your friendships with people.",""],
+      ["Talk about the signs of a good friend.",""],
+      ["Talk about the signs of a toxic friend.",""],
+      ["Talk about why friends are so important.",""],
+      ["Talk about the differences between men and women, both physically and psychologically.",""],
+      ["Talk about whether women should work or not.",""],
+      ["Talk about some law and legal terms.",""],
+      ["Tell the differences between felony, misdemeanor, and infraction.",""],
+      ["Talk about the common kinds of crimes.",""],
+      ["Talk about your college life.",""]
+    ]
+  }
 };
 
 /* ---- read URL params ---- */
@@ -952,9 +1058,9 @@ function selectBundle(levels, price) {
   
   const noteEl = document.querySelector(".price-note");
   if(levels === 1) {
-    noteEl.innerHTML = `Full level • 8 sessions • certificate included<span class="ar" style="display:block;">المستوى كامل • ٨ حصص • شهادة معتمدة</span>`;
+    noteEl.innerHTML = `Full level • 8 sessions • certificate included<span class="ar" style="display:block;">المستوى كامل • ٨ سيشنز • شهادة معتمدة</span>`;
   } else {
-    noteEl.innerHTML = `${levels} Levels • ${levels * 8} sessions • certificate included<span class="ar" style="display:block;">باقة ${levels} مستويات • ${levels * 8} حصص • شهادة معتمدة</span>`;
+    noteEl.innerHTML = `${levels} Levels • ${levels * 8} sessions • certificate included<span class="ar" style="display:block;">باقة ${levels} مستويات • ${levels * 8} سيشنز • شهادة معتمدة</span>`;
   }
 }
 
