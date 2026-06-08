@@ -2823,12 +2823,9 @@
             
             const data = await res.json();
             // Build the URL
-            const url = new URL('https://app.eightytwentyegy.com/result');
-            url.searchParams.set('id', leadId);
+            const url = new URL(`https://app.eightytwentyegy.com/result/${encodeURIComponent(leadId)}`);
             if (currentUserEmail.toLowerCase().includes('zizo')) {
                 url.searchParams.set('s', 'zizo');
-            } else {
-                url.searchParams.set('s', 'manager');
             }
             
             const resultLink = url.toString();

@@ -764,6 +764,14 @@ const LEVELS = {
 const qs   = new URLSearchParams(location.search);
 const get  = (k,d) => qs.get(k) ?? d;
 
+function getLeadIdFromPath() {
+  const parts = location.pathname.split("/").filter(Boolean);
+  if (parts.length >= 2 && parts[0] === "result" && parts[1]) {
+    return decodeURIComponent(parts[1]);
+  }
+  return "";
+}
+
 const sender = qs.get("s");
 if (sender === "zizo") {
   CONFIG.whatsapp = "201033111400";
@@ -933,7 +941,7 @@ function selectBundle(levels, price) {
 }
 
 // Check if we need to load from backend using lead ID
-const leadId = qs.get("id") || qs.get("lead_id");
+const leadId = qs.get("id") || qs.get("lead_id") || getLeadIdFromPath();
 if (leadId) {
   fetch(`/api/pre-enrolment/${encodeURIComponent(leadId)}/placement-result-data`, {
     cache: "no-store",
@@ -956,7 +964,12 @@ if (leadId) {
       showLoadError();
     });
 } else {
-  loadFromURLParams();
+  const hasPreviewParams = qs.has("name") || qs.has("level") || qs.has("classes") || qs.has("c_b64");
+  if (hasPreviewParams) {
+    loadFromURLParams();
+  } else {
+    showLoadError();
+  }
 }
 
 function loadFromURLParams() {

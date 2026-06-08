@@ -98,6 +98,8 @@ func main() {
 
 	mux.HandleFunc("/result", requestLogMiddleware(handlers.ServePlacementResult))
 	cfg.Debugf("ROUTE REGISTERED: /result -> handlers.ServePlacementResult")
+	mux.HandleFunc("/result/", requestLogMiddleware(handlers.ServePlacementResult))
+	cfg.Debugf("ROUTE REGISTERED: /result/ -> handlers.ServePlacementResult")
 
 	// API routes (JSON) - register BEFORE React app to avoid shadowing /api/*
 	// React app handler will be registered AFTER all API routes
