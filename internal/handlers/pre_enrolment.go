@@ -660,6 +660,13 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		sleepingReminderDueCount = count
 	}
 
+	placementNoShowCount := 0
+	if count, err := models.CountLeadsByOpsQueueReason("placement_test_no_show"); err == nil {
+		placementNoShowCount = count
+	} else {
+		log.Printf("ERROR: Failed to count placement test no-show leads: %v", err)
+	}
+
 	refusedTemplates, err := models.GetRefusedRenewalMessageTemplates()
 	if err != nil {
 		log.Printf("ERROR: Failed to load refused renewal templates: %v", err)
@@ -702,6 +709,7 @@ func (h *PreEnrolmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		"FollowUpCount":            followUpCount,
 		"FollowUpFilter":           followUpFilter,
 		"TestedResultsCount":       testedResultsCount,
+		"PlacementNoShowCount":     placementNoShowCount,
 		"SleepingReminderDueCount": sleepingReminderDueCount,
 		"RefusedRenewalReasonTabs": refusedRenewalReasonTabs(),
 		"RefusedTemplatesByReason": refusedTemplatesByReason,
@@ -1731,6 +1739,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		}(),
 		"PricingTrack":                inferOfferPricingTrack(detail.Offer),
 		"IsPrivateTrack":              detail.Lead.OpsQueueReason.Valid && detail.Lead.OpsQueueReason.String == "private_track",
+		"IsPlacementTestNoShow":       detail.Lead.OpsQueueReason.Valid && detail.Lead.OpsQueueReason.String == "placement_test_no_show",
 		"IsRefundReview":              isRefundReviewLead(detail.Lead),
 		"CanMarkNewLeadContacted":     canMarkNewLeadContacted(detail.Lead, userRole) && !newLeadContactedActive,
 		"NewLeadContactedActive":      newLeadContactedActive,

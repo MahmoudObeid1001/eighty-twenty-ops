@@ -674,6 +674,19 @@ func main() {
 	}))
 	cfg.Debugf("ROUTE REGISTERED: /api/student-success/placement-tests/complete -> apiHandler.CompletePlacementTest [student_success only]")
 
+	mux.HandleFunc("/api/student-success/placement-tests/no-show", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/student-success/placement-tests/no-show" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			middleware.RequireAnyRole([]string{"student_success"}, cfg.SessionSecret)(apiHandler.MarkPlacementTestNoShow)(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	cfg.Debugf("ROUTE REGISTERED: /api/student-success/placement-tests/no-show -> apiHandler.MarkPlacementTestNoShow [student_success only]")
+
 	mux.HandleFunc("/api/student-success/class/absence-feed", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		middleware.RequireAnyRole([]string{"student_success", "mentor_head", "admin", "manager"}, cfg.SessionSecret)(apiHandler.GetAbsenceFeed)(w, r)
 	}))

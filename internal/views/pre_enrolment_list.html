@@ -32,6 +32,14 @@
 </div>
 {{end}}
 
+{{if gt .PlacementNoShowCount 0}}
+<div
+    style="background-color: #FFF4E6; border: 2px solid #DD6B20; color: #8C4A00; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: 600;">
+    يوجد {{.PlacementNoShowCount}} {{if eq .PlacementNoShowCount 1}}طالب لم يحضر اختبار تحديد المستوى{{else}}طلاب لم يحضروا اختبار تحديد المستوى{{end}} —
+    <a href="/pre-enrolment?ops_queue=placement_test_no_show" style="color: #8C4A00; text-decoration: underline;">فتح قائمة إعادة الجدولة</a>
+</div>
+{{end}}
+
 {{if and .ShowRefusedRenewalBanner (or .IsAdmin (eq .UserRole "manager"))}}
 <a href="/pre-enrolment?cold=1&dismiss_refused_banner=1"
     style="display: block; background-color: #FFF7E6; border: 2px solid #DD6B20; color: #8C4A00; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-weight: 600; text-decoration: none;">
@@ -112,6 +120,7 @@
     {{$isRepeat := eq .RepeatFilter "1"}}
     {{$isCold := or (eq .ColdFilter "1") (eq .ColdFilter "true")}}
     {{$isPrivateTrack := eq .OpsQueueFilter "private_track"}}
+    {{$isPlacementNoShow := eq .OpsQueueFilter "placement_test_no_show"}}
     {{$isSleeping := .IsSleepingLeads}}
     {{$isSnoozed := .IsSnoozedLeads}}
     <div class="quick-filters">
@@ -164,6 +173,11 @@
             class="quick-filter-btn {{if $isPrivateTrack}}active{{end}}" data-filter-key="ops_queue"
             data-filter-value="private_track"
             style="{{if $isPrivateTrack}}background-color: #0d6efd; color: white; border-color: #0d6efd;{{end}}">Private Track</a>
+
+        <a href="/pre-enrolment?ops_queue=placement_test_no_show{{if $search}}&search={{$search | urlquery}}{{end}}{{if $incCan}}&include_cancelled=1{{end}}{{if $isHP}}&follow_up=high_priority{{end}}{{if $isRepeat}}&repeat=1{{end}}"
+            class="quick-filter-btn {{if $isPlacementNoShow}}active{{end}}" data-filter-key="ops_queue"
+            data-filter-value="placement_test_no_show"
+            style="{{if $isPlacementNoShow}}background-color: #DD6B20; color: white; border-color: #DD6B20;{{end}}">محضرش تحديد المستوى</a>
 
         <a href="/pre-enrolment?sleeping=1{{if $search}}&search={{$search | urlquery}}{{end}}"
             class="quick-filter-btn {{if $isSleeping}}active{{end}}" data-filter-key="sleeping"
@@ -325,6 +339,8 @@
                     <span class="badge" style="background-color: #0d6efd; color: white; margin-left: 5px;">PRIVATE TRACK</span>
                     {{else if eq .Lead.OpsQueueReason.String "refund_review"}}
                     <span class="badge" style="background-color: #dc3545; color: white; margin-left: 5px;">REFUND REVIEW</span>
+                    {{else if eq .Lead.OpsQueueReason.String "placement_test_no_show"}}
+                    <span class="badge" style="background-color: #DD6B20; color: white; margin-left: 5px;">محضرش تحديد المستوى</span>
                     {{end}}
                     {{end}}
                     {{if .IsLandingLead}}
@@ -534,6 +550,10 @@
                         {{if and .Lead.OpsQueueReason.Valid (eq .Lead.OpsQueueReason.String "refund_review")}}
                         <a href="/pre-enrolment/{{.Lead.ID}}?action=refund_review" class="btn btn-small"
                             style="background: #FF8C00; color: white; border: 1px solid #FF8C00;">Refund Review</a>
+                        {{end}}
+                        {{if and .Lead.OpsQueueReason.Valid (eq .Lead.OpsQueueReason.String "placement_test_no_show")}}
+                        <a href="/pre-enrolment/{{.Lead.ID}}" class="btn btn-small"
+                            style="background: #DD6B20; color: white; border: 1px solid #DD6B20;">Reschedule Test</a>
                         {{end}}
                         {{end}}
                         {{end}}

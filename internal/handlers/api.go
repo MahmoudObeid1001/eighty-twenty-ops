@@ -4013,16 +4013,17 @@ func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *h
 	}
 
 	type PlacementTestResp struct {
-		LeadID        string `json:"lead_id"`
-		FullName      string `json:"full_name"`
-		Phone         string `json:"phone"`
-		Status        string `json:"status"`
-		TestDate      string `json:"test_date"`
-		TestTime      string `json:"test_time"`
-		TestType      string `json:"test_type"`
-		AssignedLevel *int32 `json:"assigned_level,omitempty"`
-		TestNotes     string `json:"test_notes,omitempty"`
-		ScheduledSS   string `json:"scheduled_student_success,omitempty"`
+		LeadID            string `json:"lead_id"`
+		FullName          string `json:"full_name"`
+		Phone             string `json:"phone"`
+		Status            string `json:"status"`
+		TestDate          string `json:"test_date"`
+		TestTime          string `json:"test_time"`
+		TestType          string `json:"test_type"`
+		AppointmentStatus string `json:"appointment_status"`
+		AssignedLevel     *int32 `json:"assigned_level,omitempty"`
+		TestNotes         string `json:"test_notes,omitempty"`
+		ScheduledSS       string `json:"scheduled_student_success,omitempty"`
 	}
 
 	out := make([]PlacementTestResp, 0, len(rows))
@@ -4039,6 +4040,10 @@ func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *h
 		if row.TestType.Valid {
 			testType = row.TestType.String
 		}
+		appointmentStatus := "scheduled"
+		if row.AppointmentStatus.Valid && strings.TrimSpace(row.AppointmentStatus.String) != "" {
+			appointmentStatus = row.AppointmentStatus.String
+		}
 		var assignedLevel *int32
 		if row.AssignedLevel.Valid {
 			val := row.AssignedLevel.Int32
@@ -4053,16 +4058,17 @@ func (h *APIHandler) GetStudentSuccessPlacementTests(w http.ResponseWriter, r *h
 			scheduledSS = row.ScheduledStudentSuccess.String
 		}
 		out = append(out, PlacementTestResp{
-			LeadID:        row.LeadID.String(),
-			FullName:      row.FullName,
-			Phone:         row.Phone,
-			Status:        row.Status,
-			TestDate:      testDate,
-			TestTime:      testTime,
-			TestType:      testType,
-			AssignedLevel: assignedLevel,
-			TestNotes:     testNotes,
-			ScheduledSS:   scheduledSS,
+			LeadID:            row.LeadID.String(),
+			FullName:          row.FullName,
+			Phone:             row.Phone,
+			Status:            row.Status,
+			TestDate:          testDate,
+			TestTime:          testTime,
+			TestType:          testType,
+			AppointmentStatus: appointmentStatus,
+			AssignedLevel:     assignedLevel,
+			TestNotes:         testNotes,
+			ScheduledSS:       scheduledSS,
 		})
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"placement_tests": out})
@@ -4117,6 +4123,10 @@ func (h *APIHandler) CompletePlacementTest(w http.ResponseWriter, r *http.Reques
 		jsonError(w, http.StatusBadRequest, "Placement test is not scheduled yet")
 		return
 	}
+	if detail.PlacementTest.AppointmentStatus.Valid && detail.PlacementTest.AppointmentStatus.String == "no_show" {
+		jsonError(w, http.StatusBadRequest, "Placement test was marked no-show. Admin must reschedule it first.")
+		return
+	}
 	if !detail.PlacementTest.ScheduledStudentSuccessID.Valid {
 		jsonError(w, http.StatusBadRequest, "Placement test is not assigned to a Student Success yet")
 		return
@@ -4147,6 +4157,71 @@ func (h *APIHandler) CompletePlacementTest(w http.ResponseWriter, r *http.Reques
 			jsonError(w, http.StatusInternalServerError, "Failed to update lead status")
 			return
 		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// POST /api/student-success/placement-tests/no-show - mark a scheduled placement test as no-show and return it to admin follow-up
+func (h *APIHandler) MarkPlacementTestNoShow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	if middleware.GetUserRole(r) != "student_success" {
+		jsonError(w, http.StatusForbidden, "Forbidden: Student Success access required")
+		return
+	}
+	currentUserID, err := uuid.Parse(middleware.GetUserID(r))
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "Invalid Student Success session")
+		return
+	}
+
+	var req struct {
+		LeadID string `json:"lead_id"`
+		Note   string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.LeadID) == "" {
+		jsonError(w, http.StatusBadRequest, "lead_id is required")
+		return
+	}
+	leadID, err := uuid.Parse(req.LeadID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid lead_id")
+		return
+	}
+
+	detail, err := models.GetLeadByID(leadID)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "Lead not found")
+		return
+	}
+	if detail.PlacementTest == nil || !detail.PlacementTest.TestDate.Valid || !detail.PlacementTest.TestTime.Valid {
+		jsonError(w, http.StatusBadRequest, "Placement test is not scheduled yet")
+		return
+	}
+	if detail.PlacementTest.AssignedLevel.Valid {
+		jsonError(w, http.StatusBadRequest, "Placement test already has a result")
+		return
+	}
+	if !detail.PlacementTest.ScheduledStudentSuccessID.Valid {
+		jsonError(w, http.StatusBadRequest, "Placement test is not assigned to a Student Success yet")
+		return
+	}
+	if detail.PlacementTest.ScheduledStudentSuccessID.String != currentUserID.String() {
+		jsonError(w, http.StatusForbidden, "Placement test is assigned to another Student Success")
+		return
+	}
+
+	if err := models.MarkPlacementTestNoShow(leadID, currentUserID, req.Note); err != nil {
+		log.Printf("ERROR: Failed to mark placement test no-show: %v", err)
+		jsonError(w, http.StatusInternalServerError, "Failed to mark placement test no-show")
+		return
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})

@@ -286,6 +286,7 @@ func ValidatePlacementTestScheduleTx(tx *sql.Tx, leadID uuid.UUID, placementTest
 		  AND test_date = $2
 		  AND test_time = $3::TIME
 		  AND assigned_level IS NULL
+		  AND appointment_status = 'scheduled'
 		  AND lead_id <> $4
 		LIMIT 1
 	`, studentSuccessID, testDate, testClock.Format("15:04"), leadID).Scan(&conflictLeadID); err != nil && err != sql.ErrNoRows {
@@ -377,6 +378,7 @@ func getPlacementTestBookingsForSlotDate(studentSuccessUserID uuid.UUID, date ti
 		WHERE pt.scheduled_student_success_user_id = $1
 		  AND pt.test_date = $2
 		  AND pt.assigned_level IS NULL
+		  AND pt.appointment_status = 'scheduled'
 		  AND pt.test_time IS NOT NULL
 		ORDER BY pt.test_time
 	`, studentSuccessUserID, dateOnly(date))

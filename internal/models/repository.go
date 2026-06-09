@@ -481,6 +481,20 @@ func GetPaymentStatus(remainingBalance, amountPaid sql.NullInt32) string {
 	return "Unpaid"
 }
 
+func CountLeadsByOpsQueueReason(reason string) (int, error) {
+	var count int
+	err := db.DB.QueryRow(`
+		SELECT COUNT(*)::int
+		FROM leads
+		WHERE ops_queue_reason = $1
+		  AND status NOT IN ('cancelled', 'in_classes')
+	`, reason).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count ops queue leads: %w", err)
+	}
+	return count, nil
+}
+
 func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool, followUpFilter string, returningFilter string, coldFilter string, repeatFilter string, opsQueueReasonFilter string) ([]*LeadListItem, error) {
 	query := `
 		SELECT 
@@ -1764,7 +1778,7 @@ func GetPlacementTestsForStudentSuccess(studentSuccessUserID uuid.UUID, showComp
 	query := `
 		SELECT
 			l.id, l.full_name, l.phone, l.status,
-			pt.test_date, pt.test_time, pt.test_type, pt.assigned_level, pt.test_notes,
+			pt.test_date, pt.test_time, pt.test_type, pt.appointment_status, pt.assigned_level, pt.test_notes,
 			pt.scheduled_student_success_user_id::TEXT,
 			COALESCE(NULLIF(TRIM(u.full_name), ''), u.email, '')
 		FROM leads l
@@ -1779,7 +1793,7 @@ func GetPlacementTestsForStudentSuccess(studentSuccessUserID uuid.UUID, showComp
 	if showCompleted {
 		query += " AND pt.assigned_level IS NOT NULL"
 	} else {
-		query += " AND pt.assigned_level IS NULL"
+		query += " AND pt.assigned_level IS NULL AND pt.appointment_status = 'scheduled'"
 	}
 	query += `
 		ORDER BY pt.test_date ASC, pt.test_time ASC, l.created_at ASC
@@ -1804,6 +1818,7 @@ func GetPlacementTestsForStudentSuccess(studentSuccessUserID uuid.UUID, showComp
 			&item.TestDate,
 			&item.TestTime,
 			&item.TestType,
+			&item.AppointmentStatus,
 			&item.AssignedLevel,
 			&item.TestNotes,
 			&item.ScheduledStudentSuccessID,
@@ -1846,10 +1861,10 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get placement test
 	pt := &PlacementTest{}
 	err = db.DB.QueryRow(`
-		SELECT id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, scheduled_student_success_user_id::TEXT, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
+		SELECT id, lead_id, test_date, test_time, test_type, appointment_status, assigned_level, test_notes, run_by_user_id, scheduled_student_success_user_id::TEXT, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
 		FROM placement_tests WHERE lead_id = $1
 	`, id).Scan(
-		&pt.ID, &pt.LeadID, &pt.TestDate, &pt.TestTime, &pt.TestType, &pt.AssignedLevel,
+		&pt.ID, &pt.LeadID, &pt.TestDate, &pt.TestTime, &pt.TestType, &pt.AppointmentStatus, &pt.AssignedLevel,
 		&pt.TestNotes, &pt.RunByUserID, &pt.ScheduledStudentSuccessID, &pt.PlacementTestFee, &pt.PlacementTestFeePaid, &pt.PlacementTestPaymentDate, &pt.PlacementTestPaymentMethod, &pt.UpdatedAt,
 	)
 	if err == nil {
@@ -2027,7 +2042,7 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 		        ELSE landing_page_contacted_status
 		    END,
 		    ops_queue_reason = CASE
-		        WHEN COALESCE(ops_queue_reason, '') IN ('private_track', 'refund_review') THEN ops_queue_reason
+		        WHEN COALESCE(ops_queue_reason, '') IN ('private_track', 'refund_review', 'placement_test_no_show') THEN ops_queue_reason
 		        WHEN $5 = 'waiting_for_round' THEN ops_queue_reason
 		        ELSE NULL
 		    END,
@@ -2048,12 +2063,21 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 			return err
 		}
 		_, err = tx.Exec(`
-			INSERT INTO placement_tests (id, lead_id, test_date, test_time, test_type, assigned_level, test_notes, run_by_user_id, scheduled_student_success_user_id, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at)
-			VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8::UUID, $9, $10, $11, $12, $13)
+			INSERT INTO placement_tests (id, lead_id, test_date, test_time, test_type, appointment_status, assigned_level, test_notes, run_by_user_id, scheduled_student_success_user_id, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at)
+			VALUES (
+				COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()),
+				$1, $2, $3, $4,
+				CASE WHEN $5::INTEGER IS NOT NULL THEN 'completed' ELSE 'scheduled' END,
+				$5, $6, $7, $8::UUID, $9, $10, $11, $12, $13
+			)
 			ON CONFLICT (lead_id) DO UPDATE SET
 				test_date = EXCLUDED.test_date,
 				test_time = EXCLUDED.test_time,
 				test_type = EXCLUDED.test_type,
+				appointment_status = CASE
+					WHEN EXCLUDED.assigned_level IS NOT NULL THEN 'completed'
+					ELSE placement_tests.appointment_status
+				END,
 				assigned_level = COALESCE(EXCLUDED.assigned_level, placement_tests.assigned_level),
 				test_notes = COALESCE(EXCLUDED.test_notes, placement_tests.test_notes),
 				run_by_user_id = EXCLUDED.run_by_user_id,
@@ -2498,14 +2522,90 @@ func UpdateLeadBasicInfo(lead *Lead) error {
 func UpdatePlacementTest(pt *PlacementTest) error {
 	now := time.Now()
 	_, err := db.DB.Exec(`
-		INSERT INTO placement_tests (id, lead_id, assigned_level, test_notes, updated_at)
-		VALUES (COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()), $1, $2, $3, $4)
+		INSERT INTO placement_tests (id, lead_id, appointment_status, assigned_level, test_notes, updated_at)
+		VALUES (
+			COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()),
+			$1,
+			CASE WHEN $2::INTEGER IS NOT NULL THEN 'completed' ELSE 'scheduled' END,
+			$2, $3, $4
+		)
 		ON CONFLICT (lead_id) DO UPDATE SET
+			appointment_status = CASE
+				WHEN EXCLUDED.assigned_level IS NOT NULL THEN 'completed'
+				ELSE placement_tests.appointment_status
+			END,
 			assigned_level = EXCLUDED.assigned_level,
 			test_notes = EXCLUDED.test_notes,
 			updated_at = EXCLUDED.updated_at
 	`, pt.LeadID, pt.AssignedLevel, pt.TestNotes, now)
 	return err
+}
+
+func MarkPlacementTestNoShow(leadID uuid.UUID, studentSuccessUserID uuid.UUID, note string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin placement no-show transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now()
+	var scheduledStudentSuccessID sql.NullString
+	var assignedLevel sql.NullInt32
+	err = tx.QueryRow(`
+		SELECT scheduled_student_success_user_id::TEXT, assigned_level
+		FROM placement_tests
+		WHERE lead_id = $1
+		  AND test_date IS NOT NULL
+		  AND test_time IS NOT NULL
+	`, leadID).Scan(&scheduledStudentSuccessID, &assignedLevel)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("placement test is not scheduled yet")
+		}
+		return fmt.Errorf("failed to load placement test before no-show: %w", err)
+	}
+	if !scheduledStudentSuccessID.Valid || strings.TrimSpace(scheduledStudentSuccessID.String) == "" {
+		return fmt.Errorf("placement test is not assigned to a Student Success yet")
+	}
+	if scheduledStudentSuccessID.String != studentSuccessUserID.String() {
+		return fmt.Errorf("placement test is assigned to another Student Success")
+	}
+	if assignedLevel.Valid {
+		return fmt.Errorf("placement test already has a result")
+	}
+
+	cleanNote := strings.TrimSpace(note)
+	_, err = tx.Exec(`
+		UPDATE placement_tests
+		SET appointment_status = 'no_show',
+		    test_notes = CASE
+		        WHEN $3 = '' THEN test_notes
+		        WHEN COALESCE(TRIM(test_notes), '') = '' THEN $3
+		        ELSE test_notes || E'\n' || $3
+		    END,
+		    updated_at = $2
+		WHERE lead_id = $1
+	`, leadID, now, cleanNote)
+	if err != nil {
+		return fmt.Errorf("failed to mark placement test no-show: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE leads
+		SET status = CASE
+		        WHEN status IN ('lead_created', 'test_booked') THEN 'test_booked'
+		        ELSE status
+		    END,
+		    ops_queue_reason = 'placement_test_no_show',
+		    updated_at = $2
+		WHERE id = $1
+		  AND status NOT IN ('cancelled', 'in_classes')
+	`, leadID, now)
+	if err != nil {
+		return fmt.Errorf("failed to queue placement test no-show for admin: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // UpdateOffer updates only offer fields
@@ -2697,11 +2797,11 @@ func BookPlacementTest(leadID uuid.UUID, placementTest *PlacementTest) error {
 	_, err = tx.Exec(`
 		INSERT INTO placement_tests (
 			id, lead_id, test_date, test_time, test_type, test_notes, scheduled_student_success_user_id,
-			placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
+			appointment_status, placement_test_fee, placement_test_fee_paid, placement_test_payment_date, placement_test_payment_method, updated_at
 		)
 		VALUES (
 			COALESCE((SELECT id FROM placement_tests WHERE lead_id = $1), gen_random_uuid()),
-			$1, $2, $3, $4, $5, $6::UUID, $7, $8, $9, $10, $11
+			$1, $2, $3, $4, $5, $6::UUID, 'scheduled', $7, $8, $9, $10, $11
 		)
 		ON CONFLICT (lead_id) DO UPDATE SET
 			test_date = EXCLUDED.test_date,
@@ -2709,6 +2809,7 @@ func BookPlacementTest(leadID uuid.UUID, placementTest *PlacementTest) error {
 			test_type = EXCLUDED.test_type,
 			test_notes = EXCLUDED.test_notes,
 			scheduled_student_success_user_id = EXCLUDED.scheduled_student_success_user_id,
+			appointment_status = 'scheduled',
 			placement_test_fee = COALESCE(EXCLUDED.placement_test_fee, placement_tests.placement_test_fee, 60),
 			placement_test_fee_paid = COALESCE(EXCLUDED.placement_test_fee_paid, placement_tests.placement_test_fee_paid, 0),
 			placement_test_payment_date = EXCLUDED.placement_test_payment_date,
@@ -2730,6 +2831,10 @@ func BookPlacementTest(leadID uuid.UUID, placementTest *PlacementTest) error {
 	_, err = tx.Exec(`
 		UPDATE leads
 		SET status = $1,
+		    ops_queue_reason = CASE
+		        WHEN ops_queue_reason = 'placement_test_no_show' THEN NULL
+		        ELSE ops_queue_reason
+		    END,
 		    landing_page_contacted_at = NULL,
 		    landing_page_contacted_by_user_id = NULL,
 		    landing_page_contacted_status = NULL,

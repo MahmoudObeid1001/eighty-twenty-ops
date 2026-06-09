@@ -131,6 +131,12 @@ export default function StudentSuccessDashboard() {
     item: PlacementTestQueueItem | null
     error?: string
   }>({ open: false, item: null })
+  const [noShowModal, setNoShowModal] = useState<{
+    open: boolean
+    item: PlacementTestQueueItem | null
+    submitting?: boolean
+    error?: string
+  }>({ open: false, item: null })
   const [assignedLevel, setAssignedLevel] = useState<number | ''>('')
   const [testNotes, setTestNotes] = useState('')
   const navigate = useNavigate()
@@ -182,6 +188,16 @@ export default function StudentSuccessDashboard() {
     } finally {
       setPlacementLoading(false)
     }
+  }
+
+  async function markPlacementNoShow(item: PlacementTestQueueItem) {
+    setPlacementError(null)
+    await api.markPlacementTestNoShow({
+      lead_id: item.lead_id,
+      note: 'Placement test no-show. Admin should contact the lead and reschedule.',
+    })
+    await loadPlacementTests()
+    await loadPlacementTestsCount()
   }
 
   async function loadAvailability() {
@@ -709,8 +725,16 @@ export default function StudentSuccessDashboard() {
                               }}
                               style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #007bff', background: '#fff', color: '#007bff', cursor: 'pointer', fontSize: '12px' }}
                             >
-                              Record Result
+                              {item.assigned_level ? 'Update Result' : 'Record Result'}
                             </button>
+                            {!item.assigned_level && item.appointment_status !== 'completed' && (
+                              <button
+                                onClick={() => setNoShowModal({ open: true, item, error: undefined, submitting: false })}
+                                style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #dc3545', background: '#fff', color: '#dc3545', cursor: 'pointer', fontSize: '12px' }}
+                              >
+                                No-show
+                              </button>
+                            )}
                             <a
                               href={`/pre-enrolment/${item.lead_id}`}
                               target="_blank"
@@ -756,7 +780,7 @@ export default function StudentSuccessDashboard() {
                           }}
                           className="ss-placement-card-primary"
                         >
-                          Record Result
+                          {item.assigned_level ? 'Update Result' : 'Record Result'}
                         </button>
                         {item.phone && (
                           <a
@@ -795,6 +819,15 @@ export default function StudentSuccessDashboard() {
                       >
                         Open Lead
                       </a>
+                      {!item.assigned_level && item.appointment_status !== 'completed' && (
+                        <button
+                          onClick={() => setNoShowModal({ open: true, item, error: undefined, submitting: false })}
+                          className="ss-placement-card-secondary"
+                          style={{ borderColor: '#dc3545', color: '#dc3545' }}
+                        >
+                          No-show
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1053,7 +1086,8 @@ export default function StudentSuccessDashboard() {
                     setResultModal({ open: false, item: null })
                     setAssignedLevel('')
                     setTestNotes('')
-                    loadPlacementTests()
+                    await loadPlacementTests()
+                    await loadPlacementTestsCount()
                   } catch (err) {
                     setResultModal((prev) => ({ ...prev, error: err instanceof Error ? err.message : 'Failed to save result' }))
                   }
@@ -1061,6 +1095,59 @@ export default function StudentSuccessDashboard() {
                 style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#28a745', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
               >
                 Save Result
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noShowModal.open && noShowModal.item && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}
+          onClick={() => !noShowModal.submitting && setNoShowModal({ open: false, item: null })}
+        >
+          <div
+            style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '460px', maxWidth: '90%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ marginBottom: '16px' }}>Confirm No-show</h3>
+            <p style={{ fontSize: '14px', color: '#444', marginBottom: '16px', lineHeight: 1.5 }}>
+              Confirm <strong>{noShowModal.item.full_name}</strong> did not attend the placement test.
+            </p>
+
+            {noShowModal.error && (
+              <div style={{ color: '#721c24', background: '#f8d7da', padding: '8px 12px', borderRadius: '6px', marginBottom: '12px', fontSize: '13px' }}>
+                {noShowModal.error}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setNoShowModal({ open: false, item: null })}
+                disabled={noShowModal.submitting}
+                style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #ddd', background: '#fff', cursor: noShowModal.submitting ? 'not-allowed' : 'pointer', opacity: noShowModal.submitting ? 0.65 : 1 }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!noShowModal.item) return
+                  setNoShowModal((prev) => ({ ...prev, submitting: true, error: undefined }))
+                  try {
+                    await markPlacementNoShow(noShowModal.item)
+                    setNoShowModal({ open: false, item: null })
+                  } catch (err) {
+                    setNoShowModal((prev) => ({
+                      ...prev,
+                      submitting: false,
+                      error: err instanceof Error ? err.message : 'Failed to mark no-show',
+                    }))
+                  }
+                }}
+                disabled={noShowModal.submitting}
+                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#dc3545', color: '#fff', cursor: noShowModal.submitting ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: noShowModal.submitting ? 0.65 : 1 }}
+              >
+                {noShowModal.submitting ? 'Saving...' : 'Confirm No-show'}
               </button>
             </div>
           </div>

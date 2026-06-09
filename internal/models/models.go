@@ -58,6 +58,7 @@ type PlacementTest struct {
 	TestDate                   sql.NullTime
 	TestTime                   sql.NullString
 	TestType                   sql.NullString
+	AppointmentStatus          sql.NullString
 	AssignedLevel              sql.NullInt32
 	TestNotes                  sql.NullString
 	RunByUserID                sql.NullString
@@ -229,6 +230,7 @@ type PlacementTestQueueItem struct {
 	TestDate                  sql.NullTime
 	TestTime                  sql.NullString
 	TestType                  sql.NullString
+	AppointmentStatus         sql.NullString
 	AssignedLevel             sql.NullInt32
 	TestNotes                 sql.NullString
 	ScheduledStudentSuccessID sql.NullString

@@ -181,6 +181,13 @@
         {{end}}
     </div>
     {{end}}
+
+    {{if and .IsPlacementTestNoShow (or .IsAdmin (eq .UserRole "manager"))}}
+    <div
+        style="margin-top: 10px; background: #FFF4E6; border: 1px solid #FFD8A8; border-left: 4px solid #DD6B20; border-radius: 4px; padding: 10px 12px; color: #8C4A00;">
+        <strong>Placement Test No-show:</strong> Contact the lead and book a new placement test slot. Booking a new slot clears this queue flag.
+    </div>
+    {{end}}
 </div>
 
 {{if .IsModerator}}

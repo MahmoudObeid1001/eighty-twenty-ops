@@ -60,6 +60,12 @@ Start([Ops Admin books test<br/>date/time in Pre-Enrolment]) --> StatusTestBooke
     UpdatePlacement --> MarkTested[(Update leads.status = tested)]
 MarkTested --> HotLeadBanner[Hot lead banner appears if unpaid]
 
+    SSQueue --> NoShow[SS marks placement test no-show]
+    NoShow --> MarkNoShow[(placement_tests.appointment_status = no_show)]
+    MarkNoShow --> AdminQueue[(leads.ops_queue_reason = placement_test_no_show)]
+    AdminQueue --> Reschedule[Admin contacts lead and books new slot]
+    Reschedule --> StatusTestBooked
+
     StatusTestBooked --> SSNotification[SS sees notification banner for new placement tests]
 
     ClassEnd([Class reaches Session 8]) --> ComplianceDue{Compliance complete?}
@@ -155,6 +161,20 @@ flowchart TD
 **Evidence**:
 - `internal/handlers/api.go` - CompletePlacementTest
 - `internal/models/repository.go` - UpdatePlacementTest, UpdateLeadStatus
+
+### Mark Placement Test No-show
+**Route**: `POST /api/student-success/placement-tests/no-show`  
+**Handler**: `apiHandler.MarkPlacementTestNoShow`  
+**Behavior**:
+- Sets `placement_tests.appointment_status = no_show`
+- Keeps lead at `test_booked` unless it already moved beyond placement
+- Sets `leads.ops_queue_reason = placement_test_no_show`
+- Admin sees the no-show queue in Pre-Enrolment and books a new slot
+- Booking a new placement test resets `appointment_status = scheduled` and clears the queue reason
+**Evidence**:
+- `internal/handlers/api.go` - MarkPlacementTestNoShow
+- `internal/models/repository.go` - MarkPlacementTestNoShow, BookPlacementTest
+- `frontend/src/pages/StudentSuccessDashboard.tsx` - No-show action
 
 ### Feedback Collected Uploads
 **Routes**:

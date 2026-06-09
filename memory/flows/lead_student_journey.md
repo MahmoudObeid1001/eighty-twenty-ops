@@ -93,6 +93,16 @@ renewal_pending / offer_sent
 - Status becomes `tested`.
 - This is the point where the lead is academically classified.
 
+### Placement test no-show branch
+
+If the lead does not attend the booked placement test:
+
+- Student Success marks the appointment as `no_show`.
+- Lead stays in the placement stage instead of becoming `tested`.
+- `ops_queue_reason = placement_test_no_show` sends the lead back to Admin follow-up.
+- Admin contacts the lead and books a new placement test slot.
+- New booking clears the no-show queue reason and sets appointment status back to `scheduled`.
+
 ### Step 4: Offer is prepared and sent
 
 - Ops selects bundle and pricing track.
@@ -394,4 +404,3 @@ Use this file when you need to explain:
 - why finance numbers differ from “student money collected”
 - what happens after class close
 - which branch is operational vs retargeting vs finance
-

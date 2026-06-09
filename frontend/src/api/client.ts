@@ -419,6 +419,7 @@ export interface PlacementTestQueueItem {
   test_date: string
   test_time: string
   test_type: string
+  appointment_status: string
   assigned_level?: number
   test_notes?: string
   scheduled_student_success?: string
@@ -1176,6 +1177,12 @@ export const api = {
 
   completePlacementTest: (data: { lead_id: string; assigned_level: number; test_notes: string }): Promise<{ ok: boolean }> =>
     fetchAPI('/student-success/placement-tests/complete', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  markPlacementTestNoShow: (data: { lead_id: string; note?: string }): Promise<{ ok: boolean }> =>
+    fetchAPI('/student-success/placement-tests/no-show', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
