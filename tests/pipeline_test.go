@@ -693,6 +693,139 @@ func TestPrepaidContinuationBlocker(t *testing.T) {
 	}
 }
 
+func TestCloseRoundRepairsDuplicateReservedContinuation(t *testing.T) {
+	cfg := config.Load()
+	if err := db.Connect(cfg.DatabaseURL); err != nil {
+		t.Fatalf("failed to connect db: %v", err)
+	}
+	if err := db.RunMigrations(); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	h := handlers.NewAPIHandler(cfg)
+	nowSuffix := time.Now().UnixNano()
+	classDays := "Mon/Thu"
+	classTime := "07:30:00"
+	classNumber := int32(nowSuffix%100000) + 1
+	previousClassKey := models.GenerateClassKey(1, classDays, classTime, classNumber)
+	currentClassKey := models.GenerateClassKey(2, classDays, classTime, classNumber)
+
+	mentorHead := mustCreateUser(t, "mentor_head", fmt.Sprintf("mh_reserved_%d@eightytwenty.test", nowSuffix))
+	mentor := mustCreateUser(t, "mentor", fmt.Sprintf("mentor_reserved_%d@eightytwenty.test", nowSuffix))
+	lead := testLead{
+		Name:            "Reserved Continuation Student",
+		Phone:           fmt.Sprintf("0400%07d", nowSuffix%10000000),
+		LevelsPurchased: 3,
+		LevelsConsumed:  3,
+	}
+	lead.ID = mustCreateLead(t, lead, mentorHead.ID)
+
+	defer func() {
+		mustExec(t, `DELETE FROM attendance WHERE lead_id = $1`, lead.ID)
+		mustExec(t, `DELETE FROM absence_promotion_overrides WHERE lead_id = $1`, lead.ID)
+		mustExec(t, `DELETE FROM grades WHERE lead_id = $1`, lead.ID)
+		mustExec(t, `DELETE FROM class_memberships WHERE lead_id = $1`, lead.ID)
+		mustExec(t, `DELETE FROM class_enrollments WHERE lead_id = $1`, lead.ID)
+		mustExec(t, `DELETE FROM class_sessions WHERE class_key IN ($1, $2)`, previousClassKey, currentClassKey)
+		mustExec(t, `DELETE FROM mentor_assignments WHERE class_key IN ($1, $2)`, previousClassKey, currentClassKey)
+		mustExec(t, `DELETE FROM class_groups WHERE class_key IN ($1, $2)`, previousClassKey, currentClassKey)
+		mustExec(t, `DELETE FROM scheduling WHERE lead_id = $1`, lead.ID)
+		mustExec(t, `DELETE FROM placement_tests WHERE lead_id = $1`, lead.ID)
+		mustExec(t, `DELETE FROM leads WHERE id = $1`, lead.ID)
+		mustExec(t, `DELETE FROM users WHERE id IN ($1, $2)`, mentor.ID, mentorHead.ID)
+	}()
+
+	mustExec(t, `
+		INSERT INTO class_groups (
+			class_key, level, class_days, class_time, class_number,
+			sent_to_mentor, updated_at, round_status
+		) VALUES
+			($1, 1, $3, $4, $5, false, NOW(), 'closed'),
+			($2, 2, $3, $4, $5, true, NOW(), 'active')
+	`, previousClassKey, currentClassKey, classDays, classTime, classNumber)
+	mustExec(t, `
+		INSERT INTO mentor_assignments (mentor_user_id, class_key, created_by_user_id)
+		VALUES ($1, $2, $3)
+	`, mentor.ID, currentClassKey, mentorHead.ID)
+	mustCreateCompletedSessions(t, currentClassKey, classTime)
+	mustCreatePlacementTest(t, lead.ID, 2)
+	mustCreateScheduling(t, lead.ID, classDays, classTime, classNumber)
+
+	mustExec(t, `
+		INSERT INTO class_enrollments (
+			lead_id, class_key, level, class_days, class_time, mentor_name,
+			final_grade, outcome, next_level_consumed_on_close, enrolled_at, completed_at
+		) VALUES ($1, $2, 1, $3, $4, $5, 'C', 'promoted', true, NOW() - INTERVAL '40 days', NOW() - INTERVAL '40 days')
+	`, lead.ID, previousClassKey, classDays, classTime, mentor.Email)
+
+	// Legacy behavior consumed the already-reserved Level 2 again at session 2.
+	mustPreConsumeMembership(t, lead.ID, currentClassKey, 2)
+	mustExec(t, `
+		INSERT INTO attendance (session_id, lead_id, attended, status, marked_by_user_id)
+		SELECT
+			id,
+			$1,
+			session_number NOT IN (1, 2, 8),
+			CASE WHEN session_number IN (1, 2, 8) THEN 'ABSENT' ELSE 'PRESENT' END,
+			$2
+		FROM class_sessions
+		WHERE class_key = $3
+	`, lead.ID, mentor.ID, currentClassKey)
+	mustExec(t, `
+		INSERT INTO grades (
+			lead_id, class_key, session_number, grade, notes, created_by_user_id
+		) VALUES ($1, $2, 8, 'B', 'Approved absence override regression test.', $3)
+	`, lead.ID, currentClassKey, mentor.ID)
+	mustExec(t, `
+		INSERT INTO absence_promotion_overrides (
+			lead_id, class_key, reason, status, requested_by_user_id,
+			reviewed_by_user_id, reviewed_at
+		) VALUES ($1, $2, 'Final exams', 'approved', $3, $4, NOW())
+	`, lead.ID, currentClassKey, mentor.ID, mentorHead.ID)
+
+	closeBody, _ := json.Marshal(map[string]string{"class_key": currentClassKey})
+	closeReq := httptest.NewRequest(http.MethodPost, "/api/mentor-head/close-round", bytes.NewReader(closeBody))
+	closeReq = withUserContext(closeReq, mentorHead.ID, mentorHead.Email, "mentor_head")
+	closeRes := httptest.NewRecorder()
+	h.CloseRound(closeRes, closeReq)
+	if closeRes.Code != http.StatusOK {
+		t.Fatalf("CloseRound failed: status=%d body=%s", closeRes.Code, closeRes.Body.String())
+	}
+
+	var status string
+	var consumed, remaining, assignedLevel int
+	if err := mustQueryRow(t, `
+		SELECT l.status, l.levels_consumed, l.remaining_credits, pt.assigned_level
+		FROM leads l
+		JOIN placement_tests pt ON pt.lead_id = l.id
+		WHERE l.id = $1
+	`, lead.ID).Scan(&status, &consumed, &remaining, &assignedLevel); err != nil {
+		t.Fatalf("failed to load repaired student: %v", err)
+	}
+	if status != "waiting_for_round" || consumed != 3 || remaining != 0 || assignedLevel != 3 {
+		t.Fatalf(
+			"unexpected repaired state: status=%s consumed=%d remaining=%d assigned_level=%d",
+			status,
+			consumed,
+			remaining,
+			assignedLevel,
+		)
+	}
+
+	var outcome string
+	if err := mustQueryRow(t, `
+		SELECT outcome
+		FROM class_enrollments
+		WHERE lead_id = $1 AND class_key = $2
+	`, lead.ID, currentClassKey).Scan(&outcome); err != nil {
+		t.Fatalf("failed to load current enrollment outcome: %v", err)
+	}
+	if outcome != "promoted" {
+		t.Fatalf("expected approved absence override to promote student, got %s", outcome)
+	}
+}
+
 func TestMain(m *testing.M) {
 	// Ensure a DB URL is available for local runs.
 	if os.Getenv("DATABASE_URL") == "" {
