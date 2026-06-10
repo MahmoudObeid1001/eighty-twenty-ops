@@ -3204,7 +3204,7 @@ func (h *APIHandler) CloseRound(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		jsonError(w, http.StatusInternalServerError, "Failed to close round")
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to close round: %v", err))
 		return
 	}
 

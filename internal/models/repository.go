@@ -6109,43 +6109,39 @@ func GetClassSessions(classKey string) ([]*ClassSession, error) {
 	return sessions, rows.Err()
 }
 
-func hasReservedContinuationForClassTx(tx *sql.Tx, leadID uuid.UUID, classKey string) (bool, error) {
-	var reserved bool
-	err := tx.QueryRow(`
-		SELECT COALESCE((
-			SELECT
-				COALESCE(next_level_consumed_on_close, false)
-				AND NOT COALESCE(continuation_hold_active, false)
-			FROM class_enrollments
-			WHERE lead_id = $1
-			  AND class_key <> $2
-			  AND completed_at IS NOT NULL
-			ORDER BY completed_at DESC, enrolled_at DESC
-			LIMIT 1
-		), false)
-	`, leadID, classKey).Scan(&reserved)
-	if err != nil {
-		return false, fmt.Errorf("failed to check reserved continuation: %w", err)
-	}
-	return reserved, nil
-}
-
-func consumeMembershipLevelTx(tx *sql.Tx, membershipID, leadID uuid.UUID, classKey string, triggerSession int32, now time.Time) error {
-	reserved, err := hasReservedContinuationForClassTx(tx, leadID, classKey)
+func consumeMembershipLevelTx(tx *sql.Tx, membershipID, leadID uuid.UUID, triggerSession int32, now time.Time) error {
+	completedEnrollments, err := countCompletedClassEnrollmentsTx(tx, leadID)
 	if err != nil {
 		return err
 	}
 
-	// A previous close-round may already have consumed this continuation level.
-	// In that case this membership only needs to record when the reserved level began.
-	if !reserved {
+	var purchased, consumed int32
+	err = tx.QueryRow(`
+		SELECT COALESCE(levels_purchased_total, 0), COALESCE(levels_consumed, 0)
+		FROM leads
+		WHERE id = $1
+		FOR UPDATE
+	`, leadID).Scan(&purchased, &consumed)
+	if err != nil {
+		return fmt.Errorf("failed to load credit state for lead %s: %w", leadID, err)
+	}
+
+	// A close-round reservation is represented by one consumed level beyond
+	// completed enrollment history. The next class claims that reservation
+	// instead of consuming the same level again.
+	if consumed <= completedEnrollments {
+		consumed++
+		remaining := purchased - consumed
+		if remaining < 0 {
+			remaining = 0
+		}
 		_, err = tx.Exec(`
 			UPDATE leads
-			SET levels_consumed = COALESCE(levels_consumed, 0) + 1,
-			    remaining_credits = GREATEST(COALESCE(levels_purchased_total, 0) - (COALESCE(levels_consumed, 0) + 1), 0),
-			    updated_at = $1
-			WHERE id = $2
-		`, now, leadID)
+			SET levels_consumed = $1,
+			    remaining_credits = $2,
+			    updated_at = $3
+			WHERE id = $4
+		`, consumed, remaining, now, leadID)
 		if err != nil {
 			return fmt.Errorf("failed to consume level for lead %s: %w", leadID, err)
 		}
@@ -6163,16 +6159,8 @@ func consumeMembershipLevelTx(tx *sql.Tx, membershipID, leadID uuid.UUID, classK
 	return nil
 }
 
-func reconcileDuplicateReservedContinuationTx(tx *sql.Tx, membership *ClassMembership, now time.Time) (bool, error) {
+func reconcileCloseRoundConsumptionTx(tx *sql.Tx, membership *ClassMembership, now time.Time) (bool, error) {
 	if membership == nil || !membership.LevelConsumedAtSession.Valid {
-		return false, nil
-	}
-
-	reserved, err := hasReservedContinuationForClassTx(tx, membership.LeadID, membership.ClassKey)
-	if err != nil {
-		return false, err
-	}
-	if !reserved {
 		return false, nil
 	}
 
@@ -6189,21 +6177,20 @@ func reconcileDuplicateReservedContinuationTx(tx *sql.Tx, membership *ClassMembe
 		FOR UPDATE
 	`, membership.LeadID).Scan(&purchased, &consumed)
 	if err != nil {
-		return false, fmt.Errorf("failed to load lead for continuation reconciliation: %w", err)
+		return false, fmt.Errorf("failed to load close-round credit state: %w", err)
 	}
 
-	// Completed enrollments account for consumed levels, and the latest close
-	// accounts for one reserved continuation. Anything beyond that is the
-	// duplicate session-time consumption produced by the legacy flow.
-	maxExpectedConsumed := completedEnrollments + 1
-	if consumed <= maxExpectedConsumed {
+	// Before the current class is snapshotted, the ledger can contain completed
+	// classes plus at most this current level. Anything higher is a legacy
+	// duplicate consumption and would make close-round fail its credit guard.
+	maxConsumed := completedEnrollments + 1
+	if consumed <= maxConsumed {
 		return false, nil
 	}
 
-	newConsumed := consumed - 1
-	newRemaining := purchased - newConsumed
-	if newRemaining < 0 {
-		newRemaining = 0
+	remaining := purchased - maxConsumed
+	if remaining < 0 {
+		remaining = 0
 	}
 	_, err = tx.Exec(`
 		UPDATE leads
@@ -6211,17 +6198,17 @@ func reconcileDuplicateReservedContinuationTx(tx *sql.Tx, membership *ClassMembe
 		    remaining_credits = $2,
 		    updated_at = $3
 		WHERE id = $4
-	`, newConsumed, newRemaining, now, membership.LeadID)
+	`, maxConsumed, remaining, now, membership.LeadID)
 	if err != nil {
-		return false, fmt.Errorf("failed to reconcile duplicate continuation consumption: %w", err)
+		return false, fmt.Errorf("failed to repair duplicate close-round consumption: %w", err)
 	}
 
 	log.Printf(
-		"WARNING: Reconciled duplicate reserved continuation for lead %s in class %s: levels_consumed %d -> %d",
+		"WARNING: Repaired duplicate close-round consumption for lead %s in class %s: levels_consumed %d -> %d",
 		membership.LeadID,
 		membership.ClassKey,
 		consumed,
-		newConsumed,
+		maxConsumed,
 	)
 	return true, nil
 }
@@ -6265,7 +6252,7 @@ func applyEligibleMembershipConsumptionsTx(tx *sql.Tx, classKey string, triggerS
 	}
 
 	for _, item := range pending {
-		if err := consumeMembershipLevelTx(tx, item.membershipID, item.leadID, classKey, triggerSession, now); err != nil {
+		if err := consumeMembershipLevelTx(tx, item.membershipID, item.leadID, triggerSession, now); err != nil {
 			return err
 		}
 	}
@@ -6277,7 +6264,7 @@ func ensureMembershipLevelConsumedTx(tx *sql.Tx, membership *ClassMembership, tr
 		return false, nil
 	}
 	if membership.LevelConsumedAtSession.Valid {
-		return reconcileDuplicateReservedContinuationTx(tx, membership, now)
+		return reconcileCloseRoundConsumptionTx(tx, membership, now)
 	}
 
 	var completedSinceJoin int32
@@ -6295,7 +6282,7 @@ func ensureMembershipLevelConsumedTx(tx *sql.Tx, membership *ClassMembership, tr
 		return false, nil
 	}
 
-	if err := consumeMembershipLevelTx(tx, membership.ID, membership.LeadID, membership.ClassKey, triggerSession, now); err != nil {
+	if err := consumeMembershipLevelTx(tx, membership.ID, membership.LeadID, triggerSession, now); err != nil {
 		return false, err
 	}
 	membership.LevelConsumedAtSession = sql.NullInt32{Int32: triggerSession, Valid: true}

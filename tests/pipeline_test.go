@@ -693,7 +693,7 @@ func TestPrepaidContinuationBlocker(t *testing.T) {
 	}
 }
 
-func TestCloseRoundRepairsDuplicateReservedContinuation(t *testing.T) {
+func TestCloseRoundRepairsMigratedDuplicateConsumption(t *testing.T) {
 	cfg := config.Load()
 	if err := db.Connect(cfg.DatabaseURL); err != nil {
 		t.Fatalf("failed to connect db: %v", err)
@@ -711,13 +711,13 @@ func TestCloseRoundRepairsDuplicateReservedContinuation(t *testing.T) {
 	previousClassKey := models.GenerateClassKey(1, classDays, classTime, classNumber)
 	currentClassKey := models.GenerateClassKey(2, classDays, classTime, classNumber)
 
-	mentorHead := mustCreateUser(t, "mentor_head", fmt.Sprintf("mh_reserved_%d@eightytwenty.test", nowSuffix))
-	mentor := mustCreateUser(t, "mentor", fmt.Sprintf("mentor_reserved_%d@eightytwenty.test", nowSuffix))
+	mentorHead := mustCreateUser(t, "mentor_head", fmt.Sprintf("mh_migrated_%d@eightytwenty.test", nowSuffix))
+	mentor := mustCreateUser(t, "mentor", fmt.Sprintf("mentor_migrated_%d@eightytwenty.test", nowSuffix))
 	lead := testLead{
-		Name:            "Reserved Continuation Student",
+		Name:            "Migrated Duplicate Student",
 		Phone:           fmt.Sprintf("0400%07d", nowSuffix%10000000),
 		LevelsPurchased: 3,
-		LevelsConsumed:  3,
+		LevelsConsumed:  2,
 	}
 	lead.ID = mustCreateLead(t, lead, mentorHead.ID)
 
@@ -752,15 +752,21 @@ func TestCloseRoundRepairsDuplicateReservedContinuation(t *testing.T) {
 	mustCreatePlacementTest(t, lead.ID, 2)
 	mustCreateScheduling(t, lead.ID, classDays, classTime, classNumber)
 
+	// Migrated history can lack the old reservation flag even though the credit
+	// ledger already counted the next level.
 	mustExec(t, `
 		INSERT INTO class_enrollments (
 			lead_id, class_key, level, class_days, class_time, mentor_name,
 			final_grade, outcome, next_level_consumed_on_close, enrolled_at, completed_at
-		) VALUES ($1, $2, 1, $3, $4, $5, 'C', 'promoted', true, NOW() - INTERVAL '40 days', NOW() - INTERVAL '40 days')
+		) VALUES ($1, $2, 1, $3, $4, $5, 'C', 'promoted', false, NOW() - INTERVAL '40 days', NOW() - INTERVAL '40 days')
 	`, lead.ID, previousClassKey, classDays, classTime, mentor.Email)
 
-	// Legacy behavior consumed the already-reserved Level 2 again at session 2.
-	mustPreConsumeMembership(t, lead.ID, currentClassKey, 2)
+	mustExec(t, `
+		INSERT INTO class_memberships (
+			id, lead_id, class_key, joined_at_session_number,
+			join_reason, created_at, updated_at
+		) VALUES (gen_random_uuid(), $1, $2, 1, 'round_start', NOW(), NOW())
+	`, lead.ID, currentClassKey)
 	mustExec(t, `
 		INSERT INTO attendance (session_id, lead_id, attended, status, marked_by_user_id)
 		SELECT
@@ -772,6 +778,43 @@ func TestCloseRoundRepairsDuplicateReservedContinuation(t *testing.T) {
 		FROM class_sessions
 		WHERE class_key = $3
 	`, lead.ID, mentor.ID, currentClassKey)
+
+	var sessionTwoID uuid.UUID
+	if err := mustQueryRow(t, `
+		SELECT id FROM class_sessions
+		WHERE class_key = $1 AND session_number = 2
+	`, currentClassKey).Scan(&sessionTwoID); err != nil {
+		t.Fatalf("failed to load session 2: %v", err)
+	}
+	if err := models.CompleteSession(sessionTwoID, time.Now(), classTime); err != nil {
+		t.Fatalf("failed to complete reserved continuation session: %v", err)
+	}
+
+	var consumedAfterSession int
+	var consumedAtSession sql.NullInt32
+	if err := mustQueryRow(t, `
+		SELECT l.levels_consumed, cm.level_consumed_at_session_number
+		FROM leads l
+		JOIN class_memberships cm ON cm.lead_id = l.id AND cm.class_key = $2
+		WHERE l.id = $1
+	`, lead.ID, currentClassKey).Scan(&consumedAfterSession, &consumedAtSession); err != nil {
+		t.Fatalf("failed to load session consumption state: %v", err)
+	}
+	if consumedAfterSession != 2 || !consumedAtSession.Valid || consumedAtSession.Int32 != 2 {
+		t.Fatalf(
+			"reserved continuation was not claimed correctly: consumed=%d consumed_at=%v",
+			consumedAfterSession,
+			consumedAtSession,
+		)
+	}
+
+	// Recreate the production legacy state: session completion incremented the
+	// already-reserved Level 2, leaving three consumed levels before close.
+	mustExec(t, `
+		UPDATE leads
+		SET levels_consumed = 3, remaining_credits = 0
+		WHERE id = $1
+	`, lead.ID)
 	mustExec(t, `
 		INSERT INTO grades (
 			lead_id, class_key, session_number, grade, notes, created_by_user_id
