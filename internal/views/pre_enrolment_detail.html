@@ -2520,6 +2520,9 @@
     function applyDetailGenderedArabicText(text, gender) {
         if (normalizeDetailLeadGender(gender) !== 'female') return String(text || '');
         return String(text || '')
+            .replaceAll('إنت فعلاً بتتقدم', 'إنتِ فعلاً بتتقدمي')
+            .replaceAll('وإحنا فخورين بيك', 'وإحنا فخورين بيكي')
+            .replaceAll('مستواك كويس', 'مستواكي كويس')
             .replaceAll('ابعتلنا', 'ابعتيلنا')
             .replaceAll('ابعتلي', 'ابعتيلي')
             .replaceAll('ابعت المبلغ', 'ابعتي المبلغ')
@@ -2564,7 +2567,7 @@
         const gender = normalizeDetailLeadGender({{printf "%q" .Detail.Lead.Gender.String}});
         const firstTransferVerb = gender === 'female' ? 'ابعتي' : 'ابعت';
         const secondTransferVerb = gender === 'female' ? 'ابعتيلنا' : 'ابعتلنا';
-        const text = `مساء النور يا أستاذ/ة ${firstName} 🌹
+        const text = applyDetailGenderedArabicText(`مساء النور يا أستاذ/ة ${firstName} 🌹
 
 مبروك إنك خلصت ليفل ${level} بنجاح 🎉
 إنت فعلاً بتتقدم وده واضح — وإحنا فخورين بيك 🙏
@@ -2588,7 +2591,7 @@
 
 ⏳ الحجز بالأسبقية — لما الأماكن تخلص مش هينفع نضيف حد تاني
 
-يومك جميل ومنور 😊`;
+يومك جميل ومنور 😊`, gender);
         return [
             {
                 key: 'promoted',

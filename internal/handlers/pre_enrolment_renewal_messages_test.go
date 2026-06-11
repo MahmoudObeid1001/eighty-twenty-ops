@@ -50,6 +50,17 @@ func TestBuildRenewalPendingMessage(t *testing.T) {
 			wantLabel:        "Repeated - Partial Attendance",
 			wantContains:     "ابعتي المبلغ",
 		},
+		{
+			name:             "female renewal copy adjusts broader agreement",
+			fullName:         "Hager Ali",
+			level:            2,
+			outcome:          "promoted",
+			attendedSessions: 1,
+			gender:           "female",
+			wantKey:          "promoted",
+			wantLabel:        "Promoted",
+			wantContains:     "إنتِ فعلاً بتتقدمي",
+		},
 	}
 
 	for _, tc := range tests {
@@ -69,6 +80,11 @@ func TestBuildRenewalPendingMessage(t *testing.T) {
 			}
 			if tc.wantContains != "" && !strings.Contains(got.Text, tc.wantContains) {
 				t.Fatalf("expected message to contain %q, got %q", tc.wantContains, got.Text)
+			}
+			if tc.gender == "female" && tc.outcome == "promoted" {
+				if !strings.Contains(got.Text, "وإحنا فخورين بيكي") {
+					t.Fatalf("expected female renewal message to contain feminine pride phrase, got %q", got.Text)
+				}
 			}
 		})
 	}

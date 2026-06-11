@@ -194,6 +194,9 @@ func applyGenderedArabicText(text, gender string) string {
 	}
 
 	replacer := strings.NewReplacer(
+		"إنت فعلاً بتتقدم", "إنتِ فعلاً بتتقدمي",
+		"وإحنا فخورين بيك", "وإحنا فخورين بيكي",
+		"مستواك كويس", "مستواكي كويس",
 		"ابعتلنا", "ابعتيلنا",
 		"ابعتلي", "ابعتيلي",
 		"ابعت المبلغ", "ابعتي المبلغ",
@@ -237,7 +240,7 @@ func buildUnifiedRenewalPendingMessage(fullName string, level int, gender string
 		firstName = "صديقنا"
 	}
 	nextLevel := level + 1
-	return fmt.Sprintf(`مساء النور يا أستاذ/ة %s 🌹
+	return applyGenderedArabicText(fmt.Sprintf(`مساء النور يا أستاذ/ة %s 🌹
 
 مبروك إنك خلصت ليفل %d بنجاح 🎉
 إنت فعلاً بتتقدم وده واضح — وإحنا فخورين بيك 🙏
@@ -261,7 +264,7 @@ func buildUnifiedRenewalPendingMessage(fullName string, level int, gender string
 
 ⏳ الحجز بالأسبقية — لما الأماكن تخلص مش هينفع نضيف حد تاني
 
-يومك جميل ومنور 😊`, firstName, level, nextLevel, renewalPendingImperative(gender, "ابعت", "ابعتي"), renewalPendingImperative(gender, "ابعتلنا", "ابعتيلنا"))
+يومك جميل ومنور 😊`, firstName, level, nextLevel, renewalPendingImperative(gender, "ابعت", "ابعتي"), renewalPendingImperative(gender, "ابعتلنا", "ابعتيلنا")), gender)
 }
 
 func normalizeWhatsAppPhone(phone string) string {
