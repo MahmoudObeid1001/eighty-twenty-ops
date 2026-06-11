@@ -103,15 +103,16 @@ func MentorHasStudentAccess(mentorUserID, leadID uuid.UUID) (bool, error) {
 }
 
 // UpdateStudentBasicInfo updates the editable identity fields for a student lead.
-func UpdateStudentBasicInfo(leadID uuid.UUID, fullName, phone string) error {
+func UpdateStudentBasicInfo(leadID uuid.UUID, fullName, gender, phone string) error {
 	now := time.Now()
 	result, err := db.DB.Exec(`
 		UPDATE leads
 		SET full_name = $1,
-		    phone = $2,
-		    updated_at = $3
-		WHERE id = $4
-	`, strings.TrimSpace(fullName), strings.TrimSpace(phone), now, leadID)
+		    gender = $2,
+		    phone = $3,
+		    updated_at = $4
+		WHERE id = $5
+	`, strings.TrimSpace(fullName), normalizeLeadGenderValue(gender), strings.TrimSpace(phone), now, leadID)
 	if err != nil {
 		return fmt.Errorf("failed to update student basic info: %w", err)
 	}
@@ -138,6 +139,7 @@ func GetStudentProfile(leadID uuid.UUID) (*StudentProfile, error) {
 		SELECT 
 			l.id,
 			l.full_name,
+			COALESCE(l.gender, '') as gender,
 			l.phone,
 			COALESCE(pt.assigned_level, 0) as current_level,
 			GREATEST(COALESCE(l.levels_purchased_total, 0) - COALESCE(l.levels_consumed, 0), 0) as remaining_credits,
@@ -149,6 +151,7 @@ func GetStudentProfile(leadID uuid.UUID) (*StudentProfile, error) {
 	`, leadID).Scan(
 		&profile.LeadID,
 		&profile.FullName,
+		&profile.Gender,
 		&profile.Phone,
 		&currentLevel,
 		&remainingCredits,
@@ -170,6 +173,17 @@ func GetStudentProfile(leadID uuid.UUID) (*StudentProfile, error) {
 	}
 
 	return profile, nil
+}
+
+func normalizeLeadGenderValue(value string) sql.NullString {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "male":
+		return sql.NullString{String: "male", Valid: true}
+	case "female":
+		return sql.NullString{String: "female", Valid: true}
+	default:
+		return sql.NullString{}
+	}
 }
 
 // GetAcademicHistory returns the academic history for a student from class_enrollments

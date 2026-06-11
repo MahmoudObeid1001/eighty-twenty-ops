@@ -411,6 +411,14 @@
                     {{end}}
                 </div>
                 <div class="form-group">
+                    <label for="gender">Gender</label>
+                    <select id="gender" name="gender">
+                        <option value="" {{if not .Detail.Lead.Gender.Valid}}selected{{end}}>Unknown</option>
+                        <option value="male" {{if and .Detail.Lead.Gender.Valid (eq .Detail.Lead.Gender.String `male`)}}selected{{end}}>Male</option>
+                        <option value="female" {{if and .Detail.Lead.Gender.Valid (eq .Detail.Lead.Gender.String `female`)}}selected{{end}}>Female</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="source">Source</label>
                     <select id="source" name="source">
                         <option value="Facebook" {{if or (not .Detail.Lead.Source.Valid) (eq .Detail.Lead.Source.String
@@ -2504,11 +2512,58 @@
         return parts.length ? parts[0] : '';
     }
 
+    function normalizeDetailLeadGender(value) {
+        value = String(value || '').trim().toLowerCase();
+        return value === 'female' ? 'female' : (value === 'male' ? 'male' : '');
+    }
+
+    function applyDetailGenderedArabicText(text, gender) {
+        if (normalizeDetailLeadGender(gender) !== 'female') return String(text || '');
+        return String(text || '')
+            .replaceAll('ابعتلنا', 'ابعتيلنا')
+            .replaceAll('ابعتلي', 'ابعتيلي')
+            .replaceAll('ابعت المبلغ', 'ابعتي المبلغ')
+            .replaceAll('ابعت صورة', 'ابعتي صورة')
+            .replaceAll('كلمني', 'كلميني')
+            .replaceAll('حابب', 'حابة')
+            .replaceAll('بس عارفك مهتم وعايز تطور إنجليزيتك', 'بس عارفاكي مهتمة وعايزة تطوري إنجليزيتك')
+            .replaceAll('"مهتم"', '"مهتمة"')
+            .replaceAll('عايز أجرب', 'عايزة أجرب')
+            .replaceAll('مش عايز آخد', 'مش عايزة آخد')
+            .replaceAll('عارفك', 'عارفاكي')
+            .replaceAll('عارف إيه', 'عارفة إيه')
+            .replaceAll('مناسب ليك', 'مناسبة ليكي')
+            .replaceAll('مناسب لك', 'مناسبة ليكي');
+    }
+
+    function personalizeDetailStoredTemplateText(text) {
+        const fullName = {{printf "%q" .Detail.Lead.FullName}};
+        const firstName = firstDetailName(fullName) || 'صديقنا';
+        const gender = normalizeDetailLeadGender({{printf "%q" .Detail.Lead.Gender.String}});
+        return applyDetailGenderedArabicText(
+            String(text || '')
+                .replaceAll('[STUDENT_FULL_NAME]', String(fullName || '').trim())
+                .replaceAll('[STUDENT_FIRST_NAME]', firstName)
+                .replaceAll('[الاسم]', firstName)
+                .replaceAll('[ابعت/ابعتي]', gender === 'female' ? 'ابعتي' : 'ابعت')
+                .replaceAll('[ابعتلي/ابعتيلي]', gender === 'female' ? 'ابعتيلي' : 'ابعتلي')
+                .replaceAll('[ابعتلنا/ابعتيلنا]', gender === 'female' ? 'ابعتيلنا' : 'ابعتلنا')
+                .replaceAll('[كلمني/كلميني]', gender === 'female' ? 'كلميني' : 'كلمني')
+                .replaceAll('[حابب/حابة]', gender === 'female' ? 'حابة' : 'حابب')
+                .replaceAll('[مهتم/مهتمة]', gender === 'female' ? 'مهتمة' : 'مهتم')
+                .replaceAll('[عايز/عايزة]', gender === 'female' ? 'عايزة' : 'عايز'),
+            gender
+        );
+    }
+
     function buildDetailRenewalTemplates() {
         const fullName = {{printf "%q" .Detail.Lead.FullName}};
         const level = {{.RenewalPendingMessageLevel}};
         const firstName = firstDetailName(fullName) || 'صديقنا';
         const nextLevel = Number(level) + 1;
+        const gender = normalizeDetailLeadGender({{printf "%q" .Detail.Lead.Gender.String}});
+        const firstTransferVerb = gender === 'female' ? 'ابعتي' : 'ابعت';
+        const secondTransferVerb = gender === 'female' ? 'ابعتيلنا' : 'ابعتلنا';
         const text = `مساء النور يا أستاذ/ة ${firstName} 🌹
 
 مبروك إنك خلصت ليفل ${level} بنجاح 🎉
@@ -2521,12 +2576,12 @@
 الراوند الجديد بيبدأ خلال أسبوع والأماكن بتتملى دلوقتي 🔥
 عشان تضمن مكانك — خطوتين بس:
 
-① ابعت المبلغ على فودافون كاش
+① ${firstTransferVerb} المبلغ على فودافون كاش
 🔢 01033111400
 👤 عبدالعزيز
 💰 1,250 جنيه
 
-② ابعتلنا صورة التحويل هنا على الواتساب
+② ${secondTransferVerb} صورة التحويل هنا على الواتساب
 وهنضيفك فوراً ✅
 
 ---
@@ -2555,15 +2610,16 @@
 
     function buildDetailSleepingTemplates() {
         const firstName = firstDetailName({{printf "%q" .Detail.Lead.FullName}}) || 'صديقنا';
+        const gender = normalizeDetailLeadGender({{printf "%q" .Detail.Lead.Gender.String}});
         return [
-            { step: 1, title: 'Message 1', text: `مرحبا ${firstName} 😊
+            { step: 1, title: 'Message 1', text: applyDetailGenderedArabicText(`مرحبا ${firstName} 😊
 أنا احمد من إيتي توينتي
 
 لاحظت إنك كنت بتسأل عن الكورس وبعتلنا رقمك عشان تعمل البليسمنت تيست..
 عايز أعرف، في أي حاجة وقفتك؟ 🤔
 
-أنا هنا لو في أي سؤال، كلمني براحتك 😊` },
-            { step: 2, title: 'Message 2', text: `${firstName}، عارف إيه اللي بيفرق بين الناس اللي بتتكلم إنجليزي كويس.. والناس اللي لسه بتحاول؟ 💡
+أنا هنا لو في أي سؤال، كلمني براحتك 😊`, gender) },
+            { step: 2, title: 'Message 2', text: applyDetailGenderedArabicText(`${firstName}، عارف إيه اللي بيفرق بين الناس اللي بتتكلم إنجليزي كويس.. والناس اللي لسه بتحاول؟ 💡
 
 مش الموهبة، مش الوقت - هو البداية الصح ✅
 
@@ -2571,8 +2627,8 @@
 
 البليسمنت تيست بتاعنا مجاني ومش بياخد أكتر من 15 دقيقة، وبيوريلك بالظبط أنت فين وإيه الخطوة الجاية 🎯
 
-نحجزه امتى بالنسبالك؟` },
-            { step: 3, title: 'Message 3', text: `${firstName}، مش عايز آخد وقتك كتير 😊
+نحجزه امتى بالنسبالك؟`, gender) },
+            { step: 3, title: 'Message 3', text: applyDetailGenderedArabicText(`${firstName}، مش عايز آخد وقتك كتير 😊
 
 بس عارفك مهتم وعايز تطور إنجليزيتك، وده بالنسبالي كفيل إني أبعتلك الأوفر ده:
 
@@ -2582,14 +2638,15 @@
 
 كلمني بـ "مهتم" وأنا هرتب معاك كل حاجة في 5 دقايق 🙏
 
-بعد كده هسيبك براحتك، ومتترددش ترجع لو غيرت رأيك في أي وقت 😄` }
+بعد كده هسيبك براحتك، ومتترددش ترجع لو غيرت رأيك في أي وقت 😄`, gender) }
         ];
     }
 
     function buildDetailAfterPlacementTemplates() {
         const firstName = firstDetailName({{printf "%q" .Detail.Lead.FullName}}) || 'Ahmed';
+        const gender = normalizeDetailLeadGender({{printf "%q" .Detail.Lead.Gender.String}});
         return [
-            { step: 1, title: 'Message 1', text: `${firstName}، 👋
+            { step: 1, title: 'Message 1', text: applyDetailGenderedArabicText(`${firstName}، 👋
 
 بعتنالك نتيجة البليسمنت تيست والأوفر المناسب ليك،
 ولما ماجاش رد حبيت أتأكد إن الرسالة وصلتك 😊
@@ -2598,8 +2655,8 @@
 ومحتاج بس الخطوة الصح عشان توصل لنتيجة حقيقية.
 
 الأوفر لسه متاح.
-ينفع نتكلم فيه؟` },
-            { step: 2, title: 'Message 2', text: `${firstName}، 🎯
+ينفع نتكلم فيه؟`, gender) },
+            { step: 2, title: 'Message 2', text: applyDetailGenderedArabicText(`${firstName}، 🎯
 
 هقولك على حاجة:
 ناس كتير بتعمل البليسمنت تيست وبعدها بتقف،
@@ -2609,8 +2666,8 @@
 سواء كان الموضوع سعر، وقت، أو حتى هل الكورس مناسب ليك فعلًا،
 ابعتلي اللي في بالك وأنا هرد عليك بصراحة تامة، من غير أي إلزام 😊
 
-وصولك لمرحلة التيست معناه إن عندك جدية حقيقية في التطوير 💙` },
-            { step: 3, title: 'Message 3', text: `${firstName}، 😊
+وصولك لمرحلة التيست معناه إن عندك جدية حقيقية في التطوير 💙`, gender) },
+            { step: 3, title: 'Message 3', text: applyDetailGenderedArabicText(`${firstName}، 😊
 
 دي آخر مرة هتواصل فيها معاك، وبعدها هسيبلك المساحة براحتك.
 
@@ -2624,7 +2681,7 @@
 ده عرض بنقدمه تقديرًا إنك خدت خطوة فعلية وعملت التيست 💙
 
 لو مناسب ليك، ابعتلي:
-عايز أجرب ✅` }
+عايز أجرب ✅`, gender) }
         ];
     }
 
@@ -2803,7 +2860,7 @@
     }
 
     function normalizeDetailRefusedRenewalTemplateMessage(templateBody) {
-        return normalizeDetailMessageText(templateBody);
+        return normalizeDetailMessageText(personalizeDetailStoredTemplateText(templateBody));
     }
 
     function useDetailRefusedRenewalTemplate(templateID, templateBody) {

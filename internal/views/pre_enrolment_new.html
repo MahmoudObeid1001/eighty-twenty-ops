@@ -34,6 +34,14 @@
                 {{end}}
             </div>
             <div class="form-group">
+                <label for="gender">Gender</label>
+                <select id="gender" name="gender">
+                    <option value="" {{if not .PreservedGender}}selected{{end}}>Unknown</option>
+                    <option value="male" {{if eq .PreservedGender "male"}}selected{{end}}>Male</option>
+                    <option value="female" {{if eq .PreservedGender "female"}}selected{{end}}>Female</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label for="source">Source</label>
                 <select id="source" name="source" required>
                     <option value="Facebook" {{if eq .PreservedSource "Facebook"}}selected{{else if not .PreservedSource}}selected{{end}}>Facebook</option>

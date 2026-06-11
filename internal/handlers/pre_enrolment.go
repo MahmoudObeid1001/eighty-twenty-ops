@@ -170,6 +170,100 @@ func firstNameFromFullName(fullName string) string {
 	return fields[0]
 }
 
+func normalizeLeadGender(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "male":
+		return "male"
+	case "female":
+		return "female"
+	default:
+		return ""
+	}
+}
+
+func renewalPendingImperative(gender string, maleForm, femaleForm string) string {
+	if normalizeLeadGender(gender) == "female" {
+		return femaleForm
+	}
+	return maleForm
+}
+
+func applyGenderedArabicText(text, gender string) string {
+	if normalizeLeadGender(gender) != "female" {
+		return text
+	}
+
+	replacer := strings.NewReplacer(
+		"ابعتلنا", "ابعتيلنا",
+		"ابعتلي", "ابعتيلي",
+		"ابعت المبلغ", "ابعتي المبلغ",
+		"ابعت صورة", "ابعتي صورة",
+		"كلمني", "كلميني",
+		"حابب", "حابة",
+		"بس عارفك مهتم وعايز تطور إنجليزيتك", "بس عارفاكي مهتمة وعايزة تطوري إنجليزيتك",
+		`"مهتم"`, `"مهتمة"`,
+		"عايز أجرب", "عايزة أجرب",
+		"مش عايز آخد", "مش عايزة آخد",
+		"عارفك", "عارفاكي",
+		"عارف إيه", "عارفة إيه",
+		"مناسب ليك", "مناسبة ليكي",
+		"مناسب لك", "مناسبة ليكي",
+	)
+	return replacer.Replace(text)
+}
+
+func personalizeStoredTemplateText(text, fullName, gender string) string {
+	firstName := firstNameFromFullName(fullName)
+	if firstName == "" {
+		firstName = "صديقنا"
+	}
+	processed := strings.TrimSpace(text)
+	processed = strings.ReplaceAll(processed, "[STUDENT_FULL_NAME]", strings.TrimSpace(fullName))
+	processed = strings.ReplaceAll(processed, "[STUDENT_FIRST_NAME]", firstName)
+	processed = strings.ReplaceAll(processed, "[الاسم]", firstName)
+	processed = strings.ReplaceAll(processed, "[ابعت/ابعتي]", renewalPendingImperative(gender, "ابعت", "ابعتي"))
+	processed = strings.ReplaceAll(processed, "[ابعتلي/ابعتيلي]", renewalPendingImperative(gender, "ابعتلي", "ابعتيلي"))
+	processed = strings.ReplaceAll(processed, "[ابعتلنا/ابعتيلنا]", renewalPendingImperative(gender, "ابعتلنا", "ابعتيلنا"))
+	processed = strings.ReplaceAll(processed, "[كلمني/كلميني]", renewalPendingImperative(gender, "كلمني", "كلميني"))
+	processed = strings.ReplaceAll(processed, "[حابب/حابة]", renewalPendingImperative(gender, "حابب", "حابة"))
+	processed = strings.ReplaceAll(processed, "[مهتم/مهتمة]", renewalPendingImperative(gender, "مهتم", "مهتمة"))
+	processed = strings.ReplaceAll(processed, "[عايز/عايزة]", renewalPendingImperative(gender, "عايز", "عايزة"))
+	return applyGenderedArabicText(processed, gender)
+}
+
+func buildUnifiedRenewalPendingMessage(fullName string, level int, gender string) string {
+	firstName := firstNameFromFullName(fullName)
+	if firstName == "" {
+		firstName = "صديقنا"
+	}
+	nextLevel := level + 1
+	return fmt.Sprintf(`مساء النور يا أستاذ/ة %s 🌹
+
+مبروك إنك خلصت ليفل %d بنجاح 🎉
+إنت فعلاً بتتقدم وده واضح — وإحنا فخورين بيك 🙏
+
+ليفل %d هيفتحلك باب جديد خالص، هتلاقي نفسك بتتكلم بثقة أكتر وبتعبّر عن أفكارك بسهولة 💪
+
+---
+
+الراوند الجديد بيبدأ خلال أسبوع والأماكن بتتملى دلوقتي 🔥
+عشان تضمن مكانك — خطوتين بس:
+
+① %s المبلغ على فودافون كاش
+🔢 01033111400
+👤 عبدالعزيز
+💰 1,250 جنيه
+
+② %s صورة التحويل هنا على الواتساب
+وهنضيفك فوراً ✅
+
+---
+
+⏳ الحجز بالأسبقية — لما الأماكن تخلص مش هينفع نضيف حد تاني
+
+يومك جميل ومنور 😊`, firstName, level, nextLevel, renewalPendingImperative(gender, "ابعت", "ابعتي"), renewalPendingImperative(gender, "ابعتلنا", "ابعتيلنا"))
+}
+
 func normalizeWhatsAppPhone(phone string) string {
 	var digits strings.Builder
 	for _, r := range strings.TrimSpace(phone) {
@@ -199,7 +293,7 @@ func buildWhatsAppComposeLink(phone, text string) string {
 	return base + "&text=" + url.QueryEscape(text)
 }
 
-func buildOfferSentFollowUpMessage(studentFullName string, step int) string {
+func buildOfferSentFollowUpMessage(studentFullName string, step int, gender string) string {
 	studentFirstName := firstNameFromFullName(studentFullName)
 	if studentFirstName == "" {
 		studentFirstName = "Ahmed"
@@ -207,7 +301,7 @@ func buildOfferSentFollowUpMessage(studentFullName string, step int) string {
 
 	switch step {
 	case 1:
-		return fmt.Sprintf(`%s، 👋
+		return applyGenderedArabicText(fmt.Sprintf(`%s، 👋
 
 بعتنالك نتيجة البليسمنت تيست والأوفر المناسب ليك،
 ولما ماجاش رد حبيت أتأكد إن الرسالة وصلتك 😊
@@ -216,9 +310,9 @@ func buildOfferSentFollowUpMessage(studentFullName string, step int) string {
 ومحتاج بس الخطوة الصح عشان توصل لنتيجة حقيقية.
 
 الأوفر لسه متاح.
-ينفع نتكلم فيه؟`, studentFirstName)
+ينفع نتكلم فيه؟`, studentFirstName), gender)
 	case 2:
-		return fmt.Sprintf(`%s، 🎯
+		return applyGenderedArabicText(fmt.Sprintf(`%s، 🎯
 
 هقولك على حاجة:
 ناس كتير بتعمل البليسمنت تيست وبعدها بتقف،
@@ -228,9 +322,9 @@ func buildOfferSentFollowUpMessage(studentFullName string, step int) string {
 سواء كان الموضوع سعر، وقت، أو حتى هل الكورس مناسب ليك فعلًا،
 ابعتلي اللي في بالك وأنا هرد عليك بصراحة تامة، من غير أي إلزام 😊
 
-وصولك لمرحلة التيست معناه إن عندك جدية حقيقية في التطوير 💙`, studentFirstName)
+وصولك لمرحلة التيست معناه إن عندك جدية حقيقية في التطوير 💙`, studentFirstName), gender)
 	case 3:
-		return fmt.Sprintf(`%s، 😊
+		return applyGenderedArabicText(fmt.Sprintf(`%s، 😊
 
 دي آخر مرة هتواصل فيها معاك، وبعدها هسيبلك المساحة براحتك.
 
@@ -244,7 +338,7 @@ func buildOfferSentFollowUpMessage(studentFullName string, step int) string {
 ده عرض بنقدمه تقديرًا إنك خدت خطوة فعلية وعملت التيست 💙
 
 لو مناسب ليك، ابعتلي:
-عايز أجرب ✅`, studentFirstName)
+عايز أجرب ✅`, studentFirstName), gender)
 	default:
 		return ""
 	}
@@ -290,7 +384,7 @@ func refusalReasonLabel(reason string) string {
 	}
 }
 
-func buildRenewalPendingMessage(fullName string, level int, outcome string, attendedSessions int) (*renewalPendingMessageDecision, bool) {
+func buildRenewalPendingMessage(fullName string, level int, outcome string, attendedSessions int, gender string) (*renewalPendingMessageDecision, bool) {
 	fullName = strings.TrimSpace(fullName)
 	if fullName == "" {
 		fullName = "حضرتك"
@@ -300,6 +394,7 @@ func buildRenewalPendingMessage(fullName string, level int, outcome string, atte
 	}
 
 	outcome = strings.TrimSpace(outcome)
+	text := buildUnifiedRenewalPendingMessage(fullName, level, gender)
 	switch {
 	case strings.EqualFold(outcome, "promoted"):
 		return &renewalPendingMessageDecision{
@@ -308,11 +403,7 @@ func buildRenewalPendingMessage(fullName string, level int, outcome string, atte
 			Outcome:          outcome,
 			Level:            level,
 			AttendedSessions: attendedSessions,
-			Text: fmt.Sprintf(`السلام عليكم استاذ %s، 🎉
-حضرتك خصلت معانا ليفل %d بنجاح ما شاء الله ،وبنباركلك على تقدمك للمستوى 🎉
-صراحةً حضورك وجديتك كانوا واضحين من أول يوم، والمنتور بيشكر فيك جدا💪
-دلوقتي هو أفضل وقت تكمل — ونبني ع الانجاز اللي حققته
-تحب نرتب للمستوى الجاي؟ 😊`, fullName, level),
+			Text:             text,
 		}, true
 	case strings.EqualFold(outcome, "repeated") && attendedSessions >= 3:
 		return &renewalPendingMessageDecision{
@@ -321,14 +412,7 @@ func buildRenewalPendingMessage(fullName string, level int, outcome string, atte
 			Outcome:          outcome,
 			Level:            level,
 			AttendedSessions: attendedSessions,
-			Text: fmt.Sprintf(`السلام عليكم استاذ %s، 👋
-المستوى %d خلص، وعندي كلام مهم لحضرتك
-صحيح الحضور كان متقطع الفترة دي — بس السيشنز اللي حضرتها كان واضح إنك جاد وعندك هدف 💪
-وعشان كده مش عايزك تعيد نفس المستوى من غير ما تاخد فرصة حقيقية تكمله صح
-عندنا ليك:
-🎁 خصم ٤٠٪ على إعادة المستوى %d — عشان تكمل اللي بدأته بالراحة والتركيز اللي يستاهله
-الأوفر ده مش بنعلن عنه، وهو بس ليك لأن إحنا شايفين إنك تستاهل الفرصة دي 💙
-تحب نحجز مكان لليفل الجديد؟ 😊`, fullName, level, level),
+			Text:             text,
 		}, true
 	case strings.EqualFold(outcome, "repeated"):
 		return &renewalPendingMessageDecision{
@@ -337,8 +421,7 @@ func buildRenewalPendingMessage(fullName string, level int, outcome string, atte
 			Outcome:          outcome,
 			Level:            level,
 			AttendedSessions: attendedSessions,
-			Text: fmt.Sprintf(`السلام عليكم استاذ %s،
-حضرتك كنت مشترك معانا في ليفل %d وحاليا الليفل خلص، وحبيت أتواصل معاك لان بصراحة لاحظنا إن حضورك كان محدود الفترة دي — وده خلانا نفكر ازاي نقدر نساعدك ، بس عايزين نفهم — في حاجة حصلت أو في اي ظرف وقفك؟ دا هيساعدنا نعرف نفيدك أحسن 😊`, fullName, level),
+			Text:             text,
 		}, true
 	default:
 		return nil, false
@@ -369,7 +452,7 @@ func applyRenewalPendingMessageToLead(item *models.LeadListItem) {
 		return
 	}
 
-	decision, ok := buildRenewalPendingMessage(item.Lead.FullName, int(item.LatestCompletedLevel.Int32), item.LastOutcome.String, item.LatestAttendedSessions)
+	decision, ok := buildRenewalPendingMessage(item.Lead.FullName, int(item.LatestCompletedLevel.Int32), item.LastOutcome.String, item.LatestAttendedSessions, item.Lead.Gender.String)
 	if !ok {
 		return
 	}
@@ -407,7 +490,7 @@ func countDueRefusedRenewalBannerItems(leads []*models.LeadListItem) int {
 	return count
 }
 
-func buildSleepingLeadMessage(studentFullName string, step int) string {
+func buildSleepingLeadMessage(studentFullName string, step int, gender string) string {
 	studentFirstName := firstNameFromFullName(studentFullName)
 	if studentFirstName == "" {
 		studentFirstName = "صديقنا"
@@ -415,15 +498,15 @@ func buildSleepingLeadMessage(studentFullName string, step int) string {
 
 	switch step {
 	case 1:
-		return fmt.Sprintf(`مرحبا %s 😊
+		return applyGenderedArabicText(fmt.Sprintf(`مرحبا %s 😊
 أنا احمد من إيتي توينتي
 
 لاحظت إنك كنت بتسأل عن الكورس وبعتلنا رقمك عشان تعمل البليسمنت تيست..
 عايز أعرف، في أي حاجة وقفتك؟ 🤔
 
-أنا هنا لو في أي سؤال، كلمني براحتك 😊`, studentFirstName)
+أنا هنا لو في أي سؤال، كلمني براحتك 😊`, studentFirstName), gender)
 	case 2:
-		return fmt.Sprintf(`%s، عارف إيه اللي بيفرق بين الناس اللي بتتكلم إنجليزي كويس.. والناس اللي لسه بتحاول؟ 💡
+		return applyGenderedArabicText(fmt.Sprintf(`%s، عارف إيه اللي بيفرق بين الناس اللي بتتكلم إنجليزي كويس.. والناس اللي لسه بتحاول؟ 💡
 
 مش الموهبة، مش الوقت - هو البداية الصح ✅
 
@@ -431,9 +514,9 @@ func buildSleepingLeadMessage(studentFullName string, step int) string {
 
 البليسمنت تيست بتاعنا مجاني ومش بياخد أكتر من 15 دقيقة، وبيوريلك بالظبط أنت فين وإيه الخطوة الجاية 🎯
 
-نحجزه امتى بالنسبالك؟`, studentFirstName)
+نحجزه امتى بالنسبالك؟`, studentFirstName), gender)
 	case 3:
-		return fmt.Sprintf(`%s، مش عايز آخد وقتك كتير 😊
+		return applyGenderedArabicText(fmt.Sprintf(`%s، مش عايز آخد وقتك كتير 😊
 
 بس عارفك مهتم وعايز تطور إنجليزيتك، وده بالنسبالي كفيل إني أبعتلك الأوفر ده:
 
@@ -443,7 +526,7 @@ func buildSleepingLeadMessage(studentFullName string, step int) string {
 
 كلمني بـ "مهتم" وأنا هرتب معاك كل حاجة في 5 دقايق 🙏
 
-بعد كده هسيبك براحتك، ومتترددش ترجع لو غيرت رأيك في أي وقت 😄`, studentFirstName)
+بعد كده هسيبك براحتك، ومتترددش ترجع لو غيرت رأيك في أي وقت 😄`, studentFirstName), gender)
 	default:
 		return ""
 	}
@@ -751,7 +834,7 @@ func (h *PreEnrolmentHandler) SendSleepingLeadFollowUp(w http.ResponseWriter, r 
 		return
 	}
 
-	messageText := buildSleepingLeadMessage(item.Lead.FullName, item.SleepingLeadStep)
+	messageText := buildSleepingLeadMessage(item.Lead.FullName, item.SleepingLeadStep, item.Lead.Gender.String)
 	whatsAppURL := buildWhatsAppComposeLink(item.Lead.Phone, messageText)
 	if whatsAppURL == "" {
 		redirectWithError(w, r, "/pre-enrolment?sleeping=1", "This lead does not have a valid WhatsApp number.")
@@ -849,7 +932,7 @@ func (h *PreEnrolmentHandler) SendOfferSentFollowUp(w http.ResponseWriter, r *ht
 		return
 	}
 
-	messageText := buildOfferSentFollowUpMessage(item.Lead.FullName, item.OfferFollowUpStep)
+	messageText := buildOfferSentFollowUpMessage(item.Lead.FullName, item.OfferFollowUpStep, item.Lead.Gender.String)
 	whatsAppURL := buildWhatsAppComposeLink(item.Lead.Phone, messageText)
 	if whatsAppURL == "" {
 		redirectWithError(w, r, "/pre-enrolment", "This lead does not have a valid WhatsApp number.")
@@ -900,16 +983,22 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fullName := r.FormValue("full_name")
+	gender := normalizeLeadGender(r.FormValue("gender"))
 	phone := r.FormValue("phone")
 	source := r.FormValue("source")
 	notes := r.FormValue("notes")
 
 	if fullName == "" || phone == "" {
 		data := map[string]interface{}{
-			"Title":       "New Lead - Eighty Twenty",
-			"Error":       "Full name and phone are required",
-			"UserRole":    middleware.GetUserRole(r),
-			"IsModerator": IsModerator(r),
+			"Title":             "New Lead - Eighty Twenty",
+			"Error":             "Full name and phone are required",
+			"PreservedFullName": fullName,
+			"PreservedGender":   gender,
+			"PreservedPhone":    phone,
+			"PreservedSource":   source,
+			"PreservedNotes":    notes,
+			"UserRole":          middleware.GetUserRole(r),
+			"IsModerator":       IsModerator(r),
 		}
 		renderTemplate(w, r, "pre_enrolment_new.html", data)
 		return
@@ -917,18 +1006,20 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Validate source is one of allowed options
 	allowedSources := map[string]bool{
-		"Facebook": true,
-		"WhatsApp": true,
-		"Admin":    true,
-		"Referral": true,
-		"Other":    true,
+		"Facebook":  true,
+		"WhatsApp":  true,
+		"Instagram": true,
+		"Walk-in":   true,
+		"Admin":     true,
+		"Referral":  true,
+		"Other":     true,
 	}
 	if source == "" || !allowedSources[source] {
 		source = "Other" // Default to Other if invalid
 	}
 
 	userID := middleware.GetUserID(r)
-	lead, err := models.CreateLead(fullName, phone, source, notes, userID)
+	lead, err := models.CreateLead(fullName, gender, phone, source, notes, userID)
 	if err != nil {
 		// Check if it's a phone constraint error
 		var phoneErr *models.PhoneAlreadyExistsError
@@ -957,6 +1048,7 @@ func (h *PreEnrolmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 				"PhoneError":        phoneErr.Message,
 				"ExistingLeadID":    phoneErr.ExistingLeadID,
 				"PreservedFullName": fullName,
+				"PreservedGender":   gender,
 				"PreservedPhone":    phone,
 				"PreservedSource":   source,
 				"PreservedNotes":    notes,
@@ -1535,7 +1627,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 				log.Printf("ERROR: Failed to count presented attendance for lead %s in class %s: %v", leadID, latestEnrollment.ClassKey, err)
 			}
 		}
-		if decision, ok := buildRenewalPendingMessage(detail.Lead.FullName, int(latestEnrollment.Level), lastOutcome, attendedSessions); ok {
+		if decision, ok := buildRenewalPendingMessage(detail.Lead.FullName, int(latestEnrollment.Level), lastOutcome, attendedSessions, detail.Lead.Gender.String); ok {
 			renewalPendingDecision = decision
 		}
 	}
@@ -2894,6 +2986,9 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			}
 			templateID = &parsedTemplateID
 			templateKey = template.TemplateKey
+			if strings.TrimSpace(messageText) == strings.TrimSpace(template.Body) {
+				messageText = personalizeStoredTemplateText(template.Body, detail.Lead.FullName, detail.Lead.Gender.String)
+			}
 		}
 
 		if err := models.RecordRefusedRenewalFollowUp(leadID, requestedStep, templateID, messageText, userID); err != nil {
@@ -3013,7 +3108,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		messageText := strings.TrimSpace(r.FormValue("message_bank_text"))
 		if messageText == "" {
-			messageText = buildSleepingLeadMessage(item.Lead.FullName, item.SleepingLeadStep)
+			messageText = buildSleepingLeadMessage(item.Lead.FullName, item.SleepingLeadStep, item.Lead.Gender.String)
 		}
 
 		whatsAppURL := buildWhatsAppComposeLink(item.Lead.Phone, messageText)
@@ -3109,7 +3204,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 		messageText := strings.TrimSpace(r.FormValue("message_bank_text"))
 		if messageText == "" {
-			messageText = buildOfferSentFollowUpMessage(item.Lead.FullName, item.OfferFollowUpStep)
+			messageText = buildOfferSentFollowUpMessage(item.Lead.FullName, item.OfferFollowUpStep, item.Lead.Gender.String)
 		}
 
 		whatsAppURL := buildWhatsAppComposeLink(item.Lead.Phone, messageText)
@@ -4020,6 +4115,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fullName := r.FormValue("full_name")
+	gender := normalizeLeadGender(r.FormValue("gender"))
 	phone := r.FormValue("phone")
 
 	// If fields are empty, use existing values (might happen with some form submissions)
@@ -4030,6 +4126,9 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 	if phone == "" {
 		phone = existingDetail.Lead.Phone
 		h.cfg.Debugf("  ⚠️  phone empty in form, using existing: %q", phone)
+	}
+	if gender == "" && existingDetail.Lead.Gender.Valid {
+		gender = existingDetail.Lead.Gender.String
 	}
 
 	if fullName == "" || phone == "" {
@@ -4043,6 +4142,7 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		Lead: &models.Lead{
 			ID:                   leadID,
 			FullName:             fullName,
+			Gender:               sql.NullString{String: gender, Valid: gender != ""},
 			Phone:                phone,
 			Status:               existingDetail.Lead.Status,
 			SentToClasses:        existingDetail.Lead.SentToClasses,

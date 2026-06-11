@@ -455,6 +455,7 @@
                             data-category="sleeping_leads"
                             data-lead-id="{{.Lead.ID}}"
                             data-lead-name="{{.Lead.FullName}}"
+                            data-lead-gender="{{if .Lead.Gender.Valid}}{{.Lead.Gender.String}}{{end}}"
                             data-sleeping-step="{{.SleepingLeadStep}}"
                             style="background: #6f42c1; color: white; border: 1px solid #6f42c1;"
                             title="Open sleeping leads message bank">
@@ -479,6 +480,7 @@
                             data-category="after_placement_test"
                             data-lead-id="{{.Lead.ID}}"
                             data-lead-name="{{.Lead.FullName}}"
+                            data-lead-gender="{{if .Lead.Gender.Valid}}{{.Lead.Gender.String}}{{end}}"
                             data-offer-step="{{.OfferFollowUpStep}}"
                             style="background: #6f42c1; color: white; border: 1px solid #6f42c1;"
                             title="Open after placement test message bank">
@@ -497,6 +499,7 @@
                             data-category="refused_renewal"
                             data-lead-id="{{.Lead.ID}}"
                             data-lead-name="{{.Lead.FullName}}"
+                            data-lead-gender="{{if .Lead.Gender.Valid}}{{.Lead.Gender.String}}{{end}}"
                             data-lead-phone="{{.Lead.Phone}}"
                             data-reason="{{if .RenewalRefusalReason.Valid}}{{.RenewalRefusalReason.String}}{{end}}"
                             data-other-reason="{{if .RenewalRefusalNotes.Valid}}{{.RenewalRefusalNotes.String}}{{end}}"
@@ -518,6 +521,7 @@
                             data-category="renewal_pending"
                             data-lead-id="{{.Lead.ID}}"
                             data-lead-name="{{.Lead.FullName}}"
+                            data-lead-gender="{{if .Lead.Gender.Valid}}{{.Lead.Gender.String}}{{end}}"
                             data-renewal-level="{{if .LatestCompletedLevel.Valid}}{{.LatestCompletedLevel.Int32}}{{end}}"
                             data-renewal-selected-key="{{.RenewalPendingMessageKey}}"
                             style="background: #2563EB; color: white; border: 1px solid #2563EB;"
@@ -680,6 +684,7 @@
     const messageBankState = {
         leadId: '',
         leadName: '',
+        leadGender: '',
         category: 'renewal_pending',
         renewalLevel: 0,
         renewalSelectedKey: '',
@@ -835,6 +840,7 @@
                     category: button.dataset.category || 'renewal_pending',
                     leadId: button.dataset.leadId || '',
                     leadName: button.dataset.leadName || '',
+                    leadGender: button.dataset.leadGender || '',
                     renewalLevel: parseInt(button.dataset.renewalLevel || '0', 10) || 0,
                     renewalSelectedKey: button.dataset.renewalSelectedKey || '',
                     sleepingStep: parseInt(button.dataset.sleepingStep || '0', 10) || 0,
@@ -892,9 +898,55 @@
         return parts.length ? parts[0] : '';
     }
 
-    function buildRenewalPendingTemplates(fullName, level) {
+    function normalizeLeadGender(value) {
+        value = String(value || '').trim().toLowerCase();
+        return value === 'female' ? 'female' : (value === 'male' ? 'male' : '');
+    }
+
+    function applyGenderedArabicText(text, gender) {
+        if (normalizeLeadGender(gender) !== 'female') return String(text || '');
+        return String(text || '')
+            .replaceAll('ابعتلنا', 'ابعتيلنا')
+            .replaceAll('ابعتلي', 'ابعتيلي')
+            .replaceAll('ابعت المبلغ', 'ابعتي المبلغ')
+            .replaceAll('ابعت صورة', 'ابعتي صورة')
+            .replaceAll('كلمني', 'كلميني')
+            .replaceAll('حابب', 'حابة')
+            .replaceAll('بس عارفك مهتم وعايز تطور إنجليزيتك', 'بس عارفاكي مهتمة وعايزة تطوري إنجليزيتك')
+            .replaceAll('"مهتم"', '"مهتمة"')
+            .replaceAll('عايز أجرب', 'عايزة أجرب')
+            .replaceAll('مش عايز آخد', 'مش عايزة آخد')
+            .replaceAll('عارفك', 'عارفاكي')
+            .replaceAll('عارف إيه', 'عارفة إيه')
+            .replaceAll('مناسب ليك', 'مناسبة ليكي')
+            .replaceAll('مناسب لك', 'مناسبة ليكي');
+    }
+
+    function personalizeStoredTemplateText(text, fullName, gender) {
+        const normalizedGender = normalizeLeadGender(gender);
+        const firstName = firstNameFromFullName(fullName) || 'صديقنا';
+        return applyGenderedArabicText(
+            String(text || '')
+                .replaceAll('[STUDENT_FULL_NAME]', String(fullName || '').trim())
+                .replaceAll('[STUDENT_FIRST_NAME]', firstName)
+                .replaceAll('[الاسم]', firstName)
+                .replaceAll('[ابعت/ابعتي]', normalizedGender === 'female' ? 'ابعتي' : 'ابعت')
+                .replaceAll('[ابعتلي/ابعتيلي]', normalizedGender === 'female' ? 'ابعتيلي' : 'ابعتلي')
+                .replaceAll('[ابعتلنا/ابعتيلنا]', normalizedGender === 'female' ? 'ابعتيلنا' : 'ابعتلنا')
+                .replaceAll('[كلمني/كلميني]', normalizedGender === 'female' ? 'كلميني' : 'كلمني')
+                .replaceAll('[حابب/حابة]', normalizedGender === 'female' ? 'حابة' : 'حابب')
+                .replaceAll('[مهتم/مهتمة]', normalizedGender === 'female' ? 'مهتمة' : 'مهتم')
+                .replaceAll('[عايز/عايزة]', normalizedGender === 'female' ? 'عايزة' : 'عايز'),
+            gender
+        );
+    }
+
+    function buildRenewalPendingTemplates(fullName, level, gender) {
         const firstName = firstNameFromFullName(fullName) || 'صديقنا';
         const nextLevel = Number(level) + 1;
+        const normalizedGender = normalizeLeadGender(gender);
+        const firstTransferVerb = normalizedGender === 'female' ? 'ابعتي' : 'ابعت';
+        const secondTransferVerb = normalizedGender === 'female' ? 'ابعتيلنا' : 'ابعتلنا';
         const text = `مساء النور يا أستاذ/ة ${firstName} 🌹
 
 مبروك إنك خلصت ليفل ${level} بنجاح 🎉
@@ -907,12 +959,12 @@
 الراوند الجديد بيبدأ خلال أسبوع والأماكن بتتملى دلوقتي 🔥
 عشان تضمن مكانك — خطوتين بس:
 
-① ابعت المبلغ على فودافون كاش
+① ${firstTransferVerb} المبلغ على فودافون كاش
 🔢 01033111400
 👤 عبدالعزيز
 💰 1,250 جنيه
 
-② ابعتلنا صورة التحويل هنا على الواتساب
+② ${secondTransferVerb} صورة التحويل هنا على الواتساب
 وهنضيفك فوراً ✅
 
 ---
@@ -939,24 +991,24 @@
         ];
     }
 
-    function buildSleepingLeadTemplates(fullName) {
+    function buildSleepingLeadTemplates(fullName, gender) {
         const firstName = firstNameFromFullName(fullName) || 'صديقنا';
         return [
             {
                 step: 1,
                 title: 'Message 1',
-                text: `مرحبا ${firstName} 😊
+                text: applyGenderedArabicText(`مرحبا ${firstName} 😊
 أنا احمد من إيتي توينتي
 
 لاحظت إنك كنت بتسأل عن الكورس وبعتلنا رقمك عشان تعمل البليسمنت تيست..
 عايز أعرف، في أي حاجة وقفتك؟ 🤔
 
-أنا هنا لو في أي سؤال، كلمني براحتك 😊`
+أنا هنا لو في أي سؤال، كلمني براحتك 😊`, gender)
             },
             {
                 step: 2,
                 title: 'Message 2',
-                text: `${firstName}، عارف إيه اللي بيفرق بين الناس اللي بتتكلم إنجليزي كويس.. والناس اللي لسه بتحاول؟ 💡
+                text: applyGenderedArabicText(`${firstName}، عارف إيه اللي بيفرق بين الناس اللي بتتكلم إنجليزي كويس.. والناس اللي لسه بتحاول؟ 💡
 
 مش الموهبة، مش الوقت - هو البداية الصح ✅
 
@@ -964,12 +1016,12 @@
 
 البليسمنت تيست بتاعنا مجاني ومش بياخد أكتر من 15 دقيقة، وبيوريلك بالظبط أنت فين وإيه الخطوة الجاية 🎯
 
-نحجزه امتى بالنسبالك؟`
+نحجزه امتى بالنسبالك؟`, gender)
             },
             {
                 step: 3,
                 title: 'Message 3',
-                text: `${firstName}، مش عايز آخد وقتك كتير 😊
+                text: applyGenderedArabicText(`${firstName}، مش عايز آخد وقتك كتير 😊
 
 بس عارفك مهتم وعايز تطور إنجليزيتك، وده بالنسبالي كفيل إني أبعتلك الأوفر ده:
 
@@ -979,18 +1031,18 @@
 
 كلمني بـ "مهتم" وأنا هرتب معاك كل حاجة في 5 دقايق 🙏
 
-بعد كده هسيبك براحتك، ومتترددش ترجع لو غيرت رأيك في أي وقت 😄`
+بعد كده هسيبك براحتك، ومتترددش ترجع لو غيرت رأيك في أي وقت 😄`, gender)
             }
         ];
     }
 
-    function buildOfferTemplates(fullName) {
+    function buildOfferTemplates(fullName, gender) {
         const firstName = firstNameFromFullName(fullName) || 'Ahmed';
         return [
             {
                 step: 1,
                 title: 'Message 1',
-                text: `${firstName}، 👋
+                text: applyGenderedArabicText(`${firstName}، 👋
 
 بعتنالك نتيجة البليسمنت تيست والأوفر المناسب ليك،
 ولما ماجاش رد حبيت أتأكد إن الرسالة وصلتك 😊
@@ -999,12 +1051,12 @@
 ومحتاج بس الخطوة الصح عشان توصل لنتيجة حقيقية.
 
 الأوفر لسه متاح.
-ينفع نتكلم فيه؟`
+ينفع نتكلم فيه؟`, gender)
             },
             {
                 step: 2,
                 title: 'Message 2',
-                text: `${firstName}، 🎯
+                text: applyGenderedArabicText(`${firstName}، 🎯
 
 هقولك على حاجة:
 ناس كتير بتعمل البليسمنت تيست وبعدها بتقف،
@@ -1014,12 +1066,12 @@
 سواء كان الموضوع سعر، وقت، أو حتى هل الكورس مناسب ليك فعلًا،
 ابعتلي اللي في بالك وأنا هرد عليك بصراحة تامة، من غير أي إلزام 😊
 
-وصولك لمرحلة التيست معناه إن عندك جدية حقيقية في التطوير 💙`
+وصولك لمرحلة التيست معناه إن عندك جدية حقيقية في التطوير 💙`, gender)
             },
             {
                 step: 3,
                 title: 'Message 3',
-                text: `${firstName}، 😊
+                text: applyGenderedArabicText(`${firstName}، 😊
 
 دي آخر مرة هتواصل فيها معاك، وبعدها هسيبلك المساحة براحتك.
 
@@ -1033,7 +1085,7 @@
 ده عرض بنقدمه تقديرًا إنك خدت خطوة فعلية وعملت التيست 💙
 
 لو مناسب ليك، ابعتلي:
-عايز أجرب ✅`
+عايز أجرب ✅`, gender)
             }
         ];
     }
@@ -1054,6 +1106,7 @@
 
         messageBankState.leadId = payload.leadId;
         messageBankState.leadName = payload.leadName;
+        messageBankState.leadGender = payload.leadGender || '';
         messageBankState.category = payload.category || 'renewal_pending';
         messageBankState.renewalLevel = payload.renewalLevel || 0;
         messageBankState.renewalSelectedKey = payload.renewalSelectedKey || '';
@@ -1120,7 +1173,7 @@
             renewalKeyInput.value = messageBankState.renewalSelectedKey || '';
             renewalLevelInput.value = messageBankState.renewalLevel || '';
             help.textContent = 'All 3 renewal pending templates are available. The system-selected one is highlighted.';
-            const selected = buildRenewalPendingTemplates(messageBankState.leadName, messageBankState.renewalLevel).find(function (item) {
+            const selected = buildRenewalPendingTemplates(messageBankState.leadName, messageBankState.renewalLevel, messageBankState.leadGender).find(function (item) {
                 return item.key === messageBankState.renewalSelectedKey;
             });
             if (selected) {
@@ -1130,7 +1183,7 @@
             actionInput.value = 'send_sleeping_lead_message';
             renewalKeyInput.value = '';
             help.textContent = 'All sleeping leads templates are visible. The currently due step is highlighted.';
-            const selected = buildSleepingLeadTemplates(messageBankState.leadName).find(function (item) {
+            const selected = buildSleepingLeadTemplates(messageBankState.leadName, messageBankState.leadGender).find(function (item) {
                 return item.step === messageBankState.sleepingStep;
             });
             if (selected) {
@@ -1140,7 +1193,7 @@
             actionInput.value = 'send_offer_sent_message';
             renewalKeyInput.value = '';
             help.textContent = 'All after placement test templates are visible. The currently due step is highlighted.';
-            const selected = buildOfferTemplates(messageBankState.leadName).find(function (item) {
+            const selected = buildOfferTemplates(messageBankState.leadName, messageBankState.leadGender).find(function (item) {
                 return item.step === messageBankState.offerStep;
             });
             if (selected) {
@@ -1176,7 +1229,7 @@
         if (actionInput) actionInput.value = 'send_refused_renewal_message';
         if (templateInput) templateInput.value = templateID || '';
         if (messageInput) {
-            messageInput.value = normalizeMessageBankText(templateBody);
+            messageInput.value = normalizeMessageBankText(personalizeStoredTemplateText(templateBody, messageBankState.leadName, messageBankState.leadGender));
             messageInput.focus();
         }
     }
@@ -1211,7 +1264,7 @@
             container.innerHTML = '<div style="border: 1px dashed #D1D5DB; border-radius: 8px; padding: 18px; color: #6B7280;">This lead does not have a completed level for renewal pending templates.</div>';
             return;
         }
-        const templates = buildRenewalPendingTemplates(messageBankState.leadName, messageBankState.renewalLevel);
+        const templates = buildRenewalPendingTemplates(messageBankState.leadName, messageBankState.renewalLevel, messageBankState.leadGender);
         container.innerHTML = templates.map(function (item) {
             return renderTemplateCard({
                 title: item.title,
@@ -1227,7 +1280,7 @@
     function renderSleepingLeadTemplates() {
         const container = document.getElementById('sleeping-lead-template-list');
         if (!container) return;
-        const templates = buildSleepingLeadTemplates(messageBankState.leadName);
+        const templates = buildSleepingLeadTemplates(messageBankState.leadName, messageBankState.leadGender);
         container.innerHTML = templates.map(function (item) {
             return renderTemplateCard({
                 title: item.title,
@@ -1245,7 +1298,7 @@
     function renderAfterPlacementTemplates() {
         const container = document.getElementById('after-placement-template-list');
         if (!container) return;
-        const templates = buildOfferTemplates(messageBankState.leadName);
+        const templates = buildOfferTemplates(messageBankState.leadName, messageBankState.leadGender);
         container.innerHTML = templates.map(function (item) {
             return renderTemplateCard({
                 title: item.title,

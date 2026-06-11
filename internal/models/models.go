@@ -23,6 +23,7 @@ type User struct {
 type Lead struct {
 	ID                         uuid.UUID
 	FullName                   string
+	Gender                     sql.NullString
 	Phone                      string
 	Source                     sql.NullString
 	Notes                      sql.NullString

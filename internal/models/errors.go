@@ -85,14 +85,14 @@ func IsPhoneConstraintError(err error) *PhoneAlreadyExistsError {
 func GetLeadByPhone(phone string) (*Lead, error) {
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT id, full_name, phone, source, notes, status, sent_to_classes, 
+		SELECT id, full_name, gender, phone, source, notes, status, sent_to_classes, 
 		       levels_purchased_total, levels_consumed, bundle_type, 
 		       created_by_user_id, created_at, updated_at
 		FROM leads
 		WHERE phone = $1
 		LIMIT 1
 	`, phone).Scan(
-		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status,
+		&lead.ID, &lead.FullName, &lead.Gender, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.BundleType,
 		&lead.CreatedByUserID, &lead.CreatedAt, &lead.UpdatedAt,
 	)

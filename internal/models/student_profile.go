@@ -21,6 +21,7 @@ type StudentSearchResult struct {
 type StudentProfile struct {
 	LeadID           uuid.UUID `json:"lead_id"`
 	FullName         string    `json:"full_name"`
+	Gender           string    `json:"gender"`
 	Phone            string    `json:"phone"`
 	CurrentLevel     int32     `json:"current_level"`
 	RemainingCredits int32     `json:"remaining_credits"`

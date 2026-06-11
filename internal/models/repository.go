@@ -498,7 +498,7 @@ func CountLeadsByOpsQueueReason(reason string) (int, error) {
 func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, includeCancelled bool, followUpFilter string, returningFilter string, coldFilter string, repeatFilter string, opsQueueReasonFilter string) ([]*LeadListItem, error) {
 	query := `
 		SELECT 
-			l.id, l.full_name, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason,
+			l.id, l.full_name, l.gender, l.phone, l.source, l.notes, l.status, l.ops_queue_reason, l.mentor_head_return_reason,
 			l.new_lead_contacted_at, l.new_lead_contacted_by_user_id, l.new_lead_contacted_status,
 			l.sent_to_classes,
 			COALESCE(l.is_returning, false),
@@ -713,7 +713,7 @@ func GetAllLeads(statusFilter, searchFilter, paymentFilter, hotFilter string, in
 		var lastRefusedMessageSentAt sql.NullTime
 
 		err := rows.Scan(
-			&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
+			&lead.ID, &lead.FullName, &lead.Gender, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
 			&lead.NewLeadContactedAt, &lead.NewLeadContactedBy, &lead.NewLeadContactedStatus,
 			&lead.SentToClasses,
 			&lead.IsReturning, &lead.RemainingCredits,
@@ -1838,7 +1838,7 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT id, full_name, phone, source, notes, status, ops_queue_reason, mentor_head_return_reason,
+		SELECT id, full_name, gender, phone, source, notes, status, ops_queue_reason, mentor_head_return_reason,
 		       new_lead_contacted_at, new_lead_contacted_by_user_id, new_lead_contacted_status,
 		       landing_page_contacted_at, landing_page_contacted_by_user_id, landing_page_contacted_status,
 		       sent_to_classes, levels_purchased_total, levels_consumed, remaining_credits,
@@ -1846,7 +1846,7 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 		FROM leads
 		WHERE id = $1
 	`, id).Scan(
-		&lead.ID, &lead.FullName, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
+		&lead.ID, &lead.FullName, &lead.Gender, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
 		&lead.NewLeadContactedAt, &lead.NewLeadContactedBy, &lead.NewLeadContactedStatus,
 		&lead.LandingPageContactedAt, &lead.LandingPageContactedBy, &lead.LandingPageContactedStatus,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
@@ -1959,7 +1959,7 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	return detail, nil
 }
 
-func CreateLead(fullName, phone, source, notes, createdByUserID string) (*Lead, error) {
+func CreateLead(fullName, gender, phone, source, notes, createdByUserID string) (*Lead, error) {
 	leadID := uuid.New()
 	now := time.Now()
 
@@ -1971,7 +1971,11 @@ func CreateLead(fullName, phone, source, notes, createdByUserID string) (*Lead, 
 		}
 	}
 
-	var sourceVal, notesVal sql.NullString
+	var sourceVal, notesVal, genderVal sql.NullString
+	switch strings.TrimSpace(strings.ToLower(gender)) {
+	case "male", "female":
+		genderVal = sql.NullString{String: strings.TrimSpace(strings.ToLower(gender)), Valid: true}
+	}
 	if source != "" {
 		sourceVal = sql.NullString{String: source, Valid: true}
 	}
@@ -1985,9 +1989,9 @@ func CreateLead(fullName, phone, source, notes, createdByUserID string) (*Lead, 
 	}
 
 	_, err := db.DB.Exec(`
-		INSERT INTO leads (id, full_name, phone, source, notes, status, sent_to_classes, created_by_user_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, leadID, fullName, phone, sourceVal, notesVal, "lead_created", false, createdByID, now, now)
+		INSERT INTO leads (id, full_name, gender, phone, source, notes, status, sent_to_classes, created_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, leadID, fullName, genderVal, phone, sourceVal, notesVal, "lead_created", false, createdByID, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create lead: %w", err)
 	}
@@ -1995,6 +1999,7 @@ func CreateLead(fullName, phone, source, notes, createdByUserID string) (*Lead, 
 	return &Lead{
 		ID:              leadID,
 		FullName:        fullName,
+		Gender:          genderVal,
 		Phone:           phone,
 		Source:          sourceVal,
 		Notes:           notesVal,
@@ -2024,35 +2029,36 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 	_, err = tx.Exec(`
 		UPDATE leads
 		SET full_name = $1,
-		    phone = $2,
-		    source = $3,
-		    notes = $4,
-		    status = $5,
-		    sent_to_classes = $6,
+		    gender = $2,
+		    phone = $3,
+		    source = $4,
+		    notes = $5,
+		    status = $6,
+		    sent_to_classes = $7,
 		    landing_page_contacted_at = CASE
-		        WHEN status <> $5 THEN NULL
+		        WHEN status <> $6 THEN NULL
 		        ELSE landing_page_contacted_at
 		    END,
 		    landing_page_contacted_by_user_id = CASE
-		        WHEN status <> $5 THEN NULL
+		        WHEN status <> $6 THEN NULL
 		        ELSE landing_page_contacted_by_user_id
 		    END,
 		    landing_page_contacted_status = CASE
-		        WHEN status <> $5 THEN NULL
+		        WHEN status <> $6 THEN NULL
 		        ELSE landing_page_contacted_status
 		    END,
 		    ops_queue_reason = CASE
 		        WHEN COALESCE(ops_queue_reason, '') IN ('private_track', 'refund_review', 'placement_test_no_show') THEN ops_queue_reason
-		        WHEN $5 = 'waiting_for_round' THEN ops_queue_reason
+		        WHEN $6 = 'waiting_for_round' THEN ops_queue_reason
 		        ELSE NULL
 		    END,
 		    offer_sent_at = CASE
-		        WHEN $5 = 'offer_sent' AND status <> 'offer_sent' THEN $7
+		        WHEN $6 = 'offer_sent' AND status <> 'offer_sent' THEN $8
 		        ELSE offer_sent_at
 		    END,
-		    updated_at = $7
-		WHERE id = $8
-	`, detail.Lead.FullName, detail.Lead.Phone, detail.Lead.Source, detail.Lead.Notes, detail.Lead.Status, detail.Lead.SentToClasses, now, detail.Lead.ID)
+		    updated_at = $8
+		WHERE id = $9
+	`, detail.Lead.FullName, detail.Lead.Gender, detail.Lead.Phone, detail.Lead.Source, detail.Lead.Notes, detail.Lead.Status, detail.Lead.SentToClasses, now, detail.Lead.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update lead: %w", err)
 	}

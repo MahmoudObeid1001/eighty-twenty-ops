@@ -17,6 +17,7 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
     const [userRole, setUserRole] = useState<string>('')
     const [isEditingBasicInfo, setIsEditingBasicInfo] = useState(false)
     const [editFullName, setEditFullName] = useState('')
+    const [editGender, setEditGender] = useState('')
     const [editPhone, setEditPhone] = useState('')
     const [savingBasicInfo, setSavingBasicInfo] = useState(false)
     const [basicInfoError, setBasicInfoError] = useState<string | null>(null)
@@ -56,6 +57,7 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
     function startEditingBasicInfo() {
         if (!profile) return
         setEditFullName(profile.full_name)
+        setEditGender(profile.gender || '')
         setEditPhone(profile.phone)
         setBasicInfoError(null)
         setIsEditingBasicInfo(true)
@@ -77,6 +79,7 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
         try {
             const updatedProfile = await api.updateStudentBasicInfo(studentId, {
                 full_name: fullName,
+                gender: editGender,
                 phone,
             })
             setProfile(updatedProfile)
@@ -229,6 +232,20 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
                                         onChange={(e) => setEditFullName(e.target.value)}
                                         style={basicInfoInputStyle}
                                     />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                                        Gender
+                                    </label>
+                                    <select
+                                        value={editGender}
+                                        onChange={(e) => setEditGender(e.target.value)}
+                                        style={basicInfoInputStyle}
+                                    >
+                                        <option value="">Unknown</option>
+                                        <option value="male">Male</option>
+                                        <option value="female">Female</option>
+                                    </select>
                                 </div>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>

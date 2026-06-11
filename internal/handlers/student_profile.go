@@ -115,6 +115,7 @@ func UpdateStudentBasicInfo(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		FullName string `json:"full_name"`
+		Gender   string `json:"gender"`
 		Phone    string `json:"phone"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -123,13 +124,14 @@ func UpdateStudentBasicInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.FullName = strings.TrimSpace(req.FullName)
+	req.Gender = strings.TrimSpace(req.Gender)
 	req.Phone = strings.TrimSpace(req.Phone)
 	if req.FullName == "" || req.Phone == "" {
 		http.Error(w, "full_name and phone are required", http.StatusBadRequest)
 		return
 	}
 
-	if err := models.UpdateStudentBasicInfo(leadID, req.FullName, req.Phone); err != nil {
+	if err := models.UpdateStudentBasicInfo(leadID, req.FullName, req.Gender, req.Phone); err != nil {
 		if phoneErr := models.IsPhoneConstraintError(err); phoneErr != nil {
 			http.Error(w, phoneErr.Message, http.StatusConflict)
 			return

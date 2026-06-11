@@ -67,7 +67,7 @@ func (h *APIHandler) CreateLandingLead(w http.ResponseWriter, r *http.Request) {
 	if level != "" {
 		notes = fmt.Sprintf("%s\nEnglish level: %s", notes, level)
 	}
-	lead, err := models.CreateLead(fullName, phone, "Landing Page", notes, "")
+	lead, err := models.CreateLead(fullName, "", phone, "Landing Page", notes, "")
 	if err != nil {
 		var phoneErr *models.PhoneAlreadyExistsError
 		if errors.As(err, &phoneErr) || models.IsPhoneConstraintError(err) != nil {

@@ -1523,6 +1523,7 @@ export interface StudentSearchResult {
 export interface UniversalStudentProfile {
   lead_id: string
   full_name: string
+  gender: string
   phone: string
   current_level: number
   remaining_credits: number
@@ -1532,6 +1533,7 @@ export interface UniversalStudentProfile {
 
 export interface UpdateStudentBasicInfoPayload {
   full_name: string
+  gender: string
   phone: string
 }
 
