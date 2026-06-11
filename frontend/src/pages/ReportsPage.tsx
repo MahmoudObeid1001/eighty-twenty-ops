@@ -13,6 +13,7 @@ import {
   MentorReportItem,
   ManagerOpsWeeklyMentorLeader,
 } from '../api/client'
+import StudentProfileModal from '../components/StudentProfileModal'
 
 type ReportsViewMode = 'bi' | 'mentor' | 'daily' | 'ops' | 'ops_overview' | 'ops_waiting'
 const CAIRO_TIME_ZONE = 'Africa/Cairo'
@@ -831,6 +832,7 @@ function ManagerOpsView({
   onApplyRankingFilter: () => void
   onClearRankingFilter: () => void
 }) {
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
   const summary = data.summary
   const weekly = data.weekly_summary
   const showWeeklySummary = isFridayBusinessDate(data.report_date)
@@ -1015,6 +1017,7 @@ function ManagerOpsView({
             absentStudentsRanking={data.absent_students_ranking}
             lateStartsRanking={data.late_starts_ranking}
             studentsOverAbsenceRanking={data.students_over_absence_ranking}
+            onOpenStudent={(leadId) => setSelectedStudentId(leadId)}
           />
         </>
       )}
@@ -1063,6 +1066,13 @@ function ManagerOpsView({
       )}
 
       <DailySessionsTable reportDate={data.report_date} rows={data.session_rows} emptyLabel="No active sessions scheduled for this Cairo business day." />
+
+      {selectedStudentId && (
+        <StudentProfileModal
+          studentId={selectedStudentId}
+          onClose={() => setSelectedStudentId(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1088,6 +1098,8 @@ function DailyReportView({
   onApplyRankingFilter: () => void
   onClearRankingFilter: () => void
 }) {
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+
   return (
     <div style={{ display: 'grid', gap: '14px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
@@ -1131,9 +1143,17 @@ function DailyReportView({
         absentStudentsRanking={data.absent_students_ranking}
         lateStartsRanking={data.late_starts_ranking}
         studentsOverAbsenceRanking={data.students_over_absence_ranking}
+        onOpenStudent={(leadId) => setSelectedStudentId(leadId)}
       />
 
       <DailySessionsTable reportDate={data.report_date} rows={data.session_rows} emptyLabel="No active sessions were scheduled for this date." />
+
+      {selectedStudentId && (
+        <StudentProfileModal
+          studentId={selectedStudentId}
+          onClose={() => setSelectedStudentId(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1151,6 +1171,7 @@ function DailyRankingSection({
   absentStudentsRanking,
   lateStartsRanking,
   studentsOverAbsenceRanking,
+  onOpenStudent,
 }: {
   scopeLabel: string
   filtersOpen: boolean
@@ -1164,6 +1185,7 @@ function DailyRankingSection({
   absentStudentsRanking: ManagerOpsWeeklyMentorLeader[]
   lateStartsRanking: ManagerOpsWeeklyMentorLeader[]
   studentsOverAbsenceRanking: DailyReportStudentLeader[]
+  onOpenStudent: (leadId: string) => void
 }) {
   return (
     <ReportPanel title="Rankings">
@@ -1216,6 +1238,7 @@ function DailyRankingSection({
           metricLabel="absence"
           tone="#7c2d12"
           background="#f8fafc"
+          onOpenStudent={onOpenStudent}
         />
       </div>
     </ReportPanel>
@@ -1573,6 +1596,7 @@ function StudentRankingCard({
   metricLabel,
   tone,
   background,
+  onOpenStudent,
 }: {
   title: string
   leaders: DailyReportStudentLeader[]
@@ -1580,6 +1604,7 @@ function StudentRankingCard({
   metricLabel: string
   tone: string
   background: string
+  onOpenStudent?: (leadId: string) => void
 }) {
   return (
     <div style={{ borderRadius: '12px', padding: '14px', background, border: '1px solid rgba(0,0,0,0.06)' }}>
@@ -1589,7 +1614,28 @@ function StudentRankingCard({
       ) : (
         <div style={{ marginTop: '10px', display: 'grid', gap: '10px' }}>
           {leaders.map((leader, index) => (
-            <div key={`${leader.lead_id || leader.student_name}-${index}`} style={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr)', gap: '10px', alignItems: 'start', background: 'rgba(255,255,255,0.8)', borderRadius: '10px', padding: '12px' }}>
+            <button
+              key={`${leader.lead_id || leader.student_name}-${index}`}
+              type="button"
+              onClick={() => {
+                if (leader.lead_id && onOpenStudent) onOpenStudent(leader.lead_id)
+              }}
+              disabled={!leader.lead_id || !onOpenStudent}
+              title={leader.lead_id ? 'Open student profile and notes history' : 'Student profile is unavailable for this row'}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '32px minmax(0, 1fr)',
+                gap: '10px',
+                alignItems: 'start',
+                background: 'rgba(255,255,255,0.8)',
+                borderRadius: '10px',
+                padding: '12px',
+                border: '1px solid rgba(0,0,0,0.05)',
+                textAlign: 'left',
+                cursor: leader.lead_id && onOpenStudent ? 'pointer' : 'default',
+                opacity: leader.lead_id && onOpenStudent ? 1 : 0.75,
+              }}
+            >
               <div style={{ width: '32px', height: '32px', borderRadius: '999px', background: 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: tone }}>
                 {index + 1}
               </div>
@@ -1602,7 +1648,7 @@ function StudentRankingCard({
                   {leader.metric_value} {metricLabel}{leader.metric_value === 1 ? '' : 's'}
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
