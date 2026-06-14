@@ -49,12 +49,14 @@
             <option value="rent" {{if eq .CategoryFilter "rent"}}selected{{end}}>Rent</option>
             <option value="software" {{if eq .CategoryFilter "software"}}selected{{end}}>Software</option>
             <option value="moderator" {{if eq .CategoryFilter "moderator"}}selected{{end}}>Moderator</option>
+            <option value="accountant" {{if eq .CategoryFilter "accountant"}}selected{{end}}>Accountant</option>
             <option value="content_creator" {{if eq .CategoryFilter "content_creator"}}selected{{end}}>Content Creator</option>
             <option value="other" {{if eq .CategoryFilter "other"}}selected{{end}}>Other</option>
         </select>
         <select name="payment_method" class="filter-select" onchange="this.form.submit()">
             <option value="">All Payment Methods</option>
             <option value="vodafone_cash" {{if eq .PaymentMethodFilter "vodafone_cash"}}selected{{end}}>Vodafone Cash</option>
+            <option value="instapay" {{if eq .PaymentMethodFilter "instapay"}}selected{{end}}>InstaPay</option>
             <option value="bank_transfer" {{if eq .PaymentMethodFilter "bank_transfer"}}selected{{end}}>Bank Transfer</option>
             <option value="paypal" {{if eq .PaymentMethodFilter "paypal"}}selected{{end}}>PayPal</option>
             <option value="other" {{if eq .PaymentMethodFilter "other"}}selected{{end}}>Other</option>
