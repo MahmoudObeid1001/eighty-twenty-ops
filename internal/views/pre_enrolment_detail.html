@@ -332,6 +332,7 @@
                 <select id="bundle_credit_method" name="bundle_credit_method" required>
                     <option value="">Select method</option>
                     <option value="vodafone_cash">Vodafone Cash</option>
+                    <option value="instapay">InstaPay</option>
                     <option value="bank_transfer">Bank Transfer</option>
                     <option value="paypal">PayPal</option>
                     <option value="other">Other</option>
@@ -567,6 +568,10 @@
                                 .Detail.PlacementTest.PlacementTestPaymentMethod.Valid (eq
                                 .Detail.PlacementTest.PlacementTestPaymentMethod.String
                                 `vodafone_cash`)}}selected{{end}}>Vodafone Cash</option>
+                            <option value="instapay" {{if and .Detail.PlacementTest
+                                .Detail.PlacementTest.PlacementTestPaymentMethod.Valid (eq
+                                .Detail.PlacementTest.PlacementTestPaymentMethod.String
+                                `instapay`)}}selected{{end}}>InstaPay</option>
                             <option value="bank_transfer" {{if and .Detail.PlacementTest
                                 .Detail.PlacementTest.PlacementTestPaymentMethod.Valid (eq
                                 .Detail.PlacementTest.PlacementTestPaymentMethod.String
@@ -1195,6 +1200,8 @@
                         <option value="">Select method</option>
                         <option value="vodafone_cash" {{if eq (index .CoursePaymentInput "method")
                             "vodafone_cash"}}selected{{end}}>Vodafone Cash</option>
+                        <option value="instapay" {{if eq (index .CoursePaymentInput "method")
+                            "instapay"}}selected{{end}}>InstaPay</option>
                         <option value="bank_transfer" {{if eq (index .CoursePaymentInput "method")
                             "bank_transfer"}}selected{{end}}>Bank Transfer</option>
                         <option value="paypal" {{if eq (index .CoursePaymentInput "method") "paypal"}}selected{{end}}>
@@ -1524,6 +1531,7 @@
                     <select id="refund_payment_method" name="payment_method" required>
                         <option value="">Select method</option>
                         <option value="vodafone_cash">Vodafone Cash</option>
+                        <option value="instapay">InstaPay</option>
                         <option value="bank_transfer">Bank Transfer</option>
                         <option value="paypal">PayPal</option>
                         <option value="other">Other</option>
@@ -1655,6 +1663,7 @@
                     <select id="refund_method" name="refund_method" required>
                         <option value="">Select method</option>
                         <option value="vodafone_cash">Vodafone Cash</option>
+                        <option value="instapay">InstaPay</option>
                         <option value="bank_transfer">Bank Transfer</option>
                         <option value="paypal">PayPal</option>
                         <option value="other">Other</option>

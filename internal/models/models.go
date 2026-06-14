@@ -378,7 +378,7 @@ type Transaction struct {
 	TransactionType  string // "IN" or "OUT"
 	Category         string // placement_test, course_payment, teacher_salary, refund, ads, rent, software, moderator, content_creator, other
 	Amount           int32
-	PaymentMethod    sql.NullString // vodafone_cash, bank_transfer, paypal, other
+	PaymentMethod    sql.NullString // vodafone_cash, instapay, bank_transfer, paypal, other
 	LeadID           sql.NullString // Optional: link to lead for income/refunds (stored as UUID in DB, but we use string for null handling)
 	Notes            sql.NullString
 	SourceKey        sql.NullString // Deprecated: use RefKey instead

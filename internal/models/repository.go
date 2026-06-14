@@ -4733,6 +4733,7 @@ func validateLeadPaymentKind(kind string) error {
 func validateFinancePaymentMethod(paymentMethod string) error {
 	allowedMethods := map[string]bool{
 		"vodafone_cash": true,
+		"instapay":      true,
 		"bank_transfer": true,
 		"paypal":        true,
 		"other":         true,
@@ -5206,7 +5207,7 @@ func CreateCancelRefundIdempotent(leadID uuid.UUID, amount int32, paymentMethod 
 		return err
 	}
 	allowedMethods := map[string]bool{
-		"vodafone_cash": true, "bank_transfer": true, "paypal": true, "other": true,
+		"vodafone_cash": true, "instapay": true, "bank_transfer": true, "paypal": true, "other": true,
 	}
 	if !allowedMethods[paymentMethod] {
 		return fmt.Errorf("invalid payment method: %s", paymentMethod)
@@ -5387,6 +5388,7 @@ func CreateRevenue(category string, amount int32, paymentMethod string, transact
 
 	allowedMethods := map[string]bool{
 		"vodafone_cash": true,
+		"instapay":      true,
 		"bank_transfer": true,
 		"paypal":        true,
 		"other":         true,
@@ -5779,7 +5781,7 @@ func GetCurrentCashBalance() (int32, error) {
 	return in - out, nil
 }
 
-// GetCurrentCashBalanceByPaymentMethod returns IN/OUT/Net grouped as Cash (vodafone_cash, other) vs Bank (bank_transfer, paypal).
+// GetCurrentCashBalanceByPaymentMethod returns IN/OUT/Net grouped as Cash (vodafone_cash, other) vs Bank (instapay, bank_transfer, paypal).
 func GetCurrentCashBalanceByPaymentMethod() ([]PaymentMethodBalance, error) {
 	rows, err := db.DB.Query(`
 		SELECT bucket,

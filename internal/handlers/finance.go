@@ -412,7 +412,7 @@ func (h *FinanceHandler) CreateRefund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allowedMethods := map[string]bool{
-		"vodafone_cash": true, "bank_transfer": true, "paypal": true, "other": true,
+		"vodafone_cash": true, "instapay": true, "bank_transfer": true, "paypal": true, "other": true,
 	}
 	if !allowedMethods[paymentMethod] {
 		redirectWithError(w, r, fmt.Sprintf("/pre-enrolment/%s", leadID.String()), "Please choose a valid payment method.")

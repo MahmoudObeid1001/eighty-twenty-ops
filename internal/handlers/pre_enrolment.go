@@ -3831,6 +3831,7 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 				allowedMethods := map[string]bool{
 					"vodafone_cash": true,
+					"instapay":      true,
 					"bank_transfer": true,
 					"paypal":        true,
 					"other":         true,
