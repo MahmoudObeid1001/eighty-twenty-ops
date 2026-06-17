@@ -1428,6 +1428,53 @@ func GetLatestClassOutcome(leadID uuid.UUID) (*LastClassOutcome, error) {
 	return out, nil
 }
 
+func GetLatestCompletedGrade(leadID uuid.UUID) (*Grade, error) {
+	g := &Grade{}
+	var notes sql.NullString
+	var createdByUserID sql.NullString
+
+	err := db.DB.QueryRow(`
+		SELECT
+			g.id,
+			g.lead_id,
+			g.class_key,
+			g.session_number,
+			g.grade,
+			g.notes,
+			g.created_by_user_id::text,
+			g.created_at,
+			g.updated_at
+		FROM grades g
+		INNER JOIN class_enrollments ce
+			ON ce.lead_id = g.lead_id
+			AND ce.class_key = g.class_key
+		WHERE g.lead_id = $1
+		  AND ce.completed_at IS NOT NULL
+		ORDER BY ce.completed_at DESC, g.updated_at DESC
+		LIMIT 1
+	`, leadID).Scan(
+		&g.ID,
+		&g.LeadID,
+		&g.ClassKey,
+		&g.SessionNumber,
+		&g.Grade,
+		&notes,
+		&createdByUserID,
+		&g.CreatedAt,
+		&g.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest completed grade: %w", err)
+	}
+
+	g.Notes = notes
+	g.CreatedByUserID = createdByUserID
+	return g, nil
+}
+
 func GetLatestClassSchedule(leadID uuid.UUID) (sql.NullString, sql.NullString, error) {
 	var classDays sql.NullString
 	var classTime sql.NullString

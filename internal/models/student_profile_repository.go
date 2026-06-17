@@ -479,8 +479,12 @@ func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 			COALESCE(u.email, '') as created_by,
 			g.updated_at as created_at
 		FROM grades g
+		INNER JOIN class_enrollments ce
+			ON ce.lead_id = g.lead_id
+			AND ce.class_key = g.class_key
 		LEFT JOIN users u ON g.created_by_user_id = u.id
 		WHERE g.lead_id = $1
+		  AND ce.completed_at IS NOT NULL
 		  AND COALESCE(TRIM(g.notes), '') <> ''
 
 		ORDER BY created_at DESC

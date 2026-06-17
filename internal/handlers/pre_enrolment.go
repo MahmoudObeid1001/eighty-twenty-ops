@@ -1612,6 +1612,7 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	canApplyContinuationHold = canApplyContinuationHold && hasCarryoverCredits
 
 	lastOutcome, lastGrade := "", ""
+	lastGradeNote, lastGradeNoteArabic := "", ""
 	if latest, err := models.GetLatestClassOutcome(leadID); err == nil && latest != nil {
 		if latest.Outcome.Valid {
 			lastOutcome = latest.Outcome.String
@@ -1619,6 +1620,14 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		if latest.FinalGrade.Valid {
 			lastGrade = latest.FinalGrade.String
 		}
+	}
+	if latestGrade, err := models.GetLatestCompletedGrade(leadID); err == nil && latestGrade != nil && latestGrade.Notes.Valid {
+		lastGradeNote = strings.TrimSpace(latestGrade.Notes.String)
+		if lastGradeNote != "" {
+			lastGradeNoteArabic = translateSingleFinalGradeTextToArabic(lastGradeNote)
+		}
+	} else if err != nil {
+		log.Printf("ERROR: Failed to get latest completed grade note for lead %s: %v", leadID, err)
 	}
 	var renewalPendingDecision *renewalPendingMessageDecision
 	if detail.Lead.Status == "renewal_pending" && detail.Lead.IsReturning && latestEnrollment != nil {
@@ -1860,6 +1869,8 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 		"CreditsRemaining":          creditsRemaining,
 		"LastOutcome":               lastOutcome,
 		"LastFinalGrade":            lastGrade,
+		"LastFinalGradeNote":        lastGradeNote,
+		"LastFinalGradeNoteArabic":  lastGradeNoteArabic,
 		"SmartStepsCodes":           []string{},
 		"SmartStepsAR":              []string{},
 		"SmartStepsSource":          "",

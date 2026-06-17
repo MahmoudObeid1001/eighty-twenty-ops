@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
+	"eighty-twenty-ops/internal/config"
 	"eighty-twenty-ops/internal/middleware"
 	"eighty-twenty-ops/internal/models"
 
@@ -24,6 +28,149 @@ func ensureMentorStudentAccess(r *http.Request, leadID uuid.UUID) (bool, error) 
 		return false, err
 	}
 	return models.MentorHasStudentAccess(mentorUserID, leadID)
+}
+
+func containsArabicText(text string) bool {
+	for _, r := range text {
+		if (r >= 0x0600 && r <= 0x06FF) || (r >= 0x0750 && r <= 0x077F) || (r >= 0x08A0 && r <= 0x08FF) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksEnglishGradeNote(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || containsArabicText(trimmed) {
+		return false
+	}
+
+	latinLetters := 0
+	for _, r := range trimmed {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			latinLetters++
+		}
+	}
+
+	return latinLetters >= 8
+}
+
+func translateFinalGradeTextsToArabic(texts []string) []string {
+	cfg := config.Load()
+	if strings.TrimSpace(cfg.OpenAIAPIKey) == "" {
+		return nil
+	}
+
+	inputJSON, _ := json.Marshal(map[string][]string{"notes": texts})
+	requestBody := map[string]interface{}{
+		"model": cfg.OpenAIModel,
+		"messages": []map[string]string{
+			{
+				"role":    "system",
+				"content": "Translate mentor final grade notes into clear Egyptian Arabic for admins. Preserve meaning. Return JSON only: {\"notes_ar\":[...]} with the same order and count.",
+			},
+			{
+				"role":    "user",
+				"content": string(inputJSON),
+			},
+		},
+		"temperature": 0.1,
+	}
+
+	rawBody, _ := json.Marshal(requestBody)
+	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(rawBody))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.OpenAIAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil
+	}
+
+	var completion struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
+		return nil
+	}
+	if len(completion.Choices) == 0 {
+		return nil
+	}
+
+	var parsed struct {
+		NotesAR []string `json:"notes_ar"`
+	}
+	content := sanitizeJSONText(completion.Choices[0].Message.Content)
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		return nil
+	}
+	if len(parsed.NotesAR) != len(texts) {
+		return nil
+	}
+
+	out := make([]string, len(parsed.NotesAR))
+	for i, translated := range parsed.NotesAR {
+		out[i] = strings.TrimSpace(translated)
+	}
+	return out
+}
+
+func translateSingleFinalGradeTextToArabic(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if !looksEnglishGradeNote(trimmed) {
+		return ""
+	}
+
+	translated := translateFinalGradeTextsToArabic([]string{trimmed})
+	if len(translated) != 1 {
+		return ""
+	}
+	if translated[0] == "" || translated[0] == trimmed {
+		return ""
+	}
+	return translated[0]
+}
+
+func translateGradeNotesToArabic(notes []*models.TimelineItem) {
+	targets := make([]*models.TimelineItem, 0, len(notes))
+	inputNotes := make([]string, 0, len(notes))
+	for _, item := range notes {
+		if item == nil || item.Type != "grade_note" || !looksEnglishGradeNote(item.Text) {
+			continue
+		}
+		targets = append(targets, item)
+		inputNotes = append(inputNotes, strings.TrimSpace(item.Text))
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	translated := translateFinalGradeTextsToArabic(inputNotes)
+	if len(translated) != len(targets) {
+		return
+	}
+
+	for i, text := range translated {
+		if text == "" || text == targets[i].Text {
+			continue
+		}
+		targets[i].TranslatedText = text
+	}
 }
 
 // SearchStudents handles GET /api/students/search?q=<query>
@@ -242,6 +389,7 @@ func GetStudentNotes(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	translateGradeNotesToArabic(notes)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(notes); err != nil {

@@ -1573,6 +1573,7 @@ export interface TimelineItem {
   id: string
   type: 'note' | 'followup' | 'grade_note'
   text: string
+  translated_text?: string
   class_key: string
   session: number
   is_private: boolean

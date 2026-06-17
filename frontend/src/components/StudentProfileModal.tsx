@@ -557,7 +557,33 @@ function NotesTimelineTab({ notes }: { notes: TimelineItem[] }) {
                             {new Date(note.created_at).toLocaleString()}
                         </div>
                     </div>
-                    <div style={{ fontSize: '14px', marginBottom: '8px' }}>{note.text}</div>
+                    {note.type === 'grade_note' && note.translated_text && note.translated_text !== note.text ? (
+                        <>
+                            <div
+                                style={{
+                                    marginBottom: '10px',
+                                    padding: '10px 12px',
+                                    background: '#eef6ff',
+                                    borderRadius: '8px',
+                                    color: '#0f172a',
+                                }}
+                            >
+                                <div style={{ fontSize: '11px', fontWeight: 700, color: '#2563eb', marginBottom: '6px', textTransform: 'uppercase' }}>
+                                    Arabic translation
+                                </div>
+                                <div style={{ fontSize: '14px', lineHeight: 1.6, direction: 'rtl', textAlign: 'right' }}>
+                                    {note.translated_text}
+                                </div>
+                            </div>
+                            <div style={{ fontSize: '13px', marginBottom: '8px', color: '#475569' }}>{note.text}</div>
+                        </>
+                    ) : (
+                        <div
+                            style={{ fontSize: '14px', marginBottom: '8px' }}
+                        >
+                            {note.text}
+                        </div>
+                    )}
                     <div style={{ fontSize: '12px', color: '#666' }}>
                         By: {note.created_by}
                     </div>

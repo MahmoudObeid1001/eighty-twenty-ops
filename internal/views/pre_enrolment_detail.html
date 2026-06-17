@@ -137,6 +137,20 @@
     {{if .LastFinalGrade}}
     • Grade: <strong>{{.LastFinalGrade}}</strong>
     {{end}}
+    {{if .LastFinalGradeNote}}
+    <div
+        style="margin-top: 10px; background: #FFFFFF; border: 1px solid #DCEBFF; border-radius: 4px; padding: 10px 12px;">
+        <strong>Final Grade Note:</strong>
+        {{if .LastFinalGradeNoteArabic}}
+        <div dir="rtl" style="margin-top: 8px; font-size: 16px; color: #1F2937;">{{.LastFinalGradeNoteArabic}}</div>
+        <div style="margin-top: 8px; color: #6B7280; font-size: 13px;">
+            <strong>Original:</strong> {{.LastFinalGradeNote}}
+        </div>
+        {{else}}
+        <div dir="auto" style="margin-top: 8px; color: #1F2937;">{{.LastFinalGradeNote}}</div>
+        {{end}}
+    </div>
+    {{end}}
     {{else}}
     <strong>Workflow Summary:</strong>
     Status: <strong>{{.StatusDisplayName}}</strong>
