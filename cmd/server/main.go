@@ -513,6 +513,12 @@ func main() {
 			apiHandler.GetPlacementResultData(w, r)
 			return
 		}
+		if len(parts) == 4 && parts[3] == "final-grade-note-translation" {
+			if r.Method == http.MethodGet {
+				middleware.RequireAnyRole([]string{"admin", "moderator", "student_success", "manager"}, cfg.SessionSecret)(apiHandler.GetFinalGradeNoteTranslation)(w, r)
+				return
+			}
+		}
 
 		// Routing logic for sub-paths
 		if len(parts) == 4 && parts[3] == "late-join-eligible-classes" {

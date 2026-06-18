@@ -1612,7 +1612,8 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	canApplyContinuationHold = canApplyContinuationHold && hasCarryoverCredits
 
 	lastOutcome, lastGrade := "", ""
-	lastGradeNote, lastGradeNoteArabic := "", ""
+	lastGradeNote := ""
+	lastGradeNoteNeedsTranslation := false
 	if latest, err := models.GetLatestClassOutcome(leadID); err == nil && latest != nil {
 		if latest.Outcome.Valid {
 			lastOutcome = latest.Outcome.String
@@ -1623,9 +1624,9 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 	}
 	if latestGrade, err := models.GetLatestCompletedGrade(leadID); err == nil && latestGrade != nil && latestGrade.Notes.Valid {
 		lastGradeNote = strings.TrimSpace(latestGrade.Notes.String)
-		if lastGradeNote != "" {
-			lastGradeNoteArabic = translateSingleFinalGradeTextToArabic(lastGradeNote)
-		}
+		lastGradeNoteNeedsTranslation = lastGradeNote != "" &&
+			strings.TrimSpace(h.cfg.OpenAIAPIKey) != "" &&
+			looksEnglishGradeNote(lastGradeNote)
 	} else if err != nil {
 		log.Printf("ERROR: Failed to get latest completed grade note for lead %s: %v", leadID, err)
 	}
@@ -1862,51 +1863,51 @@ func (h *PreEnrolmentHandler) buildDetailViewModel(detail *models.LeadDetail, le
 			_, reason := canMarkOfferSent(detail)
 			return reason
 		}(),
-		"StatusDisplayName":         statusInfo.DisplayName,
-		"StatusBgColor":             statusInfo.BgColor,
-		"StatusTextColor":           statusInfo.TextColor,
-		"StatusBorderColor":         statusInfo.BorderColor,
-		"CreditsRemaining":          creditsRemaining,
-		"LastOutcome":               lastOutcome,
-		"LastFinalGrade":            lastGrade,
-		"LastFinalGradeNote":        lastGradeNote,
-		"LastFinalGradeNoteArabic":  lastGradeNoteArabic,
-		"SmartStepsCodes":           []string{},
-		"SmartStepsAR":              []string{},
-		"SmartStepsSource":          "",
-		"IsRefusedRenewal":          isRefusedRenewal,
-		"RenewalRefusedAt":          refusedAtText,
-		"RenewalRefusedReason":      refusedReason,
-		"RenewalRefusedReasonLabel": refusedReasonLabelText,
-		"RenewalRefusedOtherNote":   refusedOtherNote,
-		"CanMarkRefusedRenewal":     canMarkRefusedRenewal,
-		"RefusedFollowUpStep":       refusedFollowUpStep,
-		"RefusedFollowUpDueAt":      refusedFollowUpDueAt,
-		"RefusedFollowUpDueNow":     refusedFollowUpDueNow,
-		"RefusedFollowUpManual":     refusedFollowUpManual,
-		"RefusedRenewalReasonTabs":  refusedRenewalReasonTabs(),
-		"RefusedTemplatesByReason":  groupRefusedRenewalTemplatesByReason(refusedTemplates),
-		"ContactHistory":            contactHistory,
-		"CanSetSleepingReminder":    false,
-		"SleepingLeadReminder":      sleepingReminder,
-		"SleepingReminderDue":       sleepingReminderDue,
-		"SleepingReminderDate":      sleepingReminderDate,
-		"SleepingReminderNote":      sleepingReminderNote,
-		"CanSetOfferReminder":       false,
-		"OfferReminder":             offerReminder,
-		"OfferReminderDue":          offerReminderDue,
-		"OfferReminderDate":         offerReminderDate,
-		"OfferReminderNote":         offerReminderNote,
-		"CanSnoozeLead":             canSnoozeLead(detail),
-		"LeadSnooze":                leadSnooze,
-		"LeadSnoozeDue":             leadSnoozeDue,
-		"LeadSnoozeDate":            leadSnoozeDate,
-		"LeadSnoozeNote":            leadSnoozeNote,
-		"Error":                     "",
-		"PhoneError":                "",
-		"ExistingLeadID":            nil,
-		"SuccessMessage":            "",
-		"ShowCancelModal":           false,
+		"StatusDisplayName":                  statusInfo.DisplayName,
+		"StatusBgColor":                      statusInfo.BgColor,
+		"StatusTextColor":                    statusInfo.TextColor,
+		"StatusBorderColor":                  statusInfo.BorderColor,
+		"CreditsRemaining":                   creditsRemaining,
+		"LastOutcome":                        lastOutcome,
+		"LastFinalGrade":                     lastGrade,
+		"LastFinalGradeNote":                 lastGradeNote,
+		"LastFinalGradeNoteNeedsTranslation": lastGradeNoteNeedsTranslation,
+		"SmartStepsCodes":                    []string{},
+		"SmartStepsAR":                       []string{},
+		"SmartStepsSource":                   "",
+		"IsRefusedRenewal":                   isRefusedRenewal,
+		"RenewalRefusedAt":                   refusedAtText,
+		"RenewalRefusedReason":               refusedReason,
+		"RenewalRefusedReasonLabel":          refusedReasonLabelText,
+		"RenewalRefusedOtherNote":            refusedOtherNote,
+		"CanMarkRefusedRenewal":              canMarkRefusedRenewal,
+		"RefusedFollowUpStep":                refusedFollowUpStep,
+		"RefusedFollowUpDueAt":               refusedFollowUpDueAt,
+		"RefusedFollowUpDueNow":              refusedFollowUpDueNow,
+		"RefusedFollowUpManual":              refusedFollowUpManual,
+		"RefusedRenewalReasonTabs":           refusedRenewalReasonTabs(),
+		"RefusedTemplatesByReason":           groupRefusedRenewalTemplatesByReason(refusedTemplates),
+		"ContactHistory":                     contactHistory,
+		"CanSetSleepingReminder":             false,
+		"SleepingLeadReminder":               sleepingReminder,
+		"SleepingReminderDue":                sleepingReminderDue,
+		"SleepingReminderDate":               sleepingReminderDate,
+		"SleepingReminderNote":               sleepingReminderNote,
+		"CanSetOfferReminder":                false,
+		"OfferReminder":                      offerReminder,
+		"OfferReminderDue":                   offerReminderDue,
+		"OfferReminderDate":                  offerReminderDate,
+		"OfferReminderNote":                  offerReminderNote,
+		"CanSnoozeLead":                      canSnoozeLead(detail),
+		"LeadSnooze":                         leadSnooze,
+		"LeadSnoozeDue":                      leadSnoozeDue,
+		"LeadSnoozeDate":                     leadSnoozeDate,
+		"LeadSnoozeNote":                     leadSnoozeNote,
+		"Error":                              "",
+		"PhoneError":                         "",
+		"ExistingLeadID":                     nil,
+		"SuccessMessage":                     "",
+		"ShowCancelModal":                    false,
 		"CoursePaymentInput": map[string]string{
 			"source":                   "new_payment",
 			"type":                     "",

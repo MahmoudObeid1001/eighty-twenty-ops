@@ -141,8 +141,12 @@
     <div
         style="margin-top: 10px; background: #FFFFFF; border: 1px solid #DCEBFF; border-radius: 4px; padding: 10px 12px;">
         <strong>Final Grade Note:</strong>
-        {{if .LastFinalGradeNoteArabic}}
-        <div dir="rtl" style="margin-top: 8px; font-size: 16px; color: #1F2937;">{{.LastFinalGradeNoteArabic}}</div>
+        {{if .LastFinalGradeNoteNeedsTranslation}}
+        <div id="final-grade-note-translation"
+            data-lead-id="{{.Detail.Lead.ID}}"
+            style="margin-top: 8px; font-size: 16px; color: #1F2937; direction: rtl; text-align: right;">جارٍ تجهيز الترجمة العربية...</div>
+        <div id="final-grade-note-translation-error"
+            style="display: none; margin-top: 8px; color: #9A3412; font-size: 13px;">تعذر تحميل الترجمة الآن. يمكنك قراءة التعليق الأصلي بالأسفل.</div>
         <div style="margin-top: 8px; color: #6B7280; font-size: 13px;">
             <strong>Original:</strong> {{.LastFinalGradeNote}}
         </div>
@@ -2905,6 +2909,36 @@
         toggleRefusedRenewalOtherReason();
         if (document.querySelector('.detail-refused-renewal-tab-btn')) {
             selectDetailRefusedRenewalReasonTab('{{if .RenewalRefusedReason}}{{.RenewalRefusedReason}}{{else}}time_pressure{{end}}');
+        }
+
+        const translationNode = document.getElementById('final-grade-note-translation');
+        if (translationNode && translationNode.dataset.leadId) {
+            fetch(`/api/pre-enrolment/${translationNode.dataset.leadId}/final-grade-note-translation`, {
+                credentials: 'same-origin',
+            })
+                .then(async function (response) {
+                    let data = {};
+                    try {
+                        data = await response.json();
+                    } catch (_) {
+                        data = {};
+                    }
+                    if (!response.ok) {
+                        throw new Error(data.error || 'translation_failed');
+                    }
+                    if (data && data.translated && data.translation) {
+                        translationNode.textContent = data.translation;
+                        return;
+                    }
+                    translationNode.style.display = 'none';
+                })
+                .catch(function () {
+                    translationNode.style.display = 'none';
+                    const errorNode = document.getElementById('final-grade-note-translation-error');
+                    if (errorNode) {
+                        errorNode.style.display = 'block';
+                    }
+                });
         }
     });
 
