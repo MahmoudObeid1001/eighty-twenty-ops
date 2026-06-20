@@ -8,8 +8,8 @@ interface StudentReportCardProps {
 interface CertificateJourneyContent {
   vocabularyCount: number
   achievedItems: Array<{ en: string; ar?: string }>
-  nextLevel: number
-  nextItems: Array<{ en: string; ar?: string }>
+  nextLevel?: number
+  nextItems?: Array<{ en: string; ar?: string }>
 }
 
 const JOURNEY_HEADING_AR = 'رحلتك في تعلم الإنجليزية — انظر كم قطعت من الطريق'
@@ -151,6 +151,80 @@ const CERTIFICATE_JOURNEY_BY_LEVEL: Record<number, CertificateJourneyContent> = 
       { en: "Deal with someone you don't like." },
     ],
   },
+  6: {
+    vocabularyCount: 166,
+    achievedItems: [
+      { en: 'Tell a story in detail the right way.' },
+      { en: 'Talk about social media platforms.' },
+      { en: 'Explain the signs and health risks of obesity and how to lose weight.' },
+      { en: 'Talk about common parenting mistakes and the signs of a good father and mother.' },
+      { en: 'Tell the difference between living in a first-world and a third-world country.' },
+      { en: 'Talk about reasons why some people are not working.' },
+      { en: "Know how to deal with someone you don't like." },
+    ],
+    nextLevel: 7,
+    nextItems: [
+      { en: 'Learn why people get married.' },
+      { en: 'Learn why people prefer to stay single.' },
+      { en: 'Learn about the characteristics of your future partner.' },
+      { en: 'Learn how to find your passion.' },
+      { en: 'Learn how to give your opinion about arranged marriages.' },
+    ],
+  },
+  7: {
+    vocabularyCount: 130,
+    achievedItems: [
+      { en: 'Talk about why people get married.' },
+      { en: 'Talk about why people prefer to stay single.' },
+      { en: 'Talk about the characteristics of your future partner.' },
+      { en: 'Talk about how to find your passion.' },
+      { en: 'Give your opinion about arranged marriages.' },
+    ],
+    nextLevel: 8,
+    nextItems: [
+      { en: 'Learn how to use relationship expressions.' },
+      { en: "Learn how to give your opinion about whether parents should choose their children's partners to marry or not." },
+      { en: 'Learn some chunks and phrases related to weddings.' },
+    ],
+  },
+  8: {
+    vocabularyCount: 125,
+    achievedItems: [
+      { en: 'Use relationship expressions.' },
+      { en: "Give your opinion about whether parents should choose their children's partners to marry or not." },
+      { en: 'Talk about chunks and phrases related to weddings.' },
+    ],
+    nextLevel: 9,
+    nextItems: [
+      { en: 'Learn how to use some chunks and phrases when receiving shocking news.' },
+      { en: 'Learn how to talk about in-law relationship problems.' },
+      { en: 'Learn how to talk about why people love to travel.' },
+      { en: "Learn how to talk about why some parents want to have kids and why others don't want to have kids." },
+    ],
+  },
+  9: {
+    vocabularyCount: 107,
+    achievedItems: [
+      { en: 'Use some chunks and phrases when receiving shocking news.' },
+      { en: 'Talk about in-law relationship problems.' },
+      { en: 'Talk about why people love to travel.' },
+      { en: "Talk about why some parents want to have kids and why others don't want to have kids." },
+    ],
+    nextLevel: 10,
+    nextItems: [
+      { en: 'Learn about marriage problems.' },
+      { en: 'Learn how to describe your life in school as a child and whether you liked it or not.' },
+      { en: 'Learn how to express your opinion about polygamy.' },
+    ],
+  },
+  10: {
+    vocabularyCount: 126,
+    achievedItems: [
+      { en: 'Talk about marriage problems.' },
+      { en: 'Describe your life in school as a child and whether you liked it or not.' },
+      { en: 'Express your opinion about polygamy.' },
+    ],
+  },
 }
 
 function scoreBarWidth(value: number, max: number): string {
@@ -191,6 +265,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
   const showCertificate = finalGrade !== 'F'
   const journeyContent = showCertificate ? CERTIFICATE_JOURNEY_BY_LEVEL[data.class_level] : undefined
   const showJourneyCertificate = !!journeyContent
+  const hasNextJourney = !!journeyContent?.nextLevel && (journeyContent.nextItems?.length ?? 0) > 0
   const completionDate = formatCompletionDate(data.completion_at || data.generated_at)
   const mentorSignatureName = (data.mentor_name || '').trim() || 'Class Mentor'
   const mentorHeadSignatureName = 'Mohamed Abdel Gawad'
@@ -249,6 +324,7 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
     .l1-ms-label-en { font-size: 9px; letter-spacing: 1px; color: #7fa8c0; margin-top: 2px; text-transform: uppercase; }
     .l1-ms-divider { width: 1px; height: 42px; background: rgba(255,255,255,.18); }
     .l1-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .l1-cols.single { grid-template-columns: 1fr; }
     .l1-card { border-radius: 16px; padding: 12px 14px 14px; border: 1px solid #e7edf2; }
     .l1-card.now { background: linear-gradient(180deg,#f1faf5,#ffffff); border-color: #cdeada; }
     .l1-card.next { background: linear-gradient(180deg,#eef7fc,#ffffff); border-color: #cfe9f6; }
@@ -312,12 +388,12 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
           </div>
           <div class="l1-ms-divider"></div>
           <div class="l1-ms-block">
-            <div class="l1-ms-num">Level ${escapeHtml(journeyContent.nextLevel)}</div>
-            <div class="l1-ms-label-ar">الفصل القادم ينتظرك</div>
-            <div class="l1-ms-label-en">Your next chapter awaits</div>
+            <div class="l1-ms-num">${hasNextJourney ? `Level ${escapeHtml(journeyContent.nextLevel ?? '')}` : 'Done'}</div>
+            <div class="l1-ms-label-ar">${hasNextJourney ? 'الفصل القادم ينتظرك' : 'أكملت هذه المرحلة بنجاح'}</div>
+            <div class="l1-ms-label-en">${hasNextJourney ? 'Your next chapter awaits' : 'You completed this chapter'}</div>
           </div>
         </div>
-        <div class="l1-cols">
+        <div class="l1-cols${hasNextJourney ? '' : ' single'}">
           <div class="l1-card now">
             <span class="l1-card-tag">✓ Achieved</span>
             <div class="l1-card-head">
@@ -326,14 +402,14 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
             </div>
             <ul class="l1-list">${renderJourneyListHtml(journeyContent.achievedItems, '✓')}</ul>
           </div>
-          <div class="l1-card next">
-            <span class="l1-card-tag">→ Coming in Level ${escapeHtml(journeyContent.nextLevel)}</span>
+          ${hasNextJourney ? `<div class="l1-card next">
+            <span class="l1-card-tag">→ Coming in Level ${escapeHtml(journeyContent.nextLevel ?? '')}</span>
             <div class="l1-card-head">
               <span class="l1-ar">${NEXT_HEADING_AR}</span>
               <span class="l1-small">${NEXT_HEADING_EN}</span>
             </div>
-            <ul class="l1-list">${renderJourneyListHtml(journeyContent.nextItems, '→')}</ul>
-          </div>
+            <ul class="l1-list">${renderJourneyListHtml(journeyContent.nextItems ?? [], '→')}</ul>
+          </div>` : ''}
         </div>
       </div>
       <div class="l1-foot">
@@ -720,13 +796,13 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
                   </div>
                   <div className="l1-ms-divider"></div>
                   <div className="l1-ms-block">
-                    <div className="l1-ms-num">Level {journeyContent.nextLevel}</div>
-                    <div className="l1-ms-label-ar">الفصل القادم ينتظرك</div>
-                    <div className="l1-ms-label-en">Your next chapter awaits</div>
+                    <div className="l1-ms-num">{hasNextJourney ? `Level ${journeyContent.nextLevel}` : 'Done'}</div>
+                    <div className="l1-ms-label-ar">{hasNextJourney ? 'الفصل القادم ينتظرك' : 'أكملت هذه المرحلة بنجاح'}</div>
+                    <div className="l1-ms-label-en">{hasNextJourney ? 'Your next chapter awaits' : 'You completed this chapter'}</div>
                   </div>
                 </div>
 
-                <div className="l1-cols">
+                <div className={`l1-cols${hasNextJourney ? '' : ' single'}`}>
                   <div className="l1-card now">
                     <span className="l1-card-tag">✓ Achieved</span>
                     <div className="l1-card-head">
@@ -746,24 +822,26 @@ export default function StudentReportCard({ data, onClose }: StudentReportCardPr
                     </ul>
                   </div>
 
-                  <div className="l1-card next">
-                    <span className="l1-card-tag">→ Coming in Level {journeyContent.nextLevel}</span>
-                    <div className="l1-card-head">
-                      <span className="l1-ar">{NEXT_HEADING_AR}</span>
-                      <span className="l1-small">{NEXT_HEADING_EN}</span>
+                  {hasNextJourney && (
+                    <div className="l1-card next">
+                      <span className="l1-card-tag">→ Coming in Level {journeyContent.nextLevel}</span>
+                      <div className="l1-card-head">
+                        <span className="l1-ar">{NEXT_HEADING_AR}</span>
+                        <span className="l1-small">{NEXT_HEADING_EN}</span>
+                      </div>
+                      <ul className="l1-list">
+                        {(journeyContent.nextItems ?? []).map((item) => (
+                          <li key={`next-${item.en}`}>
+                            <span className="l1-ic">→</span>
+                            <span className="l1-li-text">
+                              <span className="l1-li-en">{item.en}</span>
+                              {item.ar && <span className="l1-li-ar">{item.ar}</span>}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <ul className="l1-list">
-                      {journeyContent.nextItems.map((item) => (
-                        <li key={`next-${item.en}`}>
-                          <span className="l1-ic">→</span>
-                          <span className="l1-li-text">
-                            <span className="l1-li-en">{item.en}</span>
-                            {item.ar && <span className="l1-li-ar">{item.ar}</span>}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  )}
                 </div>
               </div>
 
