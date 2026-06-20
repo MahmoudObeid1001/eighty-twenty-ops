@@ -34,10 +34,12 @@ type testLead struct {
 	ExpectedOutcome    string
 	ExpectedFinalGrade string
 	// ExpectedNextLevelConsumedOnClose mirrors class_enrollments.next_level_consumed_on_close.
-	// True means the close-round pipeline reserved the next prepaid level on behalf of the student
-	// (distinguishing remaining_credits=0-because-reserved from 0-because-renewal-needed).
+	// New close-round runs should not pre-consume the next class; prepaid continuation
+	// is represented by remaining_credits > 0 instead.
 	ExpectedNextLevelConsumedOnClose bool
 	ExpectedLevelsConsumed           int
+	PaymentCycleBundle               int
+	ExpectedActivePaymentCycles      int
 }
 
 func TestAfterClassPipeline(t *testing.T) {
@@ -108,6 +110,8 @@ func TestAfterClassPipeline(t *testing.T) {
 			// purchased=1, consumed=0 → after consuming current level: remaining=0 → no next to reserve
 			ExpectedNextLevelConsumedOnClose: false,
 			ExpectedLevelsConsumed:           1,
+			PaymentCycleBundle:               1,
+			ExpectedActivePaymentCycles:      0,
 		},
 		{
 			Name:               "The Payer",
@@ -129,34 +133,39 @@ func TestAfterClassPipeline(t *testing.T) {
 			LevelsPurchased:    5,
 			LevelsConsumed:     0,
 			ExpectedLevel:      1,
-			ExpectedCredits:    3,
+			ExpectedCredits:    4,
 			ExpectedStatus:     "waiting_for_round",
 			ExpectedOutcome:    "repeated",
 			ExpectedFinalGrade: "F",
-			// purchased=5, consumed=0 → after consuming current: remaining=4 → next reserved
-			ExpectedNextLevelConsumedOnClose: true,
-			ExpectedLevelsConsumed:           2,
+			// purchased=5, consumed=0 -> after consuming current: remaining=4
+			ExpectedNextLevelConsumedOnClose: false,
+			ExpectedLevelsConsumed:           1,
 		},
 		{
-			// Bundle of 2: finishes Level 1, Level 2 is prepaid → reserved on close.
-			// Expected: status = waiting_for_round, remaining_credits = 0 (Level 2 consumed/reserved).
+			// Bundle of 2: finishes Level 1, Level 2 is prepaid and should stay visible.
+			// Expected: status = waiting_for_round, remaining_credits = 1.
 			Name:               "The Bundle Waiter",
 			Phone:              fmt.Sprintf("0103%07d", nowSuffix%10000000),
 			LevelsPurchased:    2,
 			LevelsConsumed:     0,
 			ExpectedLevel:      2,
-			ExpectedCredits:    0,
+			ExpectedCredits:    1,
 			ExpectedStatus:     "waiting_for_round",
 			ExpectedOutcome:    "promoted",
 			ExpectedFinalGrade: "B",
-			// purchased=2, consumed=0 → after consuming current: remaining=1 → next reserved → then credits drop to 0
-			ExpectedNextLevelConsumedOnClose: true,
-			ExpectedLevelsConsumed:           2,
+			// purchased=2, consumed=0 -> after consuming current: remaining=1
+			ExpectedNextLevelConsumedOnClose: false,
+			ExpectedLevelsConsumed:           1,
+			PaymentCycleBundle:               2,
+			ExpectedActivePaymentCycles:      1,
 		},
 	}
 
 	for i := range leads {
 		leads[i].ID = mustCreateLead(t, leads[i], mentorHead.ID)
+		if leads[i].PaymentCycleBundle > 0 {
+			mustCreateActivePaymentCycle(t, leads[i])
+		}
 		mustCreatePlacementTest(t, leads[i].ID, 1)
 		mustCreateScheduling(t, leads[i].ID, classDays, classTime, classNumber)
 	}
@@ -234,6 +243,17 @@ func TestAfterClassPipeline(t *testing.T) {
 		if !isReturning {
 			t.Fatalf("%s: expected is_returning true", lead.Name)
 		}
+		if lead.PaymentCycleBundle > 0 {
+			activeCycles := mustCount(t, `
+				SELECT COUNT(*)
+				FROM payment_cycles
+				WHERE lead_id = $1 AND status = 'active'
+			`, lead.ID)
+			if activeCycles != lead.ExpectedActivePaymentCycles {
+				t.Fatalf("%s: expected %d active payment cycles, got %d",
+					lead.Name, lead.ExpectedActivePaymentCycles, activeCycles)
+			}
+		}
 
 		var outcome, finalGrade sql.NullString
 		var nextLevelConsumedOnClose bool
@@ -258,17 +278,21 @@ func TestAfterClassPipeline(t *testing.T) {
 
 		// Invariant: a student whose bundle covered more than the current level
 		// (i.e. paid credits remained after consuming the in-progress level)
-		// must NEVER exit close-round in renewal_pending, and the enrollment
-		// flag must confirm the reservation.
+		// must NEVER exit close-round in renewal_pending. Close-round should not
+		// consume that next credit early.
 		// remaining = purchased - (consumed_before_close + 1_for_current_level)
 		hadPrepaidNext := lead.LevelsPurchased-(lead.LevelsConsumed+1) > 0
 		if hadPrepaidNext {
 			if status == "renewal_pending" {
-				t.Fatalf("%s: INVARIANT VIOLATED — student had prepaid next level but status is renewal_pending, expected waiting_for_round",
+				t.Fatalf("%s: INVARIANT VIOLATED: student had prepaid next level but status is renewal_pending, expected waiting_for_round",
 					lead.Name)
 			}
-			if !nextLevelConsumedOnClose {
-				t.Fatalf("%s: INVARIANT VIOLATED — student had prepaid next level but next_level_consumed_on_close is false",
+			if remaining <= 0 {
+				t.Fatalf("%s: INVARIANT VIOLATED: student had prepaid next level but remaining_credits=%d",
+					lead.Name, remaining)
+			}
+			if nextLevelConsumedOnClose {
+				t.Fatalf("%s: INVARIANT VIOLATED: close-round pre-consumed the next level",
 					lead.Name)
 			}
 		}
@@ -336,6 +360,16 @@ func mustCreateLead(t *testing.T, lead testLead, createdBy uuid.UUID) uuid.UUID 
 		) VALUES ($1, $2, $3, 'in_classes', $4, $5, $6, $7, false, false, NOW(), NOW())
 	`, id, lead.Name, lead.Phone, createdBy, lead.LevelsPurchased, lead.LevelsConsumed, remainingCredits)
 	return id
+}
+
+func mustCreateActivePaymentCycle(t *testing.T, lead testLead) {
+	t.Helper()
+	mustExec(t, `
+		INSERT INTO payment_cycles (
+			lead_id, started_at, bundle_levels, final_price, consumed_baseline,
+			status, created_at, updated_at
+		) VALUES ($1, NOW(), $2, $3, $4, 'active', NOW(), NOW())
+	`, lead.ID, lead.PaymentCycleBundle, lead.PaymentCycleBundle*1250, lead.LevelsConsumed)
 }
 
 func mustCreatePlacementTest(t *testing.T, leadID uuid.UUID, level int) {
@@ -465,18 +499,19 @@ func TestAfterClassPipelineMidRoundConsumption(t *testing.T) {
 
 	// "Mid-round consumed": bundle=2, current level was consumed at session 2
 	// (levels_consumed=1 already on the lead, membership flag already set).
-	// close-round must NOT double-consume, must produce waiting_for_round, remaining_credits=0.
+	// close-round must NOT double-consume and must keep the next paid level visible.
 	midRound := testLead{
 		Name:                             "Mid-Round Consumed",
 		Phone:                            fmt.Sprintf("0200%07d", nowSuffix%10000000),
 		LevelsPurchased:                  2,
 		LevelsConsumed:                   1, // already consumed mid-round at session 2
 		ExpectedLevel:                    2,
-		ExpectedCredits:                  0, // Level 2 reserved on close
+		ExpectedCredits:                  1,
 		ExpectedStatus:                   "waiting_for_round",
 		ExpectedOutcome:                  "promoted",
 		ExpectedFinalGrade:               "A",
-		ExpectedNextLevelConsumedOnClose: true,
+		ExpectedNextLevelConsumedOnClose: false,
+		ExpectedLevelsConsumed:           1,
 	}
 
 	midRound.ID = mustCreateLead(t, midRound, mentorHead.ID)
@@ -543,8 +578,8 @@ func TestAfterClassPipelineMidRoundConsumption(t *testing.T) {
 	if assignedLevel != midRound.ExpectedLevel {
 		t.Fatalf("MidRound: expected assigned_level %d, got %d", midRound.ExpectedLevel, assignedLevel)
 	}
-	if levelsConsumed != 2 {
-		t.Fatalf("MidRound: expected levels_consumed 2, got %d", levelsConsumed)
+	if levelsConsumed != midRound.ExpectedLevelsConsumed {
+		t.Fatalf("MidRound: expected levels_consumed %d, got %d", midRound.ExpectedLevelsConsumed, levelsConsumed)
 	}
 
 	var outcome, finalGrade sql.NullString
@@ -565,7 +600,7 @@ func TestAfterClassPipelineMidRoundConsumption(t *testing.T) {
 
 	// Dalia guard: a student with a prepaid next level must NEVER exit close-round
 	// in a renewal/offer state. These are the statuses that put them on the ops
-	// renewal feed, which is wrong — they already paid.
+	// renewal feed, which is wrong because they still have visible credit.
 	daliaBadStatuses := []string{"renewal_pending", "offer_sent"}
 	for _, bad := range daliaBadStatuses {
 		if status == bad {
@@ -627,12 +662,12 @@ func TestPrepaidContinuationBlocker(t *testing.T) {
 		LevelsPurchased:                  2,
 		LevelsConsumed:                   0,
 		ExpectedLevel:                    2,
-		ExpectedCredits:                  0,
+		ExpectedCredits:                  1,
 		ExpectedStatus:                   "waiting_for_round",
 		ExpectedOutcome:                  "promoted",
 		ExpectedFinalGrade:               "A",
-		ExpectedNextLevelConsumedOnClose: true,
-		ExpectedLevelsConsumed:           2,
+		ExpectedNextLevelConsumedOnClose: false,
+		ExpectedLevelsConsumed:           1,
 	}
 	lead.ID = mustCreateLead(t, lead, mentorHead.ID)
 	defer func() {
@@ -669,11 +704,19 @@ func TestPrepaidContinuationBlocker(t *testing.T) {
 	}
 
 	var status string
-	if err := mustQueryRow(t, `SELECT status FROM leads WHERE id = $1`, lead.ID).Scan(&status); err != nil {
+	var remaining int
+	if err := mustQueryRow(t, `
+		SELECT status, COALESCE(remaining_credits, 0)
+		FROM leads
+		WHERE id = $1
+	`, lead.ID).Scan(&status, &remaining); err != nil {
 		t.Fatalf("failed to load post-close status: %v", err)
 	}
 	if status != "waiting_for_round" {
 		t.Fatalf("expected post-close status waiting_for_round, got %s", status)
+	}
+	if remaining != lead.ExpectedCredits {
+		t.Fatalf("expected post-close remaining_credits %d, got %d", lead.ExpectedCredits, remaining)
 	}
 
 	err := models.UpdateLeadStatus(lead.ID, "offer_sent")
@@ -690,6 +733,42 @@ func TestPrepaidContinuationBlocker(t *testing.T) {
 	}
 	if status != "waiting_for_round" {
 		t.Fatalf("expected status to remain waiting_for_round after blocker, got %s", status)
+	}
+
+	legacyZero := testLead{
+		Name:            "Legacy Zero Credit",
+		Phone:           fmt.Sprintf("0301%07d", nowSuffix%10000000),
+		LevelsPurchased: 1,
+		LevelsConsumed:  1,
+	}
+	legacyZero.ID = mustCreateLead(t, legacyZero, mentorHead.ID)
+	defer func() {
+		mustExec(t, `DELETE FROM class_enrollments WHERE lead_id = $1`, legacyZero.ID)
+		mustExec(t, `DELETE FROM leads WHERE id = $1`, legacyZero.ID)
+	}()
+	mustExec(t, `
+		UPDATE leads
+		SET status = 'renewal_pending',
+		    is_returning = true,
+		    remaining_credits = 0
+		WHERE id = $1
+	`, legacyZero.ID)
+	mustExec(t, `
+		INSERT INTO class_enrollments (
+			lead_id, class_key, level, class_days, class_time, mentor_name,
+			final_grade, outcome, next_level_consumed_on_close, enrolled_at, completed_at
+		) VALUES ($1, $2, 1, $3, $4, $5, 'A', 'promoted', true, NOW(), NOW())
+	`, legacyZero.ID, classKey, classDays, classTime, mentor.Email)
+
+	hasContinuation, err := models.HasPrepaidContinuation(legacyZero.ID)
+	if err != nil {
+		t.Fatalf("failed to check legacy zero-credit continuation: %v", err)
+	}
+	if hasContinuation {
+		t.Fatalf("legacy zero-credit student should not be treated as prepaid continuation")
+	}
+	if err := models.UpdateLeadStatus(legacyZero.ID, "offer_sent"); err != nil {
+		t.Fatalf("legacy zero-credit renewal should be allowed to move to offer_sent: %v", err)
 	}
 }
 
@@ -846,7 +925,7 @@ func TestCloseRoundRepairsMigratedDuplicateConsumption(t *testing.T) {
 	`, lead.ID).Scan(&status, &consumed, &remaining, &assignedLevel); err != nil {
 		t.Fatalf("failed to load repaired student: %v", err)
 	}
-	if status != "waiting_for_round" || consumed != 3 || remaining != 0 || assignedLevel != 3 {
+	if status != "waiting_for_round" || consumed != 2 || remaining != 1 || assignedLevel != 3 {
 		t.Fatalf(
 			"unexpected repaired state: status=%s consumed=%d remaining=%d assigned_level=%d",
 			status,

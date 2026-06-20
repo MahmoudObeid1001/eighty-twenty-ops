@@ -1496,7 +1496,14 @@ func GetLatestClassSchedule(leadID uuid.UUID) (sql.NullString, sql.NullString, e
 
 func HasPrepaidContinuation(leadID uuid.UUID) (bool, error) {
 	var isReturning bool
-	err := db.DB.QueryRow(`SELECT COALESCE(is_returning, false) FROM leads WHERE id = $1`, leadID).Scan(&isReturning)
+	var remainingCredits int32
+	err := db.DB.QueryRow(`
+		SELECT
+			COALESCE(is_returning, false),
+			GREATEST(COALESCE(levels_purchased_total, 0) - COALESCE(levels_consumed, 0), 0)
+		FROM leads
+		WHERE id = $1
+	`, leadID).Scan(&isReturning, &remainingCredits)
 	if err == sql.ErrNoRows {
 		return false, fmt.Errorf("lead not found")
 	}
@@ -1506,23 +1513,7 @@ func HasPrepaidContinuation(leadID uuid.UUID) (bool, error) {
 	if !isReturning {
 		return false, nil
 	}
-
-	var reserved bool
-	err = db.DB.QueryRow(`
-		SELECT COALESCE(next_level_consumed_on_close, false)
-		FROM class_enrollments
-		WHERE lead_id = $1
-		  AND completed_at IS NOT NULL
-		ORDER BY completed_at DESC, enrolled_at DESC
-		LIMIT 1
-	`, leadID).Scan(&reserved)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to load latest class enrollment: %w", err)
-	}
-	return reserved, nil
+	return remainingCredits > 0, nil
 }
 
 func countCompletedClassEnrollmentsTx(tx *sql.Tx, leadID uuid.UUID) (int32, error) {
@@ -4352,6 +4343,22 @@ func GetActivePaymentCycle(leadID uuid.UUID) (*PaymentCycle, error) {
 		return nil, fmt.Errorf("failed to query active payment cycle: %w", err)
 	}
 	return cycle, nil
+}
+
+func closeExhaustedPaymentCycleTx(tx *sql.Tx, leadID uuid.UUID, levelsConsumed int32, now time.Time) error {
+	_, err := tx.Exec(`
+		UPDATE payment_cycles
+		SET status = 'closed',
+		    closed_at = $3,
+		    updated_at = $3
+		WHERE lead_id = $1
+		  AND status = 'active'
+		  AND COALESCE(consumed_baseline, 0) + COALESCE(bundle_levels, 0) <= $2
+	`, leadID, levelsConsumed, now)
+	if err != nil {
+		return fmt.Errorf("failed to close exhausted payment cycle: %w", err)
+	}
+	return nil
 }
 
 func UpsertActivePaymentCycle(leadID uuid.UUID, bundleLevels int32, finalPrice int32) error {
@@ -8374,19 +8381,12 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		creditsRemaining = 0
 	}
 
-	nextLevelConsumedOnClose := creditsRemaining > 0
 	newCredits := creditsRemaining
 	newConsumed := int32(0)
 	if consumed.Valid {
 		newConsumed = consumed.Int32
 	}
-	if nextLevelConsumedOnClose {
-		newCredits -= 1
-		if newCredits < 0 {
-			newCredits = 0
-		}
-		newConsumed++
-	}
+	nextLevelConsumedOnClose := false
 
 	_, err = tx.Exec(`
 		INSERT INTO class_enrollments (
@@ -8396,31 +8396,19 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 		ON CONFLICT (lead_id, class_key) DO UPDATE SET
 			final_grade = EXCLUDED.final_grade,
 			outcome = EXCLUDED.outcome,
-			next_level_consumed_on_close = class_enrollments.next_level_consumed_on_close OR EXCLUDED.next_level_consumed_on_close,
+			next_level_consumed_on_close = EXCLUDED.next_level_consumed_on_close,
 			completed_at = EXCLUDED.completed_at
 	`, leadID, classKey, level, classDays, classTime, mentorName, finalGrade, outcome, nextLevelConsumedOnClose, now, now)
 	if err != nil {
 		return fmt.Errorf("failed to insert class enrollment: %w", err)
 	}
 
-	// Status is based on credits before the close-round continuation consumption.
-	// If the student had any prepaid continuation level when they finished, they wait for a round.
+	// Close-round consumes the class that just ended, but it must not pre-consume
+	// the next class. Waiting-for-round should therefore mean there is still a
+	// real remaining credit visible on the ledger.
 	newStatus := "renewal_pending"
-	if creditsRemaining > 0 {
+	if newCredits > 0 {
 		newStatus = "waiting_for_round"
-	}
-
-	if newStatus == "renewal_pending" && purchased.Valid {
-		completedEnrollments, err := countCompletedClassEnrollmentsTx(tx, leadID)
-		if err != nil {
-			return fmt.Errorf("failed to run prepaid continuation cross-check: %w", err)
-		}
-		if purchased.Int32 > completedEnrollments {
-			return fmt.Errorf(
-				"close-round cross-check failed for lead %s: purchased=%d completed_enrollments=%d but status would be renewal_pending",
-				leadID, purchased.Int32, completedEnrollments,
-			)
-		}
 	}
 
 	highPriorityFollowUp := newStatus == "renewal_pending"
@@ -8440,6 +8428,9 @@ func PromoteStudent(tx *sql.Tx, leadID uuid.UUID, classKey string, now time.Time
 	`, newConsumed, newCredits, newStatus, now, leadID, highPriorityFollowUp)
 	if err != nil {
 		return fmt.Errorf("failed to update lead status: %w", err)
+	}
+	if err := closeExhaustedPaymentCycleTx(tx, leadID, newConsumed, now); err != nil {
+		return err
 	}
 
 	// 7b. Clear current offer/payment snapshots for returning cycle.
