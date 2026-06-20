@@ -81,3 +81,16 @@ type TimelineItem struct {
 	CreatedBy      string    `json:"created_by"` // email
 	CreatedAt      time.Time `json:"created_at"`
 }
+
+// StudentPaymentHistoryItem is a normalized payment/refund row for the student profile.
+type StudentPaymentHistoryItem struct {
+	ID            uuid.UUID `json:"id"`
+	Type          string    `json:"type"`
+	Direction     string    `json:"direction"` // "in" or "out"
+	Amount        int32     `json:"amount"`
+	PaymentMethod string    `json:"payment_method"`
+	PaymentDate   string    `json:"payment_date"`
+	Notes         string    `json:"notes"`
+	Source        string    `json:"source"`
+	CreatedAt     time.Time `json:"created_at"`
+}

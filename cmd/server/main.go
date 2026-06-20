@@ -913,6 +913,7 @@ func main() {
 	// Student Profile API Routes (Milestone 4) - accessible by student-facing roles
 	studentViewerRoles := []string{"admin", "moderator", "mentor_head", "mentor", "student_success", "manager", "hr"}
 	studentEditorRoles := []string{"admin", "mentor_head", "manager"}
+	studentPaymentViewerRoles := []string{"admin", "manager"}
 
 	mux.HandleFunc("/api/students/search", requestLogMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -968,6 +969,12 @@ func main() {
 			case "notes":
 				if r.Method == http.MethodGet {
 					middleware.RequireAnyRole(studentViewerRoles, cfg.SessionSecret)(handlers.GetStudentNotes)(w, r)
+				} else {
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
+			case "payment-history":
+				if r.Method == http.MethodGet {
+					middleware.RequireAnyRole(studentPaymentViewerRoles, cfg.SessionSecret)(handlers.GetStudentPaymentHistory)(w, r)
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}

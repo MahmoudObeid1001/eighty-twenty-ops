@@ -396,3 +396,30 @@ func GetStudentNotes(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ERROR: Failed to encode student notes response: %v", err)
 	}
 }
+
+// GetStudentPaymentHistory handles GET /api/students/:id/payment-history.
+// Payment history is finance-sensitive and is restricted to admin and manager.
+func GetStudentPaymentHistory(w http.ResponseWriter, r *http.Request) {
+	role := middleware.GetUserRole(r)
+	if role != "admin" && role != "manager" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	leadID, err := parseStudentID(r.URL.Path)
+	if err != nil {
+		http.Error(w, "Invalid student ID", http.StatusBadRequest)
+		return
+	}
+
+	history, err := models.GetStudentPaymentHistory(leadID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(history); err != nil {
+		log.Printf("ERROR: Failed to encode student payment history response: %v", err)
+	}
+}

@@ -527,6 +527,81 @@ func GetStudentNotesTimeline(leadID uuid.UUID) ([]*TimelineItem, error) {
 	return dedupeMirroredGradeTimeline(timeline), nil
 }
 
+// GetStudentPaymentHistory returns admin/manager payment history for a student.
+// Course payments come from lead_payments to avoid duplicate mirrored ledger rows.
+// Placement-test payments and refunds come from the finance ledger.
+func GetStudentPaymentHistory(leadID uuid.UUID) ([]*StudentPaymentHistoryItem, error) {
+	rows, err := db.DB.Query(`
+		SELECT
+			id,
+			type,
+			direction,
+			amount,
+			COALESCE(payment_method, '') AS payment_method,
+			payment_date::text AS payment_date,
+			COALESCE(notes, '') AS notes,
+			source,
+			created_at
+		FROM (
+			SELECT
+				lp.id,
+				lp.kind AS type,
+				'in' AS direction,
+				lp.amount,
+				lp.payment_method,
+				lp.payment_date,
+				lp.notes,
+				'course_payment' AS source,
+				lp.created_at
+			FROM lead_payments lp
+			WHERE lp.lead_id = $1
+
+			UNION ALL
+
+			SELECT
+				t.id,
+				COALESCE(NULLIF(t.ref_sub_type, ''), t.category) AS type,
+				CASE WHEN t.transaction_type = 'OUT' THEN 'out' ELSE 'in' END AS direction,
+				t.amount,
+				t.payment_method,
+				t.transaction_date AS payment_date,
+				t.notes,
+				t.category AS source,
+				t.created_at
+			FROM transactions t
+			WHERE t.lead_id = $1
+			  AND NOT (t.transaction_type = 'IN' AND t.category = 'course_payment')
+		) payment_history
+		ORDER BY payment_date DESC NULLS LAST, created_at DESC
+	`, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query student payment history: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	history := []*StudentPaymentHistoryItem{}
+	for rows.Next() {
+		item := &StudentPaymentHistoryItem{}
+		err := rows.Scan(
+			&item.ID,
+			&item.Type,
+			&item.Direction,
+			&item.Amount,
+			&item.PaymentMethod,
+			&item.PaymentDate,
+			&item.Notes,
+			&item.Source,
+			&item.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan student payment history: %w", err)
+		}
+		history = append(history, item)
+	}
+
+	return history, rows.Err()
+}
+
 func dedupeMirroredGradeTimeline(timeline []*TimelineItem) []*TimelineItem {
 	if len(timeline) == 0 {
 		return timeline

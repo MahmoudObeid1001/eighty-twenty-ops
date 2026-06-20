@@ -1,6 +1,6 @@
 // StudentProfileModal component - Universal Student Profile
 import { useState, useEffect } from 'react'
-import { api, UniversalStudentProfile, AcademicHistoryItem, CurrentClassStatus, TimelineItem } from '../api/client'
+import { api, UniversalStudentProfile, AcademicHistoryItem, CurrentClassStatus, TimelineItem, StudentPaymentHistoryItem } from '../api/client'
 
 interface StudentProfileModalProps {
     studentId: string
@@ -9,11 +9,12 @@ interface StudentProfileModalProps {
 }
 
 export default function StudentProfileModal({ studentId, onClose, onStudentUpdated }: StudentProfileModalProps) {
-    const [activeTab, setActiveTab] = useState<'history' | 'current' | 'notes'>('history')
+    const [activeTab, setActiveTab] = useState<'history' | 'current' | 'notes' | 'payments'>('history')
     const [profile, setProfile] = useState<UniversalStudentProfile | null>(null)
     const [history, setHistory] = useState<AcademicHistoryItem[]>([])
     const [currentStatus, setCurrentStatus] = useState<CurrentClassStatus | null>(null)
     const [notes, setNotes] = useState<TimelineItem[]>([])
+    const [paymentHistory, setPaymentHistory] = useState<StudentPaymentHistoryItem[]>([])
     const [userRole, setUserRole] = useState<string>('')
     const [isEditingBasicInfo, setIsEditingBasicInfo] = useState(false)
     const [editFullName, setEditFullName] = useState('')
@@ -39,11 +40,17 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
                 api.getStudentNotes(studentId),
                 api.getMe(),
             ])
+            const role = me.role || ''
+            const paymentsData = role === 'admin' || role === 'manager'
+                ? await api.getStudentPaymentHistory(studentId)
+                : []
+
             setProfile(profileData)
             setHistory(historyData || [])
             setCurrentStatus(statusData)
             setNotes(notesData || [])
-            setUserRole(me.role || '')
+            setPaymentHistory(paymentsData || [])
+            setUserRole(role)
         } catch (err) {
             console.error('Failed to load student data:', err)
             setError(err instanceof Error ? err.message : 'Failed to load student data')
@@ -53,6 +60,7 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
     }
 
     const canEditBasicInfo = userRole === 'admin' || userRole === 'mentor_head' || userRole === 'manager'
+    const canViewPaymentHistory = userRole === 'admin' || userRole === 'manager'
 
     function startEditingBasicInfo() {
         if (!profile) return
@@ -336,6 +344,22 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
                     >
                         Notes Timeline
                     </button>
+                    {canViewPaymentHistory && (
+                        <button
+                            onClick={() => setActiveTab('payments')}
+                            style={{
+                                padding: '10px 20px',
+                                border: 'none',
+                                background: 'none',
+                                borderBottom: activeTab === 'payments' ? '3px solid #007bff' : 'none',
+                                fontWeight: activeTab === 'payments' ? 600 : 400,
+                                cursor: 'pointer',
+                                color: activeTab === 'payments' ? '#007bff' : '#666',
+                            }}
+                        >
+                            Payment History
+                        </button>
+                    )}
                 </div>
 
                 {/* Tab Content */}
@@ -343,6 +367,7 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
                     {activeTab === 'history' && <AcademicHistoryTab history={history} />}
                     {activeTab === 'current' && <CurrentStatusTab status={currentStatus} />}
                     {activeTab === 'notes' && <NotesTimelineTab notes={notes} />}
+                    {activeTab === 'payments' && canViewPaymentHistory && <PaymentHistoryTab payments={paymentHistory} />}
                 </div>
             </div>
         </div>
@@ -499,6 +524,82 @@ function CurrentStatusTab({ status }: { status: CurrentClassStatus | null }) {
     )
 }
 
+// Payment History Tab
+function PaymentHistoryTab({ payments }: { payments: StudentPaymentHistoryItem[] }) {
+    if (payments.length === 0) {
+        return (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                No payment history found
+            </div>
+        )
+    }
+
+    const totalIn = payments
+        .filter((payment) => payment.direction === 'in')
+        .reduce((sum, payment) => sum + payment.amount, 0)
+    const totalOut = payments
+        .filter((payment) => payment.direction === 'out')
+        .reduce((sum, payment) => sum + payment.amount, 0)
+    const net = totalIn - totalOut
+
+    return (
+        <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ background: '#e8f5e9', padding: '14px', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '12px', color: '#2e7d32', fontWeight: 700 }}>Total Paid In</div>
+                    <div style={{ fontSize: '20px', color: '#1b5e20', fontWeight: 800 }}>{totalIn} EGP</div>
+                </div>
+                <div style={{ background: '#ffebee', padding: '14px', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '12px', color: '#b71c1c', fontWeight: 700 }}>Refunds / Out</div>
+                    <div style={{ fontSize: '20px', color: '#b71c1c', fontWeight: 800 }}>{totalOut} EGP</div>
+                </div>
+                <div style={{ background: '#eef6ff', padding: '14px', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>Net</div>
+                    <div style={{ fontSize: '20px', color: '#1e3a8a', fontWeight: 800 }}>{net} EGP</div>
+                </div>
+            </div>
+            <div style={{ overflowX: 'auto', width: '100%' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Date</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Type</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Amount</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Method</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Source</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {payments.map((payment) => (
+                            <tr key={payment.id} style={{ borderBottom: '1px solid #dee2e6' }}>
+                                <td style={{ padding: '12px', fontSize: '13px', color: '#666', whiteSpace: 'nowrap' }}>
+                                    {payment.payment_date || new Date(payment.created_at).toLocaleDateString()}
+                                </td>
+                                <td style={{ padding: '12px' }}>{formatPaymentLabel(payment.type)}</td>
+                                <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
+                                    <span style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        background: payment.direction === 'out' ? '#f8d7da' : '#d4edda',
+                                        color: payment.direction === 'out' ? '#721c24' : '#155724',
+                                        fontWeight: 700,
+                                    }}>
+                                        {payment.direction === 'out' ? '-' : '+'}{payment.amount} EGP
+                                    </span>
+                                </td>
+                                <td style={{ padding: '12px' }}>{formatPaymentLabel(payment.payment_method) || '-'}</td>
+                                <td style={{ padding: '12px' }}>{formatPaymentLabel(payment.source)}</td>
+                                <td style={{ padding: '12px', color: '#666' }}>{payment.notes || '-'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    )
+}
+
 // Notes Timeline Tab
 function NotesTimelineTab({ notes }: { notes: TimelineItem[] }) {
     if (notes.length === 0) {
@@ -602,6 +703,14 @@ function getTimelineColor(type: TimelineItem['type']): string {
 function formatTimelineType(type: TimelineItem['type']): string {
     if (type === 'grade_note') return 'final grade note'
     return type
+}
+
+function formatPaymentLabel(value: string): string {
+    return value
+        .split('_')
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ')
 }
 
 const basicInfoInputStyle = {

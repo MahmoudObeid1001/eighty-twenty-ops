@@ -1495,15 +1495,17 @@ func GetLatestClassSchedule(leadID uuid.UUID) (sql.NullString, sql.NullString, e
 }
 
 func HasPrepaidContinuation(leadID uuid.UUID) (bool, error) {
+	var status string
 	var isReturning bool
 	var remainingCredits int32
 	err := db.DB.QueryRow(`
 		SELECT
+			status,
 			COALESCE(is_returning, false),
 			GREATEST(COALESCE(levels_purchased_total, 0) - COALESCE(levels_consumed, 0), 0)
 		FROM leads
 		WHERE id = $1
-	`, leadID).Scan(&isReturning, &remainingCredits)
+	`, leadID).Scan(&status, &isReturning, &remainingCredits)
 	if err == sql.ErrNoRows {
 		return false, fmt.Errorf("lead not found")
 	}
@@ -1513,7 +1515,29 @@ func HasPrepaidContinuation(leadID uuid.UUID) (bool, error) {
 	if !isReturning {
 		return false, nil
 	}
-	return remainingCredits > 0, nil
+	if remainingCredits > 0 {
+		return true, nil
+	}
+	if status != "waiting_for_round" {
+		return false, nil
+	}
+
+	var reserved bool
+	err = db.DB.QueryRow(`
+		SELECT COALESCE(next_level_consumed_on_close, false)
+		FROM class_enrollments
+		WHERE lead_id = $1
+		  AND completed_at IS NOT NULL
+		ORDER BY completed_at DESC, enrolled_at DESC
+		LIMIT 1
+	`, leadID).Scan(&reserved)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to load latest class enrollment: %w", err)
+	}
+	return reserved, nil
 }
 
 func countCompletedClassEnrollmentsTx(tx *sql.Tx, leadID uuid.UUID) (int32, error) {

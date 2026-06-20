@@ -1378,6 +1378,9 @@ export const api = {
   getStudentNotes: (studentId: string): Promise<TimelineItem[]> =>
     fetchAPI(`/students/${encodeURIComponent(studentId)}/notes`),
 
+  getStudentPaymentHistory: (studentId: string): Promise<StudentPaymentHistoryItem[]> =>
+    fetchAPI(`/students/${encodeURIComponent(studentId)}/payment-history`),
+
   getGrades: (classKey: string): Promise<{ grades: Grade[] }> =>
     fetchAPI(`/grades?class_key=${encodeURIComponent(classKey)}`),
 
@@ -1578,6 +1581,18 @@ export interface TimelineItem {
   session: number
   is_private: boolean
   created_by: string
+  created_at: string
+}
+
+export interface StudentPaymentHistoryItem {
+  id: string
+  type: string
+  direction: 'in' | 'out'
+  amount: number
+  payment_method: string
+  payment_date: string
+  notes: string
+  source: string
   created_at: string
 }
 

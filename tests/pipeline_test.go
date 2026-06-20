@@ -770,6 +770,39 @@ func TestPrepaidContinuationBlocker(t *testing.T) {
 	if err := models.UpdateLeadStatus(legacyZero.ID, "offer_sent"); err != nil {
 		t.Fatalf("legacy zero-credit renewal should be allowed to move to offer_sent: %v", err)
 	}
+
+	legacyReserved := testLead{
+		Name:            "Legacy Reserved Credit",
+		Phone:           fmt.Sprintf("0302%07d", nowSuffix%10000000),
+		LevelsPurchased: 2,
+		LevelsConsumed:  2,
+	}
+	legacyReserved.ID = mustCreateLead(t, legacyReserved, mentorHead.ID)
+	defer func() {
+		mustExec(t, `DELETE FROM class_enrollments WHERE lead_id = $1`, legacyReserved.ID)
+		mustExec(t, `DELETE FROM leads WHERE id = $1`, legacyReserved.ID)
+	}()
+	mustExec(t, `
+		UPDATE leads
+		SET status = 'waiting_for_round',
+		    is_returning = true,
+		    remaining_credits = 0
+		WHERE id = $1
+	`, legacyReserved.ID)
+	mustExec(t, `
+		INSERT INTO class_enrollments (
+			lead_id, class_key, level, class_days, class_time, mentor_name,
+			final_grade, outcome, next_level_consumed_on_close, enrolled_at, completed_at
+		) VALUES ($1, $2, 1, $3, $4, $5, 'A', 'promoted', true, NOW(), NOW())
+	`, legacyReserved.ID, classKey, classDays, classTime, mentor.Email)
+
+	hasContinuation, err = models.HasPrepaidContinuation(legacyReserved.ID)
+	if err != nil {
+		t.Fatalf("failed to check legacy reserved continuation: %v", err)
+	}
+	if !hasContinuation {
+		t.Fatalf("legacy waiting-for-round reserved student should still be treated as prepaid continuation")
+	}
 }
 
 func TestCloseRoundRepairsMigratedDuplicateConsumption(t *testing.T) {
