@@ -19,17 +19,6 @@ import (
 
 // Student Profile Handlers (Milestone 4)
 
-func ensureMentorStudentAccess(r *http.Request, leadID uuid.UUID) (bool, error) {
-	if middleware.GetUserRole(r) != "mentor" {
-		return true, nil
-	}
-	mentorUserID, err := uuid.Parse(middleware.GetUserID(r))
-	if err != nil {
-		return false, err
-	}
-	return models.MentorHasStudentAccess(mentorUserID, leadID)
-}
-
 func containsArabicText(text string) bool {
 	for _, r := range text {
 		if (r >= 0x0600 && r <= 0x06FF) || (r >= 0x0750 && r <= 0x077F) || (r >= 0x08A0 && r <= 0x08FF) {
@@ -181,21 +170,7 @@ func SearchStudents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	role := middleware.GetUserRole(r)
-	var (
-		results []*models.StudentSearchResult
-		err     error
-	)
-	if role == "mentor" {
-		mentorUserID, parseErr := uuid.Parse(middleware.GetUserID(r))
-		if parseErr != nil {
-			http.Error(w, "Invalid mentor session", http.StatusUnauthorized)
-			return
-		}
-		results, err = models.SearchStudentsForMentor(query, mentorUserID)
-	} else {
-		results, err = models.SearchStudents(query)
-	}
+	results, err := models.SearchStudents(query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -222,15 +197,6 @@ func GetStudentProfile(w http.ResponseWriter, r *http.Request) {
 	leadID, err := parseStudentID(r.URL.Path)
 	if err != nil {
 		http.Error(w, "Invalid student ID", http.StatusBadRequest)
-		return
-	}
-	allowed, err := ensureMentorStudentAccess(r, leadID)
-	if err != nil {
-		http.Error(w, "Failed to verify access", http.StatusInternalServerError)
-		return
-	}
-	if !allowed {
-		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -310,15 +276,6 @@ func GetStudentHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid student ID", http.StatusBadRequest)
 		return
 	}
-	allowed, err := ensureMentorStudentAccess(r, leadID)
-	if err != nil {
-		http.Error(w, "Failed to verify access", http.StatusInternalServerError)
-		return
-	}
-	if !allowed {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
 
 	history, err := models.GetAcademicHistory(leadID)
 	if err != nil {
@@ -337,15 +294,6 @@ func GetCurrentStatus(w http.ResponseWriter, r *http.Request) {
 	leadID, err := parseStudentID(r.URL.Path)
 	if err != nil {
 		http.Error(w, "Invalid student ID", http.StatusBadRequest)
-		return
-	}
-	allowed, err := ensureMentorStudentAccess(r, leadID)
-	if err != nil {
-		http.Error(w, "Failed to verify access", http.StatusInternalServerError)
-		return
-	}
-	if !allowed {
-		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -372,15 +320,6 @@ func GetStudentNotes(w http.ResponseWriter, r *http.Request) {
 	leadID, err := parseStudentID(r.URL.Path)
 	if err != nil {
 		http.Error(w, "Invalid student ID", http.StatusBadRequest)
-		return
-	}
-	allowed, err := ensureMentorStudentAccess(r, leadID)
-	if err != nil {
-		http.Error(w, "Failed to verify access", http.StatusInternalServerError)
-		return
-	}
-	if !allowed {
-		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
