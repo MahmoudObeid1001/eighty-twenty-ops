@@ -33,23 +33,40 @@ export default function StudentProfileModal({ studentId, onClose, onStudentUpdat
         setLoading(true)
         setError(null)
         try {
-            const [profileData, historyData, statusData, notesData, me] = await Promise.all([
+            const me = await api.getMe()
+            const role = me.role || ''
+            const [profileResult, historyResult, statusResult, notesResult, paymentsResult] = await Promise.allSettled([
                 api.getStudentProfile(studentId),
                 api.getStudentHistory(studentId),
                 api.getStudentCurrentStatus(studentId),
                 api.getStudentNotes(studentId),
-                api.getMe(),
+                role === 'admin' || role === 'manager'
+                    ? api.getStudentPaymentHistory(studentId)
+                    : Promise.resolve([] as StudentPaymentHistoryItem[]),
             ])
-            const role = me.role || ''
-            const paymentsData = role === 'admin' || role === 'manager'
-                ? await api.getStudentPaymentHistory(studentId)
-                : []
 
-            setProfile(profileData)
-            setHistory(historyData || [])
-            setCurrentStatus(statusData)
-            setNotes(notesData || [])
-            setPaymentHistory(paymentsData || [])
+            if (profileResult.status !== 'fulfilled') {
+                throw profileResult.reason
+            }
+
+            if (historyResult.status !== 'fulfilled') {
+                console.warn('Student history failed to load:', historyResult.reason)
+            }
+            if (statusResult.status !== 'fulfilled') {
+                console.warn('Student current status failed to load:', statusResult.reason)
+            }
+            if (notesResult.status !== 'fulfilled') {
+                console.warn('Student notes failed to load:', notesResult.reason)
+            }
+            if (paymentsResult.status !== 'fulfilled') {
+                console.warn('Student payment history failed to load:', paymentsResult.reason)
+            }
+
+            setProfile(profileResult.value)
+            setHistory(historyResult.status === 'fulfilled' ? (historyResult.value || []) : [])
+            setCurrentStatus(statusResult.status === 'fulfilled' ? statusResult.value : null)
+            setNotes(notesResult.status === 'fulfilled' ? (notesResult.value || []) : [])
+            setPaymentHistory(paymentsResult.status === 'fulfilled' ? (paymentsResult.value || []) : [])
             setUserRole(role)
         } catch (err) {
             console.error('Failed to load student data:', err)
