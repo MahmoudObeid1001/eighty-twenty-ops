@@ -83,6 +83,50 @@ func TestCreateLandingLead(t *testing.T) {
 		}
 	})
 
+	t.Run("stores private course metadata in notes", func(t *testing.T) {
+		phone := uniquePhone(nowSuffix, 94)
+		payload := map[string]string{
+			"full_name":        "Private Courses Lead",
+			"whatsapp_number":  phone,
+			"learning_goal":    "الشغل والترقي",
+			"source":           "private_courses",
+			"current_job":      "Marketing Specialist",
+			"current_level":    "B1",
+			"english_need":     "Interview prep",
+			"selected_package": "2",
+		}
+		raw, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/api/public/landing-leads", bytes.NewReader(raw))
+		req.Header.Set("X-Landing-Lead-Token", cfg.LandingLeadToken)
+		res := httptest.NewRecorder()
+
+		h.CreateLandingLead(res, req)
+
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, res.Code, res.Body.String())
+		}
+		var leadID string
+		var source, notes sql.NullString
+		if err := db.DB.QueryRow(`
+			SELECT id, source, notes
+			FROM leads
+			WHERE phone = $1
+		`, phone).Scan(&leadID, &source, &notes); err != nil {
+			t.Fatalf("failed to load created lead: %v", err)
+		}
+		t.Cleanup(func() {
+			mustExec(t, `DELETE FROM leads WHERE id = $1`, leadID)
+		})
+
+		if !source.Valid || source.String != "Landing Page" {
+			t.Fatalf("expected Landing Page source, got %q", source.String)
+		}
+		wantNotes := "Landing page signup\nLearning goal: الشغل والترقي\nLanding source: private_courses\nCurrent job: Marketing Specialist\nCurrent level: B1\nEnglish need: Interview prep\nSelected package: 2"
+		if !notes.Valid || notes.String != wantNotes {
+			t.Fatalf("expected private course notes %q, got %q", wantNotes, notes.String)
+		}
+	})
+
 	t.Run("rejects missing learning goal", func(t *testing.T) {
 		phone := uniquePhone(nowSuffix, 91)
 		body := bytes.NewBufferString(fmt.Sprintf(`{"full_name":"Landing Missing Goal","whatsapp_number":%q}`, phone))
