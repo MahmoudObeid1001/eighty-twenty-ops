@@ -1900,7 +1900,7 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 	// Get lead
 	lead := &Lead{}
 	err := db.DB.QueryRow(`
-		SELECT id, full_name, gender, phone, source, notes, status, ops_queue_reason, mentor_head_return_reason,
+		SELECT id, full_name, gender, phone, source, notes, landing_source, current_job, current_level, english_need, selected_package, status, ops_queue_reason, mentor_head_return_reason,
 		       new_lead_contacted_at, new_lead_contacted_by_user_id, new_lead_contacted_status,
 		       landing_page_contacted_at, landing_page_contacted_by_user_id, landing_page_contacted_status,
 		       sent_to_classes, levels_purchased_total, levels_consumed, remaining_credits,
@@ -1908,7 +1908,7 @@ func GetLeadByID(id uuid.UUID) (*LeadDetail, error) {
 		FROM leads
 		WHERE id = $1
 	`, id).Scan(
-		&lead.ID, &lead.FullName, &lead.Gender, &lead.Phone, &lead.Source, &lead.Notes, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
+		&lead.ID, &lead.FullName, &lead.Gender, &lead.Phone, &lead.Source, &lead.Notes, &lead.LandingSource, &lead.CurrentJob, &lead.CurrentLevel, &lead.EnglishNeed, &lead.SelectedPackage, &lead.Status, &lead.OpsQueueReason, &lead.MentorHeadReturnReason,
 		&lead.NewLeadContactedAt, &lead.NewLeadContactedBy, &lead.NewLeadContactedStatus,
 		&lead.LandingPageContactedAt, &lead.LandingPageContactedBy, &lead.LandingPageContactedStatus,
 		&lead.SentToClasses, &lead.LevelsPurchasedTotal, &lead.LevelsConsumed, &lead.RemainingCredits,
@@ -2070,6 +2070,50 @@ func CreateLead(fullName, gender, phone, source, notes, createdByUserID string) 
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}, nil
+}
+
+func CreateLandingLeadWithMetadata(fullName, phone, notes, landingSource, currentJob, currentLevel, englishNeed, selectedPackage string) (*Lead, error) {
+	lead, err := CreateLead(fullName, "", phone, "Landing Page", notes, "")
+	if err != nil {
+		return nil, err
+	}
+
+	var landingSourceVal, currentJobVal, currentLevelVal, englishNeedVal, selectedPackageVal sql.NullString
+	if v := strings.TrimSpace(landingSource); v != "" {
+		landingSourceVal = sql.NullString{String: v, Valid: true}
+	}
+	if v := strings.TrimSpace(currentJob); v != "" {
+		currentJobVal = sql.NullString{String: v, Valid: true}
+	}
+	if v := strings.TrimSpace(currentLevel); v != "" {
+		currentLevelVal = sql.NullString{String: v, Valid: true}
+	}
+	if v := strings.TrimSpace(englishNeed); v != "" {
+		englishNeedVal = sql.NullString{String: v, Valid: true}
+	}
+	if v := strings.TrimSpace(selectedPackage); v != "" {
+		selectedPackageVal = sql.NullString{String: v, Valid: true}
+	}
+
+	if _, err := db.DB.Exec(`
+		UPDATE leads
+		SET landing_source = $2,
+		    current_job = $3,
+		    current_level = $4,
+		    english_need = $5,
+		    selected_package = $6,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, lead.ID, landingSourceVal, currentJobVal, currentLevelVal, englishNeedVal, selectedPackageVal); err != nil {
+		return nil, fmt.Errorf("failed to save landing lead metadata: %w", err)
+	}
+
+	lead.LandingSource = landingSourceVal
+	lead.CurrentJob = currentJobVal
+	lead.CurrentLevel = currentLevelVal
+	lead.EnglishNeed = englishNeedVal
+	lead.SelectedPackage = selectedPackageVal
+	return lead, nil
 }
 
 func UpdateLeadDetail(detail *LeadDetail) error {

@@ -106,12 +106,12 @@ func TestCreateLandingLead(t *testing.T) {
 			t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, res.Code, res.Body.String())
 		}
 		var leadID string
-		var source, notes sql.NullString
+		var source, notes, landingSource, currentJob, currentLevel, englishNeed, selectedPackage sql.NullString
 		if err := db.DB.QueryRow(`
-			SELECT id, source, notes
+			SELECT id, source, notes, landing_source, current_job, current_level, english_need, selected_package
 			FROM leads
 			WHERE phone = $1
-		`, phone).Scan(&leadID, &source, &notes); err != nil {
+		`, phone).Scan(&leadID, &source, &notes, &landingSource, &currentJob, &currentLevel, &englishNeed, &selectedPackage); err != nil {
 			t.Fatalf("failed to load created lead: %v", err)
 		}
 		t.Cleanup(func() {
@@ -124,6 +124,21 @@ func TestCreateLandingLead(t *testing.T) {
 		wantNotes := "Landing page signup\nLearning goal: الشغل والترقي\nLanding source: private_courses\nCurrent job: Marketing Specialist\nCurrent level: B1\nEnglish need: Interview prep\nSelected package: 2"
 		if !notes.Valid || notes.String != wantNotes {
 			t.Fatalf("expected private course notes %q, got %q", wantNotes, notes.String)
+		}
+		if !landingSource.Valid || landingSource.String != "private_courses" {
+			t.Fatalf("expected landing_source private_courses, got %q", landingSource.String)
+		}
+		if !currentJob.Valid || currentJob.String != "Marketing Specialist" {
+			t.Fatalf("expected current_job Marketing Specialist, got %q", currentJob.String)
+		}
+		if !currentLevel.Valid || currentLevel.String != "B1" {
+			t.Fatalf("expected current_level B1, got %q", currentLevel.String)
+		}
+		if !englishNeed.Valid || englishNeed.String != "Interview prep" {
+			t.Fatalf("expected english_need Interview prep, got %q", englishNeed.String)
+		}
+		if !selectedPackage.Valid || selectedPackage.String != "2" {
+			t.Fatalf("expected selected_package 2, got %q", selectedPackage.String)
 		}
 	})
 

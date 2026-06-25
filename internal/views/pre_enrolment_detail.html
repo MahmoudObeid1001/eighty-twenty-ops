@@ -462,6 +462,36 @@
                     style="direction: rtl; text-align: right; unicode-bidi: plaintext;"
                     placeholder="Internal notes about this lead...">{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
             </div>
+
+            {{if or .Detail.Lead.LandingSource.Valid .Detail.Lead.CurrentJob.Valid .Detail.Lead.CurrentLevel.Valid .Detail.Lead.EnglishNeed.Valid .Detail.Lead.SelectedPackage.Valid}}
+            <div style="margin-top: 18px; padding: 16px; border: 1px solid #E0E0E0; border-radius: 6px; background: #FAFAFA;">
+                <h3 style="margin: 0 0 12px 0; font-size: 16px;">Private Courses Details</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Landing Source</label>
+                        <input type="text" value="{{if .Detail.Lead.LandingSource.Valid}}{{.Detail.Lead.LandingSource.String}}{{end}}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Current Job</label>
+                        <input type="text" value="{{if .Detail.Lead.CurrentJob.Valid}}{{.Detail.Lead.CurrentJob.String}}{{end}}" readonly>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Current Level</label>
+                        <input type="text" value="{{if .Detail.Lead.CurrentLevel.Valid}}{{.Detail.Lead.CurrentLevel.String}}{{end}}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Selected Package</label>
+                        <input type="text" value="{{if .Detail.Lead.SelectedPackage.Valid}}{{.Detail.Lead.SelectedPackage.String}}{{end}}" readonly>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>English Need</label>
+                    <textarea readonly>{{if .Detail.Lead.EnglishNeed.Valid}}{{.Detail.Lead.EnglishNeed.String}}{{end}}</textarea>
+                </div>
+            </div>
+            {{end}}
         </div>
 
         {{if and (not .IsModerator) (not .IsReadOnly) .CanSnoozeLead}}

@@ -87,7 +87,16 @@ func (h *APIHandler) CreateLandingLead(w http.ResponseWriter, r *http.Request) {
 	if selectedPackage := strings.TrimSpace(req.SelectedPackage); selectedPackage != "" {
 		notes = fmt.Sprintf("%s\nSelected package: %s", notes, selectedPackage)
 	}
-	lead, err := models.CreateLead(fullName, "", phone, "Landing Page", notes, "")
+	lead, err := models.CreateLandingLeadWithMetadata(
+		fullName,
+		phone,
+		notes,
+		strings.TrimSpace(req.Source),
+		strings.TrimSpace(req.CurrentJob),
+		strings.TrimSpace(req.CurrentLevel),
+		strings.TrimSpace(req.EnglishNeed),
+		strings.TrimSpace(req.SelectedPackage),
+	)
 	if err != nil {
 		var phoneErr *models.PhoneAlreadyExistsError
 		if errors.As(err, &phoneErr) || models.IsPhoneConstraintError(err) != nil {
