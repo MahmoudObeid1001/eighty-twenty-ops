@@ -463,9 +463,19 @@
                     placeholder="Internal notes about this lead...">{{if .Detail.Lead.Notes.Valid}}{{.Detail.Lead.Notes.String}}{{end}}</textarea>
             </div>
 
-            {{if or .Detail.Lead.LandingSource.Valid .Detail.Lead.CurrentJob.Valid .Detail.Lead.CurrentLevel.Valid .Detail.Lead.EnglishNeed.Valid .Detail.Lead.SelectedPackage.Valid}}
+            {{if or .Detail.Lead.LandingLearningGoal.Valid .Detail.Lead.LandingEnglishLevel.Valid .Detail.Lead.LandingSource.Valid .Detail.Lead.CurrentJob.Valid .Detail.Lead.CurrentLevel.Valid .Detail.Lead.EnglishNeed.Valid .Detail.Lead.SelectedPackage.Valid}}
             <div style="margin-top: 18px; padding: 16px; border: 1px solid #E0E0E0; border-radius: 6px; background: #FAFAFA;">
-                <h3 style="margin: 0 0 12px 0; font-size: 16px;">Private Courses Details</h3>
+                <h3 style="margin: 0 0 12px 0; font-size: 16px;">Landing Page Details</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Learning Goal</label>
+                        <input type="text" value="{{if .Detail.Lead.LandingLearningGoal.Valid}}{{.Detail.Lead.LandingLearningGoal.String}}{{end}}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>English Level</label>
+                        <input type="text" value="{{if .Detail.Lead.LandingEnglishLevel.Valid}}{{.Detail.Lead.LandingEnglishLevel.String}}{{end}}" readonly>
+                    </div>
+                </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label>Landing Source</label>

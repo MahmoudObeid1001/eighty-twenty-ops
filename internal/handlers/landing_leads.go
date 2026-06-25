@@ -4,7 +4,6 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,14 +11,14 @@ import (
 )
 
 type landingLeadRequest struct {
-	FullName       string `json:"full_name"`
-	WhatsAppNumber string `json:"whatsapp_number"`
-	EnglishLevel   string `json:"english_level"`
-	LearningGoal   string `json:"learning_goal"`
-	Source         string `json:"source"`
-	CurrentJob     string `json:"current_job"`
-	CurrentLevel   string `json:"current_level"`
-	EnglishNeed    string `json:"english_need"`
+	FullName        string `json:"full_name"`
+	WhatsAppNumber  string `json:"whatsapp_number"`
+	EnglishLevel    string `json:"english_level"`
+	LearningGoal    string `json:"learning_goal"`
+	Source          string `json:"source"`
+	CurrentJob      string `json:"current_job"`
+	CurrentLevel    string `json:"current_level"`
+	EnglishNeed     string `json:"english_need"`
 	SelectedPackage string `json:"selected_package"`
 }
 
@@ -68,29 +67,13 @@ func (h *APIHandler) CreateLandingLead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	notes := fmt.Sprintf("Landing page signup\nLearning goal: %s", learningGoal)
-	if level != "" {
-		notes = fmt.Sprintf("%s\nEnglish level: %s", notes, level)
-	}
-	if source := strings.TrimSpace(req.Source); source != "" {
-		notes = fmt.Sprintf("%s\nLanding source: %s", notes, source)
-	}
-	if currentJob := strings.TrimSpace(req.CurrentJob); currentJob != "" {
-		notes = fmt.Sprintf("%s\nCurrent job: %s", notes, currentJob)
-	}
-	if currentLevel := strings.TrimSpace(req.CurrentLevel); currentLevel != "" {
-		notes = fmt.Sprintf("%s\nCurrent level: %s", notes, currentLevel)
-	}
-	if englishNeed := strings.TrimSpace(req.EnglishNeed); englishNeed != "" {
-		notes = fmt.Sprintf("%s\nEnglish need: %s", notes, englishNeed)
-	}
-	if selectedPackage := strings.TrimSpace(req.SelectedPackage); selectedPackage != "" {
-		notes = fmt.Sprintf("%s\nSelected package: %s", notes, selectedPackage)
-	}
+	notes := "Landing page signup"
 	lead, err := models.CreateLandingLeadWithMetadata(
 		fullName,
 		phone,
 		notes,
+		learningGoal,
+		level,
 		strings.TrimSpace(req.Source),
 		strings.TrimSpace(req.CurrentJob),
 		strings.TrimSpace(req.CurrentLevel),

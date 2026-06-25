@@ -27,6 +27,8 @@ type Lead struct {
 	Phone                      string
 	Source                     sql.NullString
 	Notes                      sql.NullString
+	LandingLearningGoal        sql.NullString
+	LandingEnglishLevel        sql.NullString
 	LandingSource              sql.NullString
 	CurrentJob                 sql.NullString
 	CurrentLevel               sql.NullString
