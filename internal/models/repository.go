@@ -2579,39 +2579,32 @@ func GetLatestRenewalRefusal(leadID uuid.UUID) (*RenewalRefusal, error) {
 	return item, nil
 }
 
-// UpdateLeadPurchasedLevels updates levels_purchased_total for a lead.
-// For returning students, levels_consumed is cumulative across history, so we store
-// a cumulative purchase target (levels_consumed + newly purchased levels) to preserve
-// the invariant: remaining_credits = levels_purchased_total - levels_consumed.
-func UpdateLeadPurchasedLevels(leadID uuid.UUID, levels int32) error {
-	var levelsConsumed int32
-	var isReturning bool
-	err := db.DB.QueryRow(`
-		SELECT COALESCE(levels_consumed, 0), COALESCE(is_returning, false)
-		FROM leads
-		WHERE id = $1
-	`, leadID).Scan(&levelsConsumed, &isReturning)
-	if err != nil {
-		return fmt.Errorf("failed to read lead consumption state: %w", err)
-	}
-
-	targetPurchased := levels
+func purchasedTargetForPaymentCycle(isReturning bool, cycleBaseline, bundleLevels int32) int32 {
 	if isReturning {
-		targetPurchased = levelsConsumed + levels
+		return cycleBaseline + bundleLevels
+	}
+	return bundleLevels
+}
+
+func paymentCycleFullyFunded(totalPaid, finalPrice int32) bool {
+	return finalPrice > 0 && totalPaid >= finalPrice
+}
+
+func setLeadPurchasedTarget(leadID uuid.UUID, targetPurchased int32) error {
+	if targetPurchased < 0 {
+		return fmt.Errorf("invalid purchased-level target")
 	}
 
-	_, err = db.DB.Exec(`
+	_, err := db.DB.Exec(`
 		UPDATE leads
 		SET levels_purchased_total = $1,
 		    remaining_credits = GREATEST($1 - COALESCE(levels_consumed, 0), 0),
 		    updated_at = NOW()
 		WHERE id = $2
 	`, targetPurchased, leadID)
-
 	if err != nil {
-		return fmt.Errorf("failed to update levels_purchased_total: %w", err)
+		return fmt.Errorf("failed to set levels_purchased_total: %w", err)
 	}
-
 	return nil
 }
 
@@ -5619,25 +5612,69 @@ func CalculateLevelsPurchased(bundleLevels sql.NullInt32, totalPaid int32) (leve
 
 // UpdateLeadCreditsFromPayments updates lead's levels_purchased_total and bundle_type based on payments
 func UpdateLeadCreditsFromPayments(leadID uuid.UUID, bundleLevels sql.NullInt32) error {
-	payments, err := GetLeadPayments(leadID)
-	if err != nil {
-		return err
+	if !bundleLevels.Valid || bundleLevels.Int32 <= 0 {
+		return fmt.Errorf("bundle selection is required to update credits")
 	}
 
-	var totalPaid int32 = 0
-	for _, p := range payments {
-		totalPaid += p.Amount
+	var isReturning bool
+	if err := db.DB.QueryRow(`
+		SELECT COALESCE(is_returning, false)
+		FROM leads
+		WHERE id = $1
+	`, leadID).Scan(&isReturning); err != nil {
+		return fmt.Errorf("failed to read lead payment state: %w", err)
 	}
 
-	levelsPurchased, bundleType := CalculateLevelsPurchased(bundleLevels, totalPaid)
-
-	if levelsPurchased.Valid {
-		if err := UpdateLeadPurchasedLevels(leadID, levelsPurchased.Int32); err != nil {
+	var totalPaid, finalPrice, cycleBaseline int32
+	if isReturning {
+		cycle, err := GetActivePaymentCycle(leadID)
+		if err != nil {
 			return err
+		}
+		if cycle == nil {
+			return fmt.Errorf("active payment cycle is required to update renewal credits")
+		}
+		if cycle.BundleLevels != bundleLevels.Int32 {
+			return fmt.Errorf("payment-cycle bundle does not match the selected bundle")
+		}
+		totalPaid, err = GetTotalCoursePaidCurrentCycle(leadID)
+		if err != nil {
+			return err
+		}
+		finalPrice = cycle.FinalPrice
+		cycleBaseline = cycle.ConsumedBaseline
+	} else {
+		var err error
+		totalPaid, err = GetTotalCoursePaid(leadID)
+		if err != nil {
+			return err
+		}
+		if err := db.DB.QueryRow(`
+			SELECT COALESCE(final_price, 0)
+			FROM offers
+			WHERE lead_id = $1
+		`, leadID).Scan(&finalPrice); err != nil {
+			return fmt.Errorf("failed to read offer final price: %w", err)
 		}
 	}
 
-	_, err = db.DB.Exec(`
+	levelsPurchased, bundleType := CalculateLevelsPurchased(bundleLevels, totalPaid)
+	if !levelsPurchased.Valid {
+		return fmt.Errorf("invalid bundle selection")
+	}
+
+	// Deposits are money received, not prepaid level entitlement. Grant the
+	// bundle only after the current offer/payment cycle is fully funded.
+	if !paymentCycleFullyFunded(totalPaid, finalPrice) {
+		return nil
+	}
+
+	targetPurchased := purchasedTargetForPaymentCycle(isReturning, cycleBaseline, levelsPurchased.Int32)
+	if err := setLeadPurchasedTarget(leadID, targetPurchased); err != nil {
+		return err
+	}
+
+	_, err := db.DB.Exec(`
 		UPDATE leads SET 
 			bundle_type = $1,
 			updated_at = $2

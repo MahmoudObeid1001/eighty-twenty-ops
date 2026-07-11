@@ -5236,9 +5236,11 @@ func (h *PreEnrolmentHandler) SaveFull(w http.ResponseWriter, r *http.Request) {
 		if !bundleLevels.Valid && existingDetail.Offer != nil && existingDetail.Offer.BundleLevels.Valid {
 			bundleLevels = existingDetail.Offer.BundleLevels
 		}
-		if !bundleLevels.Valid && existingDetail.Lead.LevelsPurchasedTotal.Valid && existingDetail.Lead.LevelsPurchasedTotal.Int32 > 0 {
-			bundleLevels = sql.NullInt32{Int32: existingDetail.Lead.LevelsPurchasedTotal.Int32, Valid: true}
-		}
+		// Never use levels_purchased_total as the current bundle size. It is a
+		// cumulative lifetime counter, so using it for a renewal can manufacture
+		// credits (for example: 2 consumed + the old cumulative value 2 = 4).
+		// Renewal payments must be backed by the bundle selected on the current
+		// offer/payment cycle.
 
 		// For returning-cycle payments, lock/initialize cycle BEFORE validation totals
 		// so the first payment is counted in this cycle on subsequent attempts.
