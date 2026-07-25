@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+
 interface MentorRoundReportProps {
   report: {
     mentorName: string
@@ -55,6 +57,10 @@ function normalizeSessionQualityBySession(values: number[] | undefined): number[
 export default function MentorRoundReport({ report, onClose }: MentorRoundReportProps) {
   const generatedDate = new Date(report.generatedAt).toLocaleDateString()
   const sessionQualityBySession = normalizeSessionQualityBySession(report.manual.sessionQualityBySession)
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 })
+  }, [])
 
   function handlePrint() {
     const logoSrc = `${window.location.origin}/static/logo/eighty-twenty-logo.png`
@@ -198,21 +204,46 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
   return (
     <div className="mentor-report-root">
       <style>{`
-        .mentor-report-root { background: #f3f5f7; min-height: 100vh; padding: 16px; }
-        .mentor-report-shell { max-width: 940px; margin: 0 auto; }
-        .mentor-report-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
-        .mentor-report-btn { border: 1px solid #cbd5e1; background: white; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
-        .mentor-report-page { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; }
-        .mentor-report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }
+        .mentor-report-root { background: #f3f5f7; min-height: 100vh; min-width: 0; width: 100%; padding: 16px; }
+        .mentor-report-shell { max-width: 940px; min-width: 0; margin: 0 auto; }
+        .mentor-report-toolbar { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .mentor-report-btn { min-height: 44px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
+        .mentor-report-page { min-width: 0; background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; }
+        .mentor-report-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }
+        .mentor-report-header-copy { min-width: 0; overflow-wrap: anywhere; }
         .mentor-report-logo { width: 74px; height: auto; }
         .mentor-report-score { text-align: center; margin: 10px 0 14px; padding: 12px; border-radius: 10px; background: #eef6ff; border: 1px solid #bfdbfe; }
         .mentor-report-score-value { font-size: 40px; line-height: 1; font-weight: 800; color: #1e293b; }
-        .mentor-report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
-        .mentor-report-metric-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; color: #334155; }
+        .mentor-report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 10px; }
+        .mentor-report-metric-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin-bottom: 4px; color: #334155; }
+        .mentor-report-metric-head strong { flex: 0 0 auto; }
         .mentor-report-metric-bar { height: 12px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+        .mentor-report-evidence-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .mentor-report-evidence { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
         .mentor-report-evidence th, .mentor-report-evidence td { border: 1px solid #cbd5e1; padding: 6px; text-align: center; }
         .mentor-report-evidence th:first-child, .mentor-report-evidence td:first-child { text-align: left; font-weight: 700; background: #f8fafc; }
+        .mentor-report-evidence-cards { display: none; }
+        @media (max-width: 640px) {
+          .mentor-report-root { min-height: 0; padding: 0; background: transparent; }
+          .mentor-report-toolbar { display: grid; grid-template-columns: 1fr 1fr; }
+          .mentor-report-btn { width: 100%; padding-inline: 10px; }
+          .mentor-report-page { padding: 14px; }
+          .mentor-report-header { align-items: flex-start; gap: 12px; }
+          .mentor-report-logo { width: 54px; flex: 0 0 auto; }
+          .mentor-report-header-copy { font-size: 14px; line-height: 1.5; }
+          .mentor-report-score-value { font-size: 34px; }
+          .mentor-report-evidence-wrap { display: none; }
+          .mentor-report-evidence-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+          .mentor-report-evidence-card { min-width: 0; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }
+          .mentor-report-evidence-session { margin-bottom: 7px; font-size: 12px; font-weight: 800; color: #334155; }
+          .mentor-report-evidence-value { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+          .mentor-report-evidence-value + .mentor-report-evidence-value { margin-top: 4px; }
+        }
+        @media (max-width: 360px) {
+          .mentor-report-toolbar { grid-template-columns: 1fr; }
+          .mentor-report-header { flex-direction: column; }
+          .mentor-report-evidence-cards { grid-template-columns: 1fr; }
+        }
       `}</style>
 
       <div className="mentor-report-shell">
@@ -224,7 +255,7 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
         <div className="mentor-report-page">
           <div className="mentor-report-header">
             <img className="mentor-report-logo" src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" />
-            <div>
+            <div className="mentor-report-header-copy">
               <div><strong>Mentor:</strong> {report.mentorName} ({report.mentorEmail})</div>
               <div><strong>Class:</strong> Level {report.level} | {report.days} | {report.time} | Class #{report.classNumber}</div>
               <div><strong>Round:</strong> {report.roundStatus.toUpperCase()}</div>
@@ -271,35 +302,53 @@ export default function MentorRoundReport({ report, onClose }: MentorRoundReport
             ))}
           </div>
 
-          <table className="mentor-report-evidence">
-            <thead>
-              <tr>
-                <th>Evidence</th>
-                <th>S1</th>
-                <th>S2</th>
-                <th>S3</th>
-                <th>S4</th>
-                <th>S5</th>
-                <th>S6</th>
-                <th>S7</th>
-                <th>S8</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Session Quality (Manual)</td>
-                {sessionQualityBySession.map((score, index) => (
-                  <td key={index}>{score > 0 ? `${score}/10` : '-'}</td>
-                ))}
-              </tr>
-              <tr>
-                <td>Trello Session Checks</td>
-                {new Array(8).fill(false).map((_, index) => (
-                  <td key={index}>{report.manual.trelloSessionChecks[index] ? 'OK' : '-'}</td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+          <div className="mentor-report-evidence-wrap">
+            <table className="mentor-report-evidence">
+              <thead>
+                <tr>
+                  <th>Evidence</th>
+                  <th>S1</th>
+                  <th>S2</th>
+                  <th>S3</th>
+                  <th>S4</th>
+                  <th>S5</th>
+                  <th>S6</th>
+                  <th>S7</th>
+                  <th>S8</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Session Quality (Manual)</td>
+                  {sessionQualityBySession.map((score, index) => (
+                    <td key={index}>{score > 0 ? `${score}/10` : '-'}</td>
+                  ))}
+                </tr>
+                <tr>
+                  <td>Trello Session Checks</td>
+                  {new Array(8).fill(false).map((_, index) => (
+                    <td key={index}>{report.manual.trelloSessionChecks[index] ? 'OK' : '-'}</td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mentor-report-evidence-cards" aria-label="Session evidence">
+            {sessionQualityBySession.map((score, index) => (
+              <div className="mentor-report-evidence-card" key={`mobile-evidence-${index}`}>
+                <div className="mentor-report-evidence-session">Session {index + 1}</div>
+                <div className="mentor-report-evidence-value">
+                  <span>Quality</span>
+                  <strong>{score > 0 ? `${score}/10` : '-'}</strong>
+                </div>
+                <div className="mentor-report-evidence-value">
+                  <span>Trello</span>
+                  <strong>{report.manual.trelloSessionChecks[index] ? 'OK' : '-'}</strong>
+                </div>
+              </div>
+            ))}
+          </div>
 
           <div style={{ marginTop: '12px' }}>
             <div style={{ marginBottom: '6px', fontSize: '13px', color: '#555' }}>Attendance by Session (Auto)</div>

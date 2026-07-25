@@ -63,7 +63,7 @@ export default function MentorDashboard() {
           <p style={{ color: '#666' }}>No classes assigned yet.</p>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+        <div className="responsive-card-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))', gap: '20px' }}>
           {classes.map((cls) => (
             <div
               key={cls.class_key}

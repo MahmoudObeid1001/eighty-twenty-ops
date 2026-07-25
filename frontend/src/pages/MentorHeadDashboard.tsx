@@ -522,7 +522,7 @@ export default function MentorHeadDashboard() {
                 <h2 style={{ fontSize: '20px', marginBottom: '16px', color: '#333' }}>
                   {group.mentor_email || 'Unassigned'}
                 </h2>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+                <div className="responsive-card-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(320px, 100%), 1fr))', gap: '16px' }}>
                   {group.classes.map((cls) => (
                     <div
                       key={cls.class_key}
@@ -843,7 +843,7 @@ export default function MentorHeadDashboard() {
 
                 {!collapsedMentors.has(group.mentor.email) && (
                   <div style={{ padding: '20px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                    <div className="responsive-card-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))', gap: '16px' }}>
                       {group.classes.map((cls: any) => (
                         <div
                           key={cls.class_key}

@@ -92,7 +92,13 @@ body {
 /* Main Content */
 .main-content {
     flex: 1;
+    min-width: 0;
     padding: 30px 40px;
+}
+
+.main-content > * {
+    min-width: 0;
+    max-width: 100%;
 }
 
 /* Header (main content: logo + page title) */
@@ -606,6 +612,12 @@ table tbody tr.row-cancelled:hover {
 
 /* Responsive */
 @media (max-width: 768px) {
+    html,
+    body {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
     .container {
         flex-direction: column;
     }
@@ -614,7 +626,7 @@ table tbody tr.row-cancelled:hover {
         display: flex !important;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 16px;
+        padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
         background-color: #f7f9fb;
         border-bottom: 2px solid #2FA4C7;
         position: sticky;
@@ -645,6 +657,8 @@ table tbody tr.row-cancelled:hover {
     
     .mobile-header .hamburger-btn {
         display: flex !important;
+        width: 44px;
+        height: 44px;
         background: none;
         border: none;
         font-size: 28px;
@@ -652,7 +666,7 @@ table tbody tr.row-cancelled:hover {
         color: #333;
         align-items: center;
         justify-content: center;
-        padding: 4px;
+        padding: 10px;
     }
 
     .sidebar {
@@ -720,11 +734,34 @@ table tbody tr.row-cancelled:hover {
     }
 
     .main-content {
-        padding: 16px;
+        padding: 16px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
         width: 100%;
         max-width: 100vw;
         box-sizing: border-box;
         overflow-x: hidden;
+    }
+
+    .main-content h1,
+    .main-content h2,
+    .main-content h3,
+    .main-content p,
+    .main-content a,
+    .main-content td,
+    .main-content th {
+        overflow-wrap: anywhere;
+    }
+
+    .main-content input:not([type="checkbox"]):not([type="radio"]),
+    .main-content select,
+    .main-content textarea {
+        min-height: 44px;
+        max-width: 100%;
+        font-size: 16px;
+    }
+
+    .main-content button,
+    .main-content .btn {
+        min-height: 44px;
     }
 
     .header {
@@ -740,8 +777,11 @@ table tbody tr.row-cancelled:hover {
     }
 
     .main-content .content-header .app-logo {
-        max-height: 3.2em;
-        margin-right: 10px;
+        display: none;
+    }
+
+    .main-content .content-header {
+        justify-content: flex-start;
     }
 
     .workspace-tabs {
@@ -807,12 +847,37 @@ table tbody tr.row-cancelled:hover {
     }
 
     .pre-enrolment-detail-header {
+        flex-direction: column;
         align-items: flex-start !important;
+        width: 100%;
     }
 
     .pre-enrolment-detail-header-left {
+        width: 100%;
         flex-wrap: wrap;
         row-gap: 6px;
+    }
+
+    .pre-enrolment-detail-header-left .app-logo {
+        width: 48px !important;
+        max-width: 48px !important;
+        margin-right: 0 !important;
+    }
+
+    .pre-enrolment-detail-actions {
+        width: 100%;
+        justify-content: flex-start !important;
+        align-items: stretch !important;
+    }
+
+    .pre-enrolment-detail-actions > .btn {
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        min-height: 44px;
+        text-align: center;
+        white-space: normal;
     }
 
     .pre-enrolment-status-banner {
@@ -917,6 +982,89 @@ table tbody tr.row-cancelled:hover {
         width: 100%;
     }
 
+    .pre-enrolment-tabs {
+        width: 100%;
+    }
+
+    .pre-enrolment-tab-btn {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 44px;
+    }
+
+    #pre-enrolment-form,
+    .pre-enrolment-tab-panel,
+    .pre-enrolment-tab-panel fieldset {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    #pre-enrolment-form .form-section,
+    .pre-enrolment-tab-panel .form-section {
+        min-width: 0;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+
+    #pre-enrolment-form .form-section h2,
+    .pre-enrolment-tab-panel .form-section h2 {
+        font-size: 18px;
+        line-height: 1.35;
+    }
+
+    #pre-enrolment-form .form-group,
+    .pre-enrolment-tab-panel .form-group {
+        min-width: 0;
+        margin-bottom: 16px;
+    }
+
+    #pre-enrolment-form input,
+    #pre-enrolment-form select,
+    #pre-enrolment-form textarea,
+    .pre-enrolment-tab-panel input,
+    .pre-enrolment-tab-panel select,
+    .pre-enrolment-tab-panel textarea {
+        min-height: 44px;
+        max-width: 100%;
+        font-size: 16px;
+    }
+
+    .pre-enrolment-history-table {
+        display: block;
+        max-width: 100%;
+        min-width: 0;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .pre-enrolment-history-table thead,
+    .pre-enrolment-history-table tbody {
+        display: table;
+        width: 620px;
+        table-layout: fixed;
+    }
+
+    .pre-enrolment-summary-table {
+        table-layout: fixed;
+    }
+
+    .pre-enrolment-summary-table td {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .action-buttons .btn {
+        width: 100%;
+        min-height: 44px;
+        text-align: center;
+        white-space: normal;
+    }
+
     .action-column {
         white-space: normal;
     }
@@ -990,6 +1138,7 @@ table tbody tr.row-cancelled:hover {
     
     .form-row {
         grid-template-columns: 1fr;
+        gap: 0;
     }
 }
 

@@ -54,7 +54,7 @@
         {{end}}
         {{end}}
     </div>
-    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
+    <div class="pre-enrolment-detail-actions" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
         {{if .IsPrivateTrack}}
         <span
             style="background-color: #0d6efd; color: white; padding: 8px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.4px;">
@@ -374,7 +374,7 @@
 </div>
 {{end}}
 
-<div style="display: flex; gap: 10px; margin-bottom: 18px; border-bottom: 1px solid #E5E7EB;">
+<div class="pre-enrolment-tabs" style="display: flex; gap: 10px; margin-bottom: 18px; border-bottom: 1px solid #E5E7EB;">
     <button type="button" class="pre-enrolment-tab-btn is-active" data-panel="student-card-panel"
         onclick="switchPreEnrolmentTab('student-card-panel', this)"
         style="background: transparent; border: 0; border-bottom: 3px solid #0EA5E9; padding: 12px 4px; margin-bottom: -1px; font-weight: 700; color: #0EA5E9; cursor: pointer;">
@@ -1070,7 +1070,7 @@
             <!-- Payment Summary (Read-only) -->
             <div style="margin-bottom: 20px; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
                 <h3 style="margin-top: 0; font-size: 16px;">Payment Summary</h3>
-                <table style="width: 100%; font-size: 14px;">
+                <table class="pre-enrolment-summary-table" style="width: 100%; font-size: 14px;">
                     <tr>
                         <td style="padding: 8px;"><strong>Offer Final Price:</strong></td>
                         <td style="padding: 8px; text-align: right;">
@@ -1300,7 +1300,7 @@
             {{if .LeadPayments}}
             <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E6E6E6;">
                 <h3 style="margin-top: 0; font-size: 16px;">Payment History (Current Cycle)</h3>
-                <table style="width: 100%; font-size: 14px;">
+                <table class="pre-enrolment-history-table" style="width: 100%; font-size: 14px;">
                     <thead>
                         <tr style="background: #F5F5F5;">
                             <th style="padding: 8px; text-align: left;">Type</th>
@@ -1335,7 +1335,7 @@
             {{if .PreviousLeadPayments}}
             <div style="margin-top: 20px; padding-top: 20px; border-top: 1px dashed #E6E6E6;">
                 <h3 style="margin-top: 0; font-size: 16px; color: #666;">Previous Cycle Payments</h3>
-                <table style="width: 100%; font-size: 14px;">
+                <table class="pre-enrolment-history-table" style="width: 100%; font-size: 14px;">
                     <thead>
                         <tr style="background: #F9F9F9;">
                             <th style="padding: 8px; text-align: left;">Type</th>
@@ -1653,7 +1653,7 @@
 
             <div style="margin: 20px 0; padding: 15px; background-color: #F5F5F5; border-radius: 4px;">
                 <h3 style="margin-top: 0; font-size: 16px;">Payment Summary</h3>
-                <table style="width: 100%; font-size: 14px;">
+                <table class="pre-enrolment-summary-table" style="width: 100%; font-size: 14px;">
                     <tr>
                         <td style="padding: 8px;"><strong>Placement Test Paid:</strong></td>
                         <td style="padding: 8px; text-align: right;">{{.PlacementTestPaid}} EGP</td>

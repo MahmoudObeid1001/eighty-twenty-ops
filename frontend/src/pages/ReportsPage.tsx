@@ -390,7 +390,7 @@ export default function ReportsPage() {
       </div>
 
       {!isManagerDashboard && reportTabs.length > 1 && (
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+        <div className="report-tabs" style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
           {reportTabs.map((tab) => (
             <button
               key={tab.key}
@@ -764,7 +764,7 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
         />
       </ReportPanel>
 
-      <div className="bi-dual-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+      <div className="bi-dual-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: '12px' }}>
         <ReportPanel title="Report 3 · Lost Students (renewal_pending, 0 credits)">
           <SimpleTable
             columns={['Name', 'Phone', 'Last Level', 'Completed']}
@@ -792,7 +792,7 @@ function BIDashboard({ data }: { data: BIReportPayload }) {
         />
       </ReportPanel>
 
-      <div className="bi-dual-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+      <div className="bi-dual-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: '12px' }}>
         <ReportPanel title="Report 4 · Started Learning in Selected Range">
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#1f2937' }}>{data.report4.started_learners} learners</div>
           <div style={{ color: '#6b7280', marginTop: '4px' }}>
@@ -914,7 +914,7 @@ function ManagerOpsView({
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px', marginTop: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: '12px', marginTop: '12px' }}>
             <WeeklyMentorRankingCard
               title="Absent Students Ranking"
               leaders={weekly.absent_students_ranking}
@@ -1214,7 +1214,7 @@ function DailyRankingSection({
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: '12px' }}>
         <WeeklyMentorRankingCard
           title="Absent Students Ranking"
           leaders={absentStudentsRanking}

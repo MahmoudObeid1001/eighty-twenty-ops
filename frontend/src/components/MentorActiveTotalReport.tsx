@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+
 type AttendanceStatus = 'on-time' | 'late' | 'absent' | 'unknown'
 
 interface MentorClassEvaluation {
@@ -64,6 +66,10 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
     (acc, mentor) => acc + mentor.classes.reduce((classAcc, cls) => classAcc + cls.manual.recordedSessionCount, 0),
     0,
   )
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 })
+  }, [])
 
   function handlePrint() {
     const logoSrc = `${window.location.origin}/static/logo/eighty-twenty-logo.png`
@@ -197,11 +203,43 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
   return (
     <div className="mentor-total-report-root">
       <style>{`
-        .mentor-total-report-root { background: #f3f5f7; min-height: 100vh; padding: 16px; }
-        .mentor-total-report-shell { max-width: 1080px; margin: 0 auto; }
-        .mentor-total-report-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
-        .mentor-total-report-btn { border: 1px solid #cbd5e1; background: white; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
-        .mentor-total-report-page { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; }
+        .mentor-total-report-root { background: #f3f5f7; min-height: 100vh; min-width: 0; width: 100%; padding: 16px; }
+        .mentor-total-report-shell { max-width: 1080px; min-width: 0; margin: 0 auto; }
+        .mentor-total-report-toolbar { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .mentor-total-report-btn { min-height: 44px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
+        .mentor-total-report-page { min-width: 0; background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; }
+        .mentor-total-report-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 1px solid #dbe3ef; padding-bottom: 10px; margin-bottom: 12px; }
+        .mentor-total-report-header-copy { min-width: 0; overflow-wrap: anywhere; }
+        .mentor-total-report-mentor { min-width: 0; border: 1px solid #dbe3ef; border-radius: 8px; padding: 10px; }
+        .mentor-total-report-mentor-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .mentor-total-report-mentor-identity { min-width: 0; overflow-wrap: anywhere; }
+        .mentor-total-report-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; align-items: center; }
+        .mentor-total-report-table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .mentor-total-report-class-list { display: none; }
+        @media (max-width: 640px) {
+          .mentor-total-report-root { min-height: 0; padding: 0; background: transparent; }
+          .mentor-total-report-toolbar { display: grid; grid-template-columns: 1fr 1fr; }
+          .mentor-total-report-btn { width: 100%; padding-inline: 10px; }
+          .mentor-total-report-page { padding: 14px; }
+          .mentor-total-report-header { align-items: flex-start; gap: 12px; }
+          .mentor-total-report-header img { width: 54px !important; flex: 0 0 auto; }
+          .mentor-total-report-header-copy { font-size: 14px; line-height: 1.5; }
+          .mentor-total-report-mentor-head { align-items: flex-start; flex-direction: column; }
+          .mentor-total-report-badges { justify-content: flex-start; }
+          .mentor-total-report-table-wrap { display: none; }
+          .mentor-total-report-class-list { display: grid; gap: 8px; }
+          .mentor-total-report-class-card { padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }
+          .mentor-total-report-class-title { margin-bottom: 8px; font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
+          .mentor-total-report-class-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; }
+          .mentor-total-report-class-metric { min-width: 0; }
+          .mentor-total-report-class-label { display: block; color: #64748b; font-size: 11px; }
+          .mentor-total-report-class-value { display: block; margin-top: 1px; color: #0f172a; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+        }
+        @media (max-width: 360px) {
+          .mentor-total-report-toolbar { grid-template-columns: 1fr; }
+          .mentor-total-report-header { flex-direction: column; }
+          .mentor-total-report-class-metrics { grid-template-columns: 1fr; }
+        }
       `}</style>
 
       <div className="mentor-total-report-shell">
@@ -210,9 +248,9 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
           <button className="mentor-total-report-btn" onClick={onClose}>Close</button>
         </div>
         <div className="mentor-total-report-page">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #dbe3ef', paddingBottom: '10px', marginBottom: '12px' }}>
+          <div className="mentor-total-report-header">
             <img src="/static/logo/eighty-twenty-logo.png" alt="Eighty Twenty" style={{ width: '74px' }} />
-            <div>
+            <div className="mentor-total-report-header-copy">
               <div><strong>Mentor Total {scopeLabel} Report</strong></div>
               <div><strong>Scope:</strong> {scopeLabel}</div>
               <div><strong>Date:</strong> {generatedAt}</div>
@@ -233,13 +271,13 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
                 ? Math.round(classScores.reduce((acc, score) => acc + score, 0) / classScores.length)
                 : 0
               return (
-                <div key={mentor.id} style={{ border: '1px solid #dbe3ef', borderRadius: '8px', padding: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '10px' }}>
-                    <div>
+                <div className="mentor-total-report-mentor" key={mentor.id}>
+                  <div className="mentor-total-report-mentor-head">
+                    <div className="mentor-total-report-mentor-identity">
                       <div style={{ fontSize: '18px', fontWeight: 700 }}>{mentor.name}</div>
                       <div style={{ color: '#475569', fontSize: '12px' }}>{mentor.email}</div>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <div className="mentor-total-report-badges">
                       <span style={{ borderRadius: '999px', padding: '4px 8px', fontSize: '11px', fontWeight: 700, background: '#d4edda', color: '#155724' }}>
                         {mentor.classes.length} active {mentor.classes.length === 1 ? 'class' : 'classes'}
                       </span>
@@ -248,7 +286,7 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
                       </span>
                     </div>
                   </div>
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="mentor-total-report-table-wrap">
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', tableLayout: 'fixed' }}>
                       <thead>
                         <tr>
@@ -282,6 +320,40 @@ export default function MentorActiveTotalReport({ mentors, scopeLabel = 'Active'
                         })}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="mentor-total-report-class-list">
+                    {mentor.classes.map((cls) => {
+                      const kpi = computeCollectiveKPI(cls)
+                      const metrics = [
+                        ['Collective KPI', `${kpi}%`],
+                        ['Quality Avg', cls.manual.sessionQuality > 0 ? `${cls.manual.sessionQuality}/10` : '-'],
+                        ['Recorded', `${cls.manual.recordedSessionCount}/8`],
+                        ['Feedback', `${cls.manual.studentsFeedback}/10`],
+                        ['Trello', `${cls.manual.trelloCompliancePercent}%`],
+                        ['WhatsApp', `${cls.automatic.whatsAppManagementPercent}%`],
+                        ['Punctuality', `${cls.automatic.attendancePunctualityPercent}%`],
+                      ]
+                      return (
+                        <div className="mentor-total-report-class-card" key={`mobile-${cls.classKey}`}>
+                          <div className="mentor-total-report-class-title">
+                            {cls.classKey} · L{cls.level} · {cls.days} · {cls.time} · #{cls.classNumber}
+                          </div>
+                          <div className="mentor-total-report-class-metrics">
+                            {metrics.map(([label, value]) => (
+                              <div className="mentor-total-report-class-metric" key={label}>
+                                <span className="mentor-total-report-class-label">{label}</span>
+                                <span
+                                  className="mentor-total-report-class-value"
+                                  style={label === 'Collective KPI' ? { color: colorForPercent(kpi) } : undefined}
+                                >
+                                  {value}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )
