@@ -102,6 +102,36 @@ func TestPlacementTestSchedulingRules(t *testing.T) {
 	if len(ssTwoQueue) != 1 || ssTwoQueue[0].LeadID != leadThree {
 		t.Fatalf("expected second SS queue to contain only lead three, got %+v", ssTwoQueue)
 	}
+
+	if err := models.MarkPlacementTestNoShow(leadOne, ssOne.ID, "Placement test no-show."); err != nil {
+		t.Fatalf("failed to mark placement test no-show: %v", err)
+	}
+	ssOneQueue, err = models.GetPlacementTestsForStudentSuccess(ssOne.ID, false)
+	if err != nil {
+		t.Fatalf("failed to reload first SS queue after no-show: %v", err)
+	}
+	if len(ssOneQueue) != 0 {
+		t.Fatalf("expected no-show test to leave the SS queue, got %+v", ssOneQueue)
+	}
+
+	if err := models.BookPlacementTest(leadOne, placementTestBooking(testDate, "16:00", ssOne.ID)); err != nil {
+		t.Fatalf("expected admin reschedule after no-show to succeed: %v", err)
+	}
+	ssOneQueue, err = models.GetPlacementTestsForStudentSuccess(ssOne.ID, false)
+	if err != nil {
+		t.Fatalf("failed to reload first SS queue after reschedule: %v", err)
+	}
+	if len(ssOneQueue) != 1 || ssOneQueue[0].LeadID != leadOne || !ssOneQueue[0].AppointmentStatus.Valid || ssOneQueue[0].AppointmentStatus.String != "scheduled" {
+		t.Fatalf("expected rescheduled test to return to the first SS queue, got %+v", ssOneQueue)
+	}
+
+	var queueReason sql.NullString
+	if err := db.DB.QueryRow(`SELECT ops_queue_reason FROM leads WHERE id = $1`, leadOne).Scan(&queueReason); err != nil {
+		t.Fatalf("failed to load lead queue reason after reschedule: %v", err)
+	}
+	if queueReason.Valid {
+		t.Fatalf("expected no-show admin queue reason to be cleared, got %q", queueReason.String)
+	}
 }
 
 func TestStudentSuccessAvailabilityRejectsOverlappingWindows(t *testing.T) {

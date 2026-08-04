@@ -2269,6 +2269,10 @@ func buildBookedPlacementTestFromRequest(leadID uuid.UUID, existing *models.Plac
 	pt.ScheduledStudentSuccessID = sql.NullString{String: studentSuccessID, Valid: true}
 	if notes := strings.TrimSpace(r.FormValue("test_notes")); notes != "" {
 		pt.TestNotes = sql.NullString{String: notes, Valid: true}
+	} else if existing != nil && existing.TestNotes.Valid {
+		// Admin cannot edit Student Success test notes, so keep any existing
+		// no-show/history notes when the placement test is rescheduled.
+		pt.TestNotes = existing.TestNotes
 	}
 
 	if paidAmount > 0 {

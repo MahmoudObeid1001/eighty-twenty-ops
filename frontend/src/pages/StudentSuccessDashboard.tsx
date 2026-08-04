@@ -174,9 +174,11 @@ export default function StudentSuccessDashboard() {
     }
   }
 
-  async function loadPlacementTests() {
+  async function loadPlacementTests(showLoading = true) {
     try {
-      setPlacementLoading(true)
+      if (showLoading) {
+        setPlacementLoading(true)
+      }
       setPlacementError(null)
       const data = await api.getStudentSuccessPlacementTests(showCompletedTests)
       setPlacementTests(data.placement_tests || [])
@@ -186,7 +188,9 @@ export default function StudentSuccessDashboard() {
     } catch (err) {
       setPlacementError(err instanceof Error ? err.message : 'Failed to load placement tests')
     } finally {
-      setPlacementLoading(false)
+      if (showLoading) {
+        setPlacementLoading(false)
+      }
     }
   }
 
@@ -298,8 +302,26 @@ export default function StudentSuccessDashboard() {
   }, [])
 
   useEffect(() => {
-    if (activeTab === 'placement_tests') {
-      loadPlacementTests()
+    if (activeTab !== 'placement_tests') {
+      return
+    }
+
+    function refreshIfVisible() {
+      if (document.visibilityState === 'visible') {
+        void loadPlacementTests(false)
+        void loadPlacementTestsCount()
+      }
+    }
+
+    void loadPlacementTests()
+    const intervalID = window.setInterval(refreshIfVisible, 30000)
+    window.addEventListener('focus', refreshIfVisible)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+
+    return () => {
+      window.clearInterval(intervalID)
+      window.removeEventListener('focus', refreshIfVisible)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
     }
   }, [activeTab, showCompletedTests])
 

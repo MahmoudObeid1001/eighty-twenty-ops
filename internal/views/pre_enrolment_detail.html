@@ -908,7 +908,8 @@
 
             {{if eq .UserRole "admin"}}
             <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-                <button type="submit" form="pre-enrolment-form" name="action" value="save" class="btn btn-secondary"
+                <button type="submit" form="pre-enrolment-form" name="action"
+                    value="{{if .IsPlacementTestNoShow}}mark_test_booked{{else}}save{{end}}" class="btn btn-secondary"
                     onclick="return validatePlacementTestBookingSubmit()">
                     Save Placement Test
                 </button>

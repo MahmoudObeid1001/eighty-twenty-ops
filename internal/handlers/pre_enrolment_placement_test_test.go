@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+
+	"eighty-twenty-ops/internal/models"
 
 	"github.com/google/uuid"
 )
@@ -58,5 +61,21 @@ func TestBuildBookedPlacementTestAcceptsFullPaidAmount(t *testing.T) {
 	}
 	if !pt.PlacementTestFeePaid.Valid || pt.PlacementTestFeePaid.Int32 != 60 {
 		t.Fatalf("expected paid amount 60, got %+v", pt.PlacementTestFeePaid)
+	}
+}
+
+func TestBuildBookedPlacementTestPreservesExistingNotesOnReschedule(t *testing.T) {
+	form := placementBookingBaseForm()
+	form.Set("placement_test_fee_paid", "60")
+	existing := &models.PlacementTest{
+		TestNotes: sql.NullString{String: "Placement test no-show.", Valid: true},
+	}
+
+	pt, err := buildBookedPlacementTestFromRequest(uuid.New(), existing, newPlacementBookingRequest(form))
+	if err != nil {
+		t.Fatalf("expected valid reschedule request, got %v", err)
+	}
+	if !pt.TestNotes.Valid || pt.TestNotes.String != existing.TestNotes.String {
+		t.Fatalf("expected existing test notes to be preserved, got %+v", pt.TestNotes)
 	}
 }
