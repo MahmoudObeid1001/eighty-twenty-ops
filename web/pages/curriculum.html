@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Full Curriculum — Eighty Twenty</title>
+<meta name="description" content="What you'll learn at every level — Eighty Twenty's full 10-level English curriculum.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Outfit:wght@300;400;500;600;700;800&family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#152736;--navy-soft:#33455a;--cyan:#3bb4e5;--cyan-deep:#1a8fc4;
+    --gold:#c9a227;--gold-soft:#e6cf78;--ink:#243443;--muted:#728292;
+    --paper:#ffffff;--wash:#f3f8fb;--line:#e6eef4;
+    --green:#1faa6a;--green-deep:#15784b;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{font-family:'Outfit',sans-serif;color:var(--ink);background:#e9f0f5;line-height:1.5;}
+  .ar{font-family:'Cairo',sans-serif;direction:rtl;unicode-bidi:isolate;}
+
+  .page{max-width:600px;margin:0 auto;background:var(--paper);min-height:100vh;
+    position:relative;overflow:hidden;box-shadow:0 0 60px -20px rgba(21,39,54,.4);}
+
+  /* HERO */
+  .hero{position:relative;padding:34px 26px 40px;
+    background:radial-gradient(120% 90% at 80% -10%,#2a6e93 0%,transparent 55%),
+    linear-gradient(160deg,#0e2230 0%,#173a52 55%,#1a8fc4 140%);
+    color:#fff;text-align:center;overflow:hidden;}
+  .hero::before{content:"";position:absolute;inset:0;opacity:.07;
+    background-image:radial-gradient(#fff 1px,transparent 1px);background-size:18px 18px;}
+  .brand{display:flex;flex-direction:column;align-items:center;position:relative;}
+  .logo{font-family:'Fraunces',serif;font-weight:900;font-size:30px;line-height:.8;letter-spacing:-1px;}
+  .logo .a{color:#7fd2f2;}.logo .b{color:#cfeefb;display:block;}
+  .logo-word{font-family:'Fraunces',serif;font-weight:600;font-size:11px;letter-spacing:3px;color:#bfe6f6;margin-top:5px;}
+  .reveal-eyebrow{position:relative;margin-top:26px;font-size:12px;letter-spacing:3px;text-transform:uppercase;color:#9fd6ee;}
+  .reveal-ar{position:relative;font-size:14px;color:#cdeafa;margin-top:4px;}
+  .greet{position:relative;font-family:'Fraunces',serif;font-weight:600;font-size:25px;margin-top:14px;text-wrap:balance;}
+  .hero-sub{position:relative;margin-top:18px;}
+  .hero-sub .en{font-size:14px;color:#dceffb;line-height:1.5;max-width:420px;margin:0 auto;}
+  .hero-sub .ar{margin-top:8px;font-size:13.5px;color:#a9d8ef;line-height:1.5;}
+
+  .stat-row{position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+    background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.16);border-radius:12px;
+    overflow:hidden;margin-top:24px;}
+  .stat{background:rgba(9,24,36,.35);padding:12px 4px;text-align:center;}
+  .stat .n{font-family:'Fraunces',serif;font-size:20px;font-weight:700;color:var(--gold-soft);font-variant-numeric:tabular-nums;}
+  .stat .l{font-size:10px;color:#bcd8e8;margin-top:2px;letter-spacing:.02em;}
+  .stat .l .ar{display:block;font-size:9.5px;color:#89b3c9;margin-top:1px;}
+
+  /* SECTIONS */
+  .section{padding:28px 22px;}
+  .sec-title{font-family:'Fraunces',serif;font-weight:600;font-size:20px;color:var(--navy);text-align:center;text-wrap:balance;}
+  .sec-title-ar{text-align:center;font-size:14px;color:var(--cyan-deep);margin-top:3px;}
+  .sec-lede{text-align:center;font-size:13px;color:var(--muted);margin-top:10px;max-width:440px;margin-left:auto;margin-right:auto;}
+
+  /* VOCAB CHART */
+  .vocab-card{border:1px solid var(--line);border-radius:16px;padding:18px 18px 14px;margin-top:20px;background:var(--wash);}
+  .vocab-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .vocab-head .t{font-size:12px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;}
+  .vocab-head .t .ar{font-size:11.5px;color:var(--cyan-deep);text-transform:none;letter-spacing:0;margin-inline-start:6px;}
+  .bars{display:flex;align-items:flex-end;gap:6px;height:88px;}
+  .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:5px;}
+  .bar{width:100%;max-width:26px;border-radius:4px 4px 2px 2px;
+    background:linear-gradient(180deg,var(--gold-soft) 0%,var(--gold) 100%);}
+  .bar-val{font-size:9.5px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .bar-lvl{font-size:9.5px;color:var(--navy-soft);font-weight:700;}
+
+  /* TIMELINE / LEVEL ROWS */
+  .timeline{padding:6px 22px 8px;}
+  .lv-row{display:grid;grid-template-columns:44px 1fr;gap:16px;position:relative;}
+  .lv-rail{display:flex;flex-direction:column;align-items:center;}
+  .lv-dot{width:40px;height:40px;border-radius:50%;flex:none;
+    background:radial-gradient(circle at 35% 30%,#fffbf0,#e6cf78 55%,#c9a227);
+    border:2px solid rgba(255,255,255,.9);box-shadow:0 4px 10px -3px rgba(0,0,0,.28);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Fraunces',serif;font-weight:800;font-size:15px;color:var(--navy);}
+  .lv-line{flex:1;width:2px;background:linear-gradient(var(--line),var(--line)) center/2px 100% no-repeat;margin:4px 0;min-height:14px;}
+  .lv-row:last-child .lv-line{display:none;}
+  .lv-body{padding-bottom:34px;}
+  .lv-row:last-child .lv-body{padding-bottom:6px;}
+  .lv-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;}
+  .lv-meta .chip{font-size:10.5px;font-weight:700;color:var(--cyan-deep);background:#eaf6fc;
+    border:1px solid #d4ecf9;padding:2px 8px;border-radius:999px;font-variant-numeric:tabular-nums;}
+  .lv-meta .chip.ar{font-weight:600;color:var(--navy-soft);background:var(--wash);border-color:var(--line);}
+
+  .jhead{font-family:'Fraunces',serif;font-weight:600;font-size:18px;color:var(--navy);margin:8px 0 2px;text-wrap:balance;}
+  .jhead-ar{font-size:13.5px;color:var(--muted);margin-bottom:12px;}
+
+  .achieved-tag{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:1.2px;
+    text-transform:uppercase;font-weight:700;padding:4px 10px;border-radius:999px;
+    background:#d5efe1;color:var(--green-deep);margin-bottom:10px;}
+
+  ul.skills{list-style:none;display:flex;flex-direction:column;gap:9px;}
+  ul.skills li{display:flex;gap:10px;align-items:flex-start;}
+  ul.skills li .ic{flex:0 0 19px;width:19px;height:19px;margin-top:2px;border-radius:6px;
+    display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;background:var(--green);}
+  ul.skills li .txt{font-size:14.5px;color:var(--ink);}
+  ul.skills li .txt .ar{display:block;font-size:12.5px;color:var(--muted);margin-top:1px;}
+
+  .group{margin-top:14px;}
+  .group:first-of-type{margin-top:2px;}
+  .group-head{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700;color:var(--navy-soft);margin-bottom:8px;}
+  .group-head .ar{font-weight:600;color:var(--muted);font-size:12px;margin-inline-start:2px;}
+
+  .grad-banner{margin-top:16px;border:1.5px dashed var(--gold);border-radius:12px;
+    padding:13px 15px;background:linear-gradient(135deg,#fff8de,#fff);
+    display:flex;flex-direction:column;gap:3px;}
+  .grad-banner .en{font-size:13.5px;font-weight:700;color:#8b6a16;}
+  .grad-banner .ar{font-size:12.5px;color:var(--muted);}
+
+  /* FOOTER */
+  .foot{padding:30px 22px 40px;text-align:center;border-top:1px solid var(--line);margin-top:8px;}
+  .trust{display:flex;justify-content:center;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);}
+  .foot-brand{font-family:'Fraunces',serif;color:var(--cyan-deep);font-weight:600;margin-top:14px;font-size:14px;}
+  .foot-note{font-size:11px;color:#a7b4bf;margin-top:8px;}
+  .foot-note .ar{display:block;margin-top:2px;}
+
+  @media (max-width:420px){
+    .lv-row{grid-template-columns:36px 1fr;gap:12px;}
+    .lv-dot{width:34px;height:34px;font-size:13px;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <section class="hero">
+    <div class="brand">
+      <div class="logo"><span class="a">8O</span><span class="b">2O</span></div>
+      <div class="logo-word">EIGHTY TWENTY</div>
+    </div>
+    <div class="reveal-eyebrow">Full curriculum · All 10 levels</div>
+    <div class="reveal-ar ar">المنهج الكامل · كل المستويات العشرة</div>
+    <div class="greet">See what you'll learn, level by level</div>
+    <div class="hero-sub">
+      <div class="en">Every level builds on the one before it — from your first introduction to fluent opinions on real-life topics.</div>
+      <div class="ar">كل مستوى مبني على اللي قبله — من أول جملة تعرّف بيها نفسك، لحد ما تقدر تناقش أي موضوع بطلاقة.</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div class="n">10</div><div class="l">Levels<span class="ar">مستوى</span></div></div>
+      <div class="stat"><div class="n">80</div><div class="l">Sessions<span class="ar">حصة</span></div></div>
+      <div class="stat"><div class="n">10</div><div class="l">Months<span class="ar">أشهر</span></div></div>
+      <div class="stat"><div class="n">1,337</div><div class="l">Words<span class="ar">كلمة</span></div></div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-bottom:8px;">
+    <div class="sec-title">One level = one month</div>
+    <div class="sec-title-ar ar">المستوى الواحد = شهر</div>
+    <div class="sec-lede">8 sessions per level, 2 sessions a week. You must pass a level to move to the next.<span class="ar" style="display:block;margin-top:4px;">٨ حصص لكل مستوى، حصتين في الأسبوع. لازم تنجح في المستوى عشان تنتقل للي بعده.</span></div>
+    <div class="vocab-card">
+      <div class="vocab-head">
+        <span class="t">Vocabulary per level<span class="ar">عدد الكلمات في كل مستوى</span></span>
+      </div>
+      <div class="bars" id="vocabBars"></div>
+    </div>
+  </section>
+
+  <section class="timeline" id="levels"></section>
+
+  <div class="foot">
+    <div class="trust">
+      <span>🎓 Certified mentors</span>
+      <span>👥 Small groups</span>
+      <span>⭐ Real progress</span>
+    </div>
+    <div class="foot-brand">Eighty Twenty — Mentors Deliver English</div>
+    <div class="foot-note">Content sourced from the official level-completion certificate.<span class="ar">المحتوى مأخوذ من شهادة إتمام المستوى الرسمية.</span></div>
+  </div>
+
+</div>
+
+<script>
+const LEVELS = [
+  {
+    n:1, vocab:123, ar:"١",
+    title:"Introductions & Everyday Life", titleAr:"التعارف والحياة اليومية",
+    items:[
+      {en:"Introduce yourself and other people", ar:"تعريف نفسك والآخرين"},
+      {en:"Talk about your family", ar:"التحدث عن عائلتك"},
+      {en:"Talk about your daily routine", ar:"وصف روتينك اليومي"},
+      {en:"Talk about your favorite activities", ar:"التحدث عن أنشطتك المفضلة"},
+      {en:"Hold a small conversation", ar:"إجراء محادثة بسيطة"},
+      {en:"Say why you're learning English", ar:"التعبير عن سبب تعلّمك للإنجليزية"},
+    ],
+  },
+  {
+    n:2, vocab:127, ar:"٢",
+    title:"Hobbies, Free Time & Friendship", titleAr:"الهوايات ووقت الفراغ والصداقة",
+    items:[
+      {en:"Talk about your hobbies."},
+      {en:"Talk about what you do in your free time."},
+      {en:"Talk about your future plans."},
+      {en:"Describe people."},
+      {en:"Describe pain when you feel it."},
+      {en:"Show care to someone who is sick."},
+      {en:"Talk about your best friends and how you got to know them."},
+      {en:"Talk about old friends."},
+      {en:"Describe the weather."},
+    ],
+  },
+  {
+    n:3, vocab:151, ar:"٣",
+    title:"Home, Money & Getting Around", titleAr:"المنزل والمال والتنقل",
+    items:[
+      {en:"Describe your neighborhood."},
+      {en:"Describe your home or someone's apartment."},
+      {en:"Describe your relationship with money."},
+      {en:"Ask for the price of something."},
+      {en:"Talk about prices in English."},
+      {en:"Describe food in general."},
+      {en:"Describe how you go to work, college, and school."},
+      {en:"Tell the difference between ways of transportation."},
+      {en:"Talk about what you like to wear at different times of the day."},
+      {en:"Give your opinion about winter and summer clothing."},
+      {en:"Ask for and give directions to different places."},
+      {en:"Name different places."},
+      {en:"Make your own cleaning routine."},
+    ],
+  },
+  {
+    n:4, vocab:131, ar:"٤",
+    title:"Past, Personality & Media", titleAr:"الماضي والشخصية والأفلام",
+    items:[
+      {en:"Talk about what you did yesterday."},
+      {en:"Describe your personality."},
+      {en:"Talk about cellphones."},
+      {en:"Talk about what kind of movies you like to watch."},
+      {en:"Describe your favorite movie."},
+      {en:"Comment on a bad movie."},
+      {en:"Describe your childhood."},
+      {en:"Talk about your relationship with your siblings and parents when you were a child."},
+      {en:"Describe what you feel when you're in pain."},
+      {en:"Describe other pains."},
+      {en:"Tell someone you feel sorry for them."},
+      {en:"Talk about your country's problems."},
+    ],
+  },
+  {
+    n:5, vocab:151, ar:"٥",
+    title:"Career, Friendship & Society", titleAr:"العمل والصداقة والمجتمع",
+    groups:[
+      { emoji:"👔", en:"Career & Interviews", ar:"العمل والمقابلات الشخصية", items:[
+        {en:"Describe your current job, dream job, and why people love or leave their jobs."},
+        {en:"Navigate the entire interview process and answer common interview questions."},
+      ]},
+      { emoji:"🤝", en:"Friendships & Personal Life", ar:"الصداقات والحياة الشخصية", items:[
+        {en:"Talk about yourself in detail in the form of a story."},
+        {en:"Discuss your college life and experiences."},
+        {en:"Describe friendships, their importance, and how to spot good vs. toxic friends."},
+      ]},
+      { emoji:"⚖️", en:"Society, Gender & Law", ar:"المجتمع والنوع والقانون", items:[
+        {en:"Discuss the differences between men and women, and the topic of women in the workplace."},
+        {en:"Understand legal terms, common crimes, and differences between felonies, misdemeanors, and infractions."},
+      ]},
+    ],
+  },
+  {
+    n:6, vocab:166, ar:"٦",
+    title:"Storytelling & Modern Life", titleAr:"الحكي وأسلوب الحياة الحديث",
+    items:[
+      {en:"Tell a story in detail the right way."},
+      {en:"Talk about social media platforms."},
+      {en:"Explain the signs and health risks of obesity and how to lose weight."},
+      {en:"Talk about common parenting mistakes and the signs of a good father and mother."},
+      {en:"Tell the difference between living in a first-world and a third-world country."},
+      {en:"Talk about reasons why some people are not working."},
+      {en:"Know how to deal with someone you don't like."},
+    ],
+  },
+  {
+    n:7, vocab:130, ar:"٧",
+    title:"Marriage & Finding Your Passion", titleAr:"الزواج واكتشاف شغفك",
+    items:[
+      {en:"Talk about why people get married."},
+      {en:"Talk about why people prefer to stay single."},
+      {en:"Talk about the characteristics of your future partner."},
+      {en:"Talk about how to find your passion."},
+      {en:"Give your opinion about arranged marriages."},
+    ],
+  },
+  {
+    n:8, vocab:125, ar:"٨",
+    title:"Relationships & Weddings", titleAr:"العلاقات والأفراح",
+    items:[
+      {en:"Use relationship expressions."},
+      {en:"Give your opinion about whether parents should choose their children's partners to marry or not."},
+      {en:"Talk about chunks and phrases related to weddings."},
+    ],
+  },
+  {
+    n:9, vocab:107, ar:"٩",
+    title:"Family, In-Laws & Travel", titleAr:"العائلة والأصهار والسفر",
+    items:[
+      {en:"Use some chunks and phrases when receiving shocking news."},
+      {en:"Talk about in-law relationship problems."},
+      {en:"Talk about why people love to travel."},
+      {en:"Talk about why some parents want to have kids and why others don't want to have kids."},
+    ],
+  },
+  {
+    n:10, vocab:126, ar:"١٠",
+    title:"Life Reflections & Opinions", titleAr:"تأملات وآراء في الحياة",
+    items:[
+      {en:"Talk about marriage problems."},
+      {en:"Describe your life in school as a child and whether you liked it or not."},
+      {en:"Express your opinion about polygamy."},
+    ],
+    graduate:true,
+  },
+];
+
+function esc(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function renderItems(items){
+  return '<ul class="skills">' + items.map(it =>
+    `<li><span class="ic">✓</span><span class="txt">${esc(it.en)}${it.ar ? `<span class="ar">${esc(it.ar)}</span>` : ""}</span></li>`
+  ).join("") + '</ul>';
+}
+
+document.getElementById("levels").innerHTML = LEVELS.map(lvl => `
+  <div class="lv-row" id="level-${lvl.n}">
+    <div class="lv-rail">
+      <div class="lv-dot">${lvl.n}</div>
+      <div class="lv-line"></div>
+    </div>
+    <div class="lv-body">
+      <div class="lv-meta">
+        <span class="chip">Level ${lvl.n}</span>
+        <span class="chip ar">المستوى ${lvl.ar}</span>
+        <span class="chip">${lvl.vocab} words</span>
+        <span class="chip">8 sessions</span>
+      </div>
+      <div class="jhead">${esc(lvl.title)}</div>
+      <div class="jhead-ar ar">${esc(lvl.titleAr)}</div>
+      <span class="achieved-tag">✓ You can now <span class="ar" style="text-transform:none;font-weight:600;">أصبحت الآن قادراً على</span></span>
+      ${
+        lvl.groups
+          ? lvl.groups.map(g => `
+              <div class="group">
+                <div class="group-head"><span>${g.emoji} ${esc(g.en)}</span><span class="ar">${esc(g.ar)}</span></div>
+                ${renderItems(g.items)}
+              </div>`).join("")
+          : renderItems(lvl.items)
+      }
+      ${lvl.graduate ? `
+        <div class="grad-banner">
+          <span class="en">🎓 Course complete — certified fluent speaker.</span>
+          <span class="ar">خريج معتمد — مبروك التفوق!</span>
+        </div>` : ""}
+    </div>
+  </div>
+`).join("");
+
+const maxVocab = Math.max(...LEVELS.map(l => l.vocab));
+document.getElementById("vocabBars").innerHTML = LEVELS.map(l => `
+  <div class="bar-col">
+    <span class="bar-val">${l.vocab}</span>
+    <div class="bar" style="height:${Math.max(6,(l.vocab/maxVocab)*100)}%" title="Level ${l.n}: ${l.vocab} words"></div>
+    <span class="bar-lvl">L${l.n}</span>
+  </div>
+`).join("");
+</script>
+</body>
+</html>
