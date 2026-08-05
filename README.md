@@ -129,3 +129,5 @@ The database schema is automatically migrated on server startup. The migration s
 - ✅ Server-side validation for course payments (offer_final_price, remaining_balance)
 - ✅ Shared detail view model helper for consistent error rendering
 - ✅ Custom access-restricted pages for Classes/Finance (moderator-friendly 403)
+
+**Test**
