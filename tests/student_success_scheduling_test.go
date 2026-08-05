@@ -114,8 +114,13 @@ func TestPlacementTestSchedulingRules(t *testing.T) {
 		t.Fatalf("expected no-show test to leave the SS queue, got %+v", ssOneQueue)
 	}
 
-	if err := models.BookPlacementTest(leadOne, placementTestBooking(testDate, "16:00", ssOne.ID)); err != nil {
-		t.Fatalf("expected admin reschedule after no-show to succeed: %v", err)
+	rescheduledDetail, err := models.GetLeadByID(leadOne)
+	if err != nil {
+		t.Fatalf("failed to load lead for admin reschedule: %v", err)
+	}
+	rescheduledDetail.PlacementTest.TestTime = sql.NullString{String: "16:00", Valid: true}
+	if err := models.UpdateLeadDetail(rescheduledDetail); err != nil {
+		t.Fatalf("expected generic admin save after no-show to reschedule the test: %v", err)
 	}
 	ssOneQueue, err = models.GetPlacementTestsForStudentSuccess(ssOne.ID, false)
 	if err != nil {

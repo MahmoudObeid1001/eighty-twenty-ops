@@ -2198,6 +2198,12 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 				test_type = EXCLUDED.test_type,
 				appointment_status = CASE
 					WHEN EXCLUDED.assigned_level IS NOT NULL THEN 'completed'
+					WHEN placement_tests.appointment_status = 'no_show'
+						AND (
+							placement_tests.test_date IS DISTINCT FROM EXCLUDED.test_date
+							OR placement_tests.test_time IS DISTINCT FROM EXCLUDED.test_time
+							OR placement_tests.scheduled_student_success_user_id IS DISTINCT FROM EXCLUDED.scheduled_student_success_user_id
+						) THEN 'scheduled'
 					ELSE placement_tests.appointment_status
 				END,
 				assigned_level = COALESCE(EXCLUDED.assigned_level, placement_tests.assigned_level),
@@ -2217,6 +2223,31 @@ func UpdateLeadDetail(detail *LeadDetail) error {
 			now)
 		if err != nil {
 			return fmt.Errorf("failed to upsert placement test: %w", err)
+		}
+
+		// A changed slot/assignee is a real Admin reschedule. The upsert above
+		// moves that no-show back to scheduled; clear the Admin queue flag in
+		// the same transaction so every save path produces the same result.
+		_, err = tx.Exec(`
+			UPDATE leads
+			SET status = 'test_booked',
+			    ops_queue_reason = NULL,
+			    landing_page_contacted_at = NULL,
+			    landing_page_contacted_by_user_id = NULL,
+			    landing_page_contacted_status = NULL,
+			    updated_at = $2
+			WHERE id = $1
+			  AND ops_queue_reason = 'placement_test_no_show'
+			  AND EXISTS (
+				SELECT 1
+				FROM placement_tests pt
+				WHERE pt.lead_id = $1
+				  AND pt.appointment_status = 'scheduled'
+				  AND pt.assigned_level IS NULL
+			  )
+		`, detail.Lead.ID, now)
+		if err != nil {
+			return fmt.Errorf("failed to clear placement no-show queue after reschedule: %w", err)
 		}
 	}
 
