@@ -2307,6 +2307,21 @@ func buildBookedPlacementTestFromRequest(leadID uuid.UUID, existing *models.Plac
 	return pt, nil
 }
 
+func normalizePlacementTestUpdateAction(action, userRole string, existingDetail *models.LeadDetail, r *http.Request) string {
+	if (action != "save" && action != "") || userRole != "admin" || existingDetail == nil || existingDetail.Lead == nil || r == nil {
+		return action
+	}
+	isNoShow := existingDetail.Lead.OpsQueueReason.Valid &&
+		existingDetail.Lead.OpsQueueReason.String == "placement_test_no_show"
+	hasSchedule := strings.TrimSpace(r.FormValue("test_date")) != "" &&
+		strings.TrimSpace(r.FormValue("test_time")) != "" &&
+		strings.TrimSpace(r.FormValue("scheduled_student_success_user_id")) != ""
+	if isNoShow && hasSchedule {
+		return "mark_test_booked"
+	}
+	return action
+}
+
 func syncPlacementTestFinanceForBooking(leadID uuid.UUID, placementTest *models.PlacementTest) error {
 	if placementTest == nil {
 		return nil
@@ -2483,6 +2498,20 @@ func (h *PreEnrolmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// Read action parameter
 	action := r.FormValue("action")
 	h.cfg.Debugf("🔄 Update: leadID=%s, action=%s, userRole=%s, path=%s", leadID, action, userRole, r.URL.Path)
+	if action == "save" || action == "" {
+		existingDetail, loadErr := models.GetLeadByID(leadID)
+		if loadErr != nil {
+			h.renderDetailWithError(w, r, leadID, "Couldn't load this lead. Please refresh and try again.")
+			return
+		}
+		normalizedAction := normalizePlacementTestUpdateAction(action, userRole, existingDetail, r)
+		if normalizedAction == "mark_test_booked" {
+			// A no-show already has an old slot, so comparing form values cannot
+			// reliably identify Admin intent. Treat an explicit Admin save with a
+			// complete schedule as the reschedule action, even when reusing a slot.
+			action = normalizedAction
+		}
+	}
 
 	// Handle different actions
 	switch action {

@@ -79,3 +79,34 @@ func TestBuildBookedPlacementTestPreservesExistingNotesOnReschedule(t *testing.T
 		t.Fatalf("expected existing test notes to be preserved, got %+v", pt.TestNotes)
 	}
 }
+
+func TestNormalizePlacementTestUpdateActionRoutesAdminNoShowSaveToBooking(t *testing.T) {
+	form := placementBookingBaseForm()
+	detail := &models.LeadDetail{Lead: &models.Lead{
+		OpsQueueReason: sql.NullString{String: "placement_test_no_show", Valid: true},
+	}}
+
+	action := normalizePlacementTestUpdateAction("save", "admin", detail, newPlacementBookingRequest(form))
+	if action != "mark_test_booked" {
+		t.Fatalf("expected Admin save for a scheduled no-show to become mark_test_booked, got %q", action)
+	}
+}
+
+func TestNormalizePlacementTestUpdateActionKeepsOtherSavesUnchanged(t *testing.T) {
+	form := placementBookingBaseForm()
+	noShowDetail := &models.LeadDetail{Lead: &models.Lead{
+		OpsQueueReason: sql.NullString{String: "placement_test_no_show", Valid: true},
+	}}
+	normalDetail := &models.LeadDetail{Lead: &models.Lead{}}
+
+	if action := normalizePlacementTestUpdateAction("save", "manager", noShowDetail, newPlacementBookingRequest(form)); action != "save" {
+		t.Fatalf("expected non-Admin save to remain unchanged, got %q", action)
+	}
+	if action := normalizePlacementTestUpdateAction("save", "admin", normalDetail, newPlacementBookingRequest(form)); action != "save" {
+		t.Fatalf("expected normal Admin save to remain unchanged, got %q", action)
+	}
+	form.Del("test_time")
+	if action := normalizePlacementTestUpdateAction("save", "admin", noShowDetail, newPlacementBookingRequest(form)); action != "save" {
+		t.Fatalf("expected incomplete no-show schedule to remain a normal save, got %q", action)
+	}
+}
